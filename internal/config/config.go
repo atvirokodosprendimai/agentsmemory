@@ -51,6 +51,11 @@ type Config struct {
 
 	// HTTPTimeout bounds outbound calls to Qdrant and Ollama.
 	HTTPTimeout time.Duration
+
+	// Debug turns on verbose logging: per-request HTTP access logs (chi) and
+	// gorm SQL logging. Off by default so production stays quiet; set APP_DEBUG=true
+	// (or --debug) to see traffic and queries during development.
+	Debug bool
 }
 
 // Default returns a Config populated with the day-one development defaults.
@@ -64,5 +69,6 @@ func Default() Config {
 		OllamaURL:        "http://localhost:11434",
 		OllamaEmbedModel: "bge-m3",
 		HTTPTimeout:      30 * time.Second,
+		Debug:            false,
 	}
 }
