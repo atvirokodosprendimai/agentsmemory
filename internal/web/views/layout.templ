@@ -1,0 +1,42 @@
+package views
+
+// Layout is the shared HTML shell: fonts, the embedded stylesheet, the datastar
+// runtime (v1.0.2, matching the datastar-go SDK), a sticky top bar, and a slot
+// for page content. userEmail is empty for logged-out pages, which hides the
+// account area.
+templ Layout(title string, userEmail string) {
+	<!DOCTYPE html>
+	<html lang="en">
+		<head>
+			<meta charset="utf-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1"/>
+			<title>{ title } · agentsmemory</title>
+			<link rel="preconnect" href="https://fonts.googleapis.com"/>
+			<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+			<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet"/>
+			<link rel="stylesheet" href="/static/app.css"/>
+			<script type="module" src="https://cdn.jsdelivr.net/gh/starfederation/datastar@v1.0.2/bundles/datastar.js"></script>
+		</head>
+		<body>
+			<header class="topbar">
+				<div class="wrap">
+					<a class="brand" href="/dashboard">agents<b>memory</b><span class="dot">.</span></a>
+					if userEmail != "" {
+						<div class="user">
+							<span class="email">{ userEmail }</span>
+							<form method="post" action="/logout">
+								<button class="btn btn-ghost" type="submit">Sign out</button>
+							</form>
+						</div>
+					}
+				</div>
+			</header>
+			<main class="wrap">
+				{ children... }
+			</main>
+			<footer>
+				<div class="wrap">agentsmemory — memory for agents, served over MCP.</div>
+			</footer>
+		</body>
+	</html>
+}

@@ -1,0 +1,120 @@
+package views
+
+import "strconv"
+
+// DashboardPage lists the user's projects and offers the "create free project"
+// control. The create flow is datastar-driven: the button posts the bound
+// projectName signal to /projects, and the server streams back patched
+// fragments for #flash (the one-time key) and #projects (the refreshed list).
+templ DashboardPage(d DashboardData) {
+	@Layout("Projects", d.UserEmail) {
+		<section class="page-head">
+			<p class="eyebrow">Dashboard</p>
+			<h1>Your projects</h1>
+			<p>Each project is an isolated memory workspace your agents reach over MCP with a bearer token.</p>
+		</section>
+		@Flash(d.Flash)
+		<div class="card create" data-signals="{projectName: ''}">
+			<div class="field">
+				<label for="projectName">New free project</label>
+				<input
+					class="input"
+					id="projectName"
+					data-bind:projectName
+					placeholder="e.g. acme-research"
+					data-on:keydown="evt.key === 'Enter' && @post('/projects')"
+				/>
+			</div>
+			<button
+				class="btn btn-primary"
+				data-on:click="@post('/projects')"
+				data-indicator:creating
+				data-attr:disabled="$creating"
+			>
+				<span data-show="!$creating">Create free project</span>
+				<span class="spinner" data-show="$creating" style="display:none" aria-hidden="true"></span>
+			</button>
+		</div>
+		@ProjectsList(d.Projects)
+	}
+}
+
+// ProjectsList renders the project grid or an empty state. Its root carries the
+// stable id="projects" so datastar's PatchElements can morph it on creation —
+// the patched fragment must carry the target id itself, not a wrapper.
+templ ProjectsList(projects []ProjectVM) {
+	<div id="projects">
+		if len(projects) == 0 {
+			<div class="card empty">
+				<h3>No projects yet</h3>
+				<p>Create your first free project to get an MCP endpoint and an API key.</p>
+			</div>
+		} else {
+			<div class="grid">
+				for _, p := range projects {
+					@ProjectCard(p)
+				}
+			</div>
+		}
+	</div>
+}
+
+// ProjectCard shows one project: its plan badge, API key (revealed once on
+// creation, masked thereafter), and the monthly request usage bar.
+templ ProjectCard(p ProjectVM) {
+	<article class="project card">
+		<div class="project-top">
+			<div>
+				<h3>{ p.Name }</h3>
+				<div class="slug">{ p.Slug }</div>
+			</div>
+			<span class="badge">{ p.PlanName }</span>
+		</div>
+		<div>
+			<div class="kv">API key</div>
+			if p.TokenOnce != "" {
+				<div class="token">{ p.TokenOnce }</div>
+				<div class="token-note">Copy this now — it is shown only once.</div>
+			} else {
+				<div class="token muted">•••••••••••••••• · created, shown once</div>
+			}
+		</div>
+		<div>
+			<div class="usage-head">
+				<span class="kv" style="margin:0">Requests this month</span>
+				<span class="nums">{ strconv.Itoa(p.Used) } / { capLabel(p) }</span>
+			</div>
+			<div class={ barClass(p) }>
+				<span
+					style={ "width:" + strconv.Itoa(p.Pct) + "%" }
+					role="progressbar"
+					aria-label="Monthly request usage"
+					aria-valuenow={ strconv.Itoa(p.Used) }
+					aria-valuemin="0"
+					aria-valuemax={ strconv.Itoa(p.Cap) }
+				></span>
+			</div>
+		</div>
+	</article>
+}
+
+// Flash renders a transient success or error banner. Its root always carries
+// id="flash" (even when empty) so it is a stable datastar morph target —
+// patching it with an empty Flash clears any prior message.
+templ Flash(f FlashVM) {
+	<div id="flash">
+		if f.Kind == "success" {
+			<div class="flash success" role="status">
+				<div class="ttl">{ f.Message }</div>
+				if f.Token != "" {
+					<div class="kv" style="margin-top:.6rem">API key — shown once</div>
+					<div class="token">{ f.Token }</div>
+				}
+			</div>
+		} else if f.Kind == "error" {
+			<div class="flash error" role="alert">
+				<div class="ttl">{ f.Message }</div>
+			</div>
+		}
+	</div>
+}
