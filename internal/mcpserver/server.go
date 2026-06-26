@@ -16,6 +16,7 @@ import (
 	"fmt"
 
 	"github.com/atvirokodosprendimai/agentsmemory/internal/auth"
+	"github.com/atvirokodosprendimai/agentsmemory/internal/palace"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/skill"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/tenant"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/usage"
@@ -27,8 +28,9 @@ import (
 // Deps are the collaborators the tools need. Passing them in (rather than
 // reaching for globals) keeps the server testable and the wiring explicit.
 type Deps struct {
-	Skills *skill.Service
-	Usage  *usage.Service
+	Skills  *skill.Service
+	Usage   *usage.Service
+	Drawers *palace.Service
 }
 
 // New builds the MCP server and registers all tools.
@@ -40,6 +42,8 @@ func New(deps Deps) *server.MCPServer {
 	)
 	registerStatus(srv, deps.Usage)
 	registerLoadSkill(srv, deps.Skills, deps.Usage)
+	// The core memory loop: drawer CRUD, semantic recall, and palace taxonomy.
+	registerDrawers(srv, deps.Drawers, deps.Usage)
 	return srv
 }
 

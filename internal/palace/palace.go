@@ -35,6 +35,11 @@ type Drawer struct {
 	// is *about*, extracted from filename/frontmatter/body/mtime.
 	FiledAt     string
 	ContentDate string
+
+	// ParentID links the chunks of one oversized add_drawer back to the first
+	// chunk, so a multi-chunk write can be recognised as a single logical memory.
+	// Empty for single-chunk drawers.
+	ParentID string
 }
 
 // Hallway is a within-wing link between two entities that co-occur in drawers.
