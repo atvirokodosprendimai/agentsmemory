@@ -1,0 +1,76 @@
+name: release
+
+# Build and publish the container image ONLY on a full semantic-version tag like
+# v1.2.3 — never on v1, v1.2, or pre-release tags such as v1.2.3-rc1.
+#
+# The tag filter below is a GLOB (GitHub Actions does not support regex here).
+# "v*.*.*" already excludes v1 and v1.2 because it requires two dots, but a glob
+# cannot assert "digits only / exactly three parts" — so the `check` job does the
+# strict regex match and gates the build accordingly.
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      release: ${{ steps.semver.outputs.release }}
+    steps:
+      - id: semver
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          if [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "release=true" >> "$GITHUB_OUTPUT"
+            echo "Building release for $tag"
+          else
+            echo "release=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=skipped::$tag is not a strict vX.X.X tag; skipping build."
+          fi
+
+  image:
+    needs: check
+    if: needs.check.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      # Release builds must pass tests.
+      - name: Test
+        run: go test ./...
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Derive image tags from the git tag: the exact version plus "latest".
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=raw,value=latest
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
