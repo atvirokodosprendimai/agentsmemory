@@ -64,6 +64,7 @@ func main() {
 			&cli.StringFlag{Name: "qdrant-api-key", Sources: cli.EnvVars("QDRANT_API_KEY"), Value: def.QdrantAPIKey, Usage: "Qdrant API key (optional)"},
 			&cli.StringFlag{Name: "ollama-url", Sources: cli.EnvVars("OLLAMA_URL"), Value: def.OllamaURL, Usage: "Ollama base URL"},
 			&cli.StringFlag{Name: "ollama-model", Sources: cli.EnvVars("OLLAMA_EMBED_MODEL"), Value: def.OllamaEmbedModel, Usage: "Ollama embedding model"},
+			&cli.BoolFlag{Name: "debug", Sources: cli.EnvVars("APP_DEBUG"), Value: def.Debug, Usage: "verbose logging: per-request HTTP access logs + gorm SQL"},
 		},
 		Action: func(ctx context.Context, c *cli.Command) error {
 			cfg := config.Config{
@@ -75,6 +76,7 @@ func main() {
 				OllamaURL:        c.String("ollama-url"),
 				OllamaEmbedModel: c.String("ollama-model"),
 				HTTPTimeout:      def.HTTPTimeout,
+				Debug:            c.Bool("debug"),
 			}
 			return run(ctx, cfg)
 		},
@@ -87,7 +89,15 @@ func main() {
 
 // run opens the database, migrates, wires dependencies, and serves until error.
 func run(ctx context.Context, cfg config.Config) error {
-	gdb, err := openDB(cfg.DBPath)
+	if cfg.Debug {
+		// Make the "why is it silent?" answer obvious on boot: echo the effective
+		// wiring so a misread flag/env is visible before any request arrives.
+		log.Printf("debug mode ON — request + SQL logging enabled")
+		log.Printf("config: addr=%s db=%s vector_backend=%s ollama=%s/%s",
+			cfg.Addr, cfg.DBPath, cfg.VectorBackend, cfg.OllamaURL, cfg.OllamaEmbedModel)
+	}
+
+	gdb, err := openDB(cfg.DBPath, cfg.Debug)
 	if err != nil {
 		return fmt.Errorf("open db: %w", err)
 	}
@@ -157,6 +167,12 @@ func run(ctx context.Context, cfg config.Config) error {
 	webSrv := web.New(tenants, usageSvc, sessionKey())
 
 	r := chi.NewRouter()
+	// Logger before Recoverer so even a panicked request (recovered as a 500) is
+	// still logged. Gated on Debug: the server is intentionally silent in
+	// production, and APP_DEBUG=true is what surfaces per-request access logs.
+	if cfg.Debug {
+		r.Use(middleware.Logger)
+	}
 	r.Use(middleware.Recoverer)
 	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -254,12 +270,18 @@ func buildVectorStore(cfg config.Config, gdb *gorm.DB) (store.VectorStore, error
 
 // openDB opens a pure-Go (no cgo) SQLite database through gorm's glebarez
 // driver. gorm is the query layer; goose owns the schema, so AutoMigrate is
-// never called. The logger is silenced because expected "record not found"
-// lookups (e.g. the create branch of an upsert) are control flow, not errors —
-// real failures still surface through returned error values.
-func openDB(path string) (*gorm.DB, error) {
+// never called. By default the logger is silenced because expected "record not
+// found" lookups (e.g. the create branch of an upsert) are control flow, not
+// errors — real failures still surface through returned error values. In debug
+// mode it logs every statement (logger.Info) so queries are visible during
+// development.
+func openDB(path string, debug bool) (*gorm.DB, error) {
+	level := logger.Silent
+	if debug {
+		level = logger.Info
+	}
 	return gorm.Open(sqlite.Open(path), &gorm.Config{
-		Logger: logger.Default.LogMode(logger.Silent),
+		Logger: logger.Default.LogMode(level),
 	})
 }
 
