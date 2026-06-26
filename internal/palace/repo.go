@@ -83,6 +83,30 @@ func (r *Repo) Get(ctx context.Context, teamID, id string) (Drawer, error) {
 	return fromRow(row), nil
 }
 
+// IDsBySource returns the ids of every drawer filed from one source within a
+// (team, wing, room). add_drawer uses it to purge a named source's prior chunks
+// before re-filing it, so re-adding shorter content cannot leave stale
+// higher-index chunks behind. Order is unspecified.
+func (r *Repo) IDsBySource(ctx context.Context, teamID, wing, room, source string) ([]string, error) {
+	var ids []string
+	if err := r.db.WithContext(ctx).
+		Model(&drawerRow{}).
+		Where("team_id = ? AND wing = ? AND room = ? AND source_file = ?", teamID, wing, room, source).
+		Pluck("id", &ids).Error; err != nil {
+		return nil, err
+	}
+	return ids, nil
+}
+
+// DeleteBySource removes every drawer row filed from one source within a
+// (team, wing, room) in a single statement — the row half of an add_drawer purge
+// (the caller drops the matching vectors via the ids from IDsBySource).
+func (r *Repo) DeleteBySource(ctx context.Context, teamID, wing, room, source string) error {
+	return r.db.WithContext(ctx).
+		Where("team_id = ? AND wing = ? AND room = ? AND source_file = ?", teamID, wing, room, source).
+		Delete(&drawerRow{}).Error
+}
+
 // GetMany loads drawers by id within a team, returned as an id->Drawer map so
 // the caller can look survivors up in score order. Ids with no row (e.g. a
 // vector whose metadata row was deleted) are simply absent from the map — search

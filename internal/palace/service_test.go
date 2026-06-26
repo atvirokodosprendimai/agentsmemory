@@ -3,6 +3,7 @@ package palace
 import (
 	"context"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/atvirokodosprendimai/agentsmemory/db"
@@ -208,6 +209,76 @@ func TestServiceCheckDuplicate(t *testing.T) {
 	}
 	if none.IsDuplicate {
 		t.Fatalf("unrelated content flagged as duplicate (sim %.3f)", none.Similarity)
+	}
+}
+
+func TestServiceAddNoSourceKeepsDistinctMemories(t *testing.T) {
+	ctx := context.Background()
+	svc := newTestService(t)
+	const team = "team-1"
+
+	// Two different memories, same wing/room, no source_file: both must survive
+	// (the content-hashed id prevents the second from overwriting the first).
+	mustAdd(t, svc, team, AddInput{Wing: "w", Room: "r", Content: "first memory about cats"})
+	mustAdd(t, svc, team, AddInput{Wing: "w", Room: "r", Content: "second memory about dogs"})
+
+	list, err := svc.List(ctx, team, "w", "r", 50, 0)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(list) != 2 {
+		t.Fatalf("want 2 distinct drawers, got %d (collision overwrote one)", len(list))
+	}
+}
+
+func TestServiceReAddNamedSourcePurgesStaleChunks(t *testing.T) {
+	ctx := context.Background()
+	svc := newTestService(t)
+	const team = "team-1"
+
+	long := strings.Repeat("alpha ", 400)  // ~2400 chars -> several chunks
+	short := "now just a single short chunk" // 1 chunk
+
+	first := mustAdd(t, svc, team, AddInput{Wing: "w", Room: "r", SourceFile: "notes.md", Content: long})
+	if len(first) < 2 {
+		t.Fatalf("expected the long content to chunk into >1 drawer, got %d", len(first))
+	}
+	mustAdd(t, svc, team, AddInput{Wing: "w", Room: "r", SourceFile: "notes.md", Content: short})
+
+	list, err := svc.List(ctx, team, "w", "r", 50, 0)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(list) != 1 {
+		t.Fatalf("re-adding a shorter source should purge stale chunks; want 1 drawer, got %d", len(list))
+	}
+}
+
+func TestServiceUpdateRejectsEmptyField(t *testing.T) {
+	ctx := context.Background()
+	svc := newTestService(t)
+	const team = "team-1"
+	created := mustAdd(t, svc, team, AddInput{Wing: "w", Room: "r", Content: "keep me addressable"})
+
+	empty := ""
+	if _, err := svc.Update(ctx, team, created[0].ID, DrawerPatch{Wing: &empty}); err == nil {
+		t.Fatal("expected an error updating wing to empty")
+	}
+}
+
+func TestServiceCheckDuplicateClampsThreshold(t *testing.T) {
+	ctx := context.Background()
+	svc := newTestService(t)
+	const team = "team-1"
+	mustAdd(t, svc, team, AddInput{Wing: "w", Room: "r", Content: "an exact phrase to match"})
+
+	// threshold > 1 is nonsense; clamped to 1, an exact match (sim 1.0) still counts.
+	dup, err := svc.CheckDuplicate(ctx, team, "an exact phrase to match", 2.0)
+	if err != nil {
+		t.Fatalf("check duplicate: %v", err)
+	}
+	if !dup.IsDuplicate {
+		t.Fatalf("threshold>1 should clamp so an exact duplicate still matches (sim %.3f)", dup.Similarity)
 	}
 }
 

@@ -33,8 +33,13 @@ const (
 
 	// searchCandidatePool is how many nearest neighbours to pull before applying
 	// a wing/room filter. The vector seam's Search has no server-side filter, so
-	// an over-fetch leaves enough survivors after filtering to fill the page.
-	searchCandidatePool = 200
+	// a filtered search must over-fetch and discard non-matching candidates in Go.
+	// This is set high enough that a wing/room with results far down the global
+	// ranking is not cut before the filter sees it; on the brute-force SQLite
+	// backend an over-fetch is free (it scans everything anyway), and Qdrant caps
+	// the scan at this bound. The principled fix — pushing the filter into the
+	// store as a payload predicate — lands with the hybrid-ranking phase.
+	searchCandidatePool = 10000
 )
 
 // AAAKSpec is the compressed memory dialect agents use for diary and closet
@@ -126,14 +131,13 @@ func (s *Service) Add(ctx context.Context, teamID string, in AddInput) ([]Drawer
 	filedAt := time.Now().UTC().Format(time.RFC3339)
 	drawers := make([]Drawer, len(chunks))
 	points := make([]store.Point, len(chunks))
-	// The first chunk's id is the parent the rest of a multi-chunk write point
-	// back to; the first chunk itself has no parent.
-	rootID := DrawerID(teamID, wing, room, in.SourceFile, 0)
 	for i, c := range chunks {
-		id := DrawerID(teamID, wing, room, in.SourceFile, c.Index)
-		parentID := rootID
-		if i == 0 {
-			parentID = ""
+		id := DrawerID(teamID, wing, room, in.SourceFile, c.Index, c.Content)
+		// The first chunk is the parent the rest of a multi-chunk write point
+		// back to; the first chunk itself has no parent.
+		parentID := ""
+		if i > 0 {
+			parentID = drawers[0].ID
 		}
 		drawers[i] = Drawer{
 			ID:          id,
@@ -156,6 +160,16 @@ func (s *Service) Add(ctx context.Context, teamID string, in AddInput) ([]Drawer
 		}
 	}
 
+	// Re-filing a *named* source replaces it wholesale: purge the source's prior
+	// drawers (rows + vectors) before writing the new set, so shrinking the
+	// content cannot leave orphaned higher-index chunks behind. A source-less add
+	// is a standalone memory (deduped by its content-hash id), so it is not purged.
+	if in.SourceFile != "" {
+		if err := s.purgeSource(ctx, teamID, wing, room, in.SourceFile); err != nil {
+			return nil, err
+		}
+	}
+
 	if err := s.vectors.Upsert(ctx, teamID, points); err != nil {
 		return nil, fmt.Errorf("upsert vectors: %w", err)
 	}
@@ -163,6 +177,26 @@ func (s *Service) Add(ctx context.Context, teamID string, in AddInput) ([]Drawer
 		return nil, fmt.Errorf("save drawers: %w", err)
 	}
 	return drawers, nil
+}
+
+// purgeSource deletes every drawer (row + vector) previously filed from a source
+// within a (team, wing, room), so a re-add of that source replaces rather than
+// accumulates. Vectors are dropped by the ids the rows carry, then the rows.
+func (s *Service) purgeSource(ctx context.Context, teamID, wing, room, source string) error {
+	ids, err := s.repo.IDsBySource(ctx, teamID, wing, room, source)
+	if err != nil {
+		return fmt.Errorf("list source drawers: %w", err)
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	if err := s.vectors.Delete(ctx, teamID, ids); err != nil {
+		return fmt.Errorf("purge source vectors: %w", err)
+	}
+	if err := s.repo.DeleteBySource(ctx, teamID, wing, room, source); err != nil {
+		return fmt.Errorf("purge source rows: %w", err)
+	}
+	return nil
 }
 
 // Get returns one drawer, mapping an unknown id to ErrNotFound.
@@ -175,33 +209,64 @@ func (s *Service) Get(ctx context.Context, teamID, id string) (Drawer, error) {
 }
 
 // Update edits an existing drawer's content/wing/room in place (its id is
-// stable). Any change re-embeds the drawer's final content and re-upserts the
-// vector so search and its payload filter keys stay consistent with the row —
-// even a wing-only change refreshes the payload. A no-op patch just returns the
-// current drawer.
+// stable). A supplied field must be non-empty — update_drawer must not be a back
+// door around the non-empty invariant add_drawer enforces (a blank wing/room
+// would file the drawer into an unaddressable taxonomy bucket). Any change
+// re-embeds the drawer's final content and re-upserts the vector *before* the row
+// is written, so a failed embed leaves the drawer fully consistent in its old
+// state rather than with a row ahead of its stale vector. A no-op patch just
+// returns the current drawer.
 func (s *Service) Update(ctx context.Context, teamID, id string, patch DrawerPatch) (Drawer, error) {
+	for _, f := range []struct {
+		name string
+		val  *string
+	}{{"content", patch.Content}, {"wing", patch.Wing}, {"room", patch.Room}} {
+		if f.val != nil && strings.TrimSpace(*f.val) == "" {
+			return Drawer{}, fmt.Errorf("%w: %s cannot be set empty", ErrInvalidInput, f.name)
+		}
+	}
+
+	current, err := s.Get(ctx, teamID, id) // also maps unknown id -> ErrNotFound
+	if err != nil {
+		return Drawer{}, err
+	}
+
+	// Nothing to change.
+	if patch.Content == nil && patch.Wing == nil && patch.Room == nil {
+		return current, nil
+	}
+
+	// Compute the post-patch state and refresh the derived index first.
+	finalContent, finalWing, finalRoom := current.Content, current.Wing, current.Room
+	if patch.Content != nil {
+		finalContent = *patch.Content
+	}
+	if patch.Wing != nil {
+		finalWing = *patch.Wing
+	}
+	if patch.Room != nil {
+		finalRoom = *patch.Room
+	}
+	vec, err := s.embed.EmbedOne(ctx, finalContent)
+	if err != nil {
+		return Drawer{}, fmt.Errorf("re-embed updated drawer: %w", err)
+	}
+	point := store.Point{
+		ID:      id,
+		Vector:  vec,
+		Payload: map[string]any{"wing": finalWing, "room": finalRoom},
+	}
+	if err := s.vectors.Upsert(ctx, teamID, []store.Point{point}); err != nil {
+		return Drawer{}, fmt.Errorf("re-upsert updated vector: %w", err)
+	}
+
+	// Index is current; now commit the authoritative row.
 	updated, err := s.repo.Update(ctx, teamID, id, patch)
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return Drawer{}, ErrNotFound
 	}
 	if err != nil {
 		return Drawer{}, err
-	}
-	// Only re-touch the vector when something that affects it actually changed.
-	if patch.Content == nil && patch.Wing == nil && patch.Room == nil {
-		return updated, nil
-	}
-	vec, err := s.embed.EmbedOne(ctx, updated.Content)
-	if err != nil {
-		return Drawer{}, fmt.Errorf("re-embed updated drawer: %w", err)
-	}
-	point := store.Point{
-		ID:      updated.ID,
-		Vector:  vec,
-		Payload: map[string]any{"wing": updated.Wing, "room": updated.Room},
-	}
-	if err := s.vectors.Upsert(ctx, teamID, []store.Point{point}); err != nil {
-		return Drawer{}, fmt.Errorf("re-upsert updated vector: %w", err)
 	}
 	return updated, nil
 }
@@ -325,6 +390,15 @@ func (s *Service) CheckDuplicate(ctx context.Context, teamID, content string, th
 	content = strings.TrimSpace(content)
 	if content == "" {
 		return DuplicateResult{}, fmt.Errorf("%w: content is required", ErrInvalidInput)
+	}
+	// Cosine similarity lives in [-1, 1]; a duplicate threshold outside [0, 1] is
+	// nonsense (>1 can never match an exact duplicate, <0 marks everything a
+	// duplicate), so clamp it rather than trust a stray argument.
+	if threshold < 0 {
+		threshold = 0
+	}
+	if threshold > 1 {
+		threshold = 1
 	}
 	vec, err := s.embed.EmbedOne(ctx, content)
 	if err != nil {

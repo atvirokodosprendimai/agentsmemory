@@ -65,21 +65,22 @@ func TestChunkText(t *testing.T) {
 }
 
 func TestDrawerID(t *testing.T) {
-	base := DrawerID("team1", "wingA", "roomR", "src.md", 0)
+	base := DrawerID("team1", "wingA", "roomR", "src.md", 0, "hello")
 
 	t.Run("deterministic", func(t *testing.T) {
-		if again := DrawerID("team1", "wingA", "roomR", "src.md", 0); again != base {
+		if again := DrawerID("team1", "wingA", "roomR", "src.md", 0, "hello"); again != base {
 			t.Fatalf("same inputs gave different ids:\n%s\n%s", base, again)
 		}
 	})
 
-	t.Run("sensitive to every component", func(t *testing.T) {
+	t.Run("sensitive to every component including content", func(t *testing.T) {
 		variants := []string{
-			DrawerID("team2", "wingA", "roomR", "src.md", 0),
-			DrawerID("team1", "wingB", "roomR", "src.md", 0),
-			DrawerID("team1", "wingA", "roomS", "src.md", 0),
-			DrawerID("team1", "wingA", "roomR", "other.md", 0),
-			DrawerID("team1", "wingA", "roomR", "src.md", 1),
+			DrawerID("team2", "wingA", "roomR", "src.md", 0, "hello"),
+			DrawerID("team1", "wingB", "roomR", "src.md", 0, "hello"),
+			DrawerID("team1", "wingA", "roomS", "src.md", 0, "hello"),
+			DrawerID("team1", "wingA", "roomR", "other.md", 0, "hello"),
+			DrawerID("team1", "wingA", "roomR", "src.md", 1, "hello"),
+			DrawerID("team1", "wingA", "roomR", "src.md", 0, "world"), // content differs
 		}
 		for i, v := range variants {
 			if v == base {
@@ -88,9 +89,20 @@ func TestDrawerID(t *testing.T) {
 		}
 	})
 
+	t.Run("distinct content with no source does not collide", func(t *testing.T) {
+		// The data-loss guard: two memories filed to the same wing/room with no
+		// source_file must get different ids so the second cannot overwrite the
+		// first.
+		a := DrawerID("t", "w", "r", "", 0, "first memory")
+		b := DrawerID("t", "w", "r", "", 0, "second memory")
+		if a == b {
+			t.Fatal("distinct content collided — add_drawer would silently overwrite")
+		}
+	})
+
 	t.Run("separator prevents concatenation collisions", func(t *testing.T) {
 		// ("a","bc") and ("ab","c") must not hash to the same id.
-		if DrawerID("t", "a", "bc", "", 0) == DrawerID("t", "ab", "c", "", 0) {
+		if DrawerID("t", "a", "bc", "", 0, "x") == DrawerID("t", "ab", "c", "", 0, "x") {
 			t.Fatal("concatenation collision: NUL separator not effective")
 		}
 	})

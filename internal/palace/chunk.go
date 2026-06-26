@@ -74,14 +74,16 @@ func ChunkText(text string, size, overlap, min int) []Chunk {
 }
 
 // DrawerID is the deterministic identity of a drawer: a SHA-256 of the locating
-// tuple (team, wing, room, source, chunkIndex). Identity-by-location is what
-// makes add_drawer idempotent — re-adding the same source overwrites the same
-// rows rather than accumulating duplicates. The NUL separator cannot occur in
-// any of the textual inputs, so distinct tuples can never collide by clever
+// tuple (team, wing, room, source, chunkIndex) AND the chunk's content. Hashing
+// content too means re-adding identical text is idempotent (same id, replaced in
+// place) while two *different* memories filed to the same wing/room with no
+// source_file get distinct ids instead of silently overwriting each other —
+// which is what would happen if the id were location-only. The NUL separator
+// cannot occur in any textual input, so distinct tuples can never collide by
 // concatenation (e.g. wing "a", room "bc" vs wing "ab", room "c").
-func DrawerID(teamID, wing, room, sourceFile string, chunkIndex int) string {
+func DrawerID(teamID, wing, room, sourceFile string, chunkIndex int, content string) string {
 	h := sha256.New()
-	for _, part := range []string{teamID, wing, room, sourceFile, strconv.Itoa(chunkIndex)} {
+	for _, part := range []string{teamID, wing, room, sourceFile, strconv.Itoa(chunkIndex), content} {
 		h.Write([]byte(part))
 		h.Write([]byte{0})
 	}
