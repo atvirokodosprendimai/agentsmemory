@@ -41,6 +41,7 @@ const (
 // PKCE challenge + redirect_uri; access/refresh carry only the resolved tenant.
 type payload struct {
 	Kind          tokenKind `json:"k"`
+	ID            string    `json:"i,omitempty"`  // code only: unique id for single-use enforcement
 	TeamID        string    `json:"t"`
 	UserID        string    `json:"u"`
 	Role          string    `json:"r"`

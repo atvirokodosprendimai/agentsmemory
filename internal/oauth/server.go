@@ -2,10 +2,13 @@ package oauth
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/atvirokodosprendimai/agentsmemory/internal/auth"
@@ -27,12 +30,43 @@ type RawResolver interface {
 	ResolveToken(ctx context.Context, plaintext string) (tenant.Tenant, error)
 }
 
+// replayGuard enforces single-use of authorization codes. Codes are otherwise
+// stateless self-contained blobs, so without this the same code could be
+// redeemed repeatedly until its short expiry. It holds only code IDs until they
+// expire, so it stays small. NOTE: this is per-process; a multi-instance
+// deployment needs a shared store (e.g. Redis) to make code single-use global.
+type replayGuard struct {
+	mu   sync.Mutex
+	seen map[string]int64 // code id -> expiry (unix seconds)
+}
+
+func newReplayGuard() *replayGuard { return &replayGuard{seen: map[string]int64{}} }
+
+// useOnce records id as consumed and returns false if it was already used.
+func (g *replayGuard) useOnce(id string, exp, now int64) bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	for k, e := range g.seen { // opportunistic cleanup of expired entries
+		if e < now {
+			delete(g.seen, k)
+		}
+	}
+	if _, dup := g.seen[id]; dup {
+		return false
+	}
+	g.seen[id] = exp
+	return true
+}
+
 // AuthServer is the stateless OAuth 2.1 authorization server + resource gate.
+// (Access and refresh tokens are stateless; only single-use authorization codes
+// keep a short-lived in-memory marker — see replayGuard.)
 type AuthServer struct {
 	issuer  string // public base URL, no trailing slash, no /mcp
 	sealer  *Sealer
 	clients ClientValidator
 	raw     RawResolver // optional; enables direct-token access alongside OAuth
+	codes   *replayGuard
 
 	accessTTL  time.Duration
 	refreshTTL time.Duration
@@ -48,6 +82,7 @@ func NewAuthServer(issuer string, sealer *Sealer, clients ClientValidator, raw R
 		sealer:     sealer,
 		clients:    clients,
 		raw:        raw,
+		codes:      newReplayGuard(),
 		accessTTL:  time.Hour,
 		refreshTTL: 30 * 24 * time.Hour,
 		codeTTL:    5 * time.Minute,
@@ -84,7 +119,7 @@ func (a *AuthServer) AuthorizationServerMetadata(w http.ResponseWriter, _ *http.
 		"response_types_supported":              []string{"code"},
 		"grant_types_supported":                 []string{"authorization_code", "refresh_token"},
 		"code_challenge_methods_supported":      []string{"S256"},
-		"token_endpoint_auth_methods_supported": []string{"client_secret_post", "client_secret_basic", "none"},
+		"token_endpoint_auth_methods_supported": []string{"client_secret_post", "client_secret_basic"},
 	})
 }
 
@@ -117,8 +152,13 @@ func (a *AuthServer) Authorize(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	codeID, err := newCodeID()
+	if err != nil {
+		http.Error(w, "server error", http.StatusInternalServerError)
+		return
+	}
 	code, err := a.sealer.sealPayload(payload{
-		Kind: kindCode, TeamID: t.TeamID, UserID: t.UserID, Role: string(t.Role),
+		Kind: kindCode, ID: codeID, TeamID: t.TeamID, UserID: t.UserID, Role: string(t.Role),
 		ClientKey: clientID, RedirectURI: redirectURI, CodeChallenge: challenge,
 		Exp: a.now() + int64(a.codeTTL.Seconds()),
 	})
@@ -181,21 +221,33 @@ func (a *AuthServer) tokenAuthCode(w http.ResponseWriter, r *http.Request) {
 		tokenError(w, http.StatusUnauthorized, "invalid_client")
 		return
 	}
+	// Enforce single-use only after the request is otherwise valid, so a failed
+	// attempt (bad PKCE/secret) can't burn a legitimate user's code. First
+	// redeemer wins; a replay is rejected.
+	if !a.codes.useOnce(code.ID, code.Exp, a.now()) {
+		tokenError(w, http.StatusBadRequest, "invalid_grant")
+		return
+	}
 	a.issueTokens(w, t, clientID)
 }
 
-// tokenRefresh re-issues an access/refresh pair from a valid refresh token,
-// re-checking that the client key has not been revoked since (the sealed
-// refresh token is itself proof of the original authorization).
+// tokenRefresh re-issues an access/refresh pair from a valid refresh token. It
+// re-authenticates the client (client_secret), so a stolen refresh token alone
+// is useless, and the secret check re-confirms the key has not been revoked.
 func (a *AuthServer) tokenRefresh(w http.ResponseWriter, r *http.Request) {
 	rt, err := a.sealer.openPayload(r.Form.Get("refresh_token"), kindRefresh, a.now())
 	if err != nil {
 		tokenError(w, http.StatusBadRequest, "invalid_grant")
 		return
 	}
-	t, err := a.clients.ClientByKey(r.Context(), rt.ClientKey)
+	clientID, secret := clientCreds(r)
+	if clientID != "" && clientID != rt.ClientKey {
+		tokenError(w, http.StatusBadRequest, "invalid_grant")
+		return
+	}
+	t, err := a.clients.ValidateClient(r.Context(), rt.ClientKey, secret)
 	if err != nil {
-		// Key revoked or gone: the refresh is no longer honoured.
+		// Wrong/absent secret or a revoked key: the refresh is not honoured.
 		tokenError(w, http.StatusUnauthorized, "invalid_client")
 		return
 	}
@@ -311,6 +363,16 @@ func validRedirect(raw string) bool {
 		return false
 	}
 	return u.Scheme == "https" || u.Scheme == "http"
+}
+
+// newCodeID returns a random 128-bit id that makes an authorization code
+// single-use via the replay guard.
+func newCodeID() (string, error) {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
 }
 
 // writeJSON writes v as a JSON response with the given status.

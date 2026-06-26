@@ -169,7 +169,9 @@ func oauthSecret() string {
 	}
 	log.Printf("warning: OAUTH_SECRET_KEY unset; using a random key (OAuth tokens reset on restart)")
 	buf := make([]byte, 32)
-	_, _ = rand.Read(buf)
+	if _, err := rand.Read(buf); err != nil {
+		log.Fatalf("entropy failure generating OAuth secret: %v", err)
+	}
 	return hex.EncodeToString(buf)
 }
 
@@ -200,7 +202,9 @@ func sessionKey() []byte {
 		log.Printf("warning: AGENTSMEMORY_SESSION_KEY unset; using a random session key (sessions reset on restart)")
 	}
 	buf := make([]byte, 32)
-	_, _ = rand.Read(buf)
+	if _, err := rand.Read(buf); err != nil {
+		log.Fatalf("entropy failure generating session key: %v", err)
+	}
 	return buf
 }
 
