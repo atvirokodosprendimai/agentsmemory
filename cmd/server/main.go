@@ -55,8 +55,8 @@ func main() {
 		Name:  "agentsmemory",
 		Usage: "Remote MCP memory server (Qdrant + Ollama, multi-tenant)",
 		Flags: []cli.Flag{
-			&cli.StringFlag{Name: "addr", Value: def.Addr, Usage: "HTTP listen address"},
-			&cli.StringFlag{Name: "db", Value: def.DBPath, Usage: "SQLite database path"},
+			&cli.StringFlag{Name: "addr", Sources: cli.EnvVars("AGENTSMEMORY_ADDR"), Value: def.Addr, Usage: "HTTP listen address"},
+			&cli.StringFlag{Name: "db", Sources: cli.EnvVars("AGENTSMEMORY_DB"), Value: def.DBPath, Usage: "SQLite database path"},
 			&cli.StringFlag{Name: "vector-backend", Sources: cli.EnvVars("VECTOR_BACKEND"), Value: def.VectorBackend, Usage: "search index: sqlite|qdrant (SQLite is always the source of truth)"},
 			&cli.StringFlag{Name: "qdrant-url", Sources: cli.EnvVars("QDRANT_URL"), Value: def.QdrantURL, Usage: "Qdrant base URL"},
 			&cli.StringFlag{Name: "qdrant-api-key", Sources: cli.EnvVars("QDRANT_API_KEY"), Value: def.QdrantAPIKey, Usage: "Qdrant API key (optional)"},
