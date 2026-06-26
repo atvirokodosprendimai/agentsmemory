@@ -12,6 +12,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/hex"
 	"errors"
 	"strings"
@@ -106,12 +107,16 @@ type Membership struct {
 func (Membership) TableName() string { return "memberships" }
 
 // APIKey is the bearer credential an agent presents. Only the hash is stored.
+// ClientKey is the public OAuth client_id ("mck_<hex>"); the plaintext token is
+// the OAuth client_secret. Direct callers send the token as a Bearer; OAuth
+// clients exchange (client_key, token) for a sealed Bearer.
 type APIKey struct {
 	ID         string `gorm:"primaryKey"`
 	TeamID     string
 	UserID     string
 	Name       string
 	Prefix     string
+	ClientKey  string
 	TokenHash  string `gorm:"uniqueIndex"`
 	CreatedAt  string
 	LastUsedAt *string
@@ -141,6 +146,17 @@ func GenerateToken() (plaintext, prefix string, err error) {
 	return plaintext, plaintext[:8], nil
 }
 
+// GenerateClientKey mints a public OAuth client_id of the form "mck_<24 hex>".
+// It is NOT a secret — it appears in the /authorize URL — so it only needs to be
+// unguessable enough to avoid accidental collisions; the token is the secret.
+func GenerateClientKey() (string, error) {
+	buf := make([]byte, 12)
+	if _, err := rand.Read(buf); err != nil {
+		return "", err
+	}
+	return "mck_" + hex.EncodeToString(buf), nil
+}
+
 // Repo is the persistence boundary for the tenant context. It is a struct over
 // a *gorm.DB; consumers depend on the methods they need, not on gorm directly.
 type Repo struct {
@@ -168,9 +184,13 @@ func (r *Repo) ResolveToken(ctx context.Context, plaintext string) (Tenant, erro
 	if err != nil {
 		return Tenant{}, err
 	}
+	r.touchKey(ctx, key.ID)
+	return r.tenantFromKey(ctx, key), nil
+}
 
-	// Look up the caller's role on the owning team (defaults to member if the
-	// membership row is somehow missing — the key already proves team scope).
+// tenantFromKey resolves the caller's role on the key's team (defaulting to
+// member if the membership row is missing — the key already proves team scope).
+func (r *Repo) tenantFromKey(ctx context.Context, key APIKey) Tenant {
 	role := RoleMember
 	var m Membership
 	if err := r.db.WithContext(ctx).
@@ -178,24 +198,66 @@ func (r *Repo) ResolveToken(ctx context.Context, plaintext string) (Tenant, erro
 		First(&m).Error; err == nil && m.Role != "" {
 		role = Role(m.Role)
 	}
+	return Tenant{TeamID: key.TeamID, UserID: key.UserID, Role: role}
+}
 
-	// Best-effort touch; a failed timestamp update must not deny the request.
+// touchKey best-effort stamps last_used_at; a failed update must not deny access.
+func (r *Repo) touchKey(ctx context.Context, id string) {
 	now := time.Now().UTC().Format(time.RFC3339)
-	_ = r.db.WithContext(ctx).Model(&APIKey{}).
-		Where("id = ?", key.ID).Update("last_used_at", now).Error
+	_ = r.db.WithContext(ctx).Model(&APIKey{}).Where("id = ?", id).Update("last_used_at", now).Error
+}
 
-	return Tenant{TeamID: key.TeamID, UserID: key.UserID, Role: role}, nil
+// ClientByKey resolves an OAuth client_id (client_key) to its tenant WITHOUT
+// checking the secret. Used at /authorize, where only the public client_id is
+// present; the secret is verified later at /token. Rejects unknown/revoked keys.
+func (r *Repo) ClientByKey(ctx context.Context, clientKey string) (Tenant, error) {
+	if clientKey == "" {
+		return Tenant{}, ErrInvalidToken
+	}
+	var key APIKey
+	err := r.db.WithContext(ctx).
+		Where("client_key = ? AND revoked_at IS NULL", clientKey).First(&key).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return Tenant{}, ErrInvalidToken
+	}
+	if err != nil {
+		return Tenant{}, err
+	}
+	return r.tenantFromKey(ctx, key), nil
+}
+
+// ValidateClient verifies an OAuth (client_id, client_secret) pair at /token and
+// returns the tenant. The secret is compared by hash; unknown client, revoked
+// key, or wrong secret all yield ErrInvalidToken (opaque, non-enumerable).
+func (r *Repo) ValidateClient(ctx context.Context, clientKey, secret string) (Tenant, error) {
+	if clientKey == "" || secret == "" {
+		return Tenant{}, ErrInvalidToken
+	}
+	var key APIKey
+	err := r.db.WithContext(ctx).
+		Where("client_key = ? AND revoked_at IS NULL", clientKey).First(&key).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return Tenant{}, ErrInvalidToken
+	}
+	if err != nil {
+		return Tenant{}, err
+	}
+	if subtle.ConstantTimeCompare([]byte(key.TokenHash), []byte(HashToken(secret))) != 1 {
+		return Tenant{}, ErrInvalidToken
+	}
+	r.touchKey(ctx, key.ID)
+	return r.tenantFromKey(ctx, key), nil
 }
 
 // SeedTeamWithKey creates a team, an owner user (admin), and one API key in a
 // single transaction, returning the tenant and the one-time plaintext token.
 // It exists so a fresh skeleton is runnable end-to-end (and tests have a
 // fixture) without a dashboard yet.
-func (r *Repo) SeedTeamWithKey(ctx context.Context, teamName, slug, email string) (Tenant, string, error) {
+func (r *Repo) SeedTeamWithKey(ctx context.Context, teamName, slug, email string) (Tenant, Credential, error) {
 	now := time.Now().UTC().Format(time.RFC3339)
 	user := User{ID: uuid.NewString(), Email: email, DisplayName: email, CreatedAt: now}
 	if err := r.db.WithContext(ctx).Create(&user).Error; err != nil {
-		return Tenant{}, "", err
+		return Tenant{}, Credential{}, err
 	}
 	// Delegate workspace + membership + key creation to the shared path, so the
 	// "personal workspace on the personal plan" flow is identical to any other
@@ -203,22 +265,47 @@ func (r *Repo) SeedTeamWithKey(ctx context.Context, teamName, slug, email string
 	return r.CreateWorkspaceForUser(ctx, user.ID, teamName, slug, "personal", "plan_personal")
 }
 
+// Credential is the one-time secret material returned when an API key is minted:
+// the public OAuth client_id and the plaintext token (the Bearer / client_secret).
+// Both are shown to the user exactly once.
+type Credential struct {
+	ClientKey string
+	Secret    string
+}
+
+// newAPIKey builds an APIKey row plus its one-time Credential (token + client_key).
+func newAPIKey(teamID, userID, name, now string) (APIKey, Credential, error) {
+	plaintext, prefix, err := GenerateToken()
+	if err != nil {
+		return APIKey{}, Credential{}, err
+	}
+	clientKey, err := GenerateClientKey()
+	if err != nil {
+		return APIKey{}, Credential{}, err
+	}
+	key := APIKey{
+		ID: uuid.NewString(), TeamID: teamID, UserID: userID, Name: name,
+		Prefix: prefix, ClientKey: clientKey, TokenHash: HashToken(plaintext), CreatedAt: now,
+	}
+	return key, Credential{ClientKey: clientKey, Secret: plaintext}, nil
+}
+
 // CreateWorkspaceForUser provisions an additional workspace (team) owned by an
 // existing user on a given plan, with a fresh API key. This is the path behind
 // "one user, several workspaces across plans": a user can run a couple of
 // personal workspaces and one or more enterprise ones, each its own isolated
 // tenant (separate Qdrant collection) priced by its plan. Returns the tenant
-// and the one-time plaintext token.
-func (r *Repo) CreateWorkspaceForUser(ctx context.Context, userID, name, slug, kind, planID string) (Tenant, string, error) {
+// and the one-time credential.
+func (r *Repo) CreateWorkspaceForUser(ctx context.Context, userID, name, slug, kind, planID string) (Tenant, Credential, error) {
 	now := time.Now().UTC().Format(time.RFC3339)
 	var pid *string
 	if planID != "" {
 		pid = &planID
 	}
 	team := Team{ID: uuid.NewString(), Name: name, Slug: slug, Kind: kind, PlanID: pid, CreatedAt: now}
-	plaintext, prefix, err := GenerateToken()
+	key, cred, err := newAPIKey(team.ID, userID, "default", now)
 	if err != nil {
-		return Tenant{}, "", err
+		return Tenant{}, Credential{}, err
 	}
 	// The workspace creator is its admin (can manage keys and shared skills).
 	err = r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
@@ -231,34 +318,26 @@ func (r *Repo) CreateWorkspaceForUser(ctx context.Context, userID, name, slug, k
 		}).Error; err != nil {
 			return err
 		}
-		return tx.Create(&APIKey{
-			ID: uuid.NewString(), TeamID: team.ID, UserID: userID,
-			Name: "default", Prefix: prefix, TokenHash: HashToken(plaintext), CreatedAt: now,
-		}).Error
+		return tx.Create(&key).Error
 	})
 	if err != nil {
-		return Tenant{}, "", err
+		return Tenant{}, Credential{}, err
 	}
-	return Tenant{TeamID: team.ID, UserID: userID, Role: RoleAdmin}, plaintext, nil
+	return Tenant{TeamID: team.ID, UserID: userID, Role: RoleAdmin}, cred, nil
 }
 
-// CreateAPIKey mints an additional bearer token for a user within a workspace
-// they belong to, returning the one-time plaintext. A user may hold many keys
-// per workspace — e.g. one per agent or CI job — each independently revocable.
-func (r *Repo) CreateAPIKey(ctx context.Context, teamID, userID, name string) (string, error) {
-	plaintext, prefix, err := GenerateToken()
+// CreateAPIKey mints an additional credential for a user within a workspace they
+// belong to. A user may hold many keys per workspace — e.g. one per agent or CI
+// job — each independently revocable.
+func (r *Repo) CreateAPIKey(ctx context.Context, teamID, userID, name string) (Credential, error) {
+	key, cred, err := newAPIKey(teamID, userID, name, time.Now().UTC().Format(time.RFC3339))
 	if err != nil {
-		return "", err
-	}
-	now := time.Now().UTC().Format(time.RFC3339)
-	key := APIKey{
-		ID: uuid.NewString(), TeamID: teamID, UserID: userID, Name: name,
-		Prefix: prefix, TokenHash: HashToken(plaintext), CreatedAt: now,
+		return Credential{}, err
 	}
 	if err := r.db.WithContext(ctx).Create(&key).Error; err != nil {
-		return "", err
+		return Credential{}, err
 	}
-	return plaintext, nil
+	return cred, nil
 }
 
 // --- web auth (local user + password; goth OAuth providers added later) ---

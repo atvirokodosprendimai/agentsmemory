@@ -106,8 +106,12 @@ templ Flash(f FlashVM) {
 		if f.Kind == "success" {
 			<div class="flash success" role="status">
 				<div class="ttl">{ f.Message }</div>
+				if f.ClientKey != "" {
+					<div class="kv" style="margin-top:.6rem">OAuth Client ID</div>
+					<div class="token">{ f.ClientKey }</div>
+				}
 				if f.Token != "" {
-					<div class="kv" style="margin-top:.6rem">API key — shown once</div>
+					<div class="kv" style="margin-top:.6rem">Secret / API key — shown once</div>
 					<div class="token">{ f.Token }</div>
 				}
 			</div>

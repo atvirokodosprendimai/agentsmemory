@@ -8,6 +8,9 @@
 *.db-shm
 *.db-wal
 
+# Secrets / local env
+.env
+
 # Tooling caches
 /.serena/
 

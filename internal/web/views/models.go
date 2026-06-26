@@ -38,9 +38,10 @@ type ProjectVM struct {
 
 // FlashVM is a transient banner (success or error) shown above the project list.
 type FlashVM struct {
-	Kind    string // "success" | "error" | "" (none)
-	Message string
-	Token   string // one-time API key to reveal, when Kind == "success"
+	Kind      string // "success" | "error" | "" (none)
+	Message   string
+	ClientKey string // one-time OAuth Client ID to reveal, when Kind == "success"
+	Token     string // one-time API key / OAuth secret to reveal
 }
 
 // DashboardData is everything the dashboard page needs.

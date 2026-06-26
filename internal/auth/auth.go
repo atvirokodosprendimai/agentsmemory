@@ -75,3 +75,14 @@ func TenantFrom(ctx context.Context) (tenant.Tenant, bool) {
 func WithTenant(ctx context.Context, t tenant.Tenant) context.Context {
 	return context.WithValue(ctx, tenantKey, t)
 }
+
+// Bridge is an mcp-go HTTPContextFunc that carries a tenant already resolved by
+// an upstream middleware (the OAuth gate) on the HTTP request into the context
+// the MCP tools receive. When the gate fronts /mcp, resolution happens once
+// there; this just forwards the result so the tools can read it via TenantFrom.
+func Bridge(ctx context.Context, r *http.Request) context.Context {
+	if t, ok := TenantFrom(r.Context()); ok {
+		return WithTenant(ctx, t)
+	}
+	return ctx
+}
