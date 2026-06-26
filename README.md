@@ -10,10 +10,13 @@ operates inside its team's isolated workspace, and can pull **centralised,
 versioned skills** the team keeps up to date.
 
 > **Status: early skeleton.** The tenancy, auth, skill registry, storage clients
-> and MCP transport are wired and verified end-to-end. The memory pipeline
-> (mining + hybrid search) and the web dashboard are the next phases — see the
-> [Roadmap](#roadmap). Today the server exposes **2 of the planned 37 MCP tools**
-> (`status`, `load_skill`).
+> and MCP transport are wired and verified end-to-end, and the **core memory
+> loop** (file a drawer → recall it semantically) now works end-to-end against
+> Ollama + the vector store. Today the server exposes **14 of the planned 37 MCP
+> tools** (`status`, `load_skill`, plus the WRITE/FILE + SEARCH/RECALL + the rest
+> of the STATUS/ADMIN families). Hybrid ranking (BM25 + closet boost), mining, the
+> graph/KG/diary tool families, and the web dashboard are the next phases — see
+> the [Roadmap](#roadmap).
 
 ---
 
@@ -132,7 +135,15 @@ shared, versioned source of truth** and its agents pull from it:
 |---|---|---|
 | `status` | ✅ | Liveness + the team this session is scoped to |
 | `load_skill` | ✅ | Load a centralised, team-shared skill by name |
-| `search`, `add_drawer`, `mine`, … | 🔜 | The remaining memory/graph/KG/diary tools (35), ported from the Python contract |
+| `add_drawer` | ✅ | File a verbatim memory (chunked + embedded; idempotent by source) |
+| `get_drawer` / `update_drawer` / `delete_drawer` | ✅ | Read, edit-in-place, or remove a drawer by id |
+| `list_drawers` | ✅ | Paginate drawers, optionally filtered by wing/room |
+| `search` | ✅ | Semantic recall (vector-only for now; BM25 + closet boost to follow) |
+| `check_duplicate` | ✅ | Is content near-identical to an existing drawer? |
+| `list_wings` / `list_rooms` / `get_taxonomy` | ✅ | Indexed wing/room aggregations of a team's memory |
+| `get_aaak_spec` | ✅ | The AAAK compressed-memory dialect reference |
+| `reconnect` | ✅ | Re-ready the workspace's vector store (stateless liveness probe) |
+| `mine`, `create_tunnel`, `kg_add`, `diary_write`, … | 🔜 | The remaining graph/KG/diary/mining tools (23), ported from the Python contract |
 
 ---
 
@@ -259,9 +270,10 @@ called). Schema changes are additive migrations under `db/migrations/`.
 - [x] `load_skill` centralised skill registry
 - [x] Qdrant (collection-per-tenant) + Ollama (`bge-m3`) clients
 - [x] Stateless Streamable-HTTP MCP server (`status`, `load_skill`)
-- [ ] Mining pipeline (text → drawers, idempotent by source + chunk)
+- [x] Core memory loop — drawer CRUD + semantic recall + taxonomy (12 tools, vector-only search)
 - [ ] Hybrid search (vector + BM25 + closet boost, RRF) over Qdrant
-- [ ] Remaining MCP tools (the full 37-tool contract)
+- [ ] Mining pipeline (text → drawers, idempotent by source + chunk)
+- [ ] Remaining MCP tools — graph/tunnels, KG, diary, mining (23 of 37)
 - [ ] `list_skills` + `update_skill` + a `/load-skill` Claude command
 - [ ] Web dashboard (`goth` login, key & skill management) — `templ` + datastar
 - [ ] Subscriptions / billing
