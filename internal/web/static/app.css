@@ -1,0 +1,198 @@
+/* agentsmemory dashboard — "The Archive".
+   A warm, dark, editorial aesthetic for a memory tool: ink-dark surfaces,
+   bone text, an ember accent and brass highlights, a characterful serif
+   display (Fraunces) paired with IBM Plex Sans/Mono. Monospaced tabular
+   figures for keys and usage so numbers never reflow. */
+
+:root {
+  --ink:       #15120d;
+  --ink-2:     #1b1610;
+  --surface:   #221c14;
+  --surface-2: #2a2218;
+  --line:      #392f23;
+  --line-2:    #4a3d2d;
+  --bone:      #efe7d8;
+  --muted:     #b6a78f;
+  --faint:     #8b7c66;
+  --ember:     #e07a3e;
+  --ember-ink: #1a0f06;
+  --brass:     #d2ad55;
+  --danger:    #d6573f;
+  --ok:        #86b06b;
+  --radius:    14px;
+  --maxw:      72rem;
+  --shadow:    0 1px 0 rgba(255,255,255,.03) inset, 0 18px 40px -24px rgba(0,0,0,.8);
+}
+
+* { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  min-height: 100dvh;
+  font-family: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  font-size: 16px;
+  line-height: 1.6;
+  color: var(--bone);
+  background-color: var(--ink);
+  background-image:
+    radial-gradient(1200px 600px at 85% -10%, rgba(224,122,62,.10), transparent 60%),
+    radial-gradient(900px 500px at -10% 110%, rgba(210,173,85,.07), transparent 55%);
+  background-attachment: fixed;
+}
+
+/* faint paper grain for depth */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  opacity: .035;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+a { color: var(--ember); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+.wrap { width: 100%; max-width: var(--maxw); margin: 0 auto; padding: 0 1.5rem; }
+
+/* ---- top bar ---- */
+.topbar {
+  border-bottom: 1px solid var(--line);
+  background: linear-gradient(180deg, rgba(42,34,24,.6), rgba(21,18,13,.2));
+  backdrop-filter: blur(6px);
+  position: sticky; top: 0; z-index: 20;
+}
+.topbar .wrap { display: flex; align-items: center; justify-content: space-between; min-height: 64px; gap: 1rem; }
+.brand {
+  font-family: "Fraunces", Georgia, serif;
+  font-weight: 600;
+  font-size: 1.4rem;
+  letter-spacing: -.01em;
+  color: var(--bone);
+}
+.brand b { color: var(--ember); font-weight: 600; }
+.brand .dot { color: var(--brass); }
+.user { display: flex; align-items: center; gap: .9rem; font-size: .9rem; color: var(--muted); }
+.user .email { font-family: "IBM Plex Mono", monospace; color: var(--bone); }
+
+/* ---- typography ---- */
+h1, h2, h3 { font-family: "Fraunces", Georgia, serif; font-weight: 600; letter-spacing: -.015em; color: var(--bone); margin: 0; }
+.page-head { padding: 3rem 0 1.5rem; }
+.page-head h1 { font-size: clamp(2rem, 4vw, 2.9rem); line-height: 1.05; }
+.page-head p { color: var(--muted); margin: .6rem 0 0; max-width: 46ch; }
+.eyebrow { font-family: "IBM Plex Mono", monospace; text-transform: uppercase; letter-spacing: .18em; font-size: .72rem; color: var(--brass); margin: 0 0 .6rem; }
+
+/* ---- cards ---- */
+.card {
+  background: linear-gradient(180deg, var(--surface-2), var(--surface));
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+
+/* ---- forms ---- */
+.field { display: block; margin-bottom: 1.1rem; }
+.field label { display: block; font-size: .82rem; font-weight: 600; color: var(--muted); margin-bottom: .4rem; letter-spacing: .01em; }
+.input {
+  width: 100%;
+  min-height: 46px;
+  padding: .65rem .85rem;
+  font: inherit;
+  color: var(--bone);
+  background: var(--ink-2);
+  border: 1px solid var(--line-2);
+  border-radius: 10px;
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+.input::placeholder { color: var(--faint); }
+.input:focus-visible { outline: none; border-color: var(--ember); box-shadow: 0 0 0 3px rgba(224,122,62,.25); }
+
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: .5rem;
+  min-height: 46px; padding: 0 1.15rem;
+  font: inherit; font-weight: 600;
+  border-radius: 10px; border: 1px solid transparent;
+  cursor: pointer; white-space: nowrap;
+  transition: transform .08s ease, background-color .15s ease, border-color .15s ease, opacity .15s ease;
+}
+.btn:active { transform: translateY(1px); }
+.btn:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(224,122,62,.35); }
+.btn-primary { background: var(--ember); color: var(--ember-ink); }
+.btn-primary:hover { background: #ed8b4f; }
+.btn-primary[disabled], .btn-primary:disabled { opacity: .5; cursor: not-allowed; transform: none; }
+.btn-ghost { background: transparent; color: var(--bone); border-color: var(--line-2); }
+.btn-ghost:hover { border-color: var(--ember); color: var(--ember); }
+.btn-block { width: 100%; }
+
+/* ---- auth ---- */
+.auth { min-height: calc(100dvh - 64px); display: grid; place-items: center; padding: 2rem 1.5rem; }
+.auth-card { width: 100%; max-width: 25rem; padding: 2.2rem; }
+.auth-card h1 { font-size: 1.9rem; margin-bottom: .3rem; }
+.auth-card .sub { color: var(--muted); margin: 0 0 1.6rem; font-size: .92rem; }
+.auth-alt { margin-top: 1.4rem; padding-top: 1.2rem; border-top: 1px solid var(--line); color: var(--muted); font-size: .9rem; text-align: center; }
+.social { display: grid; gap: .6rem; margin-top: 1rem; }
+.divider { display: flex; align-items: center; gap: .8rem; color: var(--faint); font-size: .78rem; margin: 1.4rem 0; text-transform: uppercase; letter-spacing: .12em; }
+.divider::before, .divider::after { content: ""; height: 1px; flex: 1; background: var(--line); }
+
+/* ---- create row ---- */
+.create { display: flex; gap: .7rem; padding: 1.1rem; align-items: flex-end; flex-wrap: wrap; }
+.create .field { flex: 1 1 16rem; margin: 0; }
+
+/* ---- project grid ---- */
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(20rem, 1fr)); gap: 1.1rem; padding: 1.5rem 0 4rem; }
+.project { padding: 1.3rem; display: flex; flex-direction: column; gap: .9rem; }
+.project-top { display: flex; align-items: flex-start; justify-content: space-between; gap: .8rem; }
+.project h3 { font-size: 1.25rem; }
+.project .slug { font-family: "IBM Plex Mono", monospace; font-size: .8rem; color: var(--faint); margin-top: .15rem; }
+.badge {
+  font-family: "IBM Plex Mono", monospace; font-size: .68rem; text-transform: uppercase; letter-spacing: .08em;
+  padding: .25rem .5rem; border-radius: 999px; border: 1px solid var(--line-2); color: var(--brass); white-space: nowrap;
+}
+
+/* key + usage */
+.kv { font-size: .75rem; color: var(--faint); text-transform: uppercase; letter-spacing: .1em; margin-bottom: .35rem; }
+.token {
+  font-family: "IBM Plex Mono", monospace; font-size: .82rem; color: var(--bone);
+  background: var(--ink-2); border: 1px solid var(--line); border-radius: 8px;
+  padding: .55rem .65rem; word-break: break-all;
+}
+.token.muted { color: var(--faint); }
+.token-note { color: var(--brass); font-size: .76rem; margin-top: .4rem; }
+
+.usage-head { display: flex; justify-content: space-between; align-items: baseline; font-size: .82rem; }
+.usage-head .nums { font-family: "IBM Plex Mono", monospace; font-variant-numeric: tabular-nums; color: var(--muted); }
+.bar { height: 8px; border-radius: 999px; background: var(--ink-2); border: 1px solid var(--line); overflow: hidden; margin-top: .45rem; }
+.bar > span { display: block; height: 100%; background: linear-gradient(90deg, var(--ember), var(--brass)); transition: width .4s ease; }
+.bar.warn > span { background: linear-gradient(90deg, #d6863f, var(--danger)); }
+
+/* ---- flash ---- */
+.flash { border-radius: var(--radius); padding: 1rem 1.15rem; margin: 0 0 1.2rem; border: 1px solid var(--line-2); }
+.flash.success { background: rgba(134,176,107,.10); border-color: rgba(134,176,107,.4); }
+.flash.error { background: rgba(214,87,63,.10); border-color: rgba(214,87,63,.45); }
+.flash .ttl { font-weight: 600; }
+.flash .token { margin-top: .6rem; }
+
+/* ---- empty state ---- */
+.empty { text-align: center; padding: 3rem 1.5rem; color: var(--muted); }
+.empty h3 { color: var(--bone); margin-bottom: .4rem; }
+
+/* ---- misc ---- */
+.spinner { width: 1rem; height: 1rem; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: spin .7s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+footer { color: var(--faint); font-size: .8rem; padding: 2rem 0 3rem; border-top: 1px solid var(--line); }
+
+@media (max-width: 540px) {
+  .topbar .wrap { min-height: 56px; }
+  /* Drop the email on small screens so the brand + sign-out never overflow. */
+  .user .email { display: none; }
+  .page-head { padding: 2rem 0 1rem; }
+  .create { flex-direction: column; align-items: stretch; }
+  .create .btn { width: 100%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: .001ms !important; transition-duration: .001ms !important; }
+}

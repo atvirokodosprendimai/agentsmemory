@@ -1,0 +1,66 @@
+package views
+
+// LoginPage renders the sign-in form. Auth uses classic full-page POSTs (robust
+// and redirect-friendly); datastar drives the in-page dashboard interactions.
+templ LoginPage(d AuthData) {
+	@Layout("Sign in", "") {
+		<div class="auth">
+			<div class="auth-card card">
+				<p class="eyebrow">Welcome back</p>
+				<h1>Sign in</h1>
+				<p class="sub">Access your projects and API keys.</p>
+				if d.Error != "" {
+					<div class="flash error" role="alert"><span class="ttl">{ d.Error }</span></div>
+				}
+				<form method="post" action="/login">
+					<div class="field">
+						<label for="email">Email</label>
+						<input class="input" id="email" name="email" type="email" autocomplete="email" required value={ d.Email } placeholder="you@example.com"/>
+					</div>
+					<div class="field">
+						<label for="password">Password</label>
+						<input class="input" id="password" name="password" type="password" autocomplete="current-password" required placeholder="••••••••"/>
+					</div>
+					<button class="btn btn-primary btn-block" type="submit">Sign in</button>
+				</form>
+				if len(d.OAuthProviders) > 0 {
+					<div class="divider">or</div>
+					<div class="social">
+						for _, p := range d.OAuthProviders {
+							<a class="btn btn-ghost btn-block" href={ templ.SafeURL("/auth/" + p) }>Continue with { p }</a>
+						}
+					</div>
+				}
+				<p class="auth-alt">New here? <a href="/register">Create an account</a></p>
+			</div>
+		</div>
+	}
+}
+
+// RegisterPage renders the account-creation form.
+templ RegisterPage(d AuthData) {
+	@Layout("Create account", "") {
+		<div class="auth">
+			<div class="auth-card card">
+				<p class="eyebrow">Get started</p>
+				<h1>Create account</h1>
+				<p class="sub">Spin up a free project — 10,000 requests every month.</p>
+				if d.Error != "" {
+					<div class="flash error" role="alert"><span class="ttl">{ d.Error }</span></div>
+				}
+				<form method="post" action="/register">
+					<div class="field">
+						<label for="email">Email</label>
+						<input class="input" id="email" name="email" type="email" autocomplete="email" required value={ d.Email } placeholder="you@example.com"/>
+					</div>
+					<div class="field">
+						<label for="password">Password</label>
+						<input class="input" id="password" name="password" type="password" autocomplete="new-password" required minlength="8" placeholder="At least 8 characters"/>
+					</div>
+					<button class="btn btn-primary btn-block" type="submit">Create account</button>
+				</form>
+				<p class="auth-alt">Already have an account? <a href="/login">Sign in</a></p>
+			</div>
+		</div>
+	}
+}

@@ -9,7 +9,9 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"fmt"
 	"log"
 	"net/http"
@@ -21,6 +23,8 @@ import (
 	"github.com/atvirokodosprendimai/agentsmemory/internal/mcpserver"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/skill"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/tenant"
+	"github.com/atvirokodosprendimai/agentsmemory/internal/usage"
+	"github.com/atvirokodosprendimai/agentsmemory/internal/web"
 
 	"github.com/glebarez/sqlite"
 	"github.com/go-chi/chi/v5"
@@ -81,10 +85,12 @@ func run(ctx context.Context, cfg config.Config) error {
 		return fmt.Errorf("migrate: %w", err)
 	}
 
-	// Bounded contexts: tenant (auth) and skill (load_skill). The memory palace
-	// and its Qdrant/Ollama clients are wired in later phases.
+	// Bounded contexts: tenant (auth + workspaces), skill (load_skill), and
+	// usage (monthly request metering). The memory palace and its Qdrant/Ollama
+	// clients are wired in later phases.
 	tenants := tenant.NewRepo(gdb)
 	skills := skill.NewService(skill.NewRepo(gdb))
+	usageSvc := usage.NewService(usage.NewRepo(gdb), tenants)
 
 	if err := seedIfEmpty(ctx, gdb, tenants, skill.NewRepo(gdb)); err != nil {
 		return fmt.Errorf("seed: %w", err)
@@ -92,8 +98,9 @@ func run(ctx context.Context, cfg config.Config) error {
 
 	// The MCP server, exposed over Streamable HTTP. The HTTP context func runs
 	// per request, turning the Bearer token into a tenant on the context the
-	// tools read — this is the only place auth touches the transport.
-	mcpSrv := mcpserver.New(mcpserver.Deps{Skills: skills})
+	// tools read — this is the only place auth touches the transport. Tools
+	// meter each call against the workspace's monthly cap via usageSvc.
+	mcpSrv := mcpserver.New(mcpserver.Deps{Skills: skills, Usage: usageSvc})
 	streamSrv := server.NewStreamableHTTPServer(
 		mcpSrv,
 		server.WithHTTPContextFunc(auth.HTTPContextFunc(tenants)),
@@ -103,18 +110,40 @@ func run(ctx context.Context, cfg config.Config) error {
 		server.WithStateLess(true),
 	)
 
+	// The human-facing dashboard (register/login/create project) shares the same
+	// chi router and database; agents use /mcp, people use the web routes.
+	webSrv := web.New(tenants, usageSvc, sessionKey())
+
 	r := chi.NewRouter()
 	r.Use(middleware.Recoverer)
 	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
-	// Mount the MCP endpoint. The streamable server's default endpoint path is
-	// "/mcp", which is exactly what chi routes here.
+	// MCP endpoint (default streamable path is "/mcp").
 	r.Handle("/mcp", streamSrv)
+	// Dashboard + auth + static assets.
+	webSrv.Routes(r)
 
-	log.Printf("agentsmemory listening on %s (MCP at /mcp)", cfg.Addr)
+	log.Printf("agentsmemory listening on %s (dashboard at /, MCP at /mcp)", cfg.Addr)
 	return http.ListenAndServe(cfg.Addr, r)
+}
+
+// sessionKey returns the cookie signing key. AGENTSMEMORY_SESSION_KEY (hex) keeps
+// sessions valid across restarts in production; absent it, a random key is used
+// and a warning is logged (dev convenience — sessions reset on restart).
+func sessionKey() []byte {
+	if hexKey := os.Getenv("AGENTSMEMORY_SESSION_KEY"); hexKey != "" {
+		if raw, err := hex.DecodeString(hexKey); err == nil && len(raw) >= 32 {
+			return raw
+		}
+		log.Printf("warning: AGENTSMEMORY_SESSION_KEY is not valid hex of >=32 bytes; using a random key")
+	} else {
+		log.Printf("warning: AGENTSMEMORY_SESSION_KEY unset; using a random session key (sessions reset on restart)")
+	}
+	buf := make([]byte, 32)
+	_, _ = rand.Read(buf)
+	return buf
 }
 
 // openDB opens a pure-Go (no cgo) SQLite database through gorm's glebarez

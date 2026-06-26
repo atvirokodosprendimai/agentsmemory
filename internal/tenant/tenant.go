@@ -14,9 +14,11 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
+	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 )
 
@@ -66,13 +68,14 @@ func (Team) TableName() string { return "teams" }
 // Plan is a purchasable price tier a workspace subscribes to. The catalog is
 // seeded by migration; the app reads it to attach a plan to a workspace.
 type Plan struct {
-	ID         string `gorm:"primaryKey"`
-	Code       string `gorm:"uniqueIndex"`
-	Kind       string // personal | enterprise
-	Name       string
-	PriceCents int
-	Currency   string
-	CreatedAt  string
+	ID                string `gorm:"primaryKey"`
+	Code              string `gorm:"uniqueIndex"`
+	Kind              string // personal | enterprise
+	Name              string
+	PriceCents        int
+	Currency          string
+	MonthlyRequestCap int // metered MCP requests allowed per calendar month
+	CreatedAt         string
 }
 
 // TableName pins the gorm model to the goose-managed table.
@@ -256,4 +259,140 @@ func (r *Repo) CreateAPIKey(ctx context.Context, teamID, userID, name string) (s
 		return "", err
 	}
 	return plaintext, nil
+}
+
+// --- web auth (local user + password; goth OAuth providers added later) ---
+
+// ErrEmailTaken is returned when registering an email that already exists.
+var ErrEmailTaken = errors.New("tenant: email already registered")
+
+// ErrInvalidCredentials is returned for a bad email/password pair. It is
+// deliberately the same for "no such user" and "wrong password" so the login
+// form cannot be used to enumerate registered emails.
+var ErrInvalidCredentials = errors.New("tenant: invalid email or password")
+
+// normalizeEmail lower-cases and trims an email so lookups are case-insensitive.
+func normalizeEmail(email string) string {
+	return strings.ToLower(strings.TrimSpace(email))
+}
+
+// CreateUserWithPassword registers a new human account with a bcrypt-hashed
+// password. The cost is bcrypt's default; the plaintext is never stored.
+func (r *Repo) CreateUserWithPassword(ctx context.Context, email, password, displayName string) (User, error) {
+	email = normalizeEmail(email)
+	var existing int64
+	if err := r.db.WithContext(ctx).Model(&User{}).Where("email = ?", email).Count(&existing).Error; err != nil {
+		return User{}, err
+	}
+	if existing > 0 {
+		return User{}, ErrEmailTaken
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return User{}, err
+	}
+	if displayName == "" {
+		displayName = email
+	}
+	u := User{
+		ID: uuid.NewString(), Email: email, PasswordHash: string(hash),
+		DisplayName: displayName, CreatedAt: time.Now().UTC().Format(time.RFC3339),
+	}
+	return u, r.db.WithContext(ctx).Create(&u).Error
+}
+
+// Authenticate verifies an email/password pair and returns the user. The bcrypt
+// comparison runs even on a missing user (against a throwaway hash) to keep the
+// timing similar and avoid leaking which emails exist.
+func (r *Repo) Authenticate(ctx context.Context, email, password string) (User, error) {
+	var u User
+	err := r.db.WithContext(ctx).Where("email = ?", normalizeEmail(email)).First(&u).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) || u.PasswordHash == "" {
+		// Spend a comparison anyway so response time doesn't reveal the miss.
+		_ = bcrypt.CompareHashAndPassword([]byte("$2a$10$invalidinvalidinvalidinvalidinvalidinvalidinvalidinv"), []byte(password))
+		return User{}, ErrInvalidCredentials
+	}
+	if err != nil {
+		return User{}, err
+	}
+	if bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(password)) != nil {
+		return User{}, ErrInvalidCredentials
+	}
+	return u, nil
+}
+
+// GetUserByID loads a user by id (used to rehydrate the session each request).
+func (r *Repo) GetUserByID(ctx context.Context, id string) (User, error) {
+	var u User
+	return u, r.db.WithContext(ctx).Where("id = ?", id).First(&u).Error
+}
+
+// UpsertOAuthUser finds or creates a user by email for a social (goth) login.
+// OAuth users have no password hash; they authenticate only via their provider.
+func (r *Repo) UpsertOAuthUser(ctx context.Context, email, displayName string) (User, error) {
+	email = normalizeEmail(email)
+	var u User
+	err := r.db.WithContext(ctx).Where("email = ?", email).First(&u).Error
+	if err == nil {
+		return u, nil
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return User{}, err
+	}
+	if displayName == "" {
+		displayName = email
+	}
+	u = User{
+		ID: uuid.NewString(), Email: email, PasswordHash: "",
+		DisplayName: displayName, CreatedAt: time.Now().UTC().Format(time.RFC3339),
+	}
+	return u, r.db.WithContext(ctx).Create(&u).Error
+}
+
+// ListWorkspacesForUser returns every workspace (team) the user belongs to,
+// newest first, so the dashboard can render their projects.
+func (r *Repo) ListWorkspacesForUser(ctx context.Context, userID string) ([]Team, error) {
+	var teamIDs []string
+	if err := r.db.WithContext(ctx).Model(&Membership{}).
+		Where("user_id = ?", userID).Pluck("team_id", &teamIDs).Error; err != nil {
+		return nil, err
+	}
+	if len(teamIDs) == 0 {
+		return nil, nil
+	}
+	var teams []Team
+	err := r.db.WithContext(ctx).Where("id IN ?", teamIDs).
+		Order("created_at DESC").Find(&teams).Error
+	return teams, err
+}
+
+// PlanForTeam resolves the plan a workspace is subscribed to (e.g. to read its
+// monthly request cap). A workspace with no plan attached yields ErrNoPlan.
+func (r *Repo) PlanForTeam(ctx context.Context, teamID string) (Plan, error) {
+	var team Team
+	if err := r.db.WithContext(ctx).Where("id = ?", teamID).First(&team).Error; err != nil {
+		return Plan{}, err
+	}
+	if team.PlanID == nil {
+		return Plan{}, ErrNoPlan
+	}
+	var plan Plan
+	return plan, r.db.WithContext(ctx).Where("id = ?", *team.PlanID).First(&plan).Error
+}
+
+// ErrNoPlan is returned when a workspace has no plan attached.
+var ErrNoPlan = errors.New("tenant: workspace has no plan")
+
+// MonthlyCap returns the workspace's monthly request cap (0 = no plan / treat as
+// unlimited by the caller). It satisfies the usage package's CapLookup so the
+// metering layer can read the cap without importing tenant's models.
+func (r *Repo) MonthlyCap(ctx context.Context, teamID string) (int, error) {
+	plan, err := r.PlanForTeam(ctx, teamID)
+	if errors.Is(err, ErrNoPlan) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	return plan.MonthlyRequestCap, nil
 }

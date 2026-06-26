@@ -1,10 +1,11 @@
 // Package mcpserver wires the agentsmemory tools onto a mark3labs/mcp-go server
 // exposed over Streamable HTTP, so remote agents connect to it as their memory
 // MCP server. Every tool is tenant-scoped: it reads the tenant the auth layer
-// placed on the context and fails closed if there is none.
+// placed on the context, meters the call against the workspace's monthly request
+// cap, and fails closed when there is no tenant or the cap is exhausted.
 //
 // The skeleton registers two tools — status (liveness + tenant echo) and
-// load_skill (the centralised-skill read path). The remaining 35 tools from the
+// load_skill (the centralised-skill read path). The remaining tools from the
 // Python contract (search, add_drawer, mine, the graph/KG/diary families) slot
 // in here the same way as later phases land.
 package mcpserver
@@ -12,9 +13,12 @@ package mcpserver
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
 	"github.com/atvirokodosprendimai/agentsmemory/internal/auth"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/skill"
+	"github.com/atvirokodosprendimai/agentsmemory/internal/tenant"
+	"github.com/atvirokodosprendimai/agentsmemory/internal/usage"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -24,46 +28,69 @@ import (
 // reaching for globals) keeps the server testable and the wiring explicit.
 type Deps struct {
 	Skills *skill.Service
+	Usage  *usage.Service
 }
 
-// New builds the MCP server and registers all tools. The returned *MCPServer is
-// handed to a transport (Streamable HTTP) in cmd/server.
+// New builds the MCP server and registers all tools.
 func New(deps Deps) *server.MCPServer {
 	srv := server.NewMCPServer(
 		"agentsmemory",
 		"0.1.0",
 		server.WithToolCapabilities(true), // advertise the tools/list capability
 	)
-
-	registerStatus(srv)
-	registerLoadSkill(srv, deps.Skills)
+	registerStatus(srv, deps.Usage)
+	registerLoadSkill(srv, deps.Skills, deps.Usage)
 	return srv
 }
 
-// registerStatus adds the status tool: a cheap call an agent makes to confirm
-// the connection is authenticated and to learn which team it is scoped to.
-func registerStatus(srv *server.MCPServer) {
+// admit resolves the tenant and meters one request against the workspace's
+// monthly cap. It returns the tenant on success, or a ready-to-return error
+// result (and ok=false) when the caller is unauthenticated, the meter fails, or
+// the cap is exhausted. Centralising this keeps every tool's preamble identical.
+func admit(ctx context.Context, usageSvc *usage.Service) (tenant.Tenant, *mcp.CallToolResult, bool) {
+	t, ok := auth.TenantFrom(ctx)
+	if !ok {
+		return tenant.Tenant{}, mcp.NewToolResultError("unauthenticated: present a valid Bearer token"), false
+	}
+	st, err := usageSvc.Allow(ctx, t.TeamID)
+	if err != nil {
+		return tenant.Tenant{}, mcp.NewToolResultError("usage metering failed"), false
+	}
+	if !st.Allowed {
+		return tenant.Tenant{}, mcp.NewToolResultError(
+			fmt.Sprintf("monthly request cap reached (%d/%d) — upgrade the project's plan", st.Used, st.Cap),
+		), false
+	}
+	return t, nil, true
+}
+
+// registerStatus adds the status tool: a cheap, metered call confirming the
+// session is authenticated and reporting the team and remaining quota.
+func registerStatus(srv *server.MCPServer, usageSvc *usage.Service) {
 	tool := mcp.NewTool("status",
-		mcp.WithDescription("Report server liveness and the team this MCP session is scoped to."),
+		mcp.WithDescription("Report server liveness, the team this MCP session is scoped to, and remaining monthly quota."),
 	)
 	srv.AddTool(tool, func(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		t, ok := auth.TenantFrom(ctx)
+		t, errResult, ok := admit(ctx, usageSvc)
 		if !ok {
-			return mcp.NewToolResultError("unauthenticated: present a valid Bearer token"), nil
+			return errResult, nil
 		}
+		st, _ := usageSvc.Snapshot(ctx, t.TeamID)
 		out, _ := json.Marshal(map[string]any{
-			"ok":      true,
-			"team_id": t.TeamID,
-			"role":    string(t.Role),
+			"ok":             true,
+			"team_id":        t.TeamID,
+			"role":           string(t.Role),
+			"used_this_month": st.Used,
+			"monthly_cap":    st.Cap,
+			"remaining":      st.Remaining(),
 		})
 		return mcp.NewToolResultText(string(out)), nil
 	})
 }
 
 // registerLoadSkill adds the load_skill tool: an agent passes a skill name and
-// receives the centralised, team-shared skill body so it can load it into a
-// skill slot. Read access is granted to any team member.
-func registerLoadSkill(srv *server.MCPServer, skills *skill.Service) {
+// receives the centralised, team-shared skill body. Read access for any member.
+func registerLoadSkill(srv *server.MCPServer, skills *skill.Service, usageSvc *usage.Service) {
 	tool := mcp.NewTool("load_skill",
 		mcp.WithDescription("Load a centralised, team-shared skill by name. Returns the skill body and version so the calling agent can use it directly."),
 		mcp.WithString("name",
@@ -72,19 +99,18 @@ func registerLoadSkill(srv *server.MCPServer, skills *skill.Service) {
 		),
 	)
 	srv.AddTool(tool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		t, ok := auth.TenantFrom(ctx)
+		t, errResult, ok := admit(ctx, usageSvc)
 		if !ok {
-			return mcp.NewToolResultError("unauthenticated: present a valid Bearer token"), nil
+			return errResult, nil
 		}
 		name, err := req.RequireString("name")
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
-
 		res, err := skills.Load(ctx, t.TeamID, name)
 		if err != nil {
-			// A missing skill is a normal, recoverable outcome for the agent —
-			// surface it as a tool error, not a transport failure.
+			// A missing skill is a normal outcome for the agent — surface it as
+			// a tool error, not a transport failure.
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 		out, _ := json.Marshal(res)
