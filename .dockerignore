@@ -1,0 +1,14 @@
+# Keep the build context small. Source, db/migrations, and internal/**/static
+# (the embedded assets) are NOT excluded — they are needed by the build.
+.git
+.github
+.serena
+.claude
+.env
+*.db
+*.db-shm
+*.db-wal
+/agentsmemory
+/server
+*.exe
+*.original.md
