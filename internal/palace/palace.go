@@ -1,0 +1,92 @@
+// Package palace holds the core memory-palace domain, ported faithfully from
+// the frozen Python mempalace. The metaphor is the data model: a Wing is a
+// project, a Room is an aspect inside it, a Drawer is one verbatim memory, and
+// Hallways/Tunnels are the links that make the palace navigable.
+//
+// This file defines the domain types and invariants only. Mining (text ->
+// drawers) and hybrid search (vector + BM25 + closet boost) are deliberately
+// not implemented in the skeleton — they are the next phase — but the types are
+// pinned now so every later package depends on a stable vocabulary, and every
+// type carries a tenant (TeamID) because storage is tenant-isolated.
+package palace
+
+// Drawer is the atomic memory unit: a single VERBATIM text chunk plus locating
+// metadata. The cardinal rule from the Python tool carries over — a drawer is
+// never a summary; the exact source text is preserved so recall is lossless.
+type Drawer struct {
+	// ID is a deterministic hash of (team, wing, room, source, chunkIndex) so
+	// re-mining the same source is idempotent rather than duplicative.
+	ID string
+
+	// TeamID is the owning tenant; it selects the Qdrant collection.
+	TeamID string
+
+	Wing       string // project namespace
+	Room       string // aspect within the wing
+	SourceFile string // provenance of the chunk
+	ChunkIndex int    // position within the source file
+	Content    string // verbatim text — the memory itself
+
+	// Entities are the proper nouns extracted from Content; their co-occurrence
+	// within a wing is what materialises Hallways.
+	Entities []string
+
+	// FiledAt is the RFC3339 ingestion time; ContentDate is the date the memory
+	// is *about*, extracted from filename/frontmatter/body/mtime.
+	FiledAt     string
+	ContentDate string
+}
+
+// Hallway is a within-wing link between two entities that co-occur in drawers.
+// It is derived (recomputed from drawers), never authored, and unordered: A↔B
+// and B↔A are the same hallway, so endpoints are stored sorted for a stable id.
+type Hallway struct {
+	ID              string
+	TeamID          string
+	Wing            string
+	EntityA         string
+	EntityB         string
+	CoOccurrence    int      // how many drawers mention both
+	Rooms           []string // rooms where they met
+	Label           string
+}
+
+// TunnelKind distinguishes a human-authored cross-wing link from one the miner
+// generated automatically from a shared topic.
+type TunnelKind string
+
+const (
+	// TunnelExplicit is a user-created link between two wings/rooms.
+	TunnelExplicit TunnelKind = "explicit"
+	// TunnelTopic is auto-generated when two wings share a topic label.
+	TunnelTopic TunnelKind = "topic"
+)
+
+// Endpoint is one side of a Tunnel: a location in the palace, optionally pinned
+// to a specific drawer.
+type Endpoint struct {
+	Wing     string
+	Room     string
+	DrawerID string // optional
+}
+
+// Tunnel links two locations across wings. Explicit tunnels are validated
+// against existing rooms; topic tunnels are synthesised at mine time.
+type Tunnel struct {
+	ID     string
+	TeamID string
+	Source Endpoint
+	Target Endpoint
+	Label  string
+	Kind   TunnelKind
+}
+
+// SearchHit is one ranked result from a future hybrid search. The score blends
+// vector similarity and BM25 with a closet boost, exactly as the Python
+// searcher did; it is defined here so the MCP search tool has a stable return
+// shape before the ranking is implemented.
+type SearchHit struct {
+	Drawer   Drawer
+	Score    float64 // fused rank score, higher is better
+	Distance float64 // raw cosine distance, lower is closer
+}

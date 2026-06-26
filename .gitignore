@@ -1,0 +1,15 @@
+# Build artifacts
+/agentsmemory
+/server
+*.exe
+
+# Local SQLite databases and WAL/shm sidecars
+*.db
+*.db-shm
+*.db-wal
+
+# Tooling caches
+/.serena/
+
+# OS noise
+.DS_Store
