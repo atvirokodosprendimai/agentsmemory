@@ -168,10 +168,12 @@ func TestFullAuthCodeFlow(t *testing.T) {
 		t.Fatalf("wrong tenant: %+v", tn)
 	}
 
-	// Refresh yields a new working access token.
+	// Refresh yields a new working access token (client must re-authenticate).
 	rf := url.Values{}
 	rf.Set("grant_type", "refresh_token")
 	rf.Set("refresh_token", tok.Refresh)
+	rf.Set("client_id", fc.key)
+	rf.Set("client_secret", fc.secret)
 	w2 := postToken(a, rf)
 	if w2.Code != http.StatusOK {
 		t.Fatalf("refresh status=%d body=%s", w2.Code, w2.Body.String())
@@ -182,6 +184,55 @@ func TestFullAuthCodeFlow(t *testing.T) {
 	_ = json.Unmarshal(w2.Body.Bytes(), &tok2)
 	if _, err := a.ResolveBearer(tok2.Access); err != nil {
 		t.Fatalf("refreshed access invalid: %v", err)
+	}
+}
+
+func TestAuthCodeIsSingleUse(t *testing.T) {
+	a, fc := newTestServer()
+	redirect := "https://claude.ai/cb"
+	verifier, challenge := pkcePair("verifier-single-use")
+	code := authorizeAndGetCode(t, a, fc.key, redirect, challenge)
+
+	form := url.Values{}
+	form.Set("grant_type", "authorization_code")
+	form.Set("code", code)
+	form.Set("redirect_uri", redirect)
+	form.Set("code_verifier", verifier)
+	form.Set("client_id", fc.key)
+	form.Set("client_secret", fc.secret)
+
+	if w := postToken(a, form); w.Code != http.StatusOK {
+		t.Fatalf("first redemption should succeed: %d %s", w.Code, w.Body.String())
+	}
+	// Replaying the exact same code must be refused.
+	if w := postToken(a, form); w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "invalid_grant") {
+		t.Fatalf("replay should be invalid_grant, got %d %s", w.Code, w.Body.String())
+	}
+}
+
+func TestRefreshRequiresClientSecret(t *testing.T) {
+	a, fc := newTestServer()
+	redirect := "https://claude.ai/cb"
+	verifier, challenge := pkcePair("verifier-refresh")
+	code := authorizeAndGetCode(t, a, fc.key, redirect, challenge)
+	form := url.Values{}
+	form.Set("grant_type", "authorization_code")
+	form.Set("code", code)
+	form.Set("redirect_uri", redirect)
+	form.Set("code_verifier", verifier)
+	form.Set("client_id", fc.key)
+	form.Set("client_secret", fc.secret)
+	var tok struct {
+		Refresh string `json:"refresh_token"`
+	}
+	_ = json.Unmarshal(postToken(a, form).Body.Bytes(), &tok)
+
+	// Refresh without the secret is rejected (a stolen refresh token is useless).
+	bad := url.Values{}
+	bad.Set("grant_type", "refresh_token")
+	bad.Set("refresh_token", tok.Refresh)
+	if w := postToken(a, bad); w.Code != http.StatusUnauthorized {
+		t.Fatalf("refresh without secret should be 401, got %d %s", w.Code, w.Body.String())
 	}
 }
 
