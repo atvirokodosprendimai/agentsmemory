@@ -21,8 +21,10 @@ import (
 	"github.com/atvirokodosprendimai/agentsmemory/db"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/auth"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/config"
+	"github.com/atvirokodosprendimai/agentsmemory/internal/embed/ollama"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/mcpserver"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/oauth"
+	"github.com/atvirokodosprendimai/agentsmemory/internal/palace"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/skill"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/store"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/store/qdrant"
@@ -112,6 +114,12 @@ func run(ctx context.Context, cfg config.Config) error {
 	}
 	log.Printf("vector backend: %s (SQLite source of truth)", cfg.VectorBackend)
 
+	// The memory loop: Ollama embeds text, the store seam holds the vectors, and
+	// the palace service ties them to drawer metadata. The MCP drawer tools call
+	// into this service, tenant-scoped per request.
+	embedder := ollama.New(cfg.OllamaURL, cfg.OllamaEmbedModel, cfg.HTTPTimeout)
+	drawers := palace.NewService(palace.NewRepo(gdb), embedder, vectors, defaultVectorDim)
+
 	if err := seedIfEmpty(ctx, gdb, tenants, skill.NewRepo(gdb), vectors); err != nil {
 		return fmt.Errorf("seed: %w", err)
 	}
@@ -120,7 +128,7 @@ func run(ctx context.Context, cfg config.Config) error {
 	// per request, turning the Bearer token into a tenant on the context the
 	// tools read — this is the only place auth touches the transport. Tools
 	// meter each call against the workspace's monthly cap via usageSvc.
-	mcpSrv := mcpserver.New(mcpserver.Deps{Skills: skills, Usage: usageSvc})
+	mcpSrv := mcpserver.New(mcpserver.Deps{Skills: skills, Usage: usageSvc, Drawers: drawers})
 
 	// OAuth 2.1 authorization server (stateless), validating client credentials
 	// against our own api_keys (the merged authcounterapi role). It guards /mcp
