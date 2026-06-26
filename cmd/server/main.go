@@ -24,6 +24,9 @@ import (
 	"github.com/atvirokodosprendimai/agentsmemory/internal/mcpserver"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/oauth"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/skill"
+	"github.com/atvirokodosprendimai/agentsmemory/internal/store"
+	"github.com/atvirokodosprendimai/agentsmemory/internal/store/qdrant"
+	"github.com/atvirokodosprendimai/agentsmemory/internal/store/sqlitevec"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/tenant"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/usage"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/web"
@@ -54,15 +57,17 @@ func main() {
 		Flags: []cli.Flag{
 			&cli.StringFlag{Name: "addr", Value: def.Addr, Usage: "HTTP listen address"},
 			&cli.StringFlag{Name: "db", Value: def.DBPath, Usage: "SQLite database path"},
-			&cli.StringFlag{Name: "qdrant-url", Value: def.QdrantURL, Usage: "Qdrant base URL"},
-			&cli.StringFlag{Name: "qdrant-api-key", Value: def.QdrantAPIKey, Usage: "Qdrant API key (optional)"},
-			&cli.StringFlag{Name: "ollama-url", Value: def.OllamaURL, Usage: "Ollama base URL"},
-			&cli.StringFlag{Name: "ollama-model", Value: def.OllamaEmbedModel, Usage: "Ollama embedding model"},
+			&cli.StringFlag{Name: "vector-backend", Sources: cli.EnvVars("VECTOR_BACKEND"), Value: def.VectorBackend, Usage: "search index: sqlite|qdrant (SQLite is always the source of truth)"},
+			&cli.StringFlag{Name: "qdrant-url", Sources: cli.EnvVars("QDRANT_URL"), Value: def.QdrantURL, Usage: "Qdrant base URL"},
+			&cli.StringFlag{Name: "qdrant-api-key", Sources: cli.EnvVars("QDRANT_API_KEY"), Value: def.QdrantAPIKey, Usage: "Qdrant API key (optional)"},
+			&cli.StringFlag{Name: "ollama-url", Sources: cli.EnvVars("OLLAMA_URL"), Value: def.OllamaURL, Usage: "Ollama base URL"},
+			&cli.StringFlag{Name: "ollama-model", Sources: cli.EnvVars("OLLAMA_EMBED_MODEL"), Value: def.OllamaEmbedModel, Usage: "Ollama embedding model"},
 		},
 		Action: func(ctx context.Context, c *cli.Command) error {
 			cfg := config.Config{
 				Addr:             c.String("addr"),
 				DBPath:           c.String("db"),
+				VectorBackend:    c.String("vector-backend"),
 				QdrantURL:        c.String("qdrant-url"),
 				QdrantAPIKey:     c.String("qdrant-api-key"),
 				OllamaURL:        c.String("ollama-url"),
@@ -93,13 +98,21 @@ func run(ctx context.Context, cfg config.Config) error {
 	}
 
 	// Bounded contexts: tenant (auth + workspaces), skill (load_skill), and
-	// usage (monthly request metering). The memory palace and its Qdrant/Ollama
-	// clients are wired in later phases.
+	// usage (monthly request metering).
 	tenants := tenant.NewRepo(gdb)
 	skills := skill.NewService(skill.NewRepo(gdb))
 	usageSvc := usage.NewService(usage.NewRepo(gdb), tenants)
 
-	if err := seedIfEmpty(ctx, gdb, tenants, skill.NewRepo(gdb)); err != nil {
+	// Vector storage: SQLite is always the source of truth; cfg.VectorBackend
+	// selects whether it also serves search or Qdrant indexes it. The embedder
+	// (Ollama) is wired in a later phase against this same seam.
+	vectors, err := buildVectorStore(cfg, gdb)
+	if err != nil {
+		return fmt.Errorf("vector store: %w", err)
+	}
+	log.Printf("vector backend: %s (SQLite source of truth)", cfg.VectorBackend)
+
+	if err := seedIfEmpty(ctx, gdb, tenants, skill.NewRepo(gdb), vectors); err != nil {
 		return fmt.Errorf("seed: %w", err)
 	}
 
@@ -208,6 +221,29 @@ func sessionKey() []byte {
 	return buf
 }
 
+// defaultVectorDim is the embedding dimension new vector namespaces are created
+// with — bge-m3 (the default Ollama model) produces 1024-d vectors, matching the
+// Qdrant collection size in internal/store/qdrant.
+const defaultVectorDim = 1024
+
+// buildVectorStore assembles the vector layer from cfg. SQLite is always the
+// durable source of truth (sqlitevec); cfg.VectorBackend then decides whether it
+// also serves search or whether Qdrant is layered on as the search index via
+// store.Hybrid. This switch is the single swap point for the search backend.
+func buildVectorStore(cfg config.Config, gdb *gorm.DB) (store.VectorStore, error) {
+	sot := sqlitevec.New(gdb)
+	switch cfg.VectorBackend {
+	case config.VectorBackendSQLite:
+		return sot, nil
+	case config.VectorBackendQdrant:
+		index := qdrant.New(cfg.QdrantURL, cfg.QdrantAPIKey, cfg.HTTPTimeout)
+		return store.NewHybrid(sot, index), nil
+	default:
+		return nil, fmt.Errorf("unknown vector backend %q (want %q or %q)",
+			cfg.VectorBackend, config.VectorBackendSQLite, config.VectorBackendQdrant)
+	}
+}
+
 // openDB opens a pure-Go (no cgo) SQLite database through gorm's glebarez
 // driver. gorm is the query layer; goose owns the schema, so AutoMigrate is
 // never called. The logger is silenced because expected "record not found"
@@ -231,7 +267,7 @@ func migrate(sqlDB *sql.DB) error {
 // seedIfEmpty creates a demo team, owner, API key, and one example skill on a
 // brand-new database, printing the one-time token so the operator can connect an
 // agent immediately. On an already-seeded database it is a no-op.
-func seedIfEmpty(ctx context.Context, gdb *gorm.DB, tenants *tenant.Repo, skills *skill.Repo) error {
+func seedIfEmpty(ctx context.Context, gdb *gorm.DB, tenants *tenant.Repo, skills *skill.Repo, vectors store.VectorStore) error {
 	var teamCount int64
 	if err := gdb.WithContext(ctx).Model(&tenant.Team{}).Count(&teamCount).Error; err != nil {
 		return err
@@ -243,6 +279,12 @@ func seedIfEmpty(ctx context.Context, gdb *gorm.DB, tenants *tenant.Repo, skills
 	t, cred, err := tenants.SeedTeamWithKey(ctx, "Demo Team", "demo", "owner@demo.local")
 	if err != nil {
 		return err
+	}
+	// Ready the demo workspace's vector namespace so its first write/search has
+	// somewhere to land — a no-op for the SQLite backend, a collection create
+	// for Qdrant.
+	if err := vectors.EnsureNamespace(ctx, t.TeamID, defaultVectorDim); err != nil {
+		return fmt.Errorf("ensure demo vector namespace: %w", err)
 	}
 	if _, err := skills.Upsert(ctx, t.TeamID, "hello",
 		"A starter skill proving load_skill works.",
