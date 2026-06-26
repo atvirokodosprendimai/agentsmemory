@@ -16,11 +16,13 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/atvirokodosprendimai/agentsmemory/db"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/auth"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/config"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/mcpserver"
+	"github.com/atvirokodosprendimai/agentsmemory/internal/oauth"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/skill"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/tenant"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/usage"
@@ -29,6 +31,7 @@ import (
 	"github.com/glebarez/sqlite"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/joho/godotenv"
 	"github.com/mark3labs/mcp-go/server"
 	"github.com/pressly/goose/v3"
 	"github.com/urfave/cli/v3"
@@ -37,6 +40,10 @@ import (
 )
 
 func main() {
+	// Load a .env file if present (best effort) so secrets and config can live
+	// in a local file during development; real env vars still take precedence.
+	_ = godotenv.Load()
+
 	def := config.Default()
 
 	// urfave/cli v3 models the program as a Command; flags default to the
@@ -101,11 +108,25 @@ func run(ctx context.Context, cfg config.Config) error {
 	// tools read — this is the only place auth touches the transport. Tools
 	// meter each call against the workspace's monthly cap via usageSvc.
 	mcpSrv := mcpserver.New(mcpserver.Deps{Skills: skills, Usage: usageSvc})
+
+	// OAuth 2.1 authorization server (stateless), validating client credentials
+	// against our own api_keys (the merged authcounterapi role). It guards /mcp
+	// and serves the discovery + token endpoints claude.ai's remote connector
+	// needs. tenants satisfies both the client validator and the raw-token
+	// resolver, so OAuth bearers and direct API tokens share one /mcp.
+	sealer, err := oauth.NewSealer(oauthSecret())
+	if err != nil {
+		return fmt.Errorf("oauth sealer: %w", err)
+	}
+	issuer := oauthIssuer(cfg.Addr)
+	authSrv := oauth.NewAuthServer(issuer, sealer, tenants, tenants)
+
 	streamSrv := server.NewStreamableHTTPServer(
 		mcpSrv,
-		server.WithHTTPContextFunc(auth.HTTPContextFunc(tenants)),
-		// Stateless: no server-side session map. Every POST re-resolves its
-		// tenant from the Bearer token, which suits a multi-tenant remote
+		// The OAuth gate resolves the bearer and puts the tenant on the request
+		// context; Bridge forwards it into the per-tool context.
+		server.WithHTTPContextFunc(auth.Bridge),
+		// Stateless: no server-side session map. Suits a multi-tenant remote
 		// server and lets it scale horizontally behind a load balancer.
 		server.WithStateLess(true),
 	)
@@ -120,13 +141,50 @@ func run(ctx context.Context, cfg config.Config) error {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
-	// MCP endpoint (default streamable path is "/mcp").
-	r.Handle("/mcp", streamSrv)
+
+	// OAuth discovery + endpoints for the claude.ai remote-connector handshake.
+	r.Get("/.well-known/oauth-protected-resource", authSrv.ProtectedResourceMetadata)
+	r.Get("/.well-known/oauth-authorization-server", authSrv.AuthorizationServerMetadata)
+	r.Get("/authorize", authSrv.Authorize)
+	r.Post("/token", authSrv.Token)
+
+	// MCP endpoint, fronted by the OAuth gate: it 401-challenges unauthenticated
+	// requests (so the connector starts OAuth) and lets resolved bearers (OAuth
+	// or direct API token) through to the stateless MCP handler.
+	r.Handle("/mcp", authSrv.Gate(streamSrv))
+
 	// Dashboard + auth + static assets.
 	webSrv.Routes(r)
 
-	log.Printf("agentsmemory listening on %s (dashboard at /, MCP at /mcp)", cfg.Addr)
+	log.Printf("agentsmemory listening on %s (dashboard /, MCP /mcp, OAuth issuer %s)", cfg.Addr, issuer)
 	return http.ListenAndServe(cfg.Addr, r)
+}
+
+// oauthSecret returns the key that seals OAuth tokens. OAUTH_SECRET_KEY keeps
+// tokens valid across restarts; absent it, a random key is used (and every
+// previously issued OAuth token becomes invalid on restart).
+func oauthSecret() string {
+	if s := os.Getenv("OAUTH_SECRET_KEY"); s != "" {
+		return s
+	}
+	log.Printf("warning: OAUTH_SECRET_KEY unset; using a random key (OAuth tokens reset on restart)")
+	buf := make([]byte, 32)
+	_, _ = rand.Read(buf)
+	return hex.EncodeToString(buf)
+}
+
+// oauthIssuer is the public base URL advertised in OAuth metadata. In production
+// set OAUTH_ISSUER to the external https URL (no trailing slash, no /mcp); for
+// local dev it is derived from the listen address.
+func oauthIssuer(addr string) string {
+	if v := os.Getenv("OAUTH_ISSUER"); v != "" {
+		return strings.TrimRight(v, "/")
+	}
+	host := addr
+	if strings.HasPrefix(host, ":") {
+		host = "localhost" + host
+	}
+	return "http://" + host
 }
 
 // sessionKey returns the cookie signing key. AGENTSMEMORY_SESSION_KEY (hex) keeps
@@ -178,7 +236,7 @@ func seedIfEmpty(ctx context.Context, gdb *gorm.DB, tenants *tenant.Repo, skills
 		return nil
 	}
 
-	t, token, err := tenants.SeedTeamWithKey(ctx, "Demo Team", "demo", "owner@demo.local")
+	t, cred, err := tenants.SeedTeamWithKey(ctx, "Demo Team", "demo", "owner@demo.local")
 	if err != nil {
 		return err
 	}
@@ -190,7 +248,8 @@ func seedIfEmpty(ctx context.Context, gdb *gorm.DB, tenants *tenant.Repo, skills
 	}
 
 	log.Printf("seeded demo team %s", t.TeamID)
-	log.Printf("MCP bearer token (shown once): %s", token)
-	log.Printf("try: curl -H 'Authorization: Bearer %s' ... http://%s/mcp", token, "<addr>")
+	log.Printf("OAuth client_id (shown once): %s", cred.ClientKey)
+	log.Printf("MCP bearer token / secret (shown once): %s", cred.Secret)
+	log.Printf("try: curl -H 'Authorization: Bearer %s' ... http://%s/mcp", cred.Secret, "<addr>")
 	return nil
 }

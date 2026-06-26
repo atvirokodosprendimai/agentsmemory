@@ -140,14 +140,13 @@ func (s *Server) postCreateProject(w http.ResponseWriter, r *http.Request) {
 
 	// "Free project" = a personal-kind workspace on the Free plan (10k req/mo).
 	slug := slugify(name) + "-" + uuid.NewString()[:6]
-	t, token, err := s.tenants.CreateWorkspaceForUser(r.Context(), u.ID, name, slug, "personal", "plan_personal")
+	_, cred, err := s.tenants.CreateWorkspaceForUser(r.Context(), u.ID, name, slug, "personal", "plan_personal")
 	if err != nil {
 		_ = sse.PatchElementTempl(views.Flash(views.FlashVM{
 			Kind: "error", Message: "Could not create the project. Please try again.",
 		}))
 		return
 	}
-	_ = t // workspace id not needed further here; token is the one-time secret
 
 	projects, err := s.projectsForUser(r.Context(), u.ID)
 	if err != nil {
@@ -157,10 +156,13 @@ func (s *Server) postCreateProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The credential is shown once: client_key is the OAuth Client ID, the
+	// token is the secret (also usable directly as a Bearer).
 	_ = sse.PatchElementTempl(views.Flash(views.FlashVM{
-		Kind:    "success",
-		Message: "Project \"" + name + "\" created.",
-		Token:   token,
+		Kind:      "success",
+		Message:   "Project \"" + name + "\" created.",
+		ClientKey: cred.ClientKey,
+		Token:     cred.Secret,
 	}))
 	_ = sse.PatchElementTempl(views.ProjectsList(projects))
 	_ = sse.MarshalAndPatchSignals(map[string]any{"projectName": ""})
