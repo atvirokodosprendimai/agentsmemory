@@ -30,19 +30,20 @@ type drawerRow struct {
 func (drawerRow) TableName() string { return "drawers" }
 
 // WingStat is one row of the list_wings aggregation: a wing with how many
-// drawers and distinct rooms it holds.
+// drawers and distinct rooms it holds. The json tags keep the MCP wire shape
+// snake_case, matching the drawer views (the struct is returned to agents as-is).
 type WingStat struct {
-	Wing    string `gorm:"column:wing"`
-	Drawers int    `gorm:"column:drawers"`
-	Rooms   int    `gorm:"column:rooms"`
+	Wing    string `gorm:"column:wing" json:"wing"`
+	Drawers int    `gorm:"column:drawers" json:"drawers"`
+	Rooms   int    `gorm:"column:rooms" json:"rooms"`
 }
 
 // RoomStat is one row of the list_rooms aggregation: a room (within its wing)
 // and its drawer count.
 type RoomStat struct {
-	Wing    string `gorm:"column:wing"`
-	Room    string `gorm:"column:room"`
-	Drawers int    `gorm:"column:drawers"`
+	Wing    string `gorm:"column:wing" json:"wing"`
+	Room    string `gorm:"column:room" json:"room"`
+	Drawers int    `gorm:"column:drawers" json:"drawers"`
 }
 
 // Repo is the gorm-backed persistence for drawer metadata. It owns only the
