@@ -57,10 +57,14 @@ func sanitizeKGValue(value, field string) (string, error) {
 // sanitize_iso_temporal contract — because the temporal columns are compared as
 // plain text and only one canonical shape keeps that ordering sound.
 func sanitizeISOTemporal(value, field string) (string, error) {
-	value = strings.TrimSpace(value)
+	// A genuinely empty value means "unbounded" and passes through. A whitespace-only
+	// value, by contrast, is a malformed input: after trimming it becomes "" and
+	// falls through to the switch default below, which rejects it — matching the
+	// frozen sanitizer, which checks emptiness before stripping.
 	if value == "" {
 		return "", nil
 	}
+	value = strings.TrimSpace(value)
 	switch {
 	case kgDateRE.MatchString(value):
 		if _, err := time.Parse("2006-01-02", value); err != nil {
