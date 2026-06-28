@@ -25,14 +25,20 @@ type fakeDrawers struct {
 	drawers, closets, kg, tunnels, recomputes int
 }
 
-func (f *fakeDrawers) ImportDrawers(_ context.Context, _ string, in []palace.ImportDrawer) (int, error) {
+func (f *fakeDrawers) AbsorbDrawers(_ context.Context, _ string, in []palace.ImportDrawer) (int, error) {
 	f.drawers += len(in)
 	return len(in), nil
 }
 
-func (f *fakeDrawers) ImportClosets(_ context.Context, _ string, in []palace.ImportCloset) (int, error) {
+func (f *fakeDrawers) AbsorbClosets(_ context.Context, _ string, in []palace.ImportCloset) (int, error) {
 	f.closets += len(in)
 	return len(in), nil
+}
+
+// PendingCount reports the absorbed rows as still awaiting background embedding,
+// which is what the finalize summary surfaces to the client.
+func (f *fakeDrawers) PendingCount(_ context.Context, _ string) (int, error) {
+	return f.drawers + f.closets, nil
 }
 
 func (f *fakeDrawers) KGAdd(_ context.Context, _, _, _, _, _, _, _, _, _ string) (palace.KGAddResult, error) {
@@ -124,6 +130,10 @@ func TestImportRoutesEveryKind(t *testing.T) {
 	}
 	if fd.recomputes != 1 {
 		t.Errorf("recomputes = %d, want exactly 1 at the end", fd.recomputes)
+	}
+	// Absorbed rows are reported as pending background embedding (2 drawers + 1 closet).
+	if last.Pending != 3 {
+		t.Errorf("pending = %d, want 3 (rows awaiting background embedding)", last.Pending)
 	}
 }
 

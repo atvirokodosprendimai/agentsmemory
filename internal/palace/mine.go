@@ -230,6 +230,19 @@ func (s *Service) buildAndStoreClosets(ctx context.Context, teamID, wing, room, 
 // never indexed without its embedding; the closet payload carries the source so a
 // search hit maps straight back to the drawers it should boost.
 func (s *Service) storeClosets(ctx context.Context, teamID string, closets []Closet, vectors [][]float32) error {
+	if err := s.upsertClosetVectors(ctx, teamID, closets, vectors); err != nil {
+		return err
+	}
+	if err := s.repo.SaveClosets(ctx, closets); err != nil {
+		return fmt.Errorf("save closets: %w", err)
+	}
+	return nil
+}
+
+// upsertClosetVectors ensures the per-tenant closet namespace and writes the
+// closet embeddings only — no rows. Shared by storeClosets (sync) and the
+// background embed worker (which backfills vectors for absorbed closet rows).
+func (s *Service) upsertClosetVectors(ctx context.Context, teamID string, closets []Closet, vectors [][]float32) error {
 	if len(closets) == 0 {
 		return nil
 	}
@@ -251,9 +264,6 @@ func (s *Service) storeClosets(ctx context.Context, teamID string, closets []Clo
 	}
 	if err := s.vectors.Upsert(ctx, ns, points); err != nil {
 		return fmt.Errorf("upsert closet vectors: %w", err)
-	}
-	if err := s.repo.SaveClosets(ctx, closets); err != nil {
-		return fmt.Errorf("save closets: %w", err)
 	}
 	return nil
 }

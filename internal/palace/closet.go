@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"gorm.io/gorm/clause"
 )
@@ -207,32 +208,138 @@ type closetRow struct {
 	Document   string `gorm:"column:document"`
 	Entities   string `gorm:"column:entities"` // semicolon-joined
 	FiledAt    string `gorm:"column:filed_at"`
+	// EmbeddedAt mirrors drawerRow: NULL while awaiting background embedding,
+	// RFC3339 once the closet's vector is built (migration 00013).
+	EmbeddedAt *string `gorm:"column:embedded_at"`
 }
 
 // TableName pins the table so gorm does not pluralise to "closet_rows".
 func (closetRow) TableName() string { return "closets" }
 
-// SaveClosets upserts closets by (team_id, id). An empty slice is a no-op.
+// closetToRow flattens a domain Closet into its storage shape (sans embedded_at,
+// which the two save paths set differently).
+func closetToRow(c Closet) closetRow {
+	return closetRow{
+		TeamID:     c.TeamID,
+		ID:         c.ID,
+		Wing:       c.Wing,
+		Room:       c.Room,
+		SourceFile: c.SourceFile,
+		Document:   c.Document,
+		Entities:   strings.Join(c.Entities, ";"),
+		FiledAt:    c.FiledAt,
+	}
+}
+
+// SaveClosets upserts closets by (team_id, id). An empty slice is a no-op. Like
+// drawer Save, every caller embedded the closet first, so the row is stamped
+// embedded_at=now and never enters the background queue.
 func (r *Repo) SaveClosets(ctx context.Context, closets []Closet) error {
+	if len(closets) == 0 {
+		return nil
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	rows := make([]closetRow, len(closets))
+	for i, c := range closets {
+		rows[i] = closetToRow(c)
+		rows[i].EmbeddedAt = &now
+	}
+	return r.db.WithContext(ctx).
+		Clauses(clause.OnConflict{UpdateAll: true}).
+		Create(&rows).Error
+}
+
+// SaveClosetsUnembedded inserts closet rows with embedded_at NULL — the absorb
+// half of a migration import. On conflict it refreshes the mutable columns but
+// leaves embedded_at untouched (mirrors SaveUnembedded): a re-absorb updates
+// metadata without re-queueing an already-indexed closet. The id hashes the
+// document, so document/source never differ on a conflict.
+func (r *Repo) SaveClosetsUnembedded(ctx context.Context, closets []Closet) error {
 	if len(closets) == 0 {
 		return nil
 	}
 	rows := make([]closetRow, len(closets))
 	for i, c := range closets {
-		rows[i] = closetRow{
-			TeamID:     c.TeamID,
-			ID:         c.ID,
-			Wing:       c.Wing,
-			Room:       c.Room,
-			SourceFile: c.SourceFile,
-			Document:   c.Document,
-			Entities:   strings.Join(c.Entities, ";"),
-			FiledAt:    c.FiledAt,
-		}
+		rows[i] = closetToRow(c) // EmbeddedAt nil -> NULL -> pending on insert
 	}
 	return r.db.WithContext(ctx).
-		Clauses(clause.OnConflict{UpdateAll: true}).
+		Clauses(clause.OnConflict{
+			Columns: []clause.Column{{Name: "team_id"}, {Name: "id"}},
+			DoUpdates: clause.AssignmentColumns([]string{
+				"wing", "room", "source_file", "document", "entities", "filed_at",
+			}),
+		}).
 		Create(&rows).Error
+}
+
+// PendingClosets returns up to limit un-embedded closets for a team, oldest first.
+func (r *Repo) PendingClosets(ctx context.Context, teamID string, limit int) ([]Closet, error) {
+	if limit <= 0 {
+		limit = 64
+	}
+	var rows []closetRow
+	if err := r.db.WithContext(ctx).
+		Where("team_id = ? AND embedded_at IS NULL", teamID).
+		Order("filed_at ASC, id ASC").
+		Limit(limit).
+		Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := make([]Closet, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, Closet{
+			ID:         row.ID,
+			TeamID:     row.TeamID,
+			Wing:       row.Wing,
+			Room:       row.Room,
+			SourceFile: row.SourceFile,
+			Document:   row.Document,
+			Entities:   splitEntities(row.Entities),
+			FiledAt:    row.FiledAt,
+		})
+	}
+	return out, nil
+}
+
+// MarkClosetsEmbedded stamps embedded_at on the given closet ids within a team,
+// after their vectors are durably upserted. An empty id slice is a no-op.
+func (r *Repo) MarkClosetsEmbedded(ctx context.Context, teamID string, ids []string, at string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	return r.db.WithContext(ctx).
+		Model(&closetRow{}).
+		Where("team_id = ? AND id IN ?", teamID, ids).
+		Update("embedded_at", at).Error
+}
+
+// TeamsWithPendingClosets lists distinct teams with at least one un-embedded
+// closet. limit bounds the slice (0 = unbounded).
+func (r *Repo) TeamsWithPendingClosets(ctx context.Context, limit int) ([]string, error) {
+	q := r.db.WithContext(ctx).
+		Model(&closetRow{}).
+		Distinct("team_id").
+		Where("embedded_at IS NULL")
+	if limit > 0 {
+		q = q.Limit(limit)
+	}
+	var teams []string
+	if err := q.Pluck("team_id", &teams).Error; err != nil {
+		return nil, err
+	}
+	return teams, nil
+}
+
+// PendingClosetCount is how many of a team's closets still await embedding.
+func (r *Repo) PendingClosetCount(ctx context.Context, teamID string) (int64, error) {
+	var n int64
+	if err := r.db.WithContext(ctx).
+		Model(&closetRow{}).
+		Where("team_id = ? AND embedded_at IS NULL", teamID).
+		Count(&n).Error; err != nil {
+		return 0, err
+	}
+	return n, nil
 }
 
 // ClosetIDsBySource returns the ids of every closet built from a source, so a
@@ -284,4 +391,3 @@ func (r *Repo) ClosetsByIDs(ctx context.Context, teamID string, ids []string) (m
 	}
 	return out, nil
 }
-
