@@ -107,6 +107,11 @@ type Service struct {
 	// miner's per-source mine_lock. Note: it does NOT coordinate across horizontally
 	// scaled instances — a cross-instance guard would need a DB advisory lock.
 	mineLocks keyedMutex
+	// graphLocks serializes a team's recompute_graph the same way: a recompute
+	// replaces hallways and delete-and-rebuilds entity tunnels, so two concurrent
+	// recomputes of one team could interleave and leave a stale rebuild. Same
+	// in-process caveat as mineLocks.
+	graphLocks keyedMutex
 }
 
 // NewService wires the collaborators. dim is the embedding width used to create a

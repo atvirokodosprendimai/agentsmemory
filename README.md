@@ -12,7 +12,7 @@ versioned skills** the team keeps up to date.
 > **Status: early skeleton.** The tenancy, auth, skill registry, storage clients
 > and MCP transport are wired and verified end-to-end, and the **core memory
 > loop** (file a drawer → recall it semantically) now works end-to-end against
-> Ollama + the vector store. Today the server exposes **17 of the planned 37 MCP
+> Ollama + the vector store. Today the server exposes **27 of the planned 37 MCP
 > tools** (`status`, `load_skill`, the WRITE/FILE + SEARCH/RECALL + STATUS/ADMIN
 > families, plus the agent `diary` and the `mine` pipeline). Search is **hybrid** —
 > vector candidates re-ranked by vector + BM25 + closet boost — and `mine` turns a
@@ -147,7 +147,10 @@ shared, versioned source of truth** and its agents pull from it:
 | `reconnect` | ✅ | Re-ready the workspace's vector store (stateless liveness probe) |
 | `diary_write` / `diary_read` | ✅ | Append to / read an agent's append-only journal (timestamped, newest-first) |
 | `mine` | ✅ | Mine a text payload into chunked drawers (entities + content date) + the closet index; idempotent by source |
-| `create_tunnel`, `kg_add`, … | 🔜 | The remaining graph/KG tools (20), ported from the Python contract |
+| `list_hallways` / `delete_hallway` | ✅ | Within-wing entity co-occurrence links (derived from mined entities) |
+| `create_tunnel` / `delete_tunnel` / `list_tunnels` / `find_tunnels` / `follow_tunnels` | ✅ | Cross-wing links — explicit (authored, symmetric) + derived (entity) |
+| `traverse` / `graph_stats` / `recompute_graph` | ✅ | Walk the room↔wing graph, summarise it, rebuild hallways + entity tunnels |
+| `kg_add`, `sync`, … | 🔜 | The remaining KG + admin tools (10), ported from the Python contract |
 
 ---
 
@@ -278,7 +281,8 @@ called). Schema changes are additive migrations under `db/migrations/`.
 - [x] Agent diary — `diary_write` / `diary_read` (timestamped, append-only journal) (16 of 37)
 - [x] Hybrid search — vector candidates re-ranked by vector + BM25 + closet boost (RRF-style convex blend)
 - [x] Mining pipeline — `mine` text → chunked drawers (entities + content date) + closet index, idempotent by source (17 of 37)
-- [ ] Remaining MCP tools — graph/tunnels, KG (20 of 37)
+- [x] Graph — hallways (entity co-occurrence) + tunnels (explicit + entity) + traverse/find/stats/recompute (10 tools, 27 of 37)
+- [ ] Remaining MCP tools — KG (temporal facts) + admin (sync, merge_wing, …) (10 of 37)
 - [ ] `list_skills` + `update_skill` + a `/load-skill` Claude command
 - [ ] Web dashboard (`goth` login, key & skill management) — `templ` + datastar
 - [ ] Subscriptions / billing
