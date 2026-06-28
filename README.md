@@ -289,8 +289,10 @@ called). Schema changes are additive migrations under `db/migrations/`.
 - [x] Knowledge graph — temporal subject→predicate→object facts with validity windows (5 tools, 32 of 37)
 - [x] Skill registry CRUD — `list_skills` + `update_skill` (role-gated)
 - [x] Admin — `merge_wing` + `memories_filed_away` (36 of 37; `sync`/`hook_settings` are single-user-local, not ported)
-- [ ] `list_skills` + `update_skill` + a `/load-skill` Claude command
-- [ ] Web dashboard (`goth` login, key & skill management) — `templ` + datastar
+- [x] Web dashboard — local (`goth`) login, project create + one-time API key, monthly usage metering — `templ` + datastar
+- [x] Web skill management — per-project list / create / edit (role-gated to writer/admin), membership-checked routes
+- [ ] Web — API-key rotation/revoke + team/member management (invite, set role)
+- [ ] A `/load-skill` Claude command (the client-side nicety over the `load_skill` tool)
 - [ ] Subscriptions / billing
 
 ---
