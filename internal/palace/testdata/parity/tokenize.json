@@ -1,0 +1,118 @@
+{
+  "_generated_by": "internal/palace/testdata/parity/gen_golden.py",
+  "_frozen_reference": "/Users/mind/.claude/mempalace-frozen/mempalace",
+  "_note": "golden output of the frozen Python ranking funcs; regenerate via gen_golden.py",
+  "cases": [
+    {
+      "name": "ascii_basic",
+      "input": "The LRU-cache, evicts! 2x x",
+      "want": [
+        "the",
+        "lru",
+        "cache",
+        "evicts",
+        "2x"
+      ]
+    },
+    {
+      "name": "empty",
+      "input": "",
+      "want": []
+    },
+    {
+      "name": "single_chars_dropped",
+      "input": "a b cd e fg",
+      "want": [
+        "cd",
+        "fg"
+      ]
+    },
+    {
+      "name": "digits_underscore",
+      "input": "foo_bar 123 a1b2 __init__ v2",
+      "want": [
+        "foo_bar",
+        "123",
+        "a1b2",
+        "__init__",
+        "v2"
+      ]
+    },
+    {
+      "name": "accents",
+      "input": "Café NAÏVE résumé Über",
+      "want": [
+        "café",
+        "naïve",
+        "résumé",
+        "über"
+      ]
+    },
+    {
+      "name": "ligature_eszett",
+      "input": "ﬁle ﬀ straße GROSS",
+      "want": [
+        "ﬁle",
+        "straße",
+        "gross"
+      ]
+    },
+    {
+      "name": "cjk",
+      "input": "中文 测试 데이터 こんにちは",
+      "want": [
+        "中文",
+        "测试",
+        "데이터",
+        "こんにちは"
+      ]
+    },
+    {
+      "name": "punctuation_heavy",
+      "input": "a.b.c, x---y; (z) e2e",
+      "want": [
+        "e2e"
+      ]
+    },
+    {
+      "name": "model_names",
+      "input": "GPT-4 BGE-m3 2800/400 v1.0.2",
+      "want": [
+        "gpt",
+        "bge",
+        "m3",
+        "2800",
+        "400",
+        "v1"
+      ]
+    },
+    {
+      "name": "emoji_symbols",
+      "input": "hello 👋 world ™ café®",
+      "want": [
+        "hello",
+        "world",
+        "café"
+      ]
+    },
+    {
+      "name": "whitespace",
+      "input": "line1\nline2\ttab  spaced",
+      "want": [
+        "line1",
+        "line2",
+        "tab",
+        "spaced"
+      ]
+    },
+    {
+      "name": "mixed_case",
+      "input": "MixedCASE camelCase snake_case",
+      "want": [
+        "mixedcase",
+        "camelcase",
+        "snake_case"
+      ]
+    }
+  ]
+}

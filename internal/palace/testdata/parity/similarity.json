@@ -1,0 +1,57 @@
+{
+  "_generated_by": "internal/palace/testdata/parity/gen_golden.py",
+  "_frozen_reference": "/Users/mind/.claude/mempalace-frozen/mempalace",
+  "_note": "golden output of the frozen Python ranking funcs; regenerate via gen_golden.py",
+  "cases": [
+    {
+      "name": "cosine_d_0.0",
+      "distance": 0.0,
+      "want": 1.0
+    },
+    {
+      "name": "cosine_d_0.25",
+      "distance": 0.25,
+      "want": 0.75
+    },
+    {
+      "name": "cosine_d_0.5",
+      "distance": 0.5,
+      "want": 0.5
+    },
+    {
+      "name": "cosine_d_0.75",
+      "distance": 0.75,
+      "want": 0.25
+    },
+    {
+      "name": "cosine_d_0.999",
+      "distance": 0.999,
+      "want": 0.0010000000000000009
+    },
+    {
+      "name": "cosine_d_1.0",
+      "distance": 1.0,
+      "want": 0.0
+    },
+    {
+      "name": "cosine_d_1.0001",
+      "distance": 1.0001,
+      "want": 0.0
+    },
+    {
+      "name": "cosine_d_1.5",
+      "distance": 1.5,
+      "want": 0.0
+    },
+    {
+      "name": "cosine_d_2.0",
+      "distance": 2.0,
+      "want": 0.0
+    },
+    {
+      "name": "cosine_d_2.5",
+      "distance": 2.5,
+      "want": 0.0
+    }
+  ]
+}
