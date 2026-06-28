@@ -184,6 +184,61 @@ h1, h2, h3 { font-family: "Fraunces", Georgia, serif; font-weight: 600; letter-s
 
 footer { color: var(--faint); font-size: .8rem; padding: 2rem 0 3rem; border-top: 1px solid var(--line); }
 
+/* ---- project card footer link ---- */
+.project-foot { margin-top: .2rem; padding-top: .9rem; border-top: 1px solid var(--line); }
+.link-arrow { font-weight: 600; font-size: .9rem; display: inline-flex; align-items: center; gap: .4rem; transition: gap .15s ease; }
+.link-arrow:hover { text-decoration: none; gap: .6rem; }
+
+/* ---- project detail / skills ---- */
+.breadcrumb { padding-top: 1.5rem; font-size: .85rem; }
+.breadcrumb a { color: var(--muted); }
+.breadcrumb a:hover { color: var(--ember); text-decoration: none; }
+.meta-row { display: flex; align-items: center; gap: .8rem; margin-top: 1rem; flex-wrap: wrap; }
+.meta-row .slug { font-family: "IBM Plex Mono", monospace; font-size: .82rem; color: var(--faint); }
+
+.mono { font-family: "IBM Plex Mono", monospace; }
+
+/* editor */
+.editor { padding: 1.4rem; margin-bottom: 2rem; }
+.editor .eyebrow { margin-bottom: 1rem; }
+.field label .opt { font-weight: 400; color: var(--faint); text-transform: none; letter-spacing: 0; font-size: .76rem; margin-left: .35rem; }
+.textarea {
+  width: 100%;
+  min-height: 12rem;
+  padding: .75rem .85rem;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: .85rem;
+  line-height: 1.55;
+  color: var(--bone);
+  background: var(--ink-2);
+  border: 1px solid var(--line-2);
+  border-radius: 10px;
+  resize: vertical;
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+.textarea::placeholder { color: var(--faint); }
+.textarea:focus-visible { outline: none; border-color: var(--ember); box-shadow: 0 0 0 3px rgba(224,122,62,.25); }
+.editor-actions { display: flex; align-items: center; gap: .7rem; flex-wrap: wrap; margin-top: .3rem; }
+.editor-actions .hint { color: var(--brass); font-size: .82rem; }
+.editor-actions .hint .mono { color: var(--bone); }
+
+/* read-only note */
+.note { border: 1px dashed var(--line-2); border-radius: var(--radius); padding: 1rem 1.15rem; color: var(--muted); margin-bottom: 2rem; font-size: .92rem; }
+.note b { color: var(--brass); }
+
+/* skills list */
+.skills-head { display: flex; align-items: baseline; gap: .7rem; padding-bottom: 1rem; border-bottom: 1px solid var(--line); }
+.skills-head h2 { font-size: 1.4rem; }
+.skills-head .count { font-family: "IBM Plex Mono", monospace; font-size: .78rem; color: var(--brass); border: 1px solid var(--line-2); border-radius: 999px; padding: .1rem .55rem; }
+.skills-list { display: grid; gap: .9rem; padding: 1.2rem 0 4rem; }
+.skill { padding: 1.1rem 1.2rem; display: flex; flex-direction: column; gap: .55rem; }
+.skill-top { display: flex; align-items: flex-start; justify-content: space-between; gap: .8rem; }
+.skill-id { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; }
+.skill-name { font-family: "IBM Plex Mono", monospace; font-weight: 500; font-size: 1.05rem; letter-spacing: 0; color: var(--bone); }
+.skill-desc { color: var(--muted); margin: 0; font-size: .92rem; }
+.skill-meta { font-family: "IBM Plex Mono", monospace; font-size: .74rem; color: var(--faint); }
+.btn-sm { min-height: 34px; padding: 0 .8rem; font-size: .82rem; }
+
 @media (max-width: 540px) {
   .topbar .wrap { min-height: 56px; }
   /* Drop the email on small screens so the brand + sign-out never overflow. */

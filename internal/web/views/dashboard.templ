@@ -20,7 +20,7 @@ templ DashboardPage(d DashboardData) {
 				<input
 					class="input"
 					id="projectName"
-					data-bind:projectName
+					data-bind:project-name
 					placeholder="e.g. acme-research"
 					data-on:keydown="evt.key === 'Enter' && @post('/projects')"
 				/>
@@ -94,6 +94,12 @@ templ ProjectCard(p ProjectVM) {
 					aria-valuemax={ strconv.Itoa(p.Cap) }
 				></span>
 			</div>
+		</div>
+		<div class="project-foot">
+			<a class="link-arrow" href={ templ.SafeURL("/projects/" + p.TeamID) }>
+				Manage skills
+				<span aria-hidden="true">→</span>
+			</a>
 		</div>
 	</article>
 }

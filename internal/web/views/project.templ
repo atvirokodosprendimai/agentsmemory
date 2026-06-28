@@ -1,0 +1,154 @@
+package views
+
+import "strconv"
+
+// ProjectDetailPage is one project's skills workspace: a header, the editor (for
+// writers/admins), and the list of centralised skills. All three skill signals
+// live on one wrapper so a row's Edit button can seed the editor that binds to
+// them — datastar signals are global, but scoping them here documents intent and
+// keeps the page self-contained. Members see the read-only note instead of the
+// editor; the server still enforces the role, this only hides the controls.
+templ ProjectDetailPage(d ProjectDetailData) {
+	@Layout(d.Project.Name, d.UserEmail) {
+		<nav class="breadcrumb" aria-label="Breadcrumb">
+			<a href="/dashboard">← Projects</a>
+		</nav>
+		<section class="page-head">
+			<p class="eyebrow">Project</p>
+			<h1>{ d.Project.Name }</h1>
+			<p>Centralised skills your agents pull by name over MCP — versioned, shared across the whole workspace.</p>
+			<div class="meta-row">
+				<span class="slug">{ d.Project.Slug }</span>
+				<span class="badge">{ d.Project.PlanName }</span>
+			</div>
+		</section>
+		@Flash(d.Flash)
+		<div data-signals="{skillName:'', skillDescription:'', skillContent:''}">
+			if d.CanWrite {
+				@SkillEditor(d.Project.TeamID)
+			} else {
+				<div class="note" role="note">
+					You have read-only access to this workspace. Ask an admin for the
+					<b>writer</b> role to add or edit skills.
+				</div>
+			}
+			@SkillsList(d.Project, d.Skills, d.CanWrite)
+		</div>
+	}
+}
+
+// SkillEditor is the create/update form. It is one surface for both: saving a new
+// name creates a skill; saving an existing name overwrites it and bumps the
+// version (skill.Service.Update is an upsert). The Save button is disabled while
+// a request is in flight (data-indicator:saving) and until both required fields
+// are non-blank, so the server never receives an empty payload from the happy
+// path. The body uses a monospaced textarea because a skill is a SKILL.md.
+templ SkillEditor(teamID string) {
+	<div class="card editor">
+		<p class="eyebrow">New or updated skill</p>
+		<div class="field">
+			<label for="skillName">Name</label>
+			<input
+				class="input"
+				id="skillName"
+				data-bind:skill-name
+				placeholder="e.g. code-review"
+				autocomplete="off"
+				spellcheck="false"
+			/>
+		</div>
+		<div class="field">
+			<label for="skillDescription">Description <span class="opt">optional</span></label>
+			<input
+				class="input"
+				id="skillDescription"
+				data-bind:skill-description
+				placeholder="One line: what this skill is for"
+			/>
+		</div>
+		<div class="field">
+			<label for="skillContent">Body</label>
+			<textarea
+				class="textarea"
+				id="skillContent"
+				data-bind:skill-content
+				placeholder="The SKILL.md body your agents load…"
+				rows="12"
+				spellcheck="false"
+			></textarea>
+		</div>
+		<div class="editor-actions">
+			<button
+				class="btn btn-primary"
+				data-on:click={ "@post('/projects/" + teamID + "/skills')" }
+				data-indicator:saving
+				data-attr:disabled="$saving || $skillName === '' || $skillContent === ''"
+			>
+				<span data-show="!$saving">Save skill</span>
+				<span class="spinner" data-show="$saving" style="display:none" aria-hidden="true"></span>
+			</button>
+			<button
+				class="btn btn-ghost"
+				type="button"
+				data-on:click="$skillName=''; $skillDescription=''; $skillContent=''"
+			>Clear</button>
+			<span class="hint" data-show="$skillName !== ''" style="display:none">
+				Saving as <span class="mono" data-text="$skillName"></span> — an existing name updates and bumps its version.
+			</span>
+		</div>
+	</div>
+}
+
+// SkillsList is the morph target (id="skills") the create/update handler patches.
+// The patched fragment carries the id itself so datastar replaces this exact
+// node. The count header lives inside so it refreshes with the list.
+templ SkillsList(p ProjectVM, skills []SkillVM, canWrite bool) {
+	<div id="skills" class="skills-section">
+		<div class="skills-head">
+			<h2>Published skills</h2>
+			<span class="count">{ strconv.Itoa(len(skills)) }</span>
+		</div>
+		if len(skills) == 0 {
+			<div class="card empty">
+				<h3>No skills yet</h3>
+				if canWrite {
+					<p>Use the editor above to publish your first shared skill.</p>
+				} else {
+					<p>This workspace has not published any centralised skills.</p>
+				}
+			</div>
+		} else {
+			<div class="skills-list">
+				for _, sk := range skills {
+					@SkillRow(p, sk, canWrite)
+				}
+			</div>
+		}
+	</div>
+}
+
+// SkillRow is one skill's metadata card. The Edit button (writers only) seeds the
+// editor signals from this row and fetches the body into it; the body is not in
+// the list payload, so editing always loads the freshest stored content.
+templ SkillRow(p ProjectVM, sk SkillVM, canWrite bool) {
+	<article class="skill card">
+		<div class="skill-top">
+			<div class="skill-id">
+				<h3 class="skill-name">{ sk.Name }</h3>
+				<span class="badge">{ versionBadge(sk) }</span>
+			</div>
+			if canWrite {
+				<button
+					class="btn btn-ghost btn-sm"
+					type="button"
+					data-on:click={ editExpr(p.TeamID, sk) }
+					aria-label={ "Edit skill " + sk.Name }
+				>Edit</button>
+			}
+		</div>
+		if sk.Description != "" {
+			<p class="skill-desc">{ sk.Description }</p>
+		}
+		<div class="skill-meta">{ skillMeta(sk) }</div>
+	</article>
+}

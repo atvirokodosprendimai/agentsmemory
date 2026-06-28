@@ -193,7 +193,7 @@ func (s *Server) projectsForUser(ctx context.Context, userID string) ([]views.Pr
 			}
 		}
 		out = append(out, views.ProjectVM{
-			Name: t.Name, Slug: t.Slug, PlanName: planName, Endpoint: "/mcp",
+			TeamID: t.ID, Name: t.Name, Slug: t.Slug, PlanName: planName, Endpoint: "/mcp",
 			Used: st.Used, Cap: st.Cap, Pct: pct,
 		})
 	}

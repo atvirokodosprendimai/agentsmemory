@@ -164,7 +164,7 @@ func run(ctx context.Context, cfg config.Config) error {
 
 	// The human-facing dashboard (register/login/create project) shares the same
 	// chi router and database; agents use /mcp, people use the web routes.
-	webSrv := web.New(tenants, usageSvc, sessionKey())
+	webSrv := web.New(tenants, usageSvc, skills, sessionKey())
 
 	r := chi.NewRouter()
 	// Logger before Recoverer so even a panicked request (recovered as a 500) is
