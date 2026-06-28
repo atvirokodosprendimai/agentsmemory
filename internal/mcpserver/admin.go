@@ -40,9 +40,9 @@ func registerMergeWing(srv *server.MCPServer, drawers *palace.Service, usageSvc 
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
-		sources := stringSlice(req.GetArguments()["sources"])
-		if len(sources) == 0 {
-			return mcp.NewToolResultError("sources must be a non-empty array of wing names"), nil
+		sources, ok := stringSlice(req.GetArguments()["sources"])
+		if !ok || len(sources) == 0 {
+			return mcp.NewToolResultError("sources must be a non-empty array of wing-name strings"), nil
 		}
 		res, err := drawers.MergeWing(ctx, t.TeamID, sources, target)
 		if err != nil {
@@ -71,17 +71,21 @@ func registerMemoriesFiledAway(srv *server.MCPServer, drawers *palace.Service, u
 }
 
 // stringSlice coerces an MCP argument (a JSON array decoded to []any) into a
-// []string, dropping any non-string elements. A nil or non-array value yields nil.
-func stringSlice(v any) []string {
+// []string. It returns ok=false if the value is not an array or any element is
+// not a plain string, so a malformed `sources` is rejected outright rather than
+// silently partially applied.
+func stringSlice(v any) ([]string, bool) {
 	raw, ok := v.([]any)
 	if !ok {
-		return nil
+		return nil, false
 	}
 	out := make([]string, 0, len(raw))
 	for _, item := range raw {
-		if s, ok := item.(string); ok {
-			out = append(out, s)
+		s, ok := item.(string)
+		if !ok {
+			return nil, false
 		}
+		out = append(out, s)
 	}
-	return out
+	return out, true
 }

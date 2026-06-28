@@ -9,10 +9,18 @@ package skill
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
+)
+
+// Bounds on a skill write, so update_skill cannot store a blank name or an
+// unbounded body. A skill body (a SKILL.md) can be large but not arbitrary.
+const (
+	maxSkillNameLen    = 128
+	maxSkillContentLen = 1_000_000
 )
 
 // ErrNotFound is returned when no skill with the given name exists in the team.
@@ -20,6 +28,10 @@ var ErrNotFound = errors.New("skill: not found")
 
 // ErrForbidden is returned when a caller lacks the role to mutate a skill.
 var ErrForbidden = errors.New("skill: write requires writer or admin role")
+
+// ErrInvalidName / ErrInvalidContent reject a malformed update_skill payload.
+var ErrInvalidName = errors.New("skill: name must be non-empty and at most 128 characters")
+var ErrInvalidContent = errors.New("skill: content must be non-empty and within the size limit")
 
 // Skill is a centralised, versioned skill owned by a team. content is the body
 // an agent loads; version is bumped on every update so a later load serves the
@@ -152,6 +164,16 @@ func (s *Service) Load(ctx context.Context, teamID, name string) (LoadResult, er
 func (s *Service) Update(ctx context.Context, t RoleHolder, name, description, content string) (Skill, error) {
 	if !t.CanWrite() {
 		return Skill{}, ErrForbidden
+	}
+	// Validate the untrusted payload before it is stored: a trimmed, bounded name
+	// and a non-empty, size-bounded body. The name is trimmed so " x " and "x"
+	// address the same skill; content is kept verbatim (only length-checked).
+	name = strings.TrimSpace(name)
+	if name == "" || len(name) > maxSkillNameLen {
+		return Skill{}, ErrInvalidName
+	}
+	if strings.TrimSpace(content) == "" || len(content) > maxSkillContentLen {
+		return Skill{}, ErrInvalidContent
 	}
 	return s.repo.Upsert(ctx, t.Team(), name, description, content, t.User())
 }
