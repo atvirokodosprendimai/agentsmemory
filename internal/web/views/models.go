@@ -82,11 +82,13 @@ type ProjectVM struct {
 // revealed states. Secret is populated only in the revealed state and is never
 // part of the initial page render.
 type KeyVM struct {
-	TeamID    string
-	CanReveal bool
-	Revealed  bool
-	Secret    string
-	Error     string // shown when a reveal can't be honored (e.g. a legacy key)
+	TeamID        string
+	CanReveal     bool // viewer is an admin: may reveal and rotate
+	Revealed      bool
+	Secret        string
+	Rotated       bool   // the revealed secret is freshly rotated (old key revoked)
+	ConfirmRotate bool   // show the destructive-rotate confirmation prompt
+	Error         string // shown when a reveal can't be honored (e.g. a legacy key)
 }
 
 // copyExpr is the datastar expression the Copy button runs: write the revealed

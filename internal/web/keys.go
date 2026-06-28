@@ -27,9 +27,18 @@ func (s *Server) getProjectKey(w http.ResponseWriter, r *http.Request) {
 	}
 	admin := role == tenant.RoleAdmin
 	sse := datastar.NewSSE(w, r)
+	q := r.URL.Query()
 
-	// Re-mask path: no decryption, no role escalation possible.
-	if r.URL.Query().Get("reveal") != "1" {
+	// Rotate confirmation prompt (admin only). Rotation is destructive, so it is
+	// confirmed before the POST that performs it; a non-admin falls through to the
+	// masked state below.
+	if q.Get("confirm") == "rotate" && admin {
+		_ = sse.PatchElementTempl(views.KeyBlock(views.KeyVM{TeamID: teamID, CanReveal: true, ConfirmRotate: true}))
+		return
+	}
+
+	// Re-mask path (also Cancel from the confirm prompt): no decryption.
+	if q.Get("reveal") != "1" {
 		_ = sse.PatchElementTempl(views.KeyBlock(views.KeyVM{TeamID: teamID, CanReveal: admin}))
 		return
 	}
@@ -59,5 +68,38 @@ func (s *Server) getProjectKey(w http.ResponseWriter, r *http.Request) {
 
 	_ = sse.PatchElementTempl(views.KeyBlock(views.KeyVM{
 		TeamID: teamID, CanReveal: admin, Revealed: true, Secret: secret,
+	}))
+}
+
+// postRotateKey rotates a project's API key: it revokes the current key and mints
+// a fresh, revealable one, streaming the new secret back (shown once, in the
+// revealed state). Admin-only like reveal — rotation is a credential-management
+// action that invalidates the old bearer, so a member must never trigger it. This
+// is the recovery path the reveal-unavailable error points at.
+func (s *Server) postRotateKey(w http.ResponseWriter, r *http.Request) {
+	u, teamID, role, ok := s.membership(w, r)
+	if !ok {
+		return
+	}
+	sse := datastar.NewSSE(w, r)
+	if role != tenant.RoleAdmin {
+		_ = sse.PatchElementTempl(views.KeyBlock(views.KeyVM{
+			TeamID: teamID, CanReveal: false,
+			Error: "Only a workspace admin can rotate the API key.",
+		}))
+		return
+	}
+	cred, err := s.tenants.RotateKey(r.Context(), teamID, u.ID)
+	if err != nil {
+		_ = sse.PatchElementTempl(views.KeyBlock(views.KeyVM{
+			TeamID: teamID, CanReveal: true,
+			Error: "Could not rotate the key right now. Please try again.",
+		}))
+		return
+	}
+	// Show the new secret immediately (it is the only time it is shown) with the
+	// rotated note so the admin copies it before navigating away.
+	_ = sse.PatchElementTempl(views.KeyBlock(views.KeyVM{
+		TeamID: teamID, CanReveal: true, Revealed: true, Rotated: true, Secret: cred.Secret,
 	}))
 }

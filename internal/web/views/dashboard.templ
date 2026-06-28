@@ -108,15 +108,28 @@ templ KeyBlock(k KeyVM) {
 		<div class="kv">API key</div>
 		if k.Revealed {
 			<code class="token">{ k.Secret }</code>
+			if k.Rotated {
+				<div class="key-note" role="status">Key rotated — the previous key was revoked and has stopped working. Copy the new one now.</div>
+			}
 			<div class="key-actions">
 				<button class="btn btn-ghost btn-sm" type="button" data-on:click={ copyExpr(k.Secret) }>Copy</button>
 				<button class="btn btn-ghost btn-sm" type="button" data-on:click={ "@get('/projects/" + k.TeamID + "/key?reveal=0')" }>Hide</button>
+			</div>
+		} else if k.ConfirmRotate {
+			<div class="token muted">••••••••••••••••••••••••</div>
+			<div class="key-warn" role="alert">
+				Rotating issues a new key and <b>revokes the current one</b> — any agent still using the old key will stop working.
+			</div>
+			<div class="key-actions">
+				<button class="btn btn-primary btn-sm" type="button" data-on:click={ "@post('/projects/" + k.TeamID + "/key/rotate')" }>Confirm rotate</button>
+				<button class="btn btn-ghost btn-sm" type="button" data-on:click={ "@get('/projects/" + k.TeamID + "/key?reveal=0')" }>Cancel</button>
 			</div>
 		} else {
 			<div class="token muted">••••••••••••••••••••••••</div>
 			if k.CanReveal {
 				<div class="key-actions">
 					<button class="btn btn-ghost btn-sm" type="button" data-on:click={ "@get('/projects/" + k.TeamID + "/key?reveal=1')" }>Reveal</button>
+					<button class="btn btn-ghost btn-sm" type="button" data-on:click={ "@get('/projects/" + k.TeamID + "/key?confirm=rotate')" }>Rotate</button>
 				</div>
 			}
 		}

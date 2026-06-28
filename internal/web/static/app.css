@@ -166,6 +166,9 @@ h1, h2, h3 { font-family: "Fraunces", Georgia, serif; font-weight: 600; letter-s
 .keybox code.token { display: block; }
 .key-actions { display: flex; gap: .5rem; flex-wrap: wrap; }
 .key-error { color: var(--danger); font-size: .8rem; line-height: 1.45; }
+.key-warn { color: var(--bone); font-size: .8rem; line-height: 1.45; padding: .55rem .65rem; border: 1px solid rgba(214,87,63,.45); background: rgba(214,87,63,.10); border-radius: 8px; }
+.key-warn b { color: var(--danger); }
+.key-note { color: var(--brass); font-size: .78rem; line-height: 1.45; }
 
 .usage-head { display: flex; justify-content: space-between; align-items: baseline; font-size: .82rem; }
 .usage-head .nums { font-family: "IBM Plex Mono", monospace; font-variant-numeric: tabular-nums; color: var(--muted); }
