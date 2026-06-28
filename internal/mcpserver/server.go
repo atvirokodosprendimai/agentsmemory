@@ -51,6 +51,8 @@ func New(deps Deps) *server.MCPServer {
 	registerMine(srv, deps.Drawers, deps.Usage)
 	// The navigable graph: hallways, tunnels, traverse, recompute_graph.
 	registerGraph(srv, deps.Drawers, deps.Usage)
+	// The temporal knowledge graph: kg_add/invalidate/query/stats/timeline.
+	registerKG(srv, deps.Drawers, deps.Usage)
 	return srv
 }
 
