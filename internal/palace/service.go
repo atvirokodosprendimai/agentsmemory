@@ -2,6 +2,8 @@ package palace
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
@@ -40,6 +42,30 @@ const (
 	// the scan at this bound. The principled fix — pushing the filter into the
 	// store as a payload predicate — lands with the hybrid-ranking phase.
 	searchCandidatePool = 10000
+)
+
+// Diary defaults, mirroring the frozen Python diary tools so the journal behaves
+// identically: every entry is filed into the "diary" room, an untagged entry gets
+// the "general" topic, and diary_read returns the last 10 entries by default and
+// at most 100.
+const (
+	// DiaryRoom is the room every diary entry lives in; diary_read scopes by it
+	// together with the agent, cleanly separating journal entries from memories.
+	DiaryRoom = "diary"
+	// DefaultDiaryTopic tags a diary entry written without an explicit topic.
+	DefaultDiaryTopic = "general"
+	// DefaultDiaryReadN is diary_read's window when last_n is unset.
+	DefaultDiaryReadN = 10
+	// MaxDiaryReadN caps diary_read's window so one call cannot scan unbounded.
+	MaxDiaryReadN = 100
+
+	// diaryTimeLayout stamps a diary entry's FiledAt with a FIXED-WIDTH, nine-digit
+	// nanosecond fraction. diary_read orders by filed_at as a string (SQLite TEXT),
+	// so the format must be lexicographically sortable: time.RFC3339Nano trims
+	// trailing zeros, making its width vary and a string sort disagree with chrono
+	// order. A zero-padded fraction keeps string order == time order, and the
+	// nanosecond resolution also makes each entry's id-seed unique.
+	diaryTimeLayout = "2006-01-02T15:04:05.000000000Z07:00"
 )
 
 // AAAKSpec is the compressed memory dialect agents use for diary and closet
@@ -109,30 +135,14 @@ func (s *Service) Add(ctx context.Context, teamID string, in AddInput) ([]Drawer
 	}
 
 	chunks := ChunkText(content, ChunkSize, ChunkOverlap, ChunkMin)
-	texts := make([]string, len(chunks))
-	for i, c := range chunks {
-		texts[i] = c.Content
-	}
-	vectors, err := s.embed.Embed(ctx, texts)
+	vectors, err := s.embedChunks(ctx, chunks)
 	if err != nil {
-		return nil, fmt.Errorf("embed drawer: %w", err)
-	}
-
-	// The model's actual vector width is authoritative for namespace creation, so
-	// a mis-set dim can never make EnsureNamespace and Upsert disagree.
-	dim := s.dim
-	if len(vectors) > 0 {
-		dim = len(vectors[0])
-	}
-	if err := s.vectors.EnsureNamespace(ctx, teamID, dim); err != nil {
-		return nil, fmt.Errorf("ensure namespace: %w", err)
+		return nil, err
 	}
 
 	filedAt := time.Now().UTC().Format(time.RFC3339)
 	drawers := make([]Drawer, len(chunks))
-	points := make([]store.Point, len(chunks))
 	for i, c := range chunks {
-		id := DrawerID(teamID, wing, room, in.SourceFile, c.Index, c.Content)
 		// The first chunk is the parent the rest of a multi-chunk write point
 		// back to; the first chunk itself has no parent.
 		parentID := ""
@@ -140,7 +150,7 @@ func (s *Service) Add(ctx context.Context, teamID string, in AddInput) ([]Drawer
 			parentID = drawers[0].ID
 		}
 		drawers[i] = Drawer{
-			ID:          id,
+			ID:          DrawerID(teamID, wing, room, in.SourceFile, c.Index, c.Content),
 			TeamID:      teamID,
 			Wing:        wing,
 			Room:        room,
@@ -150,13 +160,6 @@ func (s *Service) Add(ctx context.Context, teamID string, in AddInput) ([]Drawer
 			FiledAt:     filedAt,
 			ContentDate: strings.TrimSpace(in.ContentDate),
 			ParentID:    parentID,
-		}
-		// Payload carries only the cheap filter keys; the verbatim content stays
-		// single-sourced in the drawers table, joined back by id at search time.
-		points[i] = store.Point{
-			ID:      id,
-			Vector:  vectors[i],
-			Payload: map[string]any{"wing": wing, "room": room},
 		}
 	}
 
@@ -170,13 +173,60 @@ func (s *Service) Add(ctx context.Context, teamID string, in AddInput) ([]Drawer
 		}
 	}
 
-	if err := s.vectors.Upsert(ctx, teamID, points); err != nil {
-		return nil, fmt.Errorf("upsert vectors: %w", err)
-	}
-	if err := s.repo.Save(ctx, drawers); err != nil {
-		return nil, fmt.Errorf("save drawers: %w", err)
+	if err := s.storeDrawers(ctx, teamID, drawers, vectors); err != nil {
+		return nil, err
 	}
 	return drawers, nil
+}
+
+// embedChunks embeds a batch of chunks, returning one vector per chunk in order.
+// It is the shared embed step of every filing path (add_drawer, diary_write), so
+// the chunk -> vector contract is single-sourced rather than copied per tool.
+func (s *Service) embedChunks(ctx context.Context, chunks []Chunk) ([][]float32, error) {
+	texts := make([]string, len(chunks))
+	for i, c := range chunks {
+		texts[i] = c.Content
+	}
+	vectors, err := s.embed.Embed(ctx, texts)
+	if err != nil {
+		return nil, fmt.Errorf("embed drawer: %w", err)
+	}
+	return vectors, nil
+}
+
+// storeDrawers is the shared persistence tail every filing path ends in: ensure
+// the tenant's vector namespace exists, write the embeddings, then write the
+// metadata rows. Vectors are written before rows so a row never exists without
+// its embedding — search joins row to vector, and the inverse orphan (a vector
+// with no row) is harmless because search skips ids it cannot resolve. The vector
+// width the model returned is authoritative for namespace creation, so a mis-set
+// s.dim can never make EnsureNamespace and Upsert disagree. drawers and vectors
+// must be index-aligned and the same length.
+func (s *Service) storeDrawers(ctx context.Context, teamID string, drawers []Drawer, vectors [][]float32) error {
+	dim := s.dim
+	if len(vectors) > 0 {
+		dim = len(vectors[0])
+	}
+	if err := s.vectors.EnsureNamespace(ctx, teamID, dim); err != nil {
+		return fmt.Errorf("ensure namespace: %w", err)
+	}
+	points := make([]store.Point, len(drawers))
+	for i, d := range drawers {
+		// Payload carries only the cheap filter keys; the verbatim content stays
+		// single-sourced in the drawers table, joined back by id at search time.
+		points[i] = store.Point{
+			ID:      d.ID,
+			Vector:  vectors[i],
+			Payload: map[string]any{"wing": d.Wing, "room": d.Room},
+		}
+	}
+	if err := s.vectors.Upsert(ctx, teamID, points); err != nil {
+		return fmt.Errorf("upsert vectors: %w", err)
+	}
+	if err := s.repo.Save(ctx, drawers); err != nil {
+		return fmt.Errorf("save drawers: %w", err)
+	}
+	return nil
 }
 
 // purgeSource deletes every drawer (row + vector) previously filed from a source
@@ -480,6 +530,218 @@ func (s *Service) Reconnect(ctx context.Context, teamID string) error {
 		return fmt.Errorf("reconnect: vector store unreachable: %w", err)
 	}
 	return nil
+}
+
+// DiaryWriteInput is the diary_write payload: whose journal (Agent), the AAAK
+// entry text, an optional Topic (defaulting to DefaultDiaryTopic), and an
+// optional Wing (defaulting to the agent's own wing).
+type DiaryWriteInput struct {
+	Agent string
+	Entry string
+	Topic string
+	Wing  string
+}
+
+// DiaryWriteResult reports what diary_write filed: the logical entry id (the
+// first chunk's id), the normalized agent and topic, the entry's timestamp, how
+// many chunks it became, and — only when it chunked — every physical chunk id.
+type DiaryWriteResult struct {
+	EntryID   string
+	Agent     string
+	Topic     string
+	Timestamp string
+	Chunks    int
+	ChunkIDs  []string
+}
+
+// WriteDiary files an agent's journal entry. It mirrors the frozen tool: the
+// agent name is lowercased (so reads are case-insensitive, #1243), the topic
+// defaults to "general", and the wing defaults to the agent's own wing
+// (wing_<agent>) unless one is supplied. The entry rides the same chunk -> embed
+// -> store machinery as add_drawer, but — unlike add_drawer's content-hashed,
+// idempotent ids — each diary id folds in the write timestamp, so journaling the
+// *same* reflection twice keeps both entries instead of overwriting one: a
+// journal is append-only. (The frozen tool used a non-idempotent add for exactly
+// this reason; the timestamp seed makes a same-id collision effectively
+// impossible, so reusing the idempotent upsert store path is safe.)
+func (s *Service) WriteDiary(ctx context.Context, teamID string, in DiaryWriteInput) (DiaryWriteResult, error) {
+	agent, err := SanitizeName(in.Agent, "agent_name")
+	if err != nil {
+		return DiaryWriteResult{}, err
+	}
+	agent = strings.ToLower(agent)
+
+	entry, err := SanitizeContent(in.Entry)
+	if err != nil {
+		return DiaryWriteResult{}, err
+	}
+
+	topic := in.Topic
+	if strings.TrimSpace(topic) == "" {
+		topic = DefaultDiaryTopic
+	}
+	if topic, err = SanitizeName(topic, "topic"); err != nil {
+		return DiaryWriteResult{}, err
+	}
+
+	wing := strings.TrimSpace(in.Wing)
+	if wing == "" {
+		// Default to the agent's own wing. The agent is already sanitized and
+		// lowercased; spaces become underscores so the result still satisfies the
+		// safe-name pattern (underscores are legal in a name's interior).
+		wing = "wing_" + strings.ReplaceAll(agent, " ", "_")
+	} else if wing, err = SanitizeName(wing, "wing"); err != nil {
+		return DiaryWriteResult{}, err
+	}
+
+	// One timestamp per write: it stamps every chunk's FiledAt (so diary_read can
+	// order entries newest-first) and seeds the id (so the entry is unique).
+	// RFC3339Nano gives enough resolution that two successive writes never collide.
+	now := time.Now().UTC()
+	filedAt := now.Format(diaryTimeLayout)
+	date := now.Format("2006-01-02")
+	// seed makes the id unique per write: the timestamp orders entries, the random
+	// nonce guarantees uniqueness even if two writes (e.g. on two scaled instances)
+	// land on the same nanosecond — without it a same-ns, same-content write would
+	// collide and the idempotent store upsert would silently overwrite a prior
+	// journal entry. The clean filedAt (no nonce) is what stamps FiledAt for sorting.
+	seed := diarySeed(filedAt)
+
+	// SanitizeContent guarantees a non-empty entry, so diaryChunks yields >= 1
+	// chunk and drawers[0] below is always present. diaryChunks (not ChunkText)
+	// keeps the journal entry verbatim — no overlap, no trim — matching the frozen
+	// tool. EntryID is the first chunk's id (our ParentID model makes chunk 0 the
+	// canonical, fetchable handle); the frozen tool's logical handle was opaque and
+	// un-fetchable, but for the common single-chunk AAAK entry the two coincide.
+	chunks := diaryChunks(entry, ChunkSize)
+	vectors, err := s.embedChunks(ctx, chunks)
+	if err != nil {
+		return DiaryWriteResult{}, err
+	}
+
+	drawers := make([]Drawer, len(chunks))
+	for i, c := range chunks {
+		parentID := ""
+		if i > 0 {
+			parentID = drawers[0].ID
+		}
+		drawers[i] = Drawer{
+			ID:          diaryEntryID(teamID, wing, agent, topic, c.Index, c.Content, seed),
+			TeamID:      teamID,
+			Wing:        wing,
+			Room:        DiaryRoom,
+			ChunkIndex:  c.Index,
+			Content:     c.Content,
+			FiledAt:     filedAt,
+			ContentDate: date,
+			ParentID:    parentID,
+			Agent:       agent,
+			Topic:       topic,
+		}
+	}
+	if err := s.storeDrawers(ctx, teamID, drawers, vectors); err != nil {
+		return DiaryWriteResult{}, err
+	}
+
+	res := DiaryWriteResult{
+		EntryID:   drawers[0].ID,
+		Agent:     agent,
+		Topic:     topic,
+		Timestamp: filedAt,
+		Chunks:    len(drawers),
+	}
+	// A single-chunk entry's id is already EntryID; only a chunked entry needs its
+	// physical ids enumerated so a caller can fetch each piece by id.
+	if len(drawers) > 1 {
+		res.ChunkIDs = make([]string, len(drawers))
+		for i, d := range drawers {
+			res.ChunkIDs[i] = d.ID
+		}
+	}
+	return res, nil
+}
+
+// diarySeed combines the write timestamp with a random nonce to seed a diary
+// id, so the id is unique even when two writes share a nanosecond. crypto/rand is
+// the source; on the near-impossible event it fails, we fall back to the
+// timestamp alone rather than block a journal write — at worst reintroducing the
+// vanishingly small same-nanosecond collision the nonce exists to remove.
+func diarySeed(filedAt string) string {
+	var b [8]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return filedAt
+	}
+	return filedAt + "|" + hex.EncodeToString(b[:])
+}
+
+// DiaryEntry is one entry diary_read returns: when it was written, its topic, and
+// the verbatim text — the read projection of a diary Drawer.
+type DiaryEntry struct {
+	Date      string `json:"date"`
+	Timestamp string `json:"timestamp"`
+	Topic     string `json:"topic"`
+	Content   string `json:"content"`
+}
+
+// DiaryReadResult is the diary_read response: the normalized agent, the page of
+// entries (newest first), the total entries in scope, and how many are shown.
+type DiaryReadResult struct {
+	Agent   string       `json:"agent"`
+	Entries []DiaryEntry `json:"entries"`
+	Total   int64        `json:"total"`
+	Showing int          `json:"showing"`
+}
+
+// ReadDiary returns an agent's most recent diary entries, newest first. Like the
+// frozen tool it lowercases the agent (case-insensitive reads), clamps lastN to
+// [1, MaxDiaryReadN], and treats an empty wing as "every wing this agent has
+// journaled in" — hook-written entries land in project wings, so a wingless read
+// must still see them. Total is the full count in scope, so a caller can tell its
+// journal is larger than the returned window.
+func (s *Service) ReadDiary(ctx context.Context, teamID, agent, wing string, lastN int) (DiaryReadResult, error) {
+	cleanAgent, err := SanitizeName(agent, "agent_name")
+	if err != nil {
+		return DiaryReadResult{}, err
+	}
+	cleanAgent = strings.ToLower(cleanAgent)
+
+	if wing = strings.TrimSpace(wing); wing != "" {
+		if wing, err = SanitizeName(wing, "wing"); err != nil {
+			return DiaryReadResult{}, err
+		}
+	}
+
+	if lastN <= 0 {
+		lastN = DefaultDiaryReadN
+	}
+	if lastN > MaxDiaryReadN {
+		lastN = MaxDiaryReadN
+	}
+
+	rows, err := s.repo.Diary(ctx, teamID, cleanAgent, wing, lastN)
+	if err != nil {
+		return DiaryReadResult{}, fmt.Errorf("read diary: %w", err)
+	}
+	total, err := s.repo.DiaryCount(ctx, teamID, cleanAgent, wing)
+	if err != nil {
+		return DiaryReadResult{}, fmt.Errorf("count diary: %w", err)
+	}
+
+	entries := make([]DiaryEntry, len(rows))
+	for i, d := range rows {
+		entries[i] = DiaryEntry{
+			Date:      d.ContentDate,
+			Timestamp: d.FiledAt,
+			Topic:     d.Topic,
+			Content:   d.Content,
+		}
+	}
+	return DiaryReadResult{
+		Agent:   cleanAgent,
+		Entries: entries,
+		Total:   total,
+		Showing: len(entries),
+	}, nil
 }
 
 // distanceFromScore converts a cosine similarity in [-1, 1] into a distance in

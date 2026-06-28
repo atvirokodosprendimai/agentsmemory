@@ -40,6 +40,16 @@ type Drawer struct {
 	// chunk, so a multi-chunk write can be recognised as a single logical memory.
 	// Empty for single-chunk drawers.
 	ParentID string
+
+	// Agent and Topic carry the two extra fields a diary entry needs and a normal
+	// drawer leaves empty (migration 00007). Agent is whose journal the entry
+	// belongs to — stored lowercased so diary_read is case-insensitive, matching
+	// the frozen Python contract (#1243) — and is what diary_read scopes by; Topic
+	// is a free tag grouping entries (defaulting to "general"). Keeping them as
+	// columns on the same drawer keeps diary on the identical chunk/embed/store
+	// machinery as add_drawer rather than forking a parallel store.
+	Agent string
+	Topic string
 }
 
 // Hallway is a within-wing link between two entities that co-occur in drawers.

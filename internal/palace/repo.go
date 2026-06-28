@@ -24,6 +24,8 @@ type drawerRow struct {
 	ParentID    string `gorm:"column:parent_id"`
 	FiledAt     string `gorm:"column:filed_at"`
 	ContentDate string `gorm:"column:content_date"`
+	Agent       string `gorm:"column:agent"` // diary: whose journal (lowercased); "" for normal drawers
+	Topic       string `gorm:"column:topic"` // diary: free grouping tag; "" for normal drawers
 }
 
 // TableName pins the table so gorm does not pluralise to "drawer_rows".
@@ -241,6 +243,54 @@ func (r *Repo) Rooms(ctx context.Context, teamID, wing string) ([]RoomStat, erro
 	return stats, nil
 }
 
+// diaryScope builds the shared WHERE for an agent's diary: always (team, room
+// 'diary', agent), and — only when wing is non-empty — that wing too. An empty
+// wing deliberately matches every wing the agent has journaled in, because hook
+// writes land in project-derived wings (wing_<project>); requiring a wing on
+// read would silo those from an agent-initiated read. The (team_id, room, agent)
+// index from migration 00007 is what makes this scan cheap.
+func diaryScope(db *gorm.DB, teamID, agent, wing string) *gorm.DB {
+	q := db.Where("team_id = ? AND room = ? AND agent = ?", teamID, DiaryRoom, agent)
+	if wing != "" {
+		q = q.Where("wing = ?", wing)
+	}
+	return q
+}
+
+// Diary returns an agent's most recent diary entries (newest first), scoped via
+// diaryScope. limit bounds the page; a non-positive limit is treated as the
+// default by the caller, so this method trusts the value it is given. Ordering is
+// filed_at DESC, id ASC for a stable total order even when two entries share a
+// timestamp — mirroring the frozen tool's reverse-chronological read.
+func (r *Repo) Diary(ctx context.Context, teamID, agent, wing string, limit int) ([]Drawer, error) {
+	var rows []drawerRow
+	if err := diaryScope(r.db.WithContext(ctx), teamID, agent, wing).
+		Order("filed_at DESC, id ASC").
+		Limit(limit).
+		Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := make([]Drawer, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, fromRow(row))
+	}
+	return out, nil
+}
+
+// DiaryCount is the total number of diary entries an agent has in scope, before
+// the last_n page limit — it feeds diary_read's "total" so an agent can tell its
+// journal is larger than the window it is reading (the frozen tool reports the
+// same total/showing split).
+func (r *Repo) DiaryCount(ctx context.Context, teamID, agent, wing string) (int64, error) {
+	var n int64
+	if err := diaryScope(r.db.WithContext(ctx), teamID, agent, wing).
+		Model(&drawerRow{}).
+		Count(&n).Error; err != nil {
+		return 0, err
+	}
+	return n, nil
+}
+
 // --- domain <-> row translation -------------------------------------------
 
 // toRow flattens a domain Drawer into its storage shape, joining entities with
@@ -258,6 +308,8 @@ func toRow(d Drawer) drawerRow {
 		ParentID:    d.ParentID,
 		FiledAt:     d.FiledAt,
 		ContentDate: d.ContentDate,
+		Agent:       d.Agent,
+		Topic:       d.Topic,
 	}
 }
 
@@ -276,6 +328,8 @@ func fromRow(row drawerRow) Drawer {
 		FiledAt:     row.FiledAt,
 		ContentDate: row.ContentDate,
 		ParentID:    row.ParentID,
+		Agent:       row.Agent,
+		Topic:       row.Topic,
 	}
 }
 
