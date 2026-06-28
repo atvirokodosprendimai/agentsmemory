@@ -49,6 +49,8 @@ func New(deps Deps) *server.MCPServer {
 	registerDiary(srv, deps.Drawers, deps.Usage)
 	// Mining: text -> chunked drawers + closet index (mine).
 	registerMine(srv, deps.Drawers, deps.Usage)
+	// The navigable graph: hallways, tunnels, traverse, recompute_graph.
+	registerGraph(srv, deps.Drawers, deps.Usage)
 	return srv
 }
 
