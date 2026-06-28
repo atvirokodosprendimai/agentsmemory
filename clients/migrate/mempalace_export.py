@@ -30,6 +30,7 @@ import os
 import re
 import sqlite3
 import sys
+import tempfile
 from urllib.parse import urlparse
 
 # A bare YYYY-MM-DD prefix is all the SaaS accepts for KG validity bounds (its
@@ -298,9 +299,47 @@ def _byte_lines(path_or_stream):
             yield (json.dumps(rec, ensure_ascii=False) + "\n").encode("utf-8")
 
 
+# Cloudflare and similar CDNs cap request bodies at ~100 MiB on their standard
+# plans; warn before a doomed upload instead of failing opaquely partway through.
+_CDN_BODY_WARN_BYTES = 100 * 1024 * 1024
+
+
+def _send(conn, path, body, headers):
+    """POST and return the response, surfacing an early server response (e.g. the
+    401 the gate writes before it reads the body) instead of letting the
+    half-finished upload bubble up as an opaque BrokenPipeError.
+
+    When the server answers before consuming the whole body, the socket can break
+    mid-send; the response bytes are usually already buffered, so a second
+    getresponse() recovers the real status. If even that fails, the connection
+    truly died — report it as the upload-aborted case it is."""
+    try:
+        conn.request("POST", path, body=body, headers=headers)
+        return conn.getresponse()
+    except (BrokenPipeError, ConnectionResetError):
+        try:
+            return conn.getresponse()
+        except Exception:
+            raise SystemExit(
+                "  push failed: the server closed the connection during upload.\n"
+                "  Most often a bad/expired --token (the gate rejects before reading\n"
+                "  the body) or the upload exceeding a proxy/CDN body-size limit.\n"
+                "  Re-check the token; for a very large palace, export with --out and\n"
+                "  push the file, or ask the operator to raise the limit."
+            )
+
+
 def push(source, server, token, insecure=False):
     """Stream the NDJSON bundle to <server>/import with a Bearer token and print
-    the server's progress lines as they arrive."""
+    the server's progress lines as they arrive.
+
+    The body is sent length-delimited (with a Content-Length), never with
+    Transfer-Encoding: chunked. A CDN/reverse proxy in front of the SaaS can
+    mishandle chunked request bodies — Cloudflare answers a chunked /import POST
+    with a 520 and tears the socket down mid-send, so the client only ever sees a
+    BrokenPipeError. A known content length sidesteps that path entirely. When the
+    source is an in-memory record stream we first buffer it to a temp file purely
+    to learn its size, so memory stays bounded even for a huge palace."""
     u = urlparse(server.rstrip("/") + "/import")
     if u.scheme == "https":
         conn = http.client.HTTPSConnection(u.hostname, u.port or 443)
@@ -310,26 +349,57 @@ def push(source, server, token, insecure=False):
         "Authorization": "Bearer " + token,
         "Content-Type": "application/x-ndjson",
     }
-    # Passing an iterable body with no Content-Length makes http.client stream it
-    # with chunked transfer-encoding — so a 30k-drawer palace never has to be held
-    # in memory at once.
-    conn.request("POST", u.path, body=_byte_lines(source), headers=headers)
-    resp = conn.getresponse()
-    if resp.status >= 400:
-        body = resp.read().decode("utf-8", "replace").strip()
-        raise SystemExit("  push failed: HTTP %d — %s" % (resp.status, body))
-    last = None
-    for raw in resp:
-        line = raw.decode("utf-8", "replace").strip()
-        if not line:
-            continue
-        try:
-            last = json.loads(line)
-        except ValueError:
-            continue
-        _print_progress(last)
-    conn.close()
-    return last
+
+    # Resolve the body to a file on disk so the request carries a Content-Length.
+    # A path is used as-is; a record stream is spooled to a temp file we remove.
+    tmp_path = None
+    try:
+        if isinstance(source, str):
+            body_path = source
+        else:
+            spool = tempfile.NamedTemporaryFile(
+                prefix="mempalace-export-", suffix=".ndjson", delete=False
+            )
+            tmp_path = spool.name
+            for line in _byte_lines(source):
+                spool.write(line)
+            spool.close()
+            body_path = tmp_path
+
+        size = os.path.getsize(body_path)
+        if size >= _CDN_BODY_WARN_BYTES:
+            print(
+                "  warning: bundle is %.0f MiB — a CDN in front of the SaaS may reject\n"
+                "  uploads over ~100 MiB. If this push fails, split the export or ask\n"
+                "  the operator to raise the limit." % (size / 1024 / 1024),
+                file=sys.stderr,
+            )
+        headers["Content-Length"] = str(size)
+
+        with open(body_path, "rb") as f:
+            resp = _send(conn, u.path, f, headers)
+
+        if resp.status >= 400:
+            body = resp.read().decode("utf-8", "replace").strip()
+            raise SystemExit("  push failed: HTTP %d — %s" % (resp.status, body))
+        last = None
+        for raw in resp:
+            line = raw.decode("utf-8", "replace").strip()
+            if not line:
+                continue
+            try:
+                last = json.loads(line)
+            except ValueError:
+                continue
+            _print_progress(last)
+        conn.close()
+        return last
+    finally:
+        if tmp_path:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
 
 
 def _print_progress(p):
