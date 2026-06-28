@@ -52,18 +52,33 @@ type Drawer struct {
 	Topic string
 }
 
+// Dynamics are the L7 "living connection" fields every hallway and tunnel carries:
+// a Hebbian Strength that would grow on co-access, a Stability that resists decay,
+// and the bookkeeping for that evolution. They are stored for wire-shape parity
+// with the frozen tools; the potentiation/decay that would move them off their
+// defaults is a later phase, so for now they stay at their initialized values.
+type Dynamics struct {
+	Strength      float64 `json:"strength"`
+	Stability     float64 `json:"stability"`
+	LastActivated string  `json:"last_activated"`
+	AccessCount   int     `json:"access_count"`
+}
+
 // Hallway is a within-wing link between two entities that co-occur in drawers.
 // It is derived (recomputed from drawers), never authored, and unordered: A↔B
 // and B↔A are the same hallway, so endpoints are stored sorted for a stable id.
 type Hallway struct {
-	ID              string
-	TeamID          string
-	Wing            string
-	EntityA         string
-	EntityB         string
-	CoOccurrence    int      // how many drawers mention both
-	Rooms           []string // rooms where they met
-	Label           string
+	ID           string
+	TeamID       string
+	Wing         string
+	EntityA      string
+	EntityB      string
+	CoOccurrence int      // how many drawers mention both
+	Rooms        []string // rooms where they met
+	Label        string
+	CreatedAt    string
+	CreatedBy    string // "auto" for derived hallways
+	Dynamics
 }
 
 // TunnelKind distinguishes a human-authored cross-wing link from one the miner
@@ -75,6 +90,8 @@ const (
 	TunnelExplicit TunnelKind = "explicit"
 	// TunnelTopic is auto-generated when two wings share a topic label.
 	TunnelTopic TunnelKind = "topic"
+	// TunnelEntity is auto-generated when an entity has hallways in two wings.
+	TunnelEntity TunnelKind = "entity"
 )
 
 // Endpoint is one side of a Tunnel: a location in the palace, optionally pinned
@@ -86,14 +103,19 @@ type Endpoint struct {
 }
 
 // Tunnel links two locations across wings. Explicit tunnels are validated
-// against existing rooms; topic tunnels are synthesised at mine time.
+// against existing rooms; entity tunnels are synthesised from hallways. A tunnel
+// is symmetric — its id is a hash of its sorted endpoints — so creating A↔B and
+// B↔A resolves to one record.
 type Tunnel struct {
-	ID     string
-	TeamID string
-	Source Endpoint
-	Target Endpoint
-	Label  string
-	Kind   TunnelKind
+	ID        string
+	TeamID    string
+	Source    Endpoint
+	Target    Endpoint
+	Label     string
+	Kind      TunnelKind
+	CreatedAt string
+	UpdatedAt string
+	Dynamics
 }
 
 // SearchHit is one ranked result from hybrid search. Score is the fused rank — a
