@@ -22,6 +22,7 @@ import (
 	"github.com/atvirokodosprendimai/agentsmemory/internal/auth"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/config"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/embed/ollama"
+	"github.com/atvirokodosprendimai/agentsmemory/internal/importer"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/mcpserver"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/oauth"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/palace"
@@ -189,6 +190,12 @@ func run(ctx context.Context, cfg config.Config) error {
 	// requests (so the connector starts OAuth) and lets resolved bearers (OAuth
 	// or direct API token) through to the stateless MCP handler.
 	r.Handle("/mcp", authSrv.Gate(streamSrv))
+
+	// Bulk migration ingest: a user streams their exported mempalace (NDJSON) here
+	// with the same Bearer token as /mcp. The gate resolves the tenant, then the
+	// importer re-files every drawer/closet/fact/tunnel under it. Fronted by the
+	// same gate so auth is identical to the agent surface.
+	r.Handle("/import", authSrv.Gate(importer.Handler(drawers, usageSvc)))
 
 	// Dashboard + auth + static assets.
 	webSrv.Routes(r)

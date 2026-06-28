@@ -244,6 +244,37 @@ All flags have sensible local defaults:
 
 ---
 
+## Migrating from mempalace
+
+Bring an existing local Python `mempalace` into a workspace — every drawer, diary
+entry, closet, knowledge-graph fact and explicit tunnel. The vehicle is a small
+**read-only** CLI that reads your palace and streams it to the server's
+`/import` endpoint with your project's API key; the server **re-embeds** each
+memory with its own model (the bundle carries text, not vectors) and rebuilds the
+derived graph (hallways/entity-tunnels) afterwards.
+
+```bash
+# Run where the mempalace package is installed. Inspect first:
+python clients/migrate/mempalace_export.py --out palace.ndjson
+
+# Then stream it into your workspace (token = the project's API key):
+python clients/migrate/mempalace_export.py --push \
+  --server https://your-host --token sk_live_xxx
+
+# Or push a bundle exported earlier on another machine:
+python clients/migrate/mempalace_export.py --file palace.ndjson --push \
+  --server https://your-host --token sk_live_xxx
+```
+
+`POST /import` sits behind the same Bearer gate as `/mcp`, takes streaming NDJSON
+(one record per line, `kind`-discriminated), and streams progress back. The
+import is **idempotent** — drawer ids are recomputed under the target tenant, so
+re-running a partial migration finishes it rather than duplicating. The project
+page surfaces the exact command (with your host filled in) under *Bring your
+mempalace*.
+
+---
+
 ## Project layout
 
 ```
@@ -295,6 +326,7 @@ called). Schema changes are additive migrations under `db/migrations/`.
 - [x] Admin — `am_merge_wing` + `am_memories_filed_away` (36 of 37; `sync`/`hook_settings` are single-user-local, not ported)
 - [x] Web dashboard — local (`goth`) login, project create + one-time API key, monthly usage metering — `templ` + datastar
 - [x] Web skill management — per-project list / create / edit (role-gated to writer/admin), membership-checked routes
+- [x] Migration — read-only `mempalace` exporter + streaming `POST /import` (drawers, diary, closets, KG facts, tunnels; re-embedded, graph rebuilt)
 - [ ] Web — API-key rotation/revoke + team/member management (invite, set role)
 - [ ] A `/load-skill` Claude command (the client-side nicety over the `am_load_skill` tool)
 - [ ] Subscriptions / billing

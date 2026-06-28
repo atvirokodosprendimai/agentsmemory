@@ -34,7 +34,46 @@ templ ProjectDetailPage(d ProjectDetailData) {
 			}
 			@SkillsList(d.Project, d.Skills, d.CanWrite)
 		</div>
+		@MigrateCard(d.ServerBase)
 	}
+}
+
+// MigrateCard is the one-time onboarding action: bring an existing local
+// mempalace into this workspace. It is intentionally instructional (a copy-paste
+// command) rather than a server-side upload — the migration vehicle is a CLI that
+// reads the user's local palace and streams it to /import, so the dashboard's job
+// is to hand over the exact, correct command. The card carries no secret: the
+// token in the command is a placeholder, and the real key stays behind the
+// admin-gated Reveal in the API-key block. The copy button is the only
+// interactive part, so this stays a cheap static section with one data-on:click.
+templ MigrateCard(serverBase string) {
+	<section class="card migrate" aria-labelledby="migrate-h" data-signals="{migrateCopied: false}">
+		<p class="eyebrow">Migrate</p>
+		<h2 id="migrate-h">Bring your mempalace</h2>
+		<p class="migrate-lede">
+			Move an existing local <span class="mono">mempalace</span> into this workspace —
+			every drawer, diary entry, closet, knowledge-graph fact and tunnel. The
+			server re-embeds each memory with its own model, and your local palace is
+			only ever read.
+		</p>
+		<div class="kv">Run where mempalace is installed</div>
+		<pre class="cmd" aria-label="Migration command"><code>{ MigrateCommand(serverBase) }</code></pre>
+		<div class="cmd-actions">
+			<button
+				class="btn btn-ghost btn-sm"
+				type="button"
+				data-on:click={ copyExpr(MigrateCommand(serverBase)) + "; $migrateCopied = true" }
+			>
+				<span data-show="!$migrateCopied">Copy command</span>
+				<span data-show="$migrateCopied" style="display:none">Copied ✓</span>
+			</button>
+			<span class="cmd-hint">
+				Swap in this project's API key (<b>Reveal</b> it above). The exporter is
+				<span class="mono">clients/migrate/mempalace_export.py</span>; add
+				<span class="mono">--out palace.ndjson</span> to inspect the bundle first.
+			</span>
+		</div>
+	</section>
 }
 
 // SkillEditor is the create/update form. It is one surface for both: saving a new
