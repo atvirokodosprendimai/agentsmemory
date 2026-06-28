@@ -115,6 +115,17 @@ type Service struct {
 type Store interface {
 	GetByName(ctx context.Context, teamID, name string) (Skill, error)
 	Upsert(ctx context.Context, teamID, name, description, content, updatedBy string) (Skill, error)
+	List(ctx context.Context, teamID string) ([]Skill, error)
+}
+
+// Summary is a skill's metadata without its (potentially large) body — the shape
+// list_skills returns, so an agent can see what is available before loading one.
+type Summary struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Version     int    `json:"version"`
+	UpdatedBy   string `json:"updated_by"`
+	UpdatedAt   string `json:"updated_at"`
 }
 
 // NewService wires a Service over any Store implementation.
@@ -143,6 +154,23 @@ func (s *Service) Update(ctx context.Context, t RoleHolder, name, description, c
 		return Skill{}, ErrForbidden
 	}
 	return s.repo.Upsert(ctx, t.Team(), name, description, content, t.User())
+}
+
+// List returns a team's skills as metadata summaries (no bodies). Any team member
+// may list; it is the discovery path that pairs with load_skill's read path.
+func (s *Service) List(ctx context.Context, teamID string) ([]Summary, error) {
+	skills, err := s.repo.List(ctx, teamID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Summary, len(skills))
+	for i, sk := range skills {
+		out[i] = Summary{
+			Name: sk.Name, Description: sk.Description, Version: sk.Version,
+			UpdatedBy: sk.UpdatedBy, UpdatedAt: sk.UpdatedAt,
+		}
+	}
+	return out, nil
 }
 
 // RoleHolder is the minimal slice of an authenticated caller the skill context

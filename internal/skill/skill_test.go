@@ -30,6 +30,16 @@ func (f *fakeStore) Upsert(_ context.Context, teamID, name, desc, content, by st
 	return s, nil
 }
 
+func (f *fakeStore) List(_ context.Context, teamID string) ([]Skill, error) {
+	var out []Skill
+	for _, s := range f.skills {
+		if s.TeamID == teamID {
+			out = append(out, s)
+		}
+	}
+	return out, nil
+}
+
 // fakeCaller is a RoleHolder for the role-gate test.
 type fakeCaller struct {
 	team, user string
@@ -61,6 +71,23 @@ func TestLoadReturnsTeamScopedSkill(t *testing.T) {
 	// A different team must not see team1's skill.
 	if _, err := svc.Load(context.Background(), "team2", "effective-go"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("expected ErrNotFound for foreign team, got %v", err)
+	}
+}
+
+// TestListSkillsScopedAndSummary confirms list returns only the team's skills as
+// metadata summaries (the Summary type structurally cannot carry the body).
+func TestListSkillsScopedAndSummary(t *testing.T) {
+	store := newFakeStore()
+	store.skills["team1|alpha"] = Skill{TeamID: "team1", Name: "alpha", Description: "da", Version: 2, Content: "BODY"}
+	store.skills["team2|beta"] = Skill{TeamID: "team2", Name: "beta"}
+	svc := NewService(store)
+
+	list, err := svc.List(context.Background(), "team1")
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(list) != 1 || list[0].Name != "alpha" || list[0].Version != 2 {
+		t.Fatalf("list should return only team1's alpha v2, got %+v", list)
 	}
 }
 
