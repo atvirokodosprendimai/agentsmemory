@@ -73,6 +73,31 @@ func ChunkText(text string, size, overlap, min int) []Chunk {
 	return chunks
 }
 
+// diaryChunks splits a diary entry into stored chunks the frozen Python way:
+// fixed-width windows of size runes with NO overlap and NO trimming, so the
+// verbatim entry round-trips exactly (SanitizeContent already guaranteed it is
+// non-empty and valid). This deliberately differs from ChunkText — add_drawer
+// overlaps and trims its windows for better recall — because a diary entry is a
+// journal record that must be preserved byte-for-byte, and the frozen tool used a
+// plain stride here. An entry at or under size is one chunk holding the original
+// text untouched. Runes, not bytes, so a multibyte character is never split
+// mid-codepoint (matching Python's codepoint-based slicing).
+func diaryChunks(text string, size int) []Chunk {
+	runes := []rune(text)
+	if len(runes) <= size {
+		return []Chunk{{Content: text, Index: 0}}
+	}
+	var chunks []Chunk
+	for start := 0; start < len(runes); start += size {
+		end := start + size
+		if end > len(runes) {
+			end = len(runes)
+		}
+		chunks = append(chunks, Chunk{Content: string(runes[start:end]), Index: len(chunks)})
+	}
+	return chunks
+}
+
 // DrawerID is the deterministic identity of a drawer: a SHA-256 of the locating
 // tuple (team, wing, room, source, chunkIndex) AND the chunk's content. Hashing
 // content too means re-adding identical text is idempotent (same id, replaced in
@@ -84,6 +109,22 @@ func ChunkText(text string, size, overlap, min int) []Chunk {
 func DrawerID(teamID, wing, room, sourceFile string, chunkIndex int, content string) string {
 	h := sha256.New()
 	for _, part := range []string{teamID, wing, room, sourceFile, strconv.Itoa(chunkIndex), content} {
+		h.Write([]byte(part))
+		h.Write([]byte{0})
+	}
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+// diaryEntryID is the identity of a diary drawer. Unlike DrawerID — which hashes
+// only locating fields + content, so re-adding identical text is idempotent — a
+// diary id also folds in the agent, topic and a per-write seed (the entry's
+// timestamp), because a journal is append-only: writing the same reflection twice
+// must yield two distinct entries, not silently overwrite one. The room is pinned
+// to DiaryRoom (every diary drawer lives there) and the NUL separator keeps
+// distinct field tuples from colliding by concatenation, exactly as in DrawerID.
+func diaryEntryID(teamID, wing, agent, topic string, chunkIndex int, content, seed string) string {
+	h := sha256.New()
+	for _, part := range []string{teamID, wing, DiaryRoom, agent, topic, strconv.Itoa(chunkIndex), content, seed} {
 		h.Write([]byte(part))
 		h.Write([]byte{0})
 	}

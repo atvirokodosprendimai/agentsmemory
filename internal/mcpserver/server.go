@@ -4,10 +4,11 @@
 // placed on the context, meters the call against the workspace's monthly request
 // cap, and fails closed when there is no tenant or the cap is exhausted.
 //
-// The skeleton registers two tools — status (liveness + tenant echo) and
-// load_skill (the centralised-skill read path). The remaining tools from the
-// Python contract (search, add_drawer, mine, the graph/KG/diary families) slot
-// in here the same way as later phases land.
+// Registered so far: status (liveness + tenant echo), load_skill (the
+// centralised-skill read path), the core memory loop (drawer CRUD, semantic
+// recall, taxonomy), and the agent diary (diary_write/diary_read). The remaining
+// Python-contract tools (mine and the graph/KG families) slot in here the same
+// way as later phases land.
 package mcpserver
 
 import (
@@ -44,6 +45,8 @@ func New(deps Deps) *server.MCPServer {
 	registerLoadSkill(srv, deps.Skills, deps.Usage)
 	// The core memory loop: drawer CRUD, semantic recall, and palace taxonomy.
 	registerDrawers(srv, deps.Drawers, deps.Usage)
+	// The agent diary: append-only journal entries (diary_write/diary_read).
+	registerDiary(srv, deps.Drawers, deps.Usage)
 	return srv
 }
 
