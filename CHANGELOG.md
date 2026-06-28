@@ -18,3 +18,4 @@
 - 2026-06-28 `5baed29` feat(palace): diary tools — diary_write / diary_read (16/37)
 - 2026-06-28 `e78e0df` docs: changelog — diary tools (16/37)
 - 2026-06-28 `d38f65e` feat(palace): hybrid search — vector candidates re-ranked by vector+BM25
+- 2026-06-28 `26e594e` Merge task/hybrid-search: hybrid vector+BM25 search re-ranking
