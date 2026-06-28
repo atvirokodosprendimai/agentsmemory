@@ -273,6 +273,9 @@ re-running a partial migration finishes it rather than duplicating. The project
 page surfaces the exact command (with your host filled in) under *Bring your
 mempalace*.
 
+Full step-by-step guide, flag reference and troubleshooting:
+[`clients/migrate/README.md`](clients/migrate/README.md).
+
 ---
 
 ## Project layout
