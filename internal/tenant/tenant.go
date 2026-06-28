@@ -38,6 +38,11 @@ const (
 // "revoked" — both are simply unauthorized.
 var ErrInvalidToken = errors.New("tenant: invalid or revoked token")
 
+// ErrNotMember is returned by MembershipRole when a user has no membership in a
+// team. The dashboard treats it as "this project is not yours" — a project-scoped
+// page must never render for a team the signed-in user does not belong to.
+var ErrNotMember = errors.New("tenant: user is not a member of this team")
+
 // Tenant is the resolved identity of an authenticated MCP session. It is the
 // value injected into the request context; every tool scopes its work to
 // Tenant.TeamID. It is a plain value (no behaviour) so it travels cheaply.
@@ -199,6 +204,27 @@ func (r *Repo) tenantFromKey(ctx context.Context, key APIKey) Tenant {
 		role = Role(m.Role)
 	}
 	return Tenant{TeamID: key.TeamID, UserID: key.UserID, Role: role}
+}
+
+// MembershipRole returns the signed-in user's role in a team, or ErrNotMember if
+// no membership row ties them to it. The dashboard calls this to authorize every
+// project-scoped action: the team id arrives from the URL (untrusted), so access
+// is granted only when a membership exists — never inferred from the id alone.
+// An empty stored role is normalized to the least-privileged RoleMember.
+func (r *Repo) MembershipRole(ctx context.Context, userID, teamID string) (Role, error) {
+	var m Membership
+	err := r.db.WithContext(ctx).
+		Where("team_id = ? AND user_id = ?", teamID, userID).First(&m).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return "", ErrNotMember
+	}
+	if err != nil {
+		return "", err
+	}
+	if m.Role == "" {
+		return RoleMember, nil
+	}
+	return Role(m.Role), nil
 }
 
 // touchKey best-effort stamps last_used_at; a failed update must not deny access.
