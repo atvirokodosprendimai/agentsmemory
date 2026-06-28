@@ -12,7 +12,7 @@ versioned skills** the team keeps up to date.
 > **Status: early skeleton.** The tenancy, auth, skill registry, storage clients
 > and MCP transport are wired and verified end-to-end, and the **core memory
 > loop** (file a drawer → recall it semantically) now works end-to-end against
-> Ollama + the vector store. Today the server exposes **27 of the planned 37 MCP
+> Ollama + the vector store. Today the server exposes **32 of the planned 37 MCP
 > tools** (`status`, `load_skill`, the WRITE/FILE + SEARCH/RECALL + STATUS/ADMIN
 > families, plus the agent `diary` and the `mine` pipeline). Search is **hybrid** —
 > vector candidates re-ranked by vector + BM25 + closet boost — and `mine` turns a
@@ -150,7 +150,8 @@ shared, versioned source of truth** and its agents pull from it:
 | `list_hallways` / `delete_hallway` | ✅ | Within-wing entity co-occurrence links (derived from mined entities) |
 | `create_tunnel` / `delete_tunnel` / `list_tunnels` / `find_tunnels` / `follow_tunnels` | ✅ | Cross-wing links — explicit (authored, symmetric) + derived (entity) |
 | `traverse` / `graph_stats` / `recompute_graph` | ✅ | Walk the room↔wing graph, summarise it, rebuild hallways + entity tunnels |
-| `kg_add`, `sync`, … | 🔜 | The remaining KG + admin tools (10), ported from the Python contract |
+| `kg_add` / `kg_invalidate` / `kg_query` / `kg_stats` / `kg_timeline` | ✅ | Temporal knowledge graph — subject→predicate→object facts with validity windows, queryable as-of a point in time |
+| `sync`, `merge_wing`, `list_skills`, … | 🔜 | The remaining admin + skill tools (5), ported from the Python contract |
 
 ---
 
@@ -282,7 +283,8 @@ called). Schema changes are additive migrations under `db/migrations/`.
 - [x] Hybrid search — vector candidates re-ranked by vector + BM25 + closet boost (RRF-style convex blend)
 - [x] Mining pipeline — `mine` text → chunked drawers (entities + content date) + closet index, idempotent by source (17 of 37)
 - [x] Graph — hallways (entity co-occurrence) + tunnels (explicit + entity) + traverse/find/stats/recompute (10 tools, 27 of 37)
-- [ ] Remaining MCP tools — KG (temporal facts) + admin (sync, merge_wing, …) (10 of 37)
+- [x] Knowledge graph — temporal subject→predicate→object facts with validity windows (5 tools, 32 of 37)
+- [ ] Remaining MCP tools — admin (sync, merge_wing, …) + skills (list/update) (5 of 37)
 - [ ] `list_skills` + `update_skill` + a `/load-skill` Claude command
 - [ ] Web dashboard (`goth` login, key & skill management) — `templ` + datastar
 - [ ] Subscriptions / billing
