@@ -24,11 +24,11 @@ func registerDiary(srv *server.MCPServer, drawers *palace.Service, usageSvc *usa
 // a drawer in the agent's diary room (chunked + embedded like any memory) but is
 // timestamp-unique, so re-journaling identical text keeps both entries.
 func registerDiaryWrite(srv *server.MCPServer, drawers *palace.Service, usageSvc *usage.Service) {
-	tool := mcp.NewTool("diary_write",
+	tool := newTool("diary_write",
 		mcp.WithDescription("Append a diary entry to an agent's journal (in AAAK format). Entries are timestamped and accumulate in the agent's diary room over time."),
 		mcp.WithString("agent_name", mcp.Required(), mcp.Description("Whose journal to write to (case-insensitive; stored lowercased).")),
 		mcp.WithString("entry", mcp.Description("The diary entry text, ideally in AAAK. Either entry or content is required; entry wins if both are given.")),
-		mcp.WithString("content", mcp.Description("Alias for entry — accepted because add_drawer uses \"content\".")),
+		mcp.WithString("content", mcp.Description("Alias for entry — accepted because am_add_drawer uses \"content\".")),
 		mcp.WithString("topic", mcp.Description("Optional tag grouping entries (default \"general\").")),
 		mcp.WithString("wing", mcp.Description("Optional target wing (default wing_<agent_name>).")),
 	)
@@ -79,7 +79,7 @@ func registerDiaryWrite(srv *server.MCPServer, drawers *palace.Service, usageSvc
 // registerDiaryRead: return an agent's most recent diary entries, newest first.
 // An omitted wing reads across every wing the agent has journaled in.
 func registerDiaryRead(srv *server.MCPServer, drawers *palace.Service, usageSvc *usage.Service) {
-	tool := mcp.NewTool("diary_read",
+	tool := newTool("diary_read",
 		mcp.WithDescription("Read an agent's recent diary entries, newest first. With no wing, returns entries from every wing the agent has written to."),
 		mcp.WithString("agent_name", mcp.Required(), mcp.Description("Whose journal to read (case-insensitive).")),
 		mcp.WithNumber("last_n", mcp.Description("How many recent entries to return, 1-100 (default 10).")),

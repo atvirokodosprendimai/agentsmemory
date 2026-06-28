@@ -26,6 +26,21 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 )
 
+// toolPrefix namespaces every agentsmemory MCP tool (am_status, am_search,
+// am_list_wings, …). It exists so this server can run alongside other memory
+// MCPs — notably mempalace, which exposes same-named tools (search, add_drawer,
+// list_wings, diary_write, kg_add) — without the client seeing two tools of the
+// same name. The prefix is applied in exactly one place (newTool), so every
+// registration site keeps the bare, readable name.
+const toolPrefix = "am_"
+
+// newTool builds a tool with the agentsmemory prefix applied to its name: callers
+// pass the bare name and the wire name becomes am_<name>. This is the single
+// chokepoint that guarantees every registered tool is prefixed.
+func newTool(name string, opts ...mcp.ToolOption) mcp.Tool {
+	return mcp.NewTool(toolPrefix+name, opts...)
+}
+
 // Deps are the collaborators the tools need. Passing them in (rather than
 // reaching for globals) keeps the server testable and the wiring explicit.
 type Deps struct {
@@ -84,7 +99,7 @@ func admit(ctx context.Context, usageSvc *usage.Service) (tenant.Tenant, *mcp.Ca
 // registerStatus adds the status tool: a cheap, metered call confirming the
 // session is authenticated and reporting the team and remaining quota.
 func registerStatus(srv *server.MCPServer, usageSvc *usage.Service) {
-	tool := mcp.NewTool("status",
+	tool := newTool("status",
 		mcp.WithDescription("Report server liveness, the team this MCP session is scoped to, and remaining monthly quota."),
 	)
 	srv.AddTool(tool, func(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -108,7 +123,7 @@ func registerStatus(srv *server.MCPServer, usageSvc *usage.Service) {
 // registerLoadSkill adds the load_skill tool: an agent passes a skill name and
 // receives the centralised, team-shared skill body. Read access for any member.
 func registerLoadSkill(srv *server.MCPServer, skills *skill.Service, usageSvc *usage.Service) {
-	tool := mcp.NewTool("load_skill",
+	tool := newTool("load_skill",
 		mcp.WithDescription("Load a centralised, team-shared skill by name. Returns the skill body and version so the calling agent can use it directly."),
 		mcp.WithString("name",
 			mcp.Required(),

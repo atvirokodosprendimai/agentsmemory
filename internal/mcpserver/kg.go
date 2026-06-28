@@ -22,7 +22,7 @@ func registerKG(srv *server.MCPServer, drawers *palace.Service, usageSvc *usage.
 }
 
 func registerKGAdd(srv *server.MCPServer, drawers *palace.Service, usageSvc *usage.Service) {
-	tool := mcp.NewTool("kg_add",
+	tool := newTool("kg_add",
 		mcp.WithDescription("Add a fact (subject → predicate → object) to the temporal knowledge graph, optionally with a validity window. Re-adding an identical current fact is a no-op; to replace a fact, invalidate the old one first."),
 		mcp.WithString("subject", mcp.Required(), mcp.Description("The fact's subject entity.")),
 		mcp.WithString("predicate", mcp.Required(), mcp.Description("The relationship (e.g. \"works_at\").")),
@@ -61,7 +61,7 @@ func registerKGAdd(srv *server.MCPServer, drawers *palace.Service, usageSvc *usa
 }
 
 func registerKGInvalidate(srv *server.MCPServer, drawers *palace.Service, usageSvc *usage.Service) {
-	tool := mcp.NewTool("kg_invalidate",
+	tool := newTool("kg_invalidate",
 		mcp.WithDescription("Mark a current fact as no longer true by ending its validity window. The fact is kept (queryable as-of an earlier time), not deleted."),
 		mcp.WithString("subject", mcp.Required(), mcp.Description("The fact's subject entity.")),
 		mcp.WithString("predicate", mcp.Required(), mcp.Description("The relationship.")),
@@ -94,7 +94,7 @@ func registerKGInvalidate(srv *server.MCPServer, drawers *palace.Service, usageS
 }
 
 func registerKGQuery(srv *server.MCPServer, drawers *palace.Service, usageSvc *usage.Service) {
-	tool := mcp.NewTool("kg_query",
+	tool := newTool("kg_query",
 		mcp.WithDescription("Query an entity's relationships in the knowledge graph, optionally as of a point in time and in a chosen direction."),
 		mcp.WithString("entity", mcp.Required(), mcp.Description("The entity to look up.")),
 		mcp.WithString("as_of", mcp.Description("Only facts in effect at this instant (YYYY-MM-DD or datetime).")),
@@ -123,7 +123,7 @@ func registerKGQuery(srv *server.MCPServer, drawers *palace.Service, usageSvc *u
 }
 
 func registerKGStats(srv *server.MCPServer, drawers *palace.Service, usageSvc *usage.Service) {
-	tool := mcp.NewTool("kg_stats",
+	tool := newTool("kg_stats",
 		mcp.WithDescription("Knowledge-graph overview: entity and fact totals, current vs expired facts, and the relationship types in use."),
 	)
 	srv.AddTool(tool, func(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -140,7 +140,7 @@ func registerKGStats(srv *server.MCPServer, drawers *palace.Service, usageSvc *u
 }
 
 func registerKGTimeline(srv *server.MCPServer, drawers *palace.Service, usageSvc *usage.Service) {
-	tool := mcp.NewTool("kg_timeline",
+	tool := newTool("kg_timeline",
 		mcp.WithDescription("Chronological timeline of facts (validity start order), for one entity or — with no entity — across the whole graph."),
 		mcp.WithString("entity", mcp.Description("Restrict to facts touching this entity (default: all).")),
 	)

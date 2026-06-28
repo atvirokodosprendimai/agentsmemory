@@ -86,7 +86,7 @@ func toHallwayView(h palace.Hallway) hallwayView {
 }
 
 func registerCreateTunnel(srv *server.MCPServer, drawers *palace.Service, usageSvc *usage.Service) {
-	tool := mcp.NewTool("create_tunnel",
+	tool := newTool("create_tunnel",
 		mcp.WithDescription("Create or update an explicit cross-wing tunnel between two existing wing/room locations. Tunnels are symmetric — creating the reverse direction updates the same tunnel."),
 		mcp.WithString("source_wing", mcp.Required(), mcp.Description("Source wing.")),
 		mcp.WithString("source_room", mcp.Required(), mcp.Description("Source room (must already contain a drawer).")),
@@ -131,7 +131,7 @@ func registerCreateTunnel(srv *server.MCPServer, drawers *palace.Service, usageS
 }
 
 func registerDeleteTunnel(srv *server.MCPServer, drawers *palace.Service, usageSvc *usage.Service) {
-	tool := mcp.NewTool("delete_tunnel",
+	tool := newTool("delete_tunnel",
 		mcp.WithDescription("Delete a tunnel by id."),
 		mcp.WithString("tunnel_id", mcp.Required(), mcp.Description("The tunnel id to delete.")),
 	)
@@ -153,7 +153,7 @@ func registerDeleteTunnel(srv *server.MCPServer, drawers *palace.Service, usageS
 }
 
 func registerListTunnels(srv *server.MCPServer, drawers *palace.Service, usageSvc *usage.Service) {
-	tool := mcp.NewTool("list_tunnels",
+	tool := newTool("list_tunnels",
 		mcp.WithDescription("List explicit and derived tunnels, optionally filtered to those touching a wing."),
 		mcp.WithString("wing", mcp.Description("Only tunnels with this wing as source or target.")),
 	)
@@ -175,7 +175,7 @@ func registerListTunnels(srv *server.MCPServer, drawers *palace.Service, usageSv
 }
 
 func registerFindTunnels(srv *server.MCPServer, drawers *palace.Service, usageSvc *usage.Service) {
-	tool := mcp.NewTool("find_tunnels",
+	tool := newTool("find_tunnels",
 		mcp.WithDescription("Find rooms that span two or more wings (passive cross-wing connectors), optionally filtered by one or two wings."),
 		mcp.WithString("wing_a", mcp.Description("Only rooms that also appear in this wing.")),
 		mcp.WithString("wing_b", mcp.Description("Only rooms that also appear in this wing.")),
@@ -194,7 +194,7 @@ func registerFindTunnels(srv *server.MCPServer, drawers *palace.Service, usageSv
 }
 
 func registerFollowTunnels(srv *server.MCPServer, drawers *palace.Service, usageSvc *usage.Service) {
-	tool := mcp.NewTool("follow_tunnels",
+	tool := newTool("follow_tunnels",
 		mcp.WithDescription("Follow the tunnels leaving or entering a wing/room, with a preview of the drawer each pinned tunnel leads to."),
 		mcp.WithString("wing", mcp.Required(), mcp.Description("The wing to follow tunnels from.")),
 		mcp.WithString("room", mcp.Required(), mcp.Description("The room to follow tunnels from.")),
@@ -221,7 +221,7 @@ func registerFollowTunnels(srv *server.MCPServer, drawers *palace.Service, usage
 }
 
 func registerListHallways(srv *server.MCPServer, drawers *palace.Service, usageSvc *usage.Service) {
-	tool := mcp.NewTool("list_hallways",
+	tool := newTool("list_hallways",
 		mcp.WithDescription("List within-wing hallways (entity-to-entity co-occurrence links), optionally filtered by wing."),
 		mcp.WithString("wing", mcp.Description("Only hallways in this wing.")),
 	)
@@ -243,8 +243,8 @@ func registerListHallways(srv *server.MCPServer, drawers *palace.Service, usageS
 }
 
 func registerDeleteHallway(srv *server.MCPServer, drawers *palace.Service, usageSvc *usage.Service) {
-	tool := mcp.NewTool("delete_hallway",
-		mcp.WithDescription("Delete a hallway by id (it will return on the next recompute_graph if the co-occurrence still holds)."),
+	tool := newTool("delete_hallway",
+		mcp.WithDescription("Delete a hallway by id (it will return on the next am_recompute_graph if the co-occurrence still holds)."),
 		mcp.WithString("hallway_id", mcp.Required(), mcp.Description("The hallway id to delete.")),
 	)
 	srv.AddTool(tool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -265,7 +265,7 @@ func registerDeleteHallway(srv *server.MCPServer, drawers *palace.Service, usage
 }
 
 func registerTraverse(srv *server.MCPServer, drawers *palace.Service, usageSvc *usage.Service) {
-	tool := mcp.NewTool("traverse",
+	tool := newTool("traverse",
 		mcp.WithDescription("Walk the graph from a starting room across rooms that share a wing, out to max_hops."),
 		mcp.WithString("start_room", mcp.Required(), mcp.Description("The room to start the walk from.")),
 		mcp.WithNumber("max_hops", mcp.Description("How many hops to walk, 1-10 (default 2).")),
@@ -288,7 +288,7 @@ func registerTraverse(srv *server.MCPServer, drawers *palace.Service, usageSvc *
 }
 
 func registerGraphStats(srv *server.MCPServer, drawers *palace.Service, usageSvc *usage.Service) {
-	tool := mcp.NewTool("graph_stats",
+	tool := newTool("graph_stats",
 		mcp.WithDescription("Return aggregate metrics about the team's graph: room totals, cross-wing connectors, edges, rooms-per-wing, and the top connectors."),
 	)
 	srv.AddTool(tool, func(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -305,7 +305,7 @@ func registerGraphStats(srv *server.MCPServer, drawers *palace.Service, usageSvc
 }
 
 func registerRecomputeGraph(srv *server.MCPServer, drawers *palace.Service, usageSvc *usage.Service) {
-	tool := mcp.NewTool("recompute_graph",
+	tool := newTool("recompute_graph",
 		mcp.WithDescription("Rebuild the derived graph (hallways + entity tunnels) from current drawers. Run after mining or wing changes. No source files are read."),
 		mcp.WithString("wing", mcp.Description("Only rebuild this wing (default: all wings).")),
 		mcp.WithBoolean("prune_orphans", mcp.Description("Drop hallways for wings that no longer have drawers (default true).")),

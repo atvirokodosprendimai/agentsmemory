@@ -76,7 +76,7 @@ func jsonResult(v any) *mcp.CallToolResult {
 // registerAddDrawer: file a verbatim memory. Oversized content is chunked, each
 // chunk embedded and stored; the response reports the drawers created.
 func registerAddDrawer(srv *server.MCPServer, drawers *palace.Service, usageSvc *usage.Service) {
-	tool := mcp.NewTool("add_drawer",
+	tool := newTool("add_drawer",
 		mcp.WithDescription("File a verbatim memory (drawer) into a wing/room. Content over ~800 chars is chunked into multiple drawers; re-adding the same source is idempotent."),
 		mcp.WithString("wing", mcp.Required(), mcp.Description("Project namespace the memory belongs to.")),
 		mcp.WithString("room", mcp.Required(), mcp.Description("Aspect within the wing, e.g. \"backend\" or \"decisions\".")),
@@ -121,9 +121,9 @@ func registerAddDrawer(srv *server.MCPServer, drawers *palace.Service, usageSvc 
 
 // registerGetDrawer: fetch one drawer by id.
 func registerGetDrawer(srv *server.MCPServer, drawers *palace.Service, usageSvc *usage.Service) {
-	tool := mcp.NewTool("get_drawer",
+	tool := newTool("get_drawer",
 		mcp.WithDescription("Fetch a single drawer by its id."),
-		mcp.WithString("id", mcp.Required(), mcp.Description("The drawer id returned by add_drawer or search.")),
+		mcp.WithString("id", mcp.Required(), mcp.Description("The drawer id returned by am_add_drawer or am_search.")),
 	)
 	srv.AddTool(tool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		t, errResult, ok := admit(ctx, usageSvc)
@@ -145,7 +145,7 @@ func registerGetDrawer(srv *server.MCPServer, drawers *palace.Service, usageSvc 
 // registerUpdateDrawer: edit a drawer's content/wing/room in place. Only the
 // fields actually supplied are changed; a changed drawer is re-embedded.
 func registerUpdateDrawer(srv *server.MCPServer, drawers *palace.Service, usageSvc *usage.Service) {
-	tool := mcp.NewTool("update_drawer",
+	tool := newTool("update_drawer",
 		mcp.WithDescription("Update a drawer's content, wing, or room in place (its id is unchanged). Only supplied fields are modified."),
 		mcp.WithString("id", mcp.Required(), mcp.Description("The drawer id to update.")),
 		mcp.WithString("content", mcp.Description("New verbatim content (re-embedded on change).")),
@@ -187,7 +187,7 @@ func registerUpdateDrawer(srv *server.MCPServer, drawers *palace.Service, usageS
 
 // registerDeleteDrawer: remove a drawer (row + vector) by id.
 func registerDeleteDrawer(srv *server.MCPServer, drawers *palace.Service, usageSvc *usage.Service) {
-	tool := mcp.NewTool("delete_drawer",
+	tool := newTool("delete_drawer",
 		mcp.WithDescription("Delete a drawer by id (removes both its metadata and its embedding)."),
 		mcp.WithString("id", mcp.Required(), mcp.Description("The drawer id to delete.")),
 	)
@@ -209,7 +209,7 @@ func registerDeleteDrawer(srv *server.MCPServer, drawers *palace.Service, usageS
 
 // registerListDrawers: paginate a team's drawers, optionally filtered by wing/room.
 func registerListDrawers(srv *server.MCPServer, drawers *palace.Service, usageSvc *usage.Service) {
-	tool := mcp.NewTool("list_drawers",
+	tool := newTool("list_drawers",
 		mcp.WithDescription("List drawers (newest first), optionally narrowed to a wing and/or room, with limit/offset paging."),
 		mcp.WithString("wing", mcp.Description("Only drawers in this wing.")),
 		mcp.WithString("room", mcp.Description("Only drawers in this room.")),
@@ -247,7 +247,7 @@ type searchHitView struct {
 // registerSearch: hybrid recall over a team's drawers — vector candidates
 // re-ranked by a vector+BM25 blend (closet boost joins with the mining phase).
 func registerSearch(srv *server.MCPServer, drawers *palace.Service, usageSvc *usage.Service) {
-	tool := mcp.NewTool("search",
+	tool := newTool("search",
 		mcp.WithDescription("Semantically recall drawers most similar to a query. Optionally filter by wing/room and a max cosine distance."),
 		mcp.WithString("query", mcp.Required(), mcp.Description("What to recall (max 250 chars).")),
 		mcp.WithNumber("limit", mcp.Description("Max results, 1-100 (default 5).")),
@@ -285,7 +285,7 @@ func registerSearch(srv *server.MCPServer, drawers *palace.Service, usageSvc *us
 
 // registerCheckDuplicate: is content near-identical to an existing drawer?
 func registerCheckDuplicate(srv *server.MCPServer, drawers *palace.Service, usageSvc *usage.Service) {
-	tool := mcp.NewTool("check_duplicate",
+	tool := newTool("check_duplicate",
 		mcp.WithDescription("Check whether content is near-identical to an existing drawer before filing it."),
 		mcp.WithString("content", mcp.Required(), mcp.Description("The candidate content to test.")),
 		mcp.WithNumber("threshold", mcp.Description("Cosine-similarity threshold for a duplicate (default 0.9).")),
@@ -313,7 +313,7 @@ func registerCheckDuplicate(srv *server.MCPServer, drawers *palace.Service, usag
 
 // registerListWings: per-wing drawer/room counts.
 func registerListWings(srv *server.MCPServer, drawers *palace.Service, usageSvc *usage.Service) {
-	tool := mcp.NewTool("list_wings",
+	tool := newTool("list_wings",
 		mcp.WithDescription("List the team's wings with how many drawers and distinct rooms each holds."),
 	)
 	srv.AddTool(tool, func(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -331,7 +331,7 @@ func registerListWings(srv *server.MCPServer, drawers *palace.Service, usageSvc 
 
 // registerListRooms: per-room drawer counts, optionally within one wing.
 func registerListRooms(srv *server.MCPServer, drawers *palace.Service, usageSvc *usage.Service) {
-	tool := mcp.NewTool("list_rooms",
+	tool := newTool("list_rooms",
 		mcp.WithDescription("List the team's rooms with drawer counts, optionally restricted to one wing."),
 		mcp.WithString("wing", mcp.Description("Only rooms within this wing.")),
 	)
@@ -350,7 +350,7 @@ func registerListRooms(srv *server.MCPServer, drawers *palace.Service, usageSvc 
 
 // registerGetTaxonomy: the wing -> rooms tree with counts.
 func registerGetTaxonomy(srv *server.MCPServer, drawers *palace.Service, usageSvc *usage.Service) {
-	tool := mcp.NewTool("get_taxonomy",
+	tool := newTool("get_taxonomy",
 		mcp.WithDescription("Return the team's memory taxonomy: every wing with its rooms and counts."),
 	)
 	srv.AddTool(tool, func(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -369,7 +369,7 @@ func registerGetTaxonomy(srv *server.MCPServer, drawers *palace.Service, usageSv
 // registerGetAAAKSpec: the static AAAK dialect reference. It needs no storage, so
 // it still meters (to keep tool behaviour uniform) but reads nothing per-team.
 func registerGetAAAKSpec(srv *server.MCPServer, _ *palace.Service, usageSvc *usage.Service) {
-	tool := mcp.NewTool("get_aaak_spec",
+	tool := newTool("get_aaak_spec",
 		mcp.WithDescription("Return the AAAK compressed-memory dialect spec agents use for diary and closet lines."),
 	)
 	srv.AddTool(tool, func(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -384,7 +384,7 @@ func registerGetAAAKSpec(srv *server.MCPServer, _ *palace.Service, usageSvc *usa
 // stateless server it has no cached client to drop (unlike the Python tool); it
 // re-readies the namespace and confirms the backend is reachable.
 func registerReconnect(srv *server.MCPServer, drawers *palace.Service, usageSvc *usage.Service) {
-	tool := mcp.NewTool("reconnect",
+	tool := newTool("reconnect",
 		mcp.WithDescription("Re-ready the workspace's vector store and confirm the backend is reachable (a stateless liveness probe)."),
 	)
 	srv.AddTool(tool, func(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {

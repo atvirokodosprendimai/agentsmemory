@@ -32,8 +32,8 @@ func (c skillCaller) CanWrite() bool {
 // registerListSkills: list the team's centralised skills as metadata (no bodies),
 // so an agent can see what is available before loading one.
 func registerListSkills(srv *server.MCPServer, skills *skill.Service, usageSvc *usage.Service) {
-	tool := mcp.NewTool("list_skills",
-		mcp.WithDescription("List the team's centralised skills (name, description, version) without their bodies. Load a body with load_skill."),
+	tool := newTool("list_skills",
+		mcp.WithDescription("List the team's centralised skills (name, description, version) without their bodies. Load a body with am_load_skill."),
 	)
 	srv.AddTool(tool, func(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		t, errResult, ok := admit(ctx, usageSvc)
@@ -51,7 +51,7 @@ func registerListSkills(srv *server.MCPServer, skills *skill.Service, usageSvc *
 // registerUpdateSkill: create or replace a skill's body, bumping its version.
 // Requires the writer or admin role; a member is refused.
 func registerUpdateSkill(srv *server.MCPServer, skills *skill.Service, usageSvc *usage.Service) {
-	tool := mcp.NewTool("update_skill",
+	tool := newTool("update_skill",
 		mcp.WithDescription("Create or update a centralised, team-shared skill by name, bumping its version. Requires the writer or admin role."),
 		mcp.WithString("name", mcp.Required(), mcp.Description("The unique skill name within the team.")),
 		mcp.WithString("content", mcp.Required(), mcp.Description("The new skill body.")),
