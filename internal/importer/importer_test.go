@@ -7,6 +7,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -139,5 +142,48 @@ func TestImportOverCap(t *testing.T) {
 	h.ServeHTTP(rec, authedRequest(bundle))
 	if rec.Code != http.StatusTooManyRequests {
 		t.Fatalf("status = %d, want 429", rec.Code)
+	}
+}
+
+// TestImportWireWithPythonPusher is a real cross-language round-trip: the Python
+// CLI streams the bundle over chunked HTTP to a live server wrapping the handler,
+// proving the two deliverables agree on the wire format. It is skipped when
+// python3 or the script is unavailable so `go test ./...` never depends on them.
+func TestImportWireWithPythonPusher(t *testing.T) {
+	py, err := exec.LookPath("python3")
+	if err != nil {
+		t.Skip("python3 not available")
+	}
+	script := filepath.Join("..", "..", "clients", "migrate", "mempalace_export.py")
+	if _, err := os.Stat(script); err != nil {
+		t.Skipf("exporter script not found: %v", err)
+	}
+
+	fd := &fakeDrawers{}
+	// Wrap the handler with the tenant the auth gate would otherwise inject.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx := auth.WithTenant(r.Context(), tenant.Tenant{TeamID: "team-1"})
+		Handler(fd, allowAll{}).ServeHTTP(w, r.WithContext(ctx))
+	}))
+	defer srv.Close()
+
+	bundlePath := filepath.Join(t.TempDir(), "bundle.ndjson")
+	if err := os.WriteFile(bundlePath, []byte(bundle), 0o600); err != nil {
+		t.Fatalf("write bundle: %v", err)
+	}
+
+	cmd := exec.Command(py, script, "--file", bundlePath, "--push",
+		"--server", srv.URL, "--token", "test-token")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("python push failed: %v\n%s", err, out)
+	}
+	if !strings.Contains(string(out), "done.") {
+		t.Errorf("expected a 'done.' summary in pusher output, got:\n%s", out)
+	}
+	// The in-process fake recorded exactly what the Python client streamed.
+	if fd.drawers != 2 || fd.closets != 1 || fd.kg != 1 || fd.tunnels != 1 {
+		t.Errorf("routed drawers=%d closets=%d kg=%d tunnels=%d, want 2/1/1/1",
+			fd.drawers, fd.closets, fd.kg, fd.tunnels)
 	}
 }
