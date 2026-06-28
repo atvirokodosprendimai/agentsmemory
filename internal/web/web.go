@@ -12,6 +12,7 @@ import (
 	"github.com/atvirokodosprendimai/agentsmemory/internal/skill"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/tenant"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/usage"
+	"github.com/atvirokodosprendimai/agentsmemory/internal/web/views"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/gorilla/sessions"
@@ -85,13 +86,18 @@ func (s *Server) Routes(r chi.Router) {
 	s.oauthRoutes(r) // gated: no-op when no providers configured
 }
 
-// handleRoot sends signed-in users to the dashboard and everyone else to login.
+// handleRoot sends signed-in users straight to the dashboard and serves the
+// public marketing landing page to everyone else. The landing page is the
+// product's front door (SEO/GEO entry for "agent memory"), so logged-out
+// visitors get content here rather than an immediate redirect to /login.
 func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
 	if _, ok := s.sessionUserID(r); ok {
 		http.Redirect(w, r, "/dashboard", http.StatusSeeOther)
 		return
 	}
-	http.Redirect(w, r, "/login", http.StatusSeeOther)
+	s.render(w, r, views.LandingPage(views.LandingData{
+		HasOAuth: len(s.providers) > 0, // mention social login when wired
+	}))
 }
 
 // --- session helpers ---
