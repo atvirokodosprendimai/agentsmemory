@@ -8,7 +8,6 @@ import (
 	"github.com/atvirokodosprendimai/agentsmemory/internal/usage"
 
 	"github.com/mark3labs/mcp-go/mcp"
-	"github.com/mark3labs/mcp-go/server"
 )
 
 // registerDrawers wires the core memory-loop tools — the WRITE/FILE, SEARCH/RECALL
@@ -16,19 +15,19 @@ import (
 // server. Every handler shares the admit() preamble (auth + monthly metering) and
 // is scoped to the resolved tenant's TeamID, so a token can only ever touch its
 // own workspace's memories.
-func registerDrawers(srv *server.MCPServer, drawers *palace.Service, usageSvc *usage.Service) {
-	registerAddDrawer(srv, drawers, usageSvc)
-	registerGetDrawer(srv, drawers, usageSvc)
-	registerUpdateDrawer(srv, drawers, usageSvc)
-	registerDeleteDrawer(srv, drawers, usageSvc)
-	registerListDrawers(srv, drawers, usageSvc)
-	registerSearch(srv, drawers, usageSvc)
-	registerCheckDuplicate(srv, drawers, usageSvc)
-	registerListWings(srv, drawers, usageSvc)
-	registerListRooms(srv, drawers, usageSvc)
-	registerGetTaxonomy(srv, drawers, usageSvc)
-	registerGetAAAKSpec(srv, drawers, usageSvc)
-	registerReconnect(srv, drawers, usageSvc)
+func registerDrawers(reg *registrar, drawers *palace.Service, usageSvc *usage.Service) {
+	registerAddDrawer(reg, drawers, usageSvc)
+	registerGetDrawer(reg, drawers, usageSvc)
+	registerUpdateDrawer(reg, drawers, usageSvc)
+	registerDeleteDrawer(reg, drawers, usageSvc)
+	registerListDrawers(reg, drawers, usageSvc)
+	registerSearch(reg, drawers, usageSvc)
+	registerCheckDuplicate(reg, drawers, usageSvc)
+	registerListWings(reg, drawers, usageSvc)
+	registerListRooms(reg, drawers, usageSvc)
+	registerGetTaxonomy(reg, drawers, usageSvc)
+	registerGetAAAKSpec(reg, drawers, usageSvc)
+	registerReconnect(reg, drawers, usageSvc)
 }
 
 // drawerView is the agent-facing JSON shape of a drawer. It omits TeamID (the
@@ -75,7 +74,7 @@ func jsonResult(v any) *mcp.CallToolResult {
 
 // registerAddDrawer: file a verbatim memory. Oversized content is chunked, each
 // chunk embedded and stored; the response reports the drawers created.
-func registerAddDrawer(srv *server.MCPServer, drawers *palace.Service, usageSvc *usage.Service) {
+func registerAddDrawer(reg *registrar, drawers *palace.Service, usageSvc *usage.Service) {
 	tool := newTool("add_drawer",
 		mcp.WithDescription("File a verbatim memory (drawer) into a wing/room. Content over ~800 chars is chunked into multiple drawers; re-adding the same source is idempotent."),
 		mcp.WithString("wing", mcp.Required(), mcp.Description("Project namespace the memory belongs to.")),
@@ -84,7 +83,7 @@ func registerAddDrawer(srv *server.MCPServer, drawers *palace.Service, usageSvc 
 		mcp.WithString("source_file", mcp.Description("Optional provenance of the content (a path or label).")),
 		mcp.WithString("content_date", mcp.Description("Optional date the memory is about (e.g. 2026-06-26).")),
 	)
-	srv.AddTool(tool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	reg.add(tool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		t, errResult, ok := admit(ctx, usageSvc)
 		if !ok {
 			return errResult, nil
@@ -120,12 +119,12 @@ func registerAddDrawer(srv *server.MCPServer, drawers *palace.Service, usageSvc 
 }
 
 // registerGetDrawer: fetch one drawer by id.
-func registerGetDrawer(srv *server.MCPServer, drawers *palace.Service, usageSvc *usage.Service) {
+func registerGetDrawer(reg *registrar, drawers *palace.Service, usageSvc *usage.Service) {
 	tool := newTool("get_drawer",
 		mcp.WithDescription("Fetch a single drawer by its id."),
 		mcp.WithString("id", mcp.Required(), mcp.Description("The drawer id returned by am_add_drawer or am_search.")),
 	)
-	srv.AddTool(tool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	reg.add(tool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		t, errResult, ok := admit(ctx, usageSvc)
 		if !ok {
 			return errResult, nil
@@ -144,7 +143,7 @@ func registerGetDrawer(srv *server.MCPServer, drawers *palace.Service, usageSvc 
 
 // registerUpdateDrawer: edit a drawer's content/wing/room in place. Only the
 // fields actually supplied are changed; a changed drawer is re-embedded.
-func registerUpdateDrawer(srv *server.MCPServer, drawers *palace.Service, usageSvc *usage.Service) {
+func registerUpdateDrawer(reg *registrar, drawers *palace.Service, usageSvc *usage.Service) {
 	tool := newTool("update_drawer",
 		mcp.WithDescription("Update a drawer's content, wing, or room in place (its id is unchanged). Only supplied fields are modified."),
 		mcp.WithString("id", mcp.Required(), mcp.Description("The drawer id to update.")),
@@ -152,7 +151,7 @@ func registerUpdateDrawer(srv *server.MCPServer, drawers *palace.Service, usageS
 		mcp.WithString("wing", mcp.Description("Move the drawer to this wing.")),
 		mcp.WithString("room", mcp.Description("Move the drawer to this room.")),
 	)
-	srv.AddTool(tool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	reg.add(tool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		t, errResult, ok := admit(ctx, usageSvc)
 		if !ok {
 			return errResult, nil
@@ -186,12 +185,12 @@ func registerUpdateDrawer(srv *server.MCPServer, drawers *palace.Service, usageS
 }
 
 // registerDeleteDrawer: remove a drawer (row + vector) by id.
-func registerDeleteDrawer(srv *server.MCPServer, drawers *palace.Service, usageSvc *usage.Service) {
+func registerDeleteDrawer(reg *registrar, drawers *palace.Service, usageSvc *usage.Service) {
 	tool := newTool("delete_drawer",
 		mcp.WithDescription("Delete a drawer by id (removes both its metadata and its embedding)."),
 		mcp.WithString("id", mcp.Required(), mcp.Description("The drawer id to delete.")),
 	)
-	srv.AddTool(tool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	reg.add(tool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		t, errResult, ok := admit(ctx, usageSvc)
 		if !ok {
 			return errResult, nil
@@ -208,7 +207,7 @@ func registerDeleteDrawer(srv *server.MCPServer, drawers *palace.Service, usageS
 }
 
 // registerListDrawers: paginate a team's drawers, optionally filtered by wing/room.
-func registerListDrawers(srv *server.MCPServer, drawers *palace.Service, usageSvc *usage.Service) {
+func registerListDrawers(reg *registrar, drawers *palace.Service, usageSvc *usage.Service) {
 	tool := newTool("list_drawers",
 		mcp.WithDescription("List drawers (newest first), optionally narrowed to a wing and/or room, with limit/offset paging."),
 		mcp.WithString("wing", mcp.Description("Only drawers in this wing.")),
@@ -216,7 +215,7 @@ func registerListDrawers(srv *server.MCPServer, drawers *palace.Service, usageSv
 		mcp.WithNumber("limit", mcp.Description("Max drawers to return (default 50).")),
 		mcp.WithNumber("offset", mcp.Description("Number of drawers to skip (default 0).")),
 	)
-	srv.AddTool(tool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	reg.add(tool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		t, errResult, ok := admit(ctx, usageSvc)
 		if !ok {
 			return errResult, nil
@@ -246,7 +245,7 @@ type searchHitView struct {
 
 // registerSearch: hybrid recall over a team's drawers — vector candidates
 // re-ranked by a vector+BM25 blend (closet boost joins with the mining phase).
-func registerSearch(srv *server.MCPServer, drawers *palace.Service, usageSvc *usage.Service) {
+func registerSearch(reg *registrar, drawers *palace.Service, usageSvc *usage.Service) {
 	tool := newTool("search",
 		mcp.WithDescription("Semantically recall drawers most similar to a query. Optionally filter by wing/room and a max cosine distance."),
 		mcp.WithString("query", mcp.Required(), mcp.Description("What to recall (max 250 chars).")),
@@ -256,7 +255,7 @@ func registerSearch(srv *server.MCPServer, drawers *palace.Service, usageSvc *us
 		mcp.WithNumber("max_distance", mcp.Description("Drop results farther than this cosine distance (0-2, default 1.5; 0 disables).")),
 		mcp.WithString("context", mcp.Description("Optional background context (reserved for future re-ranking; not used yet).")),
 	)
-	srv.AddTool(tool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	reg.add(tool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		t, errResult, ok := admit(ctx, usageSvc)
 		if !ok {
 			return errResult, nil
@@ -284,13 +283,13 @@ func registerSearch(srv *server.MCPServer, drawers *palace.Service, usageSvc *us
 }
 
 // registerCheckDuplicate: is content near-identical to an existing drawer?
-func registerCheckDuplicate(srv *server.MCPServer, drawers *palace.Service, usageSvc *usage.Service) {
+func registerCheckDuplicate(reg *registrar, drawers *palace.Service, usageSvc *usage.Service) {
 	tool := newTool("check_duplicate",
 		mcp.WithDescription("Check whether content is near-identical to an existing drawer before filing it."),
 		mcp.WithString("content", mcp.Required(), mcp.Description("The candidate content to test.")),
 		mcp.WithNumber("threshold", mcp.Description("Cosine-similarity threshold for a duplicate (default 0.9).")),
 	)
-	srv.AddTool(tool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	reg.add(tool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		t, errResult, ok := admit(ctx, usageSvc)
 		if !ok {
 			return errResult, nil
@@ -312,11 +311,11 @@ func registerCheckDuplicate(srv *server.MCPServer, drawers *palace.Service, usag
 }
 
 // registerListWings: per-wing drawer/room counts.
-func registerListWings(srv *server.MCPServer, drawers *palace.Service, usageSvc *usage.Service) {
+func registerListWings(reg *registrar, drawers *palace.Service, usageSvc *usage.Service) {
 	tool := newTool("list_wings",
 		mcp.WithDescription("List the team's wings with how many drawers and distinct rooms each holds."),
 	)
-	srv.AddTool(tool, func(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	reg.add(tool, func(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		t, errResult, ok := admit(ctx, usageSvc)
 		if !ok {
 			return errResult, nil
@@ -330,12 +329,12 @@ func registerListWings(srv *server.MCPServer, drawers *palace.Service, usageSvc 
 }
 
 // registerListRooms: per-room drawer counts, optionally within one wing.
-func registerListRooms(srv *server.MCPServer, drawers *palace.Service, usageSvc *usage.Service) {
+func registerListRooms(reg *registrar, drawers *palace.Service, usageSvc *usage.Service) {
 	tool := newTool("list_rooms",
 		mcp.WithDescription("List the team's rooms with drawer counts, optionally restricted to one wing."),
 		mcp.WithString("wing", mcp.Description("Only rooms within this wing.")),
 	)
-	srv.AddTool(tool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	reg.add(tool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		t, errResult, ok := admit(ctx, usageSvc)
 		if !ok {
 			return errResult, nil
@@ -349,11 +348,11 @@ func registerListRooms(srv *server.MCPServer, drawers *palace.Service, usageSvc 
 }
 
 // registerGetTaxonomy: the wing -> rooms tree with counts.
-func registerGetTaxonomy(srv *server.MCPServer, drawers *palace.Service, usageSvc *usage.Service) {
+func registerGetTaxonomy(reg *registrar, drawers *palace.Service, usageSvc *usage.Service) {
 	tool := newTool("get_taxonomy",
 		mcp.WithDescription("Return the team's memory taxonomy: every wing with its rooms and counts."),
 	)
-	srv.AddTool(tool, func(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	reg.add(tool, func(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		t, errResult, ok := admit(ctx, usageSvc)
 		if !ok {
 			return errResult, nil
@@ -368,11 +367,11 @@ func registerGetTaxonomy(srv *server.MCPServer, drawers *palace.Service, usageSv
 
 // registerGetAAAKSpec: the static AAAK dialect reference. It needs no storage, so
 // it still meters (to keep tool behaviour uniform) but reads nothing per-team.
-func registerGetAAAKSpec(srv *server.MCPServer, _ *palace.Service, usageSvc *usage.Service) {
+func registerGetAAAKSpec(reg *registrar, _ *palace.Service, usageSvc *usage.Service) {
 	tool := newTool("get_aaak_spec",
 		mcp.WithDescription("Return the AAAK compressed-memory dialect spec agents use for diary and closet lines."),
 	)
-	srv.AddTool(tool, func(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	reg.add(tool, func(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		if _, errResult, ok := admit(ctx, usageSvc); !ok {
 			return errResult, nil
 		}
@@ -383,11 +382,11 @@ func registerGetAAAKSpec(srv *server.MCPServer, _ *palace.Service, usageSvc *usa
 // registerReconnect: a liveness probe over the tenant's vector namespace. In this
 // stateless server it has no cached client to drop (unlike the Python tool); it
 // re-readies the namespace and confirms the backend is reachable.
-func registerReconnect(srv *server.MCPServer, drawers *palace.Service, usageSvc *usage.Service) {
+func registerReconnect(reg *registrar, drawers *palace.Service, usageSvc *usage.Service) {
 	tool := newTool("reconnect",
 		mcp.WithDescription("Re-ready the workspace's vector store and confirm the backend is reachable (a stateless liveness probe)."),
 	)
-	srv.AddTool(tool, func(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	reg.add(tool, func(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		t, errResult, ok := admit(ctx, usageSvc)
 		if !ok {
 			return errResult, nil

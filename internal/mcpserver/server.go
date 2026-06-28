@@ -19,6 +19,7 @@ import (
 	"github.com/atvirokodosprendimai/agentsmemory/internal/auth"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/palace"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/skill"
+	"github.com/atvirokodosprendimai/agentsmemory/internal/skillset"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/tenant"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/usage"
 
@@ -41,37 +42,71 @@ func newTool(name string, opts ...mcp.ToolOption) mcp.Tool {
 	return mcp.NewTool(toolPrefix+name, opts...)
 }
 
+// CatalogEntry is one registered tool's wire metadata: its prefixed name and the
+// one-line description an agent reads to decide whether to call it. It is the unit
+// am_skillset returns so a waking agent sees the live tool surface.
+type CatalogEntry struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
+
+// registrar wraps the MCP server and accumulates the tool catalogue as tools are
+// registered. Every register* funnels its AddTool through registrar.add, so the
+// catalogue is, by construction, EXACTLY the set of registered tools — never a
+// hand-maintained copy that drifts when a tool is added, renamed, or re-described.
+// This is what lets am_skillset advertise the real surface with zero upkeep.
+type registrar struct {
+	srv     *server.MCPServer
+	catalog []CatalogEntry
+}
+
+// add registers a tool and records its catalogue entry in one step, so a tool can
+// never be exposed without also being advertised (and vice versa). Description is
+// read off the built tool, so it stays in sync with the WithDescription text.
+func (r *registrar) add(tool mcp.Tool, handler server.ToolHandlerFunc) {
+	r.srv.AddTool(tool, handler)
+	r.catalog = append(r.catalog, CatalogEntry{Name: tool.Name, Description: tool.Description})
+}
+
 // Deps are the collaborators the tools need. Passing them in (rather than
 // reaching for globals) keeps the server testable and the wiring explicit.
 type Deps struct {
-	Skills  *skill.Service
-	Usage   *usage.Service
-	Drawers *palace.Service
+	Skills   *skill.Service
+	Skillset *skillset.Service // the global wakeup playbook am_skillset serves
+	Usage    *usage.Service
+	Drawers  *palace.Service
 }
 
-// New builds the MCP server and registers all tools.
+// New builds the MCP server and registers all tools. Registration funnels through
+// a registrar so the live tool catalogue is captured as a side effect — see
+// registrar. am_skillset is registered LAST so its handler advertises the full
+// surface (every tool above it, plus itself).
 func New(deps Deps) *server.MCPServer {
 	srv := server.NewMCPServer(
 		"agentsmemory",
 		"0.1.0",
 		server.WithToolCapabilities(true), // advertise the tools/list capability
 	)
-	registerStatus(srv, deps.Drawers, deps.Usage)
-	registerLoadSkill(srv, deps.Skills, deps.Usage)
+	reg := &registrar{srv: srv}
+	registerStatus(reg, deps.Drawers, deps.Usage)
+	registerLoadSkill(reg, deps.Skills, deps.Usage)
 	// Skill-registry management: list + update (write is role-gated).
-	registerSkills(srv, deps.Skills, deps.Usage)
+	registerSkills(reg, deps.Skills, deps.Usage)
 	// The core memory loop: drawer CRUD, semantic recall, and palace taxonomy.
-	registerDrawers(srv, deps.Drawers, deps.Usage)
+	registerDrawers(reg, deps.Drawers, deps.Usage)
 	// The agent diary: append-only journal entries (diary_write/diary_read).
-	registerDiary(srv, deps.Drawers, deps.Usage)
+	registerDiary(reg, deps.Drawers, deps.Usage)
 	// Mining: text -> chunked drawers + closet index (mine).
-	registerMine(srv, deps.Drawers, deps.Usage)
+	registerMine(reg, deps.Drawers, deps.Usage)
 	// The navigable graph: hallways, tunnels, traverse, recompute_graph.
-	registerGraph(srv, deps.Drawers, deps.Usage)
+	registerGraph(reg, deps.Drawers, deps.Usage)
 	// The temporal knowledge graph: kg_add/invalidate/query/stats/timeline.
-	registerKG(srv, deps.Drawers, deps.Usage)
+	registerKG(reg, deps.Drawers, deps.Usage)
 	// Palace maintenance: merge_wing, memories_filed_away.
-	registerAdmin(srv, deps.Drawers, deps.Usage)
+	registerAdmin(reg, deps.Drawers, deps.Usage)
+	// The wakeup playbook: how to use everything above. Registered last so its
+	// catalogue is complete.
+	registerSkillset(reg, deps.Skillset, deps.Usage)
 	return srv
 }
 
@@ -102,11 +137,11 @@ func admit(ctx context.Context, usageSvc *usage.Service) (tenant.Tenant, *mcp.Ca
 // in the shape of its memory before searching, mirroring mempalace's status. The
 // taxonomy read is best-effort: a status call still succeeds (with an empty
 // overview) if the aggregation fails, so liveness never depends on it.
-func registerStatus(srv *server.MCPServer, drawers *palace.Service, usageSvc *usage.Service) {
+func registerStatus(reg *registrar, drawers *palace.Service, usageSvc *usage.Service) {
 	tool := newTool("status",
 		mcp.WithDescription("Wake-up call: the team this MCP session is scoped to and its role, the memory overview (total drawers + the wing→rooms taxonomy with counts), and remaining monthly quota."),
 	)
-	srv.AddTool(tool, func(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	reg.add(tool, func(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		t, errResult, ok := admit(ctx, usageSvc)
 		if !ok {
 			return errResult, nil
@@ -141,7 +176,7 @@ func registerStatus(srv *server.MCPServer, drawers *palace.Service, usageSvc *us
 
 // registerLoadSkill adds the load_skill tool: an agent passes a skill name and
 // receives the centralised, team-shared skill body. Read access for any member.
-func registerLoadSkill(srv *server.MCPServer, skills *skill.Service, usageSvc *usage.Service) {
+func registerLoadSkill(reg *registrar, skills *skill.Service, usageSvc *usage.Service) {
 	tool := newTool("load_skill",
 		mcp.WithDescription("Load a centralised, team-shared skill by name. Returns the skill body and version so the calling agent can use it directly."),
 		mcp.WithString("name",
@@ -149,7 +184,7 @@ func registerLoadSkill(srv *server.MCPServer, skills *skill.Service, usageSvc *u
 			mcp.Description("The unique skill name within the team, e.g. \"effective-go\"."),
 		),
 	)
-	srv.AddTool(tool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	reg.add(tool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		t, errResult, ok := admit(ctx, usageSvc)
 		if !ok {
 			return errResult, nil

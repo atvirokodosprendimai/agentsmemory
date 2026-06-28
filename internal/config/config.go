@@ -4,7 +4,10 @@
 // SQLite path, and the Qdrant/Ollama endpoints decided as day-one defaults).
 package config
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 // Vector backend selection. SQLite is always the durable source of truth; this
 // chooses what answers searches (decision 2026-06-26: "sqlite as source of
@@ -56,6 +59,29 @@ type Config struct {
 	// gorm SQL logging. Off by default so production stays quiet; set APP_DEBUG=true
 	// (or --debug) to see traffic and queries during development.
 	Debug bool
+
+	// SuperAdminEmails is the platform-superadmin allowlist: users whose email is
+	// in this set may edit the GLOBAL skillset (the am_skillset wakeup playbook)
+	// that every tenant shares. It is a deploy-time decision carried as process
+	// config (env SUPERADMIN_EMAILS, comma-separated), NOT a database row or a
+	// per-team role — mirroring how the sibling forumchat project gates its
+	// god-mode surface. Empty means no superadmin: the global skillset can be
+	// seeded on a fresh database but not edited from the dashboard.
+	SuperAdminEmails []string
+}
+
+// ParseSuperAdminEmails splits a comma-separated SUPERADMIN_EMAILS value into a
+// normalized allowlist: each address lower-cased and trimmed, blanks dropped. It
+// is the single normalization point so the stored allowlist and the email a
+// session is checked against are compared on the same footing.
+func ParseSuperAdminEmails(raw string) []string {
+	var out []string
+	for e := range strings.SplitSeq(raw, ",") {
+		if e = strings.ToLower(strings.TrimSpace(e)); e != "" {
+			out = append(out, e)
+		}
+	}
+	return out
 }
 
 // Default returns a Config populated with the day-one development defaults.
