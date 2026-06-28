@@ -197,21 +197,23 @@ every tool follows it.
 - ` + "`am_check_duplicate`" + ` before filing near-identical content.
 - ` + "`am_add_drawer <wing> <room>`" + ` to file new memory VERBATIM (never summarised).
 
-## After EVERY task — write the diary (HARD GATE, not a suggestion)
-This step is **mandatory and unconditional**. It fires even when the task wrote no
-code: a read-only briefing, a plan you only printed to output, a question you just
-answered — all of them end here. A session that recalls but never records leaves
-the next one cold.
+## After EVERY task — persist before you stop
+This fires even when the task wrote no code: a read-only briefing, a plan you only
+printed to output, a question you just answered — all of them end here. A session
+that recalls but never records leaves the next one cold.
 
-1. ` + "`am_diary_write <agent>`" + ` — journal what you did, decided, and learned, in
-   AAAK. Use a stable agent name so the journal threads across sessions.
-   **Do not end your turn without this call.**
-2. **Write back what you learned.** If the memory was empty and you had to work
-   something out — a tool's params, a subsystem's shape, a gotcha — file it with
-   ` + "`am_add_drawer`" + ` (or a diary line) so the next session recalls it. The loop
-   only pays off if you close it.
-3. ` + "`am_kg_add`" + ` — record durable subject → predicate → object facts.
-4. ` + "`am_create_tunnel`" + ` — link related memories across wings.
+**Required — every task, no exceptions (HARD GATE):**
+- ` + "`am_diary_write <agent>`" + ` — journal what you did, decided, and learned, in
+  AAAK. Use a stable agent name so the journal threads across sessions. This one is
+  mandatory: **do not end your turn without it.**
+
+**Optional — only when the task produced something worth keeping on its own:**
+- ` + "`am_add_drawer <wing> <room>`" + ` — file an important decision, a verbatim quote,
+  a reusable snippet, or a tool gotcha you had to work out. Skip it when the diary
+  already says enough; reach for it when a fact deserves to be found on its own
+  later (the diary is the narrative, a drawer is the lookup).
+- ` + "`am_kg_add`" + ` — record a durable subject → predicate → object fact.
+- ` + "`am_create_tunnel`" + ` — link related memories across wings.
 
 ## About this playbook
 This is the one global wakeup document, identical for every team. It is

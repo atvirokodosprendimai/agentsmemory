@@ -38,13 +38,15 @@ skill to load, **call the tool** — e.g. "load `effective-go`" becomes
 `am_load_skill(name="effective-go")`, then apply the returned body. The same goes
 for `am_status`, `am_search "<your task>"`, and the rest of the loop it lays out.
 
-## Step 3 — Persist before you stop (mandatory, every task)
+## Step 3 — Persist before you stop
 
-The playbook also says how to write back what you learned — typically
-`am_diary_write` (an AAAK session summary), `am_kg_add` (durable
-subject→predicate→object facts), and `am_create_tunnel` (links across topics).
+**Required, every task:** `am_diary_write` (an AAAK session summary). This is
+unconditional — do it on **every** task, not only the ones that changed code. A
+read-only briefing, a plan you only printed, a question you answered — each still
+ends with `am_diary_write`. Do not end your turn without it: a session that recalls
+but never records leaves the next one cold.
 
-This is unconditional: do it on **every** task, not only the ones that changed
-code. A read-only briefing, a plan you only printed, a question you answered — each
-still ends with `am_diary_write`. Do not end your turn without it: a session that
-recalls but never records leaves the next one cold.
+**Optional, only when something is worth keeping on its own:** `am_add_drawer` (an
+important decision, a verbatim quote, a reusable snippet), `am_kg_add` (a durable
+subject→predicate→object fact), `am_create_tunnel` (links across topics). Skip
+these when the diary already says enough.
