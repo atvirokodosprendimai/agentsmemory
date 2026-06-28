@@ -418,6 +418,37 @@ func (r *Repo) CreateAPIKey(ctx context.Context, teamID, userID, name string) (C
 	return cred, nil
 }
 
+// RotateKey revokes a team's currently active API keys and mints a fresh one in a
+// single transaction, returning the new one-time credential. It is how an admin
+// recovers a key that can no longer be revealed (a legacy key, or one whose seal
+// predates a token-key change): the rotated-out key stops authenticating
+// immediately, and the new key is sealed so it can be revealed going forward. The
+// caller MUST authorize (admin) before calling — rotation is destructive.
+func (r *Repo) RotateKey(ctx context.Context, teamID, userID string) (Credential, error) {
+	now := time.Now().UTC().Format(time.RFC3339)
+	key, cred, err := newAPIKey(teamID, userID, "default", now)
+	if err != nil {
+		return Credential{}, err
+	}
+	if key.TokenEnc, err = r.sealToken(cred.Secret); err != nil {
+		return Credential{}, err
+	}
+	err = r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// Revoke every still-active key for the team so the old credential stops
+		// working the instant the new one is issued.
+		if err := tx.Model(&APIKey{}).
+			Where("team_id = ? AND revoked_at IS NULL", teamID).
+			Update("revoked_at", now).Error; err != nil {
+			return err
+		}
+		return tx.Create(&key).Error
+	})
+	if err != nil {
+		return Credential{}, err
+	}
+	return cred, nil
+}
+
 // RevealToken returns the plaintext bearer for a team's current (newest active)
 // API key by opening its at-rest seal. This is the dashboard "reveal" path — the
 // caller MUST authorize first, because the returned token grants full access at

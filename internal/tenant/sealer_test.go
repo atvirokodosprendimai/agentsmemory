@@ -95,3 +95,46 @@ func TestRevealToken(t *testing.T) {
 		t.Fatalf("no-sealer reveal err = %v, want ErrTokenUnavailable", err)
 	}
 }
+
+// TestRotateKeyRevokesOldAndRevealsNew confirms rotation revokes the prior
+// (unrevealable, legacy) key and issues a fresh one that reveals to the returned
+// secret — the recovery path for a key that can no longer be shown.
+func TestRotateKeyRevokesOldAndRevealsNew(t *testing.T) {
+	db := newAPIKeyDB(t)
+	r := NewRepo(db, WithTokenSecret("token-key"))
+	ctx := context.Background()
+
+	// A legacy active key with no seal — unrevealable, exactly the stuck state.
+	if err := db.Create(&APIKey{
+		ID: "old", TeamID: "team-a", UserID: "u1", TokenHash: "oldhash",
+		CreatedAt: "2026-06-01T00:00:00Z",
+	}).Error; err != nil {
+		t.Fatalf("seed legacy key: %v", err)
+	}
+	if _, err := r.RevealToken(ctx, "team-a"); !errors.Is(err, ErrTokenUnavailable) {
+		t.Fatalf("precondition: legacy key should be unrevealable, got %v", err)
+	}
+
+	cred, err := r.RotateKey(ctx, "team-a", "u1")
+	if err != nil {
+		t.Fatalf("rotate: %v", err)
+	}
+	if cred.Secret == "" {
+		t.Fatal("rotate returned an empty secret")
+	}
+
+	// The old key is now revoked.
+	var old APIKey
+	if err := db.Where("id = ?", "old").First(&old).Error; err != nil {
+		t.Fatalf("reload old key: %v", err)
+	}
+	if old.RevokedAt == nil {
+		t.Fatal("old key should be revoked after rotation")
+	}
+
+	// The new (active) key reveals to exactly the returned secret.
+	got, err := r.RevealToken(ctx, "team-a")
+	if err != nil || got != cred.Secret {
+		t.Fatalf("reveal after rotate = (%q, %v), want (%q, nil)", got, err, cred.Secret)
+	}
+}
