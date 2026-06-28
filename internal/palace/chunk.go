@@ -7,14 +7,19 @@ import (
 	"strings"
 )
 
-// Chunking parameters, ported verbatim from the frozen Python miner so Go and
-// Python split identical text into identical drawers (vectors stay comparable):
-// 800-char windows, 200-char overlap, and a 50-char floor below which a trailing
-// fragment is folded into its predecessor rather than emitted as its own drawer.
+// Chunking parameters. The frozen Python miner used 800/100; agentsmemory embeds
+// with bge-m3, whose context window is 8192 tokens, so 800 characters (~200 tokens)
+// used a tiny fraction of it and fragmented sources more than retrieval needs. We
+// deliberately diverge from frozen here — a 1600-char window (~400 tokens) keeps
+// each drawer in bge-m3's retrieval sweet spot while halving fragmentation, with a
+// 320-char (20%) overlap for context continuity and a 50-char floor below which a
+// trailing fragment is folded into its predecessor rather than emitted alone.
+// (This changes drawer boundaries, so it is intentionally NOT covered by the
+// frozen-parity regression suite, which pins ranking math only.)
 const (
-	ChunkSize    = 800 // target characters per chunk
-	ChunkOverlap = 200 // characters shared between adjacent chunks for context continuity
-	ChunkMin     = 50  // a trailing remnant shorter than this is merged back, never emitted alone
+	ChunkSize    = 1600 // target characters per chunk (~400 bge-m3 tokens)
+	ChunkOverlap = 320  // characters shared between adjacent chunks for context continuity (20%)
+	ChunkMin     = 50   // a trailing remnant shorter than this is merged back, never emitted alone
 )
 
 // Chunk is one slice of a larger text: the verbatim window plus its ordinal

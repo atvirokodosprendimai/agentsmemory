@@ -10,12 +10,15 @@ import "strings"
 // chunk_text. The two chunkers are intentionally separate; unifying them would
 // change add_drawer's existing drawer boundaries.
 
-// Mining chunk parameters, from the frozen config (DEFAULT_CHUNK_*). Note the
-// overlap is 100 here, not ChunkOverlap's 200 — the frozen miner's value. (The
-// add_drawer path's 200 is a pre-existing divergence, left untouched.)
+// Mining chunk parameters. Sized for bge-m3 (8192-token window) rather than
+// frozen's 800/100 default — see chunk.go for the rationale. The mine and
+// add_drawer paths now share the same 1600/320/50 sizing (previously they diverged
+// on overlap, 100 vs 200); unifying them keeps both chunkers producing comparably
+// sized drawers, even though their split *strategy* still differs (boundary-aware
+// here, fixed-window there).
 const (
-	MineChunkSize    = 800
-	MineChunkOverlap = 100
+	MineChunkSize    = 1600 // ~400 bge-m3 tokens
+	MineChunkOverlap = 320  // 20% overlap for context continuity
 	MineChunkMin     = 50
 )
 

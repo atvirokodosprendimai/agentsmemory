@@ -28,11 +28,12 @@ func TestMineChunkTextTooShortDropped(t *testing.T) {
 }
 
 func TestMineChunkTextBreaksOnParagraph(t *testing.T) {
-	// Two ~500-char paragraphs separated by a blank line: a single 800-window
-	// should end on the paragraph break (back half of the window) rather than mid
-	// sentence, so chunk 0 is exactly the first paragraph.
-	p1 := strings.Repeat("alpha ", 90)  // ~540 chars
-	p2 := strings.Repeat("bravo ", 90)  // ~540 chars
+	// Two ~1080-char paragraphs separated by a blank line: the break sits in the
+	// back half of the 1600-char window (past start+size/2=800), so a single window
+	// should end on the paragraph break rather than mid sentence — chunk 0 is exactly
+	// the first paragraph. (Sized to MineChunkSize; bump both together if it changes.)
+	p1 := strings.Repeat("alpha ", 180) // ~1080 chars
+	p2 := strings.Repeat("bravo ", 180) // ~1080 chars
 	content := strings.TrimSpace(p1) + "\n\n" + strings.TrimSpace(p2)
 	chunks := mineChunkText(content, MineChunkSize, MineChunkOverlap, MineChunkMin)
 	if len(chunks) < 2 {
