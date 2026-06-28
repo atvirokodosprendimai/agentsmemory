@@ -4,10 +4,28 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/atvirokodosprendimai/agentsmemory/internal/store"
 )
+
+// keyedMutex is a set of mutexes keyed by string, used to serialize work that must
+// not run concurrently for the same key (here, mining the same team+source) while
+// leaving different keys fully parallel. The zero value is ready to use.
+type keyedMutex struct {
+	m sync.Map // key -> *sync.Mutex
+}
+
+// lock acquires the mutex for key and returns its unlock func. Callers defer the
+// returned func. Mutexes are created on first use and retained (the key space is
+// bounded by the set of sources a team mines, which is small relative to memory).
+func (k *keyedMutex) lock(key string) func() {
+	mu, _ := k.m.LoadOrStore(key, &sync.Mutex{})
+	l := mu.(*sync.Mutex)
+	l.Lock()
+	return l.Unlock
+}
 
 // Mining turns a blob of text into searchable memory: it chunks the content on
 // structural boundaries, files each chunk as a verbatim drawer (with extracted
@@ -90,7 +108,14 @@ func (s *Service) Mine(ctx context.Context, teamID string, in MineInput) (MineRe
 	}
 	agent = strings.ToLower(agent)
 
-	contentDate := extractContentDate(content)
+	// Serialize re-mines of this exact source within the process so two concurrent
+	// mines cannot interleave the purge-then-write below. \x00 cannot appear in a
+	// sanitized teamID or a source (sanitizeSource rejects NUL), so the joined key
+	// is unambiguous.
+	unlock := s.mineLocks.lock(teamID + "\x00" + source)
+	defer unlock()
+
+	contentDate := extractContentDate(source, content)
 	now := time.Now().UTC()
 	filedAt := now.Format(time.RFC3339)
 	filedAtDate := now.Format("2006-01-02")

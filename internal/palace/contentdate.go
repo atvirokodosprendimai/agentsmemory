@@ -2,6 +2,7 @@ package palace
 
 import (
 	"fmt"
+	"path"
 	"regexp"
 	"strconv"
 	"strings"
@@ -42,9 +43,13 @@ var (
 )
 
 // extractContentDate returns the content's date as YYYY-MM-DD, or "" when none is
-// found. Precedence matches the frozen tool (minus the unavailable filename/mtime
-// sources): YAML frontmatter first, then the body's first lines.
-func extractContentDate(content string) string {
+// found. Precedence matches the frozen tool (minus the unavailable file mtime):
+// the source's filename first (a source is often a path/name like
+// "2024-11-08-notes.md"), then YAML frontmatter, then the body's first lines.
+func extractContentDate(source, content string) string {
+	if d := filenameDate(source); d != "" {
+		return d
+	}
 	body := content
 	if fm, rest, ok := splitFrontmatter(content); ok {
 		// Only a date/created/published field is trusted in frontmatter — not any
@@ -82,23 +87,34 @@ func splitFrontmatter(content string) (frontmatter, body string, ok bool) {
 	return frontmatter, body, true
 }
 
+// filenameDate extracts a date from a source identifier's basename, the frozen
+// tool's first source. It tries the raw stem (so an ISO name like
+// "2024-11-08-notes" matches directly), then a separator-normalized stem (so a
+// natural-language name like "April-6th-2011-notes" parses once its hyphens become
+// spaces). Returns "" for a source with no date-shaped basename.
+func filenameDate(source string) string {
+	if strings.TrimSpace(source) == "" {
+		return ""
+	}
+	name := path.Base(source)
+	if ext := path.Ext(name); ext != "" {
+		name = strings.TrimSuffix(name, ext)
+	}
+	if d := findDate(name); d != "" {
+		return d
+	}
+	normalized := strings.NewReplacer("-", " ", "_", " ", "/", " ").Replace(name)
+	return findDate(normalized)
+}
+
 // findDate searches text for the first date it can recognise and returns it as
-// YYYY-MM-DD, or "" if none. ISO is tried first (most specific and unambiguous),
-// then month-name forms, then an ambiguous numeric slash form. In frontmatter the
-// text is a single field value; in the body it is the joined first lines.
+// YYYY-MM-DD, or "" if none. Order matches the frozen body scan: ISO (most
+// specific), then the ambiguous numeric slash form, then natural-language
+// month-name forms. In frontmatter the text is a single field value; in the body
+// it is the joined first lines.
 func findDate(text string) string {
 	if m := isoDateRE.FindStringSubmatch(text); m != nil {
 		if d, ok := normalizeYMD(m[1], m[2], m[3]); ok {
-			return d
-		}
-	}
-	if m := monthFirstRE.FindStringSubmatch(text); m != nil {
-		if d, ok := normalizeMonthName(m[3], m[1], m[2]); ok {
-			return d
-		}
-	}
-	if m := dayFirstRE.FindStringSubmatch(text); m != nil {
-		if d, ok := normalizeMonthName(m[3], m[2], m[1]); ok {
 			return d
 		}
 	}
@@ -111,6 +127,16 @@ func findDate(text string) string {
 				return d
 			}
 		} else if d, ok := normalizeYMD(m[3], m[1], m[2]); ok {
+			return d
+		}
+	}
+	if m := monthFirstRE.FindStringSubmatch(text); m != nil {
+		if d, ok := normalizeMonthName(m[3], m[1], m[2]); ok {
+			return d
+		}
+	}
+	if m := dayFirstRE.FindStringSubmatch(text); m != nil {
+		if d, ok := normalizeMonthName(m[3], m[2], m[1]); ok {
 			return d
 		}
 	}

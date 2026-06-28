@@ -101,6 +101,12 @@ type Service struct {
 	embed   Embedder
 	vectors store.VectorStore
 	dim     int // embedding dimension new namespaces are created with (bge-m3 = 1024)
+	// mineLocks serializes concurrent mines of the same (team, source) within this
+	// process, so two re-mines cannot interleave their purge-then-write and leave
+	// both content versions behind. It is the in-process analogue of the frozen
+	// miner's per-source mine_lock. Note: it does NOT coordinate across horizontally
+	// scaled instances — a cross-instance guard would need a DB advisory lock.
+	mineLocks keyedMutex
 }
 
 // NewService wires the collaborators. dim is the embedding width used to create a
