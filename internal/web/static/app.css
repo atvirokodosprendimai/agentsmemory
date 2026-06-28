@@ -141,9 +141,23 @@ h1, h2, h3 { font-family: "Fraunces", Georgia, serif; font-weight: 600; letter-s
 .create .field { flex: 1 1 16rem; margin: 0; }
 
 /* ---- project grid ---- */
-.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(20rem, 1fr)); gap: 1.1rem; padding: 1.5rem 0 4rem; }
-.project { padding: 1.3rem; display: flex; flex-direction: column; gap: .9rem; }
+/* One project per row. A workspace usually has only 2–3 projects, so a full-width
+   card beats a narrow auto-fill column: the revealed API key and the long
+   `claude mcp add` command get room to breathe instead of being squeezed. */
+.grid { display: grid; grid-template-columns: 1fr; gap: 1.1rem; padding: 1.5rem 0 4rem; }
+.project { padding: 1.5rem 1.6rem; display: flex; flex-direction: column; gap: 1.1rem; }
 .project-top { display: flex; align-items: flex-start; justify-content: space-between; gap: .8rem; }
+
+/* Card interior: stacked on mobile, two columns once there's room — the
+   key + command on the left (where the width is needed), the compact usage
+   meter on a narrower right rail — so the wide card reads as a deliberate
+   layout rather than a sparse stack. align-items:start keeps the short usage
+   rail pinned to the top while a revealed command makes the left column tall. */
+.project-body { display: grid; gap: 1.2rem; }
+.project-main { min-width: 0; } /* allow the command to wrap, not overflow the column */
+@media (min-width: 720px) {
+  .project-body { grid-template-columns: minmax(0, 1.7fr) minmax(13rem, .8fr); gap: 2rem; align-items: start; }
+}
 .project h3 { font-size: 1.25rem; }
 .project .slug { font-family: "IBM Plex Mono", monospace; font-size: .8rem; color: var(--faint); margin-top: .15rem; }
 .badge {
