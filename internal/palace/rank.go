@@ -28,7 +28,17 @@ const (
 	// re-rank can only reorder what vector retrieval surfaced, so the pool must be
 	// wider than the page or BM25 cannot promote a lexical match the page missed.
 	hybridCandidateMultiplier = 3
+	// closetDistanceCap is the farthest a closet hit may be (cosine distance) and
+	// still lend its source a boost (frozen CLOSET_DISTANCE_CAP).
+	closetDistanceCap = 1.5
 )
+
+// closetRankBoosts is the diminishing boost a closet hit adds to its source's
+// drawers by closet rank: the best-matching closet lifts its source most, the
+// fifth barely (frozen CLOSET_RANK_BOOSTS). Closets are a ranking SIGNAL, never a
+// gate — they only raise scores, never filter — so the boost is added to the
+// fused score and the cap above bounds how far a closet may be to count.
+var closetRankBoosts = []float64{0.40, 0.25, 0.15, 0.08, 0.04}
 
 // tokenRE matches the frozen _TOKEN_RE: runs of two or more word characters.
 // \w is widened to the Unicode letter/number/underscore classes so non-ASCII
@@ -131,21 +141,24 @@ func vecSimFromDistance(distance float64) float64 {
 
 // HybridScore is one candidate's fused ranking: its position in the input slice
 // plus the component and combined scores, exposed so the search tool can report
-// the lexical contribution alongside the final order.
+// the lexical and closet contributions alongside the final order.
 type HybridScore struct {
 	Index int     // position in the docs/distances input
-	Fused float64 // 0.6*vecSim + 0.4*bm25Norm, higher is better
+	Fused float64 // 0.6*vecSim + 0.4*bm25Norm + closetBoost, higher is better
 	BM25  float64 // raw Okapi-BM25 score (pre-normalization)
+	Boost float64 // closet boost added to this candidate (0 when none)
 }
 
-// rankHybrid fuses vector similarity and BM25 over a candidate set and returns the
-// candidates' indices ordered best-first. docs[i] is candidate i's verbatim text
-// and distances[i] its cosine distance from the query. BM25 is min-max normalized
-// within the set so it is commensurable with the [0,1] vector similarity before
-// the weighted sum. A stable sort keeps the vector order as the tie-breaker when
-// two candidates fuse equal, so an empty/identical query degrades gracefully to
-// vector ranking. docs and distances must be the same length.
-func rankHybrid(query string, docs []string, distances []float64) []HybridScore {
+// rankHybrid fuses vector similarity, BM25 and an optional closet boost over a
+// candidate set and returns the candidates' indices ordered best-first. docs[i]
+// is candidate i's verbatim text, distances[i] its cosine distance, and boosts[i]
+// a closet rank boost to add to its score (pass nil for no boosts). BM25 is
+// min-max normalized within the set so it is commensurable with the [0,1] vector
+// similarity before the weighted sum; the closet boost is added on top because it
+// is a signal, not a competing term. A stable sort keeps the vector order as the
+// tie-breaker when two candidates fuse equal. docs, distances and (when non-nil)
+// boosts must be the same length.
+func rankHybrid(query string, docs []string, distances, boosts []float64) []HybridScore {
 	raw := bm25Scores(query, docs)
 	var maxBM25 float64
 	for _, s := range raw {
@@ -160,8 +173,12 @@ func rankHybrid(query string, docs []string, distances []float64) []HybridScore 
 		if maxBM25 > 0 {
 			norm = raw[i] / maxBM25
 		}
-		fused := hybridVectorWeight*vecSimFromDistance(distances[i]) + hybridBM25Weight*norm
-		out[i] = HybridScore{Index: i, Fused: fused, BM25: raw[i]}
+		boost := 0.0
+		if boosts != nil {
+			boost = boosts[i]
+		}
+		fused := hybridVectorWeight*vecSimFromDistance(distances[i]) + hybridBM25Weight*norm + boost
+		out[i] = HybridScore{Index: i, Fused: fused, BM25: raw[i], Boost: boost}
 	}
 	// Stable so equal-fused candidates keep their incoming (vector) order.
 	sort.SliceStable(out, func(a, b int) bool { return out[a].Fused > out[b].Fused })

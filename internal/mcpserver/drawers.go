@@ -238,9 +238,10 @@ func registerListDrawers(srv *server.MCPServer, drawers *palace.Service, usageSv
 // searchHitView is one ranked search result: the drawer plus its scores.
 type searchHitView struct {
 	drawerView
-	Score    float64 `json:"score"`      // fused hybrid rank (vector + BM25), higher is better
-	BM25     float64 `json:"bm25_score"` // raw lexical BM25 component, for transparency
-	Distance float64 `json:"distance"`   // raw cosine distance in [0,2], lower is closer
+	Score       float64 `json:"score"`        // fused hybrid rank (vector + BM25 + closet boost), higher is better
+	BM25        float64 `json:"bm25_score"`   // raw lexical BM25 component, for transparency
+	ClosetBoost float64 `json:"closet_boost"` // closet rank boost folded into score, for transparency
+	Distance    float64 `json:"distance"`     // raw cosine distance in [0,2], lower is closer
 }
 
 // registerSearch: hybrid recall over a team's drawers — vector candidates
@@ -276,7 +277,7 @@ func registerSearch(srv *server.MCPServer, drawers *palace.Service, usageSvc *us
 		}
 		views := make([]searchHitView, len(hits))
 		for i, h := range hits {
-			views[i] = searchHitView{drawerView: toView(h.Drawer), Score: h.Score, BM25: h.BM25, Distance: h.Distance}
+			views[i] = searchHitView{drawerView: toView(h.Drawer), Score: h.Score, BM25: h.BM25, ClosetBoost: h.ClosetBoost, Distance: h.Distance}
 		}
 		return jsonResult(map[string]any{"hits": views, "count": len(views)}), nil
 	})

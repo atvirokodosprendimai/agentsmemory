@@ -253,6 +253,45 @@ func (s *Service) purgeClosetSource(ctx context.Context, teamID, source string) 
 	return nil
 }
 
+// closetBoosts searches the team's closet index with the query vector and returns
+// a source_file -> boost map for the hybrid re-rank. Each of the top closet hits
+// (only the first len(closetRankBoosts) positions can boost) lends its source the
+// boost for that position, provided the closet is within closetDistanceCap; the
+// first position a source appears at decides its boost, mirroring the frozen
+// searcher. Closets are a ranking SIGNAL, never a gate: a team that has never
+// mined has no closet namespace, so any error or empty result simply yields no
+// boosts and search proceeds on vector+BM25 alone.
+func (s *Service) closetBoosts(ctx context.Context, teamID string, vec []float32) map[string]float64 {
+	boosts := map[string]float64{}
+	hits, err := s.vectors.Search(ctx, closetNamespace(teamID), vec, len(closetRankBoosts))
+	if err != nil || len(hits) == 0 {
+		return boosts
+	}
+	ids := make([]string, len(hits))
+	for i, h := range hits {
+		ids[i] = h.ID
+	}
+	rows, err := s.repo.ClosetsByIDs(ctx, teamID, ids)
+	if err != nil {
+		return boosts
+	}
+	seen := map[string]struct{}{}
+	for i, h := range hits {
+		c, ok := rows[h.ID]
+		if !ok {
+			continue // closet vector with no row (purged) — skip
+		}
+		if _, dup := seen[c.SourceFile]; dup {
+			continue // a source's boost is fixed by the first position it appears at
+		}
+		seen[c.SourceFile] = struct{}{}
+		if distanceFromScore(h.Score) <= closetDistanceCap {
+			boosts[c.SourceFile] = closetRankBoosts[i]
+		}
+	}
+	return boosts
+}
+
 // sanitizeSource validates a mine source identifier: non-empty after trimming,
 // within maxSourceLen, and free of NUL bytes. Unlike a wing/room it is an opaque
 // idempotency key (a path, URL, or label), so it is not held to the safe-name
