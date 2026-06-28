@@ -1,0 +1,458 @@
+package views
+
+import "strconv"
+
+// LandingPage is the public marketing front door served at "/" to logged-out
+// visitors. It is deliberately a *self-contained* HTML document rather than the
+// shared Layout: the landing page owns its entire <head> (canonical, Open Graph,
+// Twitter and schema.org JSON-LD — the SEO/GEO surface for the "AI agent memory"
+// brand and aiagentmemory.dev domain) and uses a public marketing nav, whereas
+// Layout is the authenticated app shell (brand → /dashboard, Sign out). It still
+// reuses the embedded app.css design system ("The Archive") and the datastar
+// runtime, so it stays visually consistent and needs no bespoke JavaScript —
+// every interaction (mobile nav, FAQ accordion, copy-to-clipboard) is driven by
+// front-end-only datastar signals (the "_" prefix keeps them off the wire).
+templ LandingPage(d LandingData) {
+	<!DOCTYPE html>
+	<html lang="en">
+		@landingHead()
+		<body class="lp">
+			<a class="skip" href="#main">Skip to content</a>
+			@landingNavbar(d)
+			<main id="main">
+				@landingHero(d)
+				@landingStatStrip()
+				@landingWhat()
+				@landingModel()
+				@landingHow()
+				@landingFeatures()
+				@landingQuickStart()
+				@landingPricing()
+				@landingMigrate()
+				@landingFAQSection()
+				@landingFinalCTA()
+			</main>
+			@landingFooter()
+		</body>
+	</html>
+}
+
+// landingHead is the document head: viewport, the SEO meta block (description +
+// "AI agent memory" keywords), the canonical/Open Graph/Twitter tags pointing at
+// the fixed production origin, the shared fonts + stylesheet + datastar runtime,
+// and the schema.org JSON-LD. templ.Raw is safe here because landingJSONLD comes
+// from json.Marshal, which HTML-escapes <, > and & (no </script> breakout).
+templ landingHead() {
+	<head>
+		<meta charset="utf-8"/>
+		<meta name="viewport" content="width=device-width, initial-scale=1"/>
+		<title>AI Agent Memory — Long-term Memory for AI Agents, served over MCP</title>
+		<meta
+			name="description"
+			content="AI Agent Memory is an open-source, multi-tenant memory server for AI agents. Connect over MCP, file verbatim memories, and recall them with hybrid semantic search — long-term agent memory backed by Ollama and Qdrant."
+		/>
+		<meta
+			name="keywords"
+			content="AI agent memory, agent memory, memory for AI agents, MCP memory server, long-term memory for LLM agents, semantic memory, memory palace, vector memory, Claude memory MCP, hybrid search"
+		/>
+		<meta name="robots" content="index, follow"/>
+		<meta name="theme-color" content="#15120d"/>
+		<link rel="canonical" href={ templ.SafeURL(siteURL + "/") }/>
+		<!-- Open Graph + Twitter: brand the share card as "AI Agent Memory". -->
+		<meta property="og:type" content="website"/>
+		<meta property="og:site_name" content="AI Agent Memory"/>
+		<meta property="og:title" content="AI Agent Memory — Long-term Memory for AI Agents"/>
+		<meta property="og:description" content="Open-source, multi-tenant memory for AI agents over MCP. File verbatim memories; recall them with hybrid semantic search."/>
+		<meta property="og:url" content={ siteURL + "/" }/>
+		<meta name="twitter:card" content="summary"/>
+		<meta name="twitter:title" content="AI Agent Memory — Long-term Memory for AI Agents"/>
+		<meta name="twitter:description" content="Open-source, multi-tenant memory for AI agents over MCP. Hybrid semantic recall, backed by Ollama + Qdrant."/>
+		<link rel="preconnect" href="https://fonts.googleapis.com"/>
+		<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+		<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet"/>
+		<link rel="stylesheet" href="/static/app.css"/>
+		<script type="module" src="https://cdn.jsdelivr.net/gh/starfederation/datastar@v1.0.2/bundles/datastar.js"></script>
+		@templ.Raw(landingJSONLDScript())
+	</head>
+}
+
+// landingNavbar is the sticky public marketing nav. The mobile menu is a
+// front-end-only toggle: _navOpen drives a CSS class (so desktop layout, which
+// shows the links unconditionally, is never overridden by an inline display
+// style). Escape closes it, and tapping any link closes it on mobile.
+templ landingNavbar(d LandingData) {
+	<header
+		class="lp-nav"
+		data-signals="{_navOpen: false}"
+		data-on:keydown__window="evt.key === 'Escape' && ($_navOpen = false)"
+	>
+		<div class="lp-wrap lp-nav-inner">
+			<a class="brand" href="/" aria-label="AI Agent Memory — home">
+				ai<b>agent</b>memory<span class="dot">.</span>
+			</a>
+			<nav id="lp-menu" class="lp-links" data-class="{open: $_navOpen}" aria-label="Primary">
+				for _, n := range landingNav() {
+					<a href={ templ.SafeURL(n.Href) } data-on:click="$_navOpen = false">{ n.Label }</a>
+				}
+				<a class="lp-ext" href={ templ.SafeURL(repoURL) } rel="noopener" target="_blank" data-on:click="$_navOpen = false">GitHub ↗</a>
+				<a class="btn btn-ghost btn-sm lp-nav-cta" href="/login" data-on:click="$_navOpen = false">Sign in</a>
+				<a class="btn btn-primary btn-sm lp-nav-cta" href="/register" data-on:click="$_navOpen = false">Get started</a>
+			</nav>
+			<button
+				class="lp-burger"
+				type="button"
+				aria-label="Toggle menu"
+				aria-controls="lp-menu"
+				data-attr:aria-expanded="$_navOpen ? 'true' : 'false'"
+				data-on:click="$_navOpen = !$_navOpen"
+			>
+				<span aria-hidden="true"></span>
+				<span aria-hidden="true"></span>
+				<span aria-hidden="true"></span>
+			</button>
+		</div>
+	</header>
+}
+
+// landingHero is the above-the-fold pitch: an eyebrow, the keyworded H1, a lede
+// that names "agent memory" early for SEO, the primary CTAs, and a decorative
+// code peek that shows a hybrid recall (aria-hidden — it is illustrative, not
+// content a screen reader needs to read line by line).
+templ landingHero(d LandingData) {
+	<section class="lp-hero">
+		<div class="lp-wrap lp-hero-grid">
+			<div class="lp-hero-copy">
+				<p class="eyebrow">Open-source · MCP · multi-tenant</p>
+				<h1>Long-term memory for your AI agents.</h1>
+				<p class="lp-lede">
+					<b>AI Agent Memory</b> is an open-source, multi-tenant <b>agent memory</b>
+					server. Your agents connect over <span class="mono">MCP</span>, file verbatim
+					memories, and recall them with hybrid semantic search — so every session
+					builds on the last instead of starting from zero.
+				</p>
+				<div class="lp-cta-row">
+					<a class="btn btn-primary" href="/register">Start free →</a>
+					<a class="btn btn-ghost" href="#what">How it works</a>
+				</div>
+				<p class="lp-cta-note">
+					Free Personal plan · 10,000 requests / month · no card required
+					if d.HasOAuth {
+						· social sign-in available
+					}
+				</p>
+			</div>
+			<div class="lp-peek" aria-hidden="true">
+				<div class="lp-peek-bar">
+					<span class="lp-dot"></span><span class="lp-dot"></span><span class="lp-dot"></span>
+					<span class="lp-peek-title">am_search · hybrid recall</span>
+				</div>
+				<pre class="lp-peek-body"><span class="c-prompt">$</span> <span class="c-cmd">am_search</span> <span class="c-str">"auth middleware decision"</span>
+<span class="c-arrow">→</span> wing <span class="c-key">backend</span> · room <span class="c-key">decisions</span>
+  drawer <span class="c-id">0xC4F1…</span> <span class="c-score">score 0.91</span>
+  <span class="c-quote">"Token expiry check uses &lt;= not &lt;; off-by-one at the boundary."</span>
+<span class="c-arrow">→</span> fused: vec <span class="c-score">0.62</span> · bm25 <span class="c-score">0.27</span> · closet <span class="c-score">+0.12</span></pre>
+			</div>
+		</div>
+	</section>
+}
+
+// landingStatStrip is the at-a-glance figures band beneath the hero.
+templ landingStatStrip() {
+	<section class="lp-stats" aria-label="At a glance">
+		<div class="lp-wrap lp-stats-grid">
+			for _, s := range landingStats() {
+				<div class="lp-stat">
+					<div class="lp-stat-val">{ s.Value }</div>
+					<div class="lp-stat-lbl">{ s.Label }</div>
+				</div>
+			}
+		</div>
+	</section>
+}
+
+// landingWhat is the SEO-anchored explainer: it states plainly what AI agent
+// memory is and why it matters, with the target keywords used naturally.
+templ landingWhat() {
+	<section class="lp-section" id="what">
+		<div class="lp-wrap lp-prose-grid">
+			<div>
+				<p class="eyebrow">The idea</p>
+				<h2>What is AI agent memory?</h2>
+				<p>
+					An LLM forgets everything the moment its context window closes. <b>AI agent
+					memory</b> fixes that: it is durable, long-term storage that an AI agent
+					reads from and writes to across sessions — the decisions it made, the facts
+					it learned, the threads it left open.
+				</p>
+				<p>
+					AI Agent Memory serves that store as a remote <span class="mono">MCP</span>
+					server. Agents file <b>verbatim</b> memories — never lossy summaries — and
+					recall the right ones on demand with <b>hybrid semantic search</b>. The next
+					run picks up exactly where the last one stopped.
+				</p>
+			</div>
+			<aside class="lp-def card" aria-label="In one line">
+				<p class="lp-def-k">In one line</p>
+				<p class="lp-def-v">
+					A memory palace for machines: <span class="mono">write</span> a memory,
+					<span class="mono">search</span> it back by meaning, share it across a team —
+					all over one authenticated MCP endpoint.
+				</p>
+			</aside>
+		</div>
+	</section>
+}
+
+// landingModel renders the memory-palace data model as a grid of "drawer" cards,
+// one per concept (wing/room/drawer/closet/hallway/tunnel/knowledge graph). The
+// metaphor *is* the schema, so it earns a section.
+templ landingModel() {
+	<section class="lp-section lp-section-alt" id="model">
+		<div class="lp-wrap">
+			<header class="lp-head">
+				<p class="eyebrow">The data model</p>
+				<h2>The memory palace is the schema</h2>
+				<p class="lp-head-sub">Seven primitives compose every memory — borrowed from how humans file what they want to remember.</p>
+			</header>
+			<div class="lp-model-grid">
+				for _, c := range landingConcepts() {
+					<article class="lp-model card">
+						<h3>{ c.Term }</h3>
+						<p>{ c.Gloss }</p>
+					</article>
+				}
+			</div>
+		</div>
+	</section>
+}
+
+// landingHow is the request-flow walk-through: connect over MCP, resolve the
+// tenant, file and recall, stay isolated. Big mono numerals carry the order.
+templ landingHow() {
+	<section class="lp-section" id="how">
+		<div class="lp-wrap">
+			<header class="lp-head">
+				<p class="eyebrow">How it works</p>
+				<h2>One endpoint, fully isolated</h2>
+				<p class="lp-head-sub">Stateless Streamable-HTTP MCP: every request re-resolves its tenant from the bearer token, so the service scales out behind a load balancer.</p>
+			</header>
+			<ol class="lp-steps">
+				for i, s := range landingSteps() {
+					<li class="lp-step">
+						<span class="lp-step-n" aria-hidden="true">{ strconv.Itoa(i + 1) }</span>
+						<div>
+							<h3>{ s.Title }</h3>
+							<p>{ s.Body }</p>
+						</div>
+					</li>
+				}
+			</ol>
+		</div>
+	</section>
+}
+
+// landingFeatures is the capability grid. Each card leads with a brass mono tag
+// (a card-catalog category) in place of a decorative icon — on theme, and it
+// avoids the generic icon-grid look.
+templ landingFeatures() {
+	<section class="lp-section lp-section-alt" id="features">
+		<div class="lp-wrap">
+			<header class="lp-head">
+				<p class="eyebrow">Capabilities</p>
+				<h2>Everything an agent needs to remember</h2>
+				<p class="lp-head-sub">36 of 37 MCP tools shipped — the write, recall, graph, knowledge-graph and skill families.</p>
+			</header>
+			<div class="lp-feat-grid">
+				for _, f := range landingFeatureList() {
+					<article class="lp-feat card">
+						<p class="lp-feat-tag">{ f.Tag }</p>
+						<h3>{ f.Title }</h3>
+						<p>{ f.Body }</p>
+					</article>
+				}
+			</div>
+		</div>
+	</section>
+}
+
+// landingQuickStart shows the copy-paste boot snippet. The Copy button is a
+// front-end-only datastar action (clipboardExpr) that flashes a "_copied" signal
+// — no server round-trip, the DOM is stable so signals beat a morph here.
+templ landingQuickStart() {
+	<section class="lp-section" id="start" data-signals="{_copied: false}">
+		<div class="lp-wrap lp-start-grid">
+			<div>
+				<p class="eyebrow">Quick start</p>
+				<h2>Running in two commands</h2>
+				<p class="lp-head-sub">
+					Go 1.25+. The binary migrates an embedded schema, seeds a demo workspace,
+					and prints a one-time MCP bearer token. Point any MCP client at
+					<span class="mono">POST /mcp</span> with that token.
+				</p>
+				<p class="lp-start-links">
+					<a href={ templ.SafeURL(repoURL) } rel="noopener" target="_blank">Full README on GitHub ↗</a>
+				</p>
+			</div>
+			<div class="lp-code card">
+				<div class="lp-code-head">
+					<span class="kv">shell</span>
+					<button
+						class="btn btn-ghost btn-sm"
+						type="button"
+						data-on:click={ clipboardExpr(landingQuickstart) }
+						aria-label="Copy quick-start commands"
+					>
+						<span data-show="!$_copied">Copy</span>
+						<span data-show="$_copied" style="display:none">Copied ✓</span>
+					</button>
+				</div>
+				<pre class="cmd"><code>{ landingQuickstart }</code></pre>
+			</div>
+		</div>
+	</section>
+}
+
+// landingPricing renders the two plan tiers. The featured (Enterprise) card is
+// visually raised; both CTAs land on /register, where the free project is made.
+templ landingPricing() {
+	<section class="lp-section lp-section-alt" id="pricing">
+		<div class="lp-wrap">
+			<header class="lp-head">
+				<p class="eyebrow">Pricing</p>
+				<h2>Start free, scale to a team</h2>
+				<p class="lp-head-sub">One user can own several workspaces across plans, each with its own isolated vector store and its own revocable keys.</p>
+			</header>
+			<div class="lp-plan-grid">
+				for _, p := range landingPlans() {
+					<article class={ "lp-plan card", templ.KV("featured", p.Featured) } aria-label={ p.Name + " plan" }>
+						if p.Featured {
+							<span class="lp-plan-flag">Recommended</span>
+						}
+						<h3>{ p.Name }</h3>
+						<p class="lp-plan-tag">{ p.Tagline }</p>
+						<p class="lp-plan-price">
+							<span class="lp-plan-amt">{ p.Price }</span>
+							<span class="lp-plan-per">{ p.Period }</span>
+						</p>
+						<ul class="lp-plan-list">
+							for _, pt := range p.Points {
+								<li>{ pt }</li>
+							}
+						</ul>
+						if p.Featured {
+							<a class="btn btn-primary btn-block" href="/register">Get started</a>
+						} else {
+							<a class="btn btn-ghost btn-block" href="/register">Start free</a>
+						}
+					</article>
+				}
+			</div>
+		</div>
+	</section>
+}
+
+// landingMigrate is the onboarding nudge for existing mempalace users — a
+// read-only exporter streams a local palace into a workspace over /import.
+templ landingMigrate() {
+	<section class="lp-section" id="migrate">
+		<div class="lp-wrap lp-migrate card">
+			<div>
+				<p class="eyebrow">Migrate</p>
+				<h2>Bring your existing memory palace</h2>
+				<p class="lp-head-sub">
+					Already running the local Python <span class="mono">mempalace</span>? A
+					read-only exporter streams every drawer, diary entry, closet, knowledge-graph
+					fact and tunnel into your workspace over <span class="mono">/import</span>. The
+					server re-embeds each memory and rebuilds the graph — and the import is
+					idempotent, so a re-run finishes rather than duplicates.
+				</p>
+			</div>
+			<pre class="cmd lp-migrate-cmd" aria-label="Migration command"><code>python mempalace_export.py --push \
+  --server https://aiagentmemory.dev \
+  --token YOUR_PROJECT_API_KEY</code></pre>
+		</div>
+	</section>
+}
+
+// landingFAQSection is the accordion. _faq holds the open row's index (0 = first
+// open by default; -1 = all closed). The same questions feed the schema.org
+// FAQPage in the head, so an AI answer engine can cite them even unexpanded.
+templ landingFAQSection() {
+	<section class="lp-section lp-section-alt" id="faq" data-signals="{_faq: 0}">
+		<div class="lp-wrap lp-faq-wrap">
+			<header class="lp-head">
+				<p class="eyebrow">FAQ</p>
+				<h2>Questions about agent memory</h2>
+			</header>
+			<div class="lp-faq">
+				for i, f := range landingFAQ() {
+					<div class="lp-faq-item">
+						<h3>
+							<button
+								class="lp-faq-q"
+								type="button"
+								id={ "faq-q-" + strconv.Itoa(i) }
+								aria-controls={ "faq-a-" + strconv.Itoa(i) }
+								data-attr:aria-expanded={ faqExpanded(i) }
+								data-on:click={ faqToggle(i) }
+							>
+								<span>{ f.Q }</span>
+								<span class="lp-faq-mark" data-class={ "{open: " + faqOpen(i) + "}" } aria-hidden="true">+</span>
+							</button>
+						</h3>
+						<div
+							class="lp-faq-a"
+							id={ "faq-a-" + strconv.Itoa(i) }
+							role="region"
+							aria-labelledby={ "faq-q-" + strconv.Itoa(i) }
+							data-show={ faqOpen(i) }
+							if i != 0 {
+								style="display:none"
+							}
+						>
+							<p>{ f.A }</p>
+						</div>
+					</div>
+				}
+			</div>
+		</div>
+	</section>
+}
+
+// landingFinalCTA is the closing call to action band.
+templ landingFinalCTA() {
+	<section class="lp-final">
+		<div class="lp-wrap lp-final-inner">
+			<h2>Give your agents a memory that lasts.</h2>
+			<p>Spin up a free workspace and connect your first agent in minutes.</p>
+			<div class="lp-cta-row">
+				<a class="btn btn-primary" href="/register">Create your free account →</a>
+				<a class="btn btn-ghost" href={ templ.SafeURL(repoURL) } rel="noopener" target="_blank">Read the source</a>
+			</div>
+		</div>
+	</section>
+}
+
+// landingFooter closes the page with brand, navigation and a keyworded tagline.
+templ landingFooter() {
+	<footer class="lp-footer">
+		<div class="lp-wrap lp-footer-grid">
+			<div class="lp-footer-brand">
+				<a class="brand" href="/">ai<b>agent</b>memory<span class="dot">.</span></a>
+				<p>Long-term memory for AI agents — verbatim drawers, hybrid recall, served over MCP.</p>
+			</div>
+			<nav class="lp-footer-links" aria-label="Footer">
+				<a href="#what">What it is</a>
+				<a href="#model">Data model</a>
+				<a href="#features">Features</a>
+				<a href="#pricing">Pricing</a>
+				<a href="#faq">FAQ</a>
+				<a href={ templ.SafeURL(repoURL) } rel="noopener" target="_blank">GitHub ↗</a>
+				<a href="/login">Sign in</a>
+			</nav>
+		</div>
+		<div class="lp-wrap lp-footer-fine">
+			<span>AI Agent Memory · open-source agent memory · MCP · Go · Ollama · Qdrant</span>
+		</div>
+	</footer>
+}
