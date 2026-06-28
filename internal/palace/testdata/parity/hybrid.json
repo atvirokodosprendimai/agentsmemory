@@ -1,0 +1,111 @@
+{
+  "_generated_by": "internal/palace/testdata/parity/gen_golden.py",
+  "_frozen_reference": "/Users/mind/.claude/mempalace-frozen/mempalace",
+  "_note": "golden output of the frozen Python ranking funcs; regenerate via gen_golden.py",
+  "cases": [
+    {
+      "name": "lexical_promotes_over_vector",
+      "query": "lru cache eviction",
+      "docs": [
+        "the cache uses an lru eviction policy",
+        "a quiet meadow at dawn"
+      ],
+      "distances": [
+        0.5,
+        0.1
+      ],
+      "want_order": [
+        0,
+        1
+      ],
+      "want_fused": [
+        0.7,
+        0.54
+      ]
+    },
+    {
+      "name": "no_lexical_vector_fallback",
+      "query": "zzz qqq",
+      "docs": [
+        "alpha text",
+        "beta text",
+        "gamma text"
+      ],
+      "distances": [
+        0.3,
+        0.1,
+        0.5
+      ],
+      "want_order": [
+        1,
+        0,
+        2
+      ],
+      "want_fused": [
+        0.42,
+        0.54,
+        0.3
+      ]
+    },
+    {
+      "name": "exact_tie_stable_order",
+      "query": "zzz qqq",
+      "docs": [
+        "alpha note",
+        "beta note"
+      ],
+      "distances": [
+        0.5,
+        0.5
+      ],
+      "want_order": [
+        0,
+        1
+      ],
+      "want_fused": [
+        0.3,
+        0.3
+      ]
+    },
+    {
+      "name": "mixed_three_way",
+      "query": "lru cache",
+      "docs": [
+        "lru cache eviction policy",
+        "a quiet meadow",
+        "cache notes here"
+      ],
+      "distances": [
+        0.6,
+        0.05,
+        0.4
+      ],
+      "want_order": [
+        0,
+        1,
+        2
+      ],
+      "want_fused": [
+        0.64,
+        0.57,
+        0.5090190028755301
+      ]
+    },
+    {
+      "name": "single_candidate",
+      "query": "cache",
+      "docs": [
+        "the cache line"
+      ],
+      "distances": [
+        0.2
+      ],
+      "want_order": [
+        0
+      ],
+      "want_fused": [
+        0.88
+      ]
+    }
+  ]
+}

@@ -1,0 +1,115 @@
+{
+  "_generated_by": "internal/palace/testdata/parity/gen_golden.py",
+  "_frozen_reference": "/Users/mind/.claude/mempalace-frozen/mempalace",
+  "_note": "golden output of the frozen Python ranking funcs; regenerate via gen_golden.py",
+  "cases": [
+    {
+      "name": "presence_beats_absence",
+      "query": "lru cache eviction",
+      "docs": [
+        "the cache uses an lru eviction policy",
+        "completely unrelated text about the weather"
+      ],
+      "want": [
+        2.0098691480920348,
+        0.0
+      ]
+    },
+    {
+      "name": "repeated_query_terms_dedup",
+      "query": "cache cache cache",
+      "docs": [
+        "a cache about a cache",
+        "no match here"
+      ],
+      "want": [
+        0.9902102579427791,
+        0.0
+      ]
+    },
+    {
+      "name": "tf_saturation",
+      "query": "cache",
+      "docs": [
+        "cache cache cache cache cache",
+        "cache once only here"
+      ],
+      "want": [
+        0.3440029373470841,
+        0.19191742820416272
+      ]
+    },
+    {
+      "name": "length_normalization",
+      "query": "cache",
+      "docs": [
+        "cache",
+        "cache filler word filler word filler word filler word filler word filler word filler word filler word filler word filler word filler word filler word filler word filler word filler word filler word filler word filler word filler word filler word filler word filler word filler word filler word filler word filler word filler word filler word filler word filler word filler word filler word filler word filler word filler word filler word filler word filler word filler word filler word "
+      ],
+      "want": [
+        0.32500799254574514,
+        0.12669803099240912
+      ]
+    },
+    {
+      "name": "term_in_every_doc",
+      "query": "cache",
+      "docs": [
+        "cache one",
+        "cache two",
+        "cache three"
+      ],
+      "want": [
+        0.13353139262452257,
+        0.13353139262452257,
+        0.13353139262452257
+      ]
+    },
+    {
+      "name": "empty_query",
+      "query": "",
+      "docs": [
+        "anything at all",
+        "more text"
+      ],
+      "want": [
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "empty_corpus",
+      "query": "cache",
+      "docs": [],
+      "want": []
+    },
+    {
+      "name": "textless_doc",
+      "query": "cache",
+      "docs": [
+        "cache hit",
+        "!!! ??? ..."
+      ],
+      "want": [
+        0.47803253831720366,
+        0.0
+      ]
+    },
+    {
+      "name": "multi_term_partial",
+      "query": "lru cache eviction policy",
+      "docs": [
+        "lru eviction",
+        "cache policy",
+        "the weather is nice",
+        "lru cache eviction policy exact"
+      ],
+      "want": [
+        1.6764489948426582,
+        1.6764489948426582,
+        0.0,
+        2.231805163412827
+      ]
+    }
+  ]
+}
