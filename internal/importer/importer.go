@@ -31,6 +31,20 @@ import (
 // steady increments rather than one giant terminal write.
 const batchSize = 64
 
+// maxImportBodyBytes caps the NDJSON body an authenticated-but-untrusted client
+// may stream. The stream is processed incrementally (one record + a bounded
+// batch at a time), so this bounds the TOTAL upload rather than per-record
+// memory; a body over the cap surfaces as a fatal decode error reported in the
+// response summary. Sized to admit very large palaces (hundreds of thousands of
+// chunked drawers at ~1–2 KB each) while refusing the absurd.
+const maxImportBodyBytes = 256 << 20 // 256 MiB
+
+// maxPendingTunnels bounds the deferred-tunnel buffer. Tunnels are applied after
+// drawers (CreateTunnel needs the endpoint rooms to exist); since every drawer
+// precedes every tunnel in the export, the buffer can be drained mid-stream once
+// it reaches this size instead of growing to EOF.
+const maxPendingTunnels = 512
+
 // Drawers is the subset of palace.Service the importer needs. Declaring it at the
 // consumer (Go's "accept interfaces" guidance) keeps the package decoupled from
 // the concrete service and trivially fakeable in tests.
@@ -135,6 +149,10 @@ func serve(w http.ResponseWriter, r *http.Request, drawers Drawers, metering Met
 		http.Error(w, "monthly request cap reached — upgrade the project's plan", http.StatusTooManyRequests)
 		return
 	}
+	// Bound the upload before we read a byte of it. A body over the cap fails the
+	// decoder mid-stream; finish() reports it in the summary line (the 200 is
+	// already committed below, so it cannot become a 413).
+	r.Body = http.MaxBytesReader(w, r.Body, maxImportBodyBytes)
 
 	// From here we commit to a streaming 200: record-level problems are reported
 	// in the body, not via the status code (it is already sent).
@@ -176,6 +194,12 @@ func (rn *runner) run(ctx context.Context, body io.Reader) {
 	rn.wings = map[string]struct{}{}
 	dec := json.NewDecoder(bufio.NewReaderSize(body, 1<<16))
 	for {
+		// Stop promptly if the client hung up — there is no point embedding and
+		// recomputing for a connection that will never read the result.
+		if err := ctx.Err(); err != nil {
+			rn.finish(ctx, err)
+			return
+		}
 		var rec record
 		if err := dec.Decode(&rec); err != nil {
 			if errors.Is(err, io.EOF) {
@@ -231,6 +255,13 @@ func (rn *runner) dispatch(ctx context.Context, rec record) {
 		rn.maybeEmit()
 	case "tunnel":
 		rn.pendingTunnels = append(rn.pendingTunnels, rec)
+		if len(rn.pendingTunnels) >= maxPendingTunnels {
+			// Every drawer precedes every tunnel in the export, so the endpoint
+			// rooms already exist — drain now rather than buffering to EOF.
+			rn.flushDrawers(ctx)
+			rn.flushClosets(ctx)
+			rn.applyTunnels(ctx)
+		}
 	default:
 		rn.p.Skipped++
 	}
@@ -261,6 +292,7 @@ func (rn *runner) flushClosets(ctx context.Context) {
 		rn.p.Error = "closet import: " + err.Error()
 	}
 	rn.p.Closets += n
+	rn.p.Skipped += len(rn.pendingClosets) - n
 	rn.pendingClosets = rn.pendingClosets[:0]
 	rn.emit()
 }
@@ -294,9 +326,12 @@ func (rn *runner) finish(ctx context.Context, fatal error) {
 
 	// Hallways and entity/topic tunnels are derived, so they are rebuilt from the
 	// imported drawers rather than carried over the wire. Best-effort: a recompute
-	// failure does not fail an otherwise-good migration.
-	if res, err := rn.drawers.RecomputeGraph(ctx, rn.teamID, "", false); err == nil {
-		rn.p.Hallways = res.Hallways
+	// failure does not fail an otherwise-good migration. Skip it entirely when the
+	// client has already hung up — the partial import stands and is idempotent.
+	if ctx.Err() == nil {
+		if res, err := rn.drawers.RecomputeGraph(ctx, rn.teamID, "", false); err == nil {
+			rn.p.Hallways = res.Hallways
+		}
 	}
 
 	rn.p.Done = true
