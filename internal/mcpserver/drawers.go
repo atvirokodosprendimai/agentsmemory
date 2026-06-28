@@ -238,11 +238,13 @@ func registerListDrawers(srv *server.MCPServer, drawers *palace.Service, usageSv
 // searchHitView is one ranked search result: the drawer plus its scores.
 type searchHitView struct {
 	drawerView
-	Score    float64 `json:"score"`    // cosine similarity, higher is closer
-	Distance float64 `json:"distance"` // 1-similarity in [0,2], lower is closer
+	Score    float64 `json:"score"`      // fused hybrid rank (vector + BM25), higher is better
+	BM25     float64 `json:"bm25_score"` // raw lexical BM25 component, for transparency
+	Distance float64 `json:"distance"`   // raw cosine distance in [0,2], lower is closer
 }
 
-// registerSearch: semantic recall over a team's drawers (vector-only for now).
+// registerSearch: hybrid recall over a team's drawers — vector candidates
+// re-ranked by a vector+BM25 blend (closet boost joins with the mining phase).
 func registerSearch(srv *server.MCPServer, drawers *palace.Service, usageSvc *usage.Service) {
 	tool := mcp.NewTool("search",
 		mcp.WithDescription("Semantically recall drawers most similar to a query. Optionally filter by wing/room and a max cosine distance."),
@@ -274,7 +276,7 @@ func registerSearch(srv *server.MCPServer, drawers *palace.Service, usageSvc *us
 		}
 		views := make([]searchHitView, len(hits))
 		for i, h := range hits {
-			views[i] = searchHitView{drawerView: toView(h.Drawer), Score: h.Score, Distance: h.Distance}
+			views[i] = searchHitView{drawerView: toView(h.Drawer), Score: h.Score, BM25: h.BM25, Distance: h.Distance}
 		}
 		return jsonResult(map[string]any{"hits": views, "count": len(views)}), nil
 	})

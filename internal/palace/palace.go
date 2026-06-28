@@ -96,12 +96,14 @@ type Tunnel struct {
 	Kind   TunnelKind
 }
 
-// SearchHit is one ranked result from a future hybrid search. The score blends
-// vector similarity and BM25 with a closet boost, exactly as the Python
-// searcher did; it is defined here so the MCP search tool has a stable return
-// shape before the ranking is implemented.
+// SearchHit is one ranked result from hybrid search. Score is the fused rank — a
+// convex blend of vector similarity and lexical BM25, as the Python searcher did
+// (closet boost joins once mining builds closets). BM25 is the raw lexical score
+// that fed the blend, surfaced for transparency; Distance is the raw cosine
+// distance from the query.
 type SearchHit struct {
 	Drawer   Drawer
 	Score    float64 // fused rank score, higher is better
+	BM25     float64 // raw Okapi-BM25 lexical score (pre-normalization)
 	Distance float64 // raw cosine distance, lower is closer
 }
