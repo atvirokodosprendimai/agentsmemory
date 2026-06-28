@@ -53,13 +53,17 @@ func New(tenants *tenant.Repo, usageSvc *usage.Service, skills *skill.Service, s
 	}
 	s := &Server{tenants: tenants, usage: usageSvc, skills: skills, store: store}
 	s.providers = registerOAuth(store) // gated: returns nil when no keys set
+	// Stamp the asset cache-buster from the embedded stylesheet's content hash so
+	// templates render <link …/app.css?v=hash>; this changes only when the CSS does.
+	views.AssetVersion = assetVersion()
 	return s
 }
 
 // Routes mounts the dashboard routes onto r.
 func (s *Server) Routes(r chi.Router) {
-	// Embedded static assets (the stylesheet) served read-only.
-	r.Handle("/static/*", http.StripPrefix("/", http.FileServer(http.FS(staticFS))))
+	// Embedded static assets (the stylesheet) served read-only, with cache
+	// headers keyed to the ?v=<hash> cache-buster (see staticAssets).
+	r.Handle("/static/*", staticAssets())
 
 	r.Get("/", s.handleRoot)
 	r.Get("/register", s.getRegister)
