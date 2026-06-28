@@ -12,13 +12,13 @@ versioned skills** the team keeps up to date.
 > **Status: early skeleton.** The tenancy, auth, skill registry, storage clients
 > and MCP transport are wired and verified end-to-end, and the **core memory
 > loop** (file a drawer → recall it semantically) now works end-to-end against
-> Ollama + the vector store. Today the server exposes **32 of the planned 37 MCP
-> tools** (`status`, `load_skill`, the WRITE/FILE + SEARCH/RECALL + STATUS/ADMIN
-> families, plus the agent `diary` and the `mine` pipeline). Search is **hybrid** —
-> vector candidates re-ranked by vector + BM25 + closet boost — and `mine` turns a
-> text payload into chunked drawers (with entities + a content date) plus the
-> closet index. The graph and KG tool families are the next phases — see the
-> [Roadmap](#roadmap).
+> Ollama + the vector store. Today the server exposes **36 of the planned 37 MCP
+> tools** — the WRITE/FILE + SEARCH/RECALL families, the agent `diary`, the `mine`
+> pipeline (text → chunked drawers + closet index), **hybrid** search (vector +
+> BM25 + closet boost), the navigable **graph** (hallways + tunnels + traverse),
+> the temporal **knowledge graph**, the skill-registry CRUD, and wing admin. Only
+> the two single-user-local tools (`sync`, `hook_settings`) are intentionally not
+> ported. See the [Roadmap](#roadmap).
 
 ---
 
@@ -126,8 +126,9 @@ shared, versioned source of truth** and its agents pull from it:
   vector search).
 - Skills are **relational, not memory drawers** — they are mutable, named,
   permissioned authored artifacts with an owner and an update workflow.
-- **Planned:** `list_skills` and `update_skill(id)` (version-bumping, role-gated)
-  plus a `/load-skill <name>` Claude command that calls the tool.
+- `list_skills` (metadata for any member) and `update_skill` (version-bumping,
+  writer/admin) complete the registry CRUD. A `/load-skill <name>` Claude command
+  that calls the tool is the remaining nicety.
 
 ---
 
@@ -151,7 +152,9 @@ shared, versioned source of truth** and its agents pull from it:
 | `create_tunnel` / `delete_tunnel` / `list_tunnels` / `find_tunnels` / `follow_tunnels` | ✅ | Cross-wing links — explicit (authored, symmetric) + derived (entity) |
 | `traverse` / `graph_stats` / `recompute_graph` | ✅ | Walk the room↔wing graph, summarise it, rebuild hallways + entity tunnels |
 | `kg_add` / `kg_invalidate` / `kg_query` / `kg_stats` / `kg_timeline` | ✅ | Temporal knowledge graph — subject→predicate→object facts with validity windows, queryable as-of a point in time |
-| `sync`, `merge_wing`, `list_skills`, … | 🔜 | The remaining admin + skill tools (5), ported from the Python contract |
+| `list_skills` / `update_skill` | ✅ | List the team's centralised skills; create/version-bump a skill body (writer/admin) |
+| `merge_wing` / `memories_filed_away` | ✅ | Fold wings together; summarise what the team has filed |
+| `sync`, `hook_settings` | ⛔ | Not ported — single-user-local (on-disk source pruning / local hook config) with no multi-tenant meaning |
 
 ---
 
@@ -284,7 +287,8 @@ called). Schema changes are additive migrations under `db/migrations/`.
 - [x] Mining pipeline — `mine` text → chunked drawers (entities + content date) + closet index, idempotent by source (17 of 37)
 - [x] Graph — hallways (entity co-occurrence) + tunnels (explicit + entity) + traverse/find/stats/recompute (10 tools, 27 of 37)
 - [x] Knowledge graph — temporal subject→predicate→object facts with validity windows (5 tools, 32 of 37)
-- [ ] Remaining MCP tools — admin (sync, merge_wing, …) + skills (list/update) (5 of 37)
+- [x] Skill registry CRUD — `list_skills` + `update_skill` (role-gated)
+- [x] Admin — `merge_wing` + `memories_filed_away` (36 of 37; `sync`/`hook_settings` are single-user-local, not ported)
 - [ ] `list_skills` + `update_skill` + a `/load-skill` Claude command
 - [ ] Web dashboard (`goth` login, key & skill management) — `templ` + datastar
 - [ ] Subscriptions / billing

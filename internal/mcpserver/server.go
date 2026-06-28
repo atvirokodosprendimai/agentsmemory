@@ -43,6 +43,8 @@ func New(deps Deps) *server.MCPServer {
 	)
 	registerStatus(srv, deps.Usage)
 	registerLoadSkill(srv, deps.Skills, deps.Usage)
+	// Skill-registry management: list + update (write is role-gated).
+	registerSkills(srv, deps.Skills, deps.Usage)
 	// The core memory loop: drawer CRUD, semantic recall, and palace taxonomy.
 	registerDrawers(srv, deps.Drawers, deps.Usage)
 	// The agent diary: append-only journal entries (diary_write/diary_read).
@@ -53,6 +55,8 @@ func New(deps Deps) *server.MCPServer {
 	registerGraph(srv, deps.Drawers, deps.Usage)
 	// The temporal knowledge graph: kg_add/invalidate/query/stats/timeline.
 	registerKG(srv, deps.Drawers, deps.Usage)
+	// Palace maintenance: merge_wing, memories_filed_away.
+	registerAdmin(srv, deps.Drawers, deps.Usage)
 	return srv
 }
 
