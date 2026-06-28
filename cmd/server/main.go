@@ -52,40 +52,76 @@ func main() {
 
 	def := config.Default()
 
-	// urfave/cli v3 models the program as a Command; flags default to the
-	// config defaults so a bare `server` works on a local dev box.
+	// serveAction boots the HTTP server. It backs both the root command (so a
+	// bare `agentsmemory`, and the Docker image, keep serving) and the explicit
+	// `serve` subcommand — one behaviour, two entry points.
+	serveAction := func(ctx context.Context, c *cli.Command) error {
+		return run(ctx, configFromCmd(c, def))
+	}
+
+	// urfave/cli v3 models the program as a Command. The root keeps the serve
+	// flags + action for backward compatibility; subcommands add an explicit
+	// `serve` and the read-only `mcp` CLI. Flag builders return fresh slices so
+	// the root and the `serve` subcommand never share mutable flag state.
 	cmd := &cli.Command{
-		Name:  "agentsmemory",
-		Usage: "Remote MCP memory server (Qdrant + Ollama, multi-tenant)",
-		Flags: []cli.Flag{
-			&cli.StringFlag{Name: "addr", Sources: cli.EnvVars("AGENTSMEMORY_ADDR"), Value: def.Addr, Usage: "HTTP listen address"},
-			&cli.StringFlag{Name: "db", Sources: cli.EnvVars("AGENTSMEMORY_DB"), Value: def.DBPath, Usage: "SQLite database path"},
-			&cli.StringFlag{Name: "vector-backend", Sources: cli.EnvVars("VECTOR_BACKEND"), Value: def.VectorBackend, Usage: "search index: sqlite|qdrant (SQLite is always the source of truth)"},
-			&cli.StringFlag{Name: "qdrant-url", Sources: cli.EnvVars("QDRANT_URL"), Value: def.QdrantURL, Usage: "Qdrant base URL"},
-			&cli.StringFlag{Name: "qdrant-api-key", Sources: cli.EnvVars("QDRANT_API_KEY"), Value: def.QdrantAPIKey, Usage: "Qdrant API key (optional)"},
-			&cli.StringFlag{Name: "ollama-url", Sources: cli.EnvVars("OLLAMA_URL"), Value: def.OllamaURL, Usage: "Ollama base URL"},
-			&cli.StringFlag{Name: "ollama-model", Sources: cli.EnvVars("OLLAMA_EMBED_MODEL"), Value: def.OllamaEmbedModel, Usage: "Ollama embedding model"},
-			&cli.BoolFlag{Name: "debug", Sources: cli.EnvVars("APP_DEBUG"), Value: def.Debug, Usage: "verbose logging: per-request HTTP access logs + gorm SQL"},
-		},
-		Action: func(ctx context.Context, c *cli.Command) error {
-			cfg := config.Config{
-				Addr:             c.String("addr"),
-				DBPath:           c.String("db"),
-				VectorBackend:    c.String("vector-backend"),
-				QdrantURL:        c.String("qdrant-url"),
-				QdrantAPIKey:     c.String("qdrant-api-key"),
-				OllamaURL:        c.String("ollama-url"),
-				OllamaEmbedModel: c.String("ollama-model"),
-				HTTPTimeout:      def.HTTPTimeout,
-				Debug:            c.Bool("debug"),
-			}
-			return run(ctx, cfg)
+		Name:   "agentsmemory",
+		Usage:  "Remote MCP memory server (Qdrant + Ollama, multi-tenant)",
+		Flags:  serveFlags(def),
+		Action: serveAction, // no subcommand → serve (bare run + Docker CMD)
+		Commands: []*cli.Command{
+			{
+				Name:   "serve",
+				Usage:  "Run the HTTP MCP server + dashboard (the default action)",
+				Flags:  serveFlags(def),
+				Action: serveAction,
+			},
+			mcpCommand(def),
 		},
 	}
 
 	if err := cmd.Run(context.Background(), os.Args); err != nil {
 		log.Fatal(err)
 	}
+}
+
+// configFromCmd reads the storage/embed flags off a (sub)command into a Config.
+// The mcp subcommand omits the addr flag, so c.String("addr") yields "" there —
+// harmless, because only the serve path reads Addr.
+func configFromCmd(c *cli.Command, def config.Config) config.Config {
+	return config.Config{
+		Addr:             c.String("addr"),
+		DBPath:           c.String("db"),
+		VectorBackend:    c.String("vector-backend"),
+		QdrantURL:        c.String("qdrant-url"),
+		QdrantAPIKey:     c.String("qdrant-api-key"),
+		OllamaURL:        c.String("ollama-url"),
+		OllamaEmbedModel: c.String("ollama-model"),
+		HTTPTimeout:      def.HTTPTimeout,
+		Debug:            c.Bool("debug"),
+	}
+}
+
+// dataFlags are the storage + embedding flags shared by every entry point that
+// opens the database (serve and the read-only mcp CLI). It returns a fresh slice
+// per call so each command owns its own flag instances.
+func dataFlags(def config.Config) []cli.Flag {
+	return []cli.Flag{
+		&cli.StringFlag{Name: "db", Sources: cli.EnvVars("AGENTSMEMORY_DB"), Value: def.DBPath, Usage: "SQLite database path"},
+		&cli.StringFlag{Name: "vector-backend", Sources: cli.EnvVars("VECTOR_BACKEND"), Value: def.VectorBackend, Usage: "search index: sqlite|qdrant (SQLite is always the source of truth)"},
+		&cli.StringFlag{Name: "qdrant-url", Sources: cli.EnvVars("QDRANT_URL"), Value: def.QdrantURL, Usage: "Qdrant base URL"},
+		&cli.StringFlag{Name: "qdrant-api-key", Sources: cli.EnvVars("QDRANT_API_KEY"), Value: def.QdrantAPIKey, Usage: "Qdrant API key (optional)"},
+		&cli.StringFlag{Name: "ollama-url", Sources: cli.EnvVars("OLLAMA_URL"), Value: def.OllamaURL, Usage: "Ollama base URL"},
+		&cli.StringFlag{Name: "ollama-model", Sources: cli.EnvVars("OLLAMA_EMBED_MODEL"), Value: def.OllamaEmbedModel, Usage: "Ollama embedding model"},
+		&cli.BoolFlag{Name: "debug", Sources: cli.EnvVars("APP_DEBUG"), Value: def.Debug, Usage: "verbose logging: per-request HTTP access logs + gorm SQL"},
+	}
+}
+
+// serveFlags are the flags the serving entry points expose: the listen address
+// plus the shared storage/embed flags.
+func serveFlags(def config.Config) []cli.Flag {
+	return append([]cli.Flag{
+		&cli.StringFlag{Name: "addr", Sources: cli.EnvVars("AGENTSMEMORY_ADDR"), Value: def.Addr, Usage: "HTTP listen address"},
+	}, dataFlags(def)...)
 }
 
 // run opens the database, migrates, wires dependencies, and serves until error.
@@ -98,40 +134,18 @@ func run(ctx context.Context, cfg config.Config) error {
 			cfg.Addr, cfg.DBPath, cfg.VectorBackend, cfg.OllamaURL, cfg.OllamaEmbedModel)
 	}
 
-	gdb, err := openDB(cfg.DBPath, cfg.Debug)
+	// Open + migrate + wire the bounded-context services. The same wiring backs
+	// the read-only mcp CLI, so it lives in buildServices (the one place the two
+	// driving adapters share). Serving additionally seeds and starts transports.
+	svc, err := buildServices(cfg)
 	if err != nil {
-		return fmt.Errorf("open db: %w", err)
-	}
-	sqlDB, err := gdb.DB()
-	if err != nil {
-		return fmt.Errorf("sql handle: %w", err)
-	}
-	if err := migrate(sqlDB); err != nil {
-		return fmt.Errorf("migrate: %w", err)
-	}
-
-	// Bounded contexts: tenant (auth + workspaces), skill (load_skill), and
-	// usage (monthly request metering).
-	tenants := tenant.NewRepo(gdb, tenant.WithTokenSecret(tokenSecret()))
-	skills := skill.NewService(skill.NewRepo(gdb))
-	usageSvc := usage.NewService(usage.NewRepo(gdb), tenants)
-
-	// Vector storage: SQLite is always the source of truth; cfg.VectorBackend
-	// selects whether it also serves search or Qdrant indexes it. The embedder
-	// (Ollama) is wired in a later phase against this same seam.
-	vectors, err := buildVectorStore(cfg, gdb)
-	if err != nil {
-		return fmt.Errorf("vector store: %w", err)
+		return err
 	}
 	log.Printf("vector backend: %s (SQLite source of truth)", cfg.VectorBackend)
+	tenants, skills, usageSvc, drawers := svc.tenants, svc.skills, svc.usage, svc.drawers
 
-	// The memory loop: Ollama embeds text, the store seam holds the vectors, and
-	// the palace service ties them to drawer metadata. The MCP drawer tools call
-	// into this service, tenant-scoped per request.
-	embedder := ollama.New(cfg.OllamaURL, cfg.OllamaEmbedModel, cfg.HTTPTimeout)
-	drawers := palace.NewService(palace.NewRepo(gdb), embedder, vectors, defaultVectorDim)
-
-	if err := seedIfEmpty(ctx, gdb, tenants, skill.NewRepo(gdb), vectors); err != nil {
+	// Seeding is serve-only: the read-only CLI must never create a demo team.
+	if err := seedIfEmpty(ctx, svc.gdb, tenants, skill.NewRepo(svc.gdb), svc.vectors); err != nil {
 		return fmt.Errorf("seed: %w", err)
 	}
 
@@ -281,6 +295,57 @@ func sessionKey() []byte {
 // Qdrant collection size in internal/store/qdrant.
 const defaultVectorDim = 1024
 
+// services holds the wired domain collaborators shared by the serve and mcp
+// entry points: both open the same SQLite source of truth and talk to the same
+// palace/skill/usage services. Extracting the wiring keeps the two driving
+// adapters — the HTTP MCP server and the read-only CLI — over one domain core.
+type services struct {
+	gdb     *gorm.DB
+	vectors store.VectorStore
+	tenants *tenant.Repo
+	skills  *skill.Service
+	usage   *usage.Service
+	drawers *palace.Service
+}
+
+// buildServices opens and migrates the database, then wires the bounded-context
+// services against it. It deliberately does NOT seed (the serve path seeds; a
+// read-only CLI invocation must not create data) and starts no transport, so it
+// is safe to call from both entry points.
+func buildServices(cfg config.Config) (*services, error) {
+	gdb, err := openDB(cfg.DBPath, cfg.Debug)
+	if err != nil {
+		return nil, fmt.Errorf("open db: %w", err)
+	}
+	sqlDB, err := gdb.DB()
+	if err != nil {
+		return nil, fmt.Errorf("sql handle: %w", err)
+	}
+	if err := migrate(sqlDB); err != nil {
+		return nil, fmt.Errorf("migrate: %w", err)
+	}
+
+	// Bounded contexts: tenant (auth + workspaces), skill (load_skill), and
+	// usage (monthly request metering).
+	tenants := tenant.NewRepo(gdb, tenant.WithTokenSecret(tokenSecret()))
+	skills := skill.NewService(skill.NewRepo(gdb))
+	usageSvc := usage.NewService(usage.NewRepo(gdb), tenants)
+
+	// Vector storage: SQLite is always the source of truth; cfg.VectorBackend
+	// selects whether it also serves search or Qdrant indexes it.
+	vectors, err := buildVectorStore(cfg, gdb)
+	if err != nil {
+		return nil, fmt.Errorf("vector store: %w", err)
+	}
+
+	// The memory loop: Ollama embeds text, the store seam holds the vectors, and
+	// the palace service ties them to drawer metadata.
+	embedder := ollama.New(cfg.OllamaURL, cfg.OllamaEmbedModel, cfg.HTTPTimeout)
+	drawers := palace.NewService(palace.NewRepo(gdb), embedder, vectors, defaultVectorDim)
+
+	return &services{gdb: gdb, vectors: vectors, tenants: tenants, skills: skills, usage: usageSvc, drawers: drawers}, nil
+}
+
 // buildVectorStore assembles the vector layer from cfg. SQLite is always the
 // durable source of truth (sqlitevec); cfg.VectorBackend then decides whether it
 // also serves search or whether Qdrant is layered on as the search index via
@@ -306,14 +371,21 @@ func buildVectorStore(cfg config.Config, gdb *gorm.DB) (store.VectorStore, error
 // errors — real failures still surface through returned error values. In debug
 // mode it logs every statement (logger.Info) so queries are visible during
 // development.
+//
+// The logger writes to stderr, not gorm's stdout default, so a command whose
+// stdout is data — the read-only mcp CLI emits JSON there — stays clean and
+// pipeable even with APP_DEBUG=true; serve is unaffected (its stdout is not a
+// data channel).
 func openDB(path string, debug bool) (*gorm.DB, error) {
 	level := logger.Silent
 	if debug {
 		level = logger.Info
 	}
-	return gorm.Open(sqlite.Open(path), &gorm.Config{
-		Logger: logger.Default.LogMode(level),
-	})
+	gormLog := logger.New(
+		log.New(os.Stderr, "\r\n", log.LstdFlags),
+		logger.Config{LogLevel: level},
+	)
+	return gorm.Open(sqlite.Open(path), &gorm.Config{Logger: gormLog})
 }
 
 // migrate applies the embedded goose migrations to the open database.
