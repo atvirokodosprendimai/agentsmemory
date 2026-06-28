@@ -14,7 +14,8 @@ changes even as the toolset grows.
 $ARGUMENTS
 
 > If the task is empty, stop after Step 1 and give a short briefing of what the
-> memory already knows that is relevant — no plan, no code.
+> memory already knows that is relevant — no plan, no code. Even then, finish with
+> Step 3: a briefing-only run still ends with the diary write.
 
 ## Step 1 — Call `am_skillset` FIRST (before any other tool)
 
@@ -37,9 +38,13 @@ skill to load, **call the tool** — e.g. "load `effective-go`" becomes
 `am_load_skill(name="effective-go")`, then apply the returned body. The same goes
 for `am_status`, `am_search "<your task>"`, and the rest of the loop it lays out.
 
-## Step 3 — Persist before you stop
+## Step 3 — Persist before you stop (mandatory, every task)
 
 The playbook also says how to write back what you learned — typically
 `am_diary_write` (an AAAK session summary), `am_kg_add` (durable
-subject→predicate→object facts), and `am_create_tunnel` (links across topics). Do
-it: a session that recalls but never records leaves the next one cold.
+subject→predicate→object facts), and `am_create_tunnel` (links across topics).
+
+This is unconditional: do it on **every** task, not only the ones that changed
+code. A read-only briefing, a plan you only printed, a question you answered — each
+still ends with `am_diary_write`. Do not end your turn without it: a session that
+recalls but never records leaves the next one cold.

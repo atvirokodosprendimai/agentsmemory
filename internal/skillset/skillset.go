@@ -163,28 +163,62 @@ func (s *Service) Set(ctx context.Context, caller SuperHolder, content string) (
 // superadmin edits a real document rather than a blank page. The live tool
 // catalogue is appended by the am_skillset tool, so this text covers only the
 // when/which/how that the bare tool descriptions cannot.
-const DefaultPlaybook = `# agentsmemory — wakeup skillset
+//
+// It is written in the mempalace-protocol style — a numbered "what tool, when"
+// loop with a wake-up phase, a working phase, and a hard end-of-task gate — so a
+// waking agent reads it as standing instructions, not prose. The end-of-task
+// diary write is deliberately framed as MANDATORY AND UNCONDITIONAL: it must fire
+// even on a read-only briefing or a plan that was only printed (a "stdout / plan
+// mode" run that never edited a file), because those sessions still learned
+// something the next one needs, and nothing else (no commit, no file write) will
+// trigger the agent to record it.
+const DefaultPlaybook = `# agentsmemory — global wakeup skillset
 
-You are connected to the agentsmemory MCP server. Every tool is prefixed ` + "`am_`" + ` and
-scoped to your team. This server is your long-term memory across sessions — read
-from it before acting, write to it before you stop.
+You are connected to the agentsmemory MCP server. Every tool is prefixed ` + "`am_`" + `
+and scoped to your team. This server is your long-term memory across sessions:
+**recall from it before you act, record to it before you stop.** Treat this
+playbook as your standing instructions for the server — the live catalogue of
+every tool follows it.
 
-## On wake-up (every session, in this order)
+## On wake-up — FIRST, before any other tool (in order)
 1. ` + "`am_status`" + ` — your team, role, memory overview (wings → rooms), and remaining quota.
 2. ` + "`am_get_aaak_spec`" + ` — the compressed dialect you WRITE memories in.
-3. ` + "`am_search \"<your task>\"`" + ` — recall first. Never re-derive what you already remember.
-4. ` + "`am_list_skills`" + ` then ` + "`am_load_skill <name>`" + ` — pull the centralised skills you
-   need (e.g. ` + "`effective-go`" + `) instead of guessing the team's conventions.
+3. ` + "`am_search \"<your task>\"`" + ` — recall first. Never re-derive what you already
+   remember; the memory is the only source of cross-session *why*.
+4. ` + "`am_list_skills`" + ` → ` + "`am_load_skill <name>`" + ` — pull the team's centralised
+   skills (e.g. ` + "`effective-go`" + `) instead of guessing its conventions.
 
 ## While you work
-- ` + "`am_search`" + ` again the moment you reach unfamiliar code, decisions, or rationale.
+- **Recall before you reach.** The moment you hit unfamiliar code, a past
+  decision, or rationale, ` + "`am_search`" + ` before you grep — don't reconstruct what
+  the memory already holds.
+- **Recall before you fumble a tool.** Unsure of a tool's params or call
+  sequence? ` + "`am_search`" + ` for prior usage notes before guessing.
 - ` + "`am_check_duplicate`" + ` before filing near-identical content.
 - ` + "`am_add_drawer <wing> <room>`" + ` to file new memory VERBATIM (never summarised).
 
-## Before you stop
-- ` + "`am_diary_write <agent>`" + ` — journal what you did, decided, and learned (in AAAK).
-- ` + "`am_kg_add`" + ` — record durable subject → predicate → object facts.
-- ` + "`am_create_tunnel`" + ` — link related memories across wings.
+## After EVERY task — write the diary (HARD GATE, not a suggestion)
+This step is **mandatory and unconditional**. It fires even when the task wrote no
+code: a read-only briefing, a plan you only printed to output, a question you just
+answered — all of them end here. A session that recalls but never records leaves
+the next one cold.
+
+1. ` + "`am_diary_write <agent>`" + ` — journal what you did, decided, and learned, in
+   AAAK. Use a stable agent name so the journal threads across sessions.
+   **Do not end your turn without this call.**
+2. **Write back what you learned.** If the memory was empty and you had to work
+   something out — a tool's params, a subsystem's shape, a gotcha — file it with
+   ` + "`am_add_drawer`" + ` (or a diary line) so the next session recalls it. The loop
+   only pays off if you close it.
+3. ` + "`am_kg_add`" + ` — record durable subject → predicate → object facts.
+4. ` + "`am_create_tunnel`" + ` — link related memories across wings.
+
+## About this playbook
+This is the one global wakeup document, identical for every team. It is
+platform-owned: only a superadmin (an email in the server's ` + "`SUPERADMIN_EMAILS`" + `
+allowlist) may edit it, from the dashboard — it is not a DB row or a per-team role
+you can change. A non-superadmin can read it, follow it, and seed it on a fresh
+database, but cannot edit it. You read this and obey it; you don't rewrite it.
 
 The live catalogue of every available tool follows below.
 `
