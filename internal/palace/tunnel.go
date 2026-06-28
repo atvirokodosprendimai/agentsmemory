@@ -4,11 +4,8 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"sort"
-
-	"gorm.io/gorm"
 )
 
 // Tunnels are cross-wing links. This file holds their identity, the explicit-tunnel
@@ -20,17 +17,20 @@ import (
 // shows as a preview (frozen used 300).
 const followPreviewLen = 300
 
-// canonicalTunnelID is a tunnel's symmetric identity: the two "wing/room"
-// endpoints sorted and hashed, so A↔B and B↔A produce the same id and resolve to
-// one record (frozen _canonical_tunnel_id). Truncated to 16 hex chars.
+// canonicalTunnelID is a tunnel's symmetric identity: the two endpoints sorted
+// and hashed, so A↔B and B↔A produce the same id and resolve to one record (the
+// frozen _canonical_tunnel_id, made collision-safe). NUL bytes separate wing from
+// room (\x00) and endpoint from endpoint (\x01); SanitizeName rejects NUL and
+// extracted entities never contain one, so no wing/room value can forge a
+// separator and make two distinct endpoint pairs hash alike. 16 hex chars.
 func canonicalTunnelID(sourceWing, sourceRoom, targetWing, targetRoom string) string {
-	src := sourceWing + "/" + sourceRoom
-	tgt := targetWing + "/" + targetRoom
+	src := sourceWing + "\x00" + sourceRoom
+	tgt := targetWing + "\x00" + targetRoom
 	a, b := src, tgt
 	if a > b {
 		a, b = b, a
 	}
-	sum := sha256.Sum256([]byte(a + "↔" + b))
+	sum := sha256.Sum256([]byte(a + "\x01" + b))
 	return hex.EncodeToString(sum[:])[:16]
 }
 
@@ -78,37 +78,23 @@ func (s *Service) CreateTunnel(ctx context.Context, teamID string, in TunnelInpu
 	}
 
 	id := canonicalTunnelID(sw, sr, tw, tr)
-	existing, err := s.repo.GetTunnel(ctx, teamID, id)
-	switch {
-	case err == nil:
-		// Update in place: keep the original orientation, created_at and dynamics;
-		// refresh the label and stamp updated_at. Drawer pins are updated only when
-		// the call's source matches the stored source (same orientation), so a
-		// reverse-direction update cannot mis-assign a pin to the wrong endpoint.
-		existing.Label = in.Label
-		existing.UpdatedAt = now
-		if existing.Source.Wing == sw && existing.Source.Room == sr {
-			existing.Source.DrawerID = in.SourceDrawerID
-			existing.Target.DrawerID = in.TargetDrawerID
-		}
-		if err := s.repo.SaveTunnel(ctx, existing); err != nil {
-			return Tunnel{}, err
-		}
-		return existing, nil
-	case errors.Is(err, gorm.ErrRecordNotFound):
-		t := Tunnel{
-			ID: id, TeamID: teamID,
-			Source: Endpoint{Wing: sw, Room: sr, DrawerID: in.SourceDrawerID},
-			Target: Endpoint{Wing: tw, Room: tr, DrawerID: in.TargetDrawerID},
-			Label:  in.Label, Kind: TunnelExplicit, CreatedAt: now, Dynamics: initDynamics(now),
-		}
-		if err := s.repo.SaveTunnel(ctx, t); err != nil {
-			return Tunnel{}, err
-		}
-		return t, nil
-	default:
+	// One atomic upsert, not a read-modify-write: insert the tunnel as new, or — if
+	// its canonical id already exists — update ONLY the label and updated_at,
+	// preserving the first writer's orientation, created_at, drawer pins and L7
+	// dynamics. This closes the lost-update race two concurrent create_tunnel calls
+	// would otherwise hit (both seeing "not found", the later overwriting the first).
+	t := Tunnel{
+		ID: id, TeamID: teamID,
+		Source: Endpoint{Wing: sw, Room: sr, DrawerID: in.SourceDrawerID},
+		Target: Endpoint{Wing: tw, Room: tr, DrawerID: in.TargetDrawerID},
+		Label:  in.Label, Kind: TunnelExplicit, CreatedAt: now, Dynamics: initDynamics(now),
+	}
+	if err := s.repo.UpsertExplicitTunnel(ctx, t, now); err != nil {
 		return Tunnel{}, err
 	}
+	// Return the canonical stored record (its orientation/created_at may predate
+	// this call if the tunnel already existed).
+	return s.repo.GetTunnel(ctx, teamID, id)
 }
 
 // DeleteTunnel removes a tunnel by id, reporting whether it existed.

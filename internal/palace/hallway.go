@@ -23,13 +23,15 @@ const hallwayMinCount = 2
 type entityPair struct{ a, b string }
 
 // hallwayID is a hallway's stable, symmetric identity: the sorted pair hashed with
-// the wing, matching the frozen scheme "hallway_{wing}_{a}_{b}_{sha8}". The id is
-// team-scoped by the row's composite primary key, so it need not carry the team.
+// the wing (frozen scheme "hallway_{wing}_{a}_{b}_{sha8}"). The hash is over
+// NUL-separated parts so an entity name cannot forge the separator and collide
+// with a different pair; Sanitize$names and extracted entities never contain NUL.
+// The id is team-scoped by the row's composite primary key, so it omits the team.
 func hallwayID(wing, a, b string) string {
 	if a > b {
 		a, b = b, a
 	}
-	sum := sha256.Sum256([]byte(wing + "::" + a + "::" + b))
+	sum := sha256.Sum256([]byte(wing + "\x00" + a + "\x00" + b))
 	return fmt.Sprintf("hallway_%s_%s_%s_%s", wing, a, b, hex.EncodeToString(sum[:])[:8])
 }
 

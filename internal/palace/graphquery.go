@@ -99,6 +99,9 @@ func (s *Service) Traverse(ctx context.Context, teamID, startRoom string, maxHop
 		hop  int
 		via  []string
 	}
+	// Sort the room names once, not per BFS pop: the neighbour scan reuses this
+	// stable order so the walk is deterministic without re-sorting each level.
+	roomOrder := sortedRooms(nodes)
 	visited := map[string]struct{}{startRoom: {}}
 	queue := []qitem{{room: startRoom, hop: 0}}
 	var result []TraverseNode
@@ -110,9 +113,8 @@ func (s *Service) Traverse(ctx context.Context, teamID, startRoom string, maxHop
 		if cur.hop >= maxHops {
 			continue
 		}
-		// Neighbours are rooms sharing at least one wing. Iterate in sorted order so
-		// the walk (and thus which neighbour is discovered first) is deterministic.
-		for _, other := range sortedRooms(nodes) {
+		// Neighbours are rooms sharing at least one wing, scanned in the stable order.
+		for _, other := range roomOrder {
 			if _, seen := visited[other]; seen {
 				continue
 			}
@@ -232,6 +234,11 @@ type RecomputeResult struct {
 // hallways for wings that no longer have drawers are cleared. Topic tunnels are
 // not generated (no topic registry yet).
 func (s *Service) RecomputeGraph(ctx context.Context, teamID, wing string, prune bool) (RecomputeResult, error) {
+	// Serialize a team's recomputes so two cannot interleave the hallway replace
+	// and entity-tunnel delete-and-rebuild and leave a stale graph.
+	unlock := s.graphLocks.lock(teamID)
+	defer unlock()
+
 	now := time.Now().UTC().Format(time.RFC3339)
 	present, err := s.repo.WingsWithDrawers(ctx, teamID)
 	if err != nil {

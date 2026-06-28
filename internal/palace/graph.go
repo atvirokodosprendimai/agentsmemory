@@ -154,10 +154,16 @@ func fromTunnelRow(r tunnelRow) Tunnel {
 	}
 }
 
-// SaveTunnel upserts a tunnel by (team_id, id). Re-saving the canonical id of an
-// existing tunnel replaces it, which is what create_tunnel's upsert needs.
-func (r *Repo) SaveTunnel(ctx context.Context, t Tunnel) error {
-	return r.db.WithContext(ctx).Clauses(clause.OnConflict{UpdateAll: true}).Create(&[]tunnelRow{toTunnelRow(t)}).Error
+// UpsertExplicitTunnel inserts a tunnel, or — when its canonical id already exists
+// — updates ONLY the label and updated_at in a single atomic statement, preserving
+// the existing orientation, created_at, drawer pins and L7 dynamics. This is the
+// race-safe heart of create_tunnel: two concurrent creates of the same id cannot
+// lose each other's write or clobber the first writer's immutable fields.
+func (r *Repo) UpsertExplicitTunnel(ctx context.Context, t Tunnel, now string) error {
+	return r.db.WithContext(ctx).Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "team_id"}, {Name: "id"}},
+		DoUpdates: clause.Assignments(map[string]any{"label": t.Label, "updated_at": now}),
+	}).Create(&[]tunnelRow{toTunnelRow(t)}).Error
 }
 
 // SaveTunnels upserts many tunnels at once (the recompute path). Empty is a no-op.
@@ -256,20 +262,31 @@ func (r *Repo) WingsWithDrawers(ctx context.Context, teamID string) ([]string, e
 	return wings, nil
 }
 
-// DrawersForHallways loads the (room, entities) of a wing's drawers, the minimal
-// projection hallway derivation needs (it counts entity pairs per drawer and the
-// rooms they met in). Sentinel-free: every drawer row is real content.
-func (r *Repo) DrawersForHallways(ctx context.Context, teamID, wing string) ([]Drawer, error) {
-	var rows []drawerRow
+// DrawerEntities is the minimal projection hallway derivation needs: a drawer's
+// room and its entities. Loading only these two columns keeps a recompute light
+// even for a large wing (the verbatim content is never read).
+type DrawerEntities struct {
+	Room     string
+	Entities []string
+}
+
+// DrawersForHallways loads just the (room, entities) of a wing's drawers — the
+// inputs to entity-pair co-occurrence counting — without touching the content.
+func (r *Repo) DrawersForHallways(ctx context.Context, teamID, wing string) ([]DrawerEntities, error) {
+	var rows []struct {
+		Room     string `gorm:"column:room"`
+		Entities string `gorm:"column:entities"`
+	}
 	if err := r.db.WithContext(ctx).
-		Select("team_id, id, wing, room, content, entities").
+		Model(&drawerRow{}).
+		Select("room, entities").
 		Where("team_id = ? AND wing = ?", teamID, wing).
-		Find(&rows).Error; err != nil {
+		Scan(&rows).Error; err != nil {
 		return nil, err
 	}
-	out := make([]Drawer, len(rows))
+	out := make([]DrawerEntities, len(rows))
 	for i, row := range rows {
-		out[i] = fromRow(row)
+		out[i] = DrawerEntities{Room: row.Room, Entities: splitEntities(row.Entities)}
 	}
 	return out, nil
 }
