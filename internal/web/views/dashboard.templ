@@ -71,6 +71,15 @@ templ ProjectsList(projects []ProjectVM) {
 
 // ProjectCard shows one project: its plan badge, API key (revealed once on
 // creation, masked thereafter), and the monthly request usage bar.
+//
+// A workspace usually holds only 2–3 projects, so each card spans the full row
+// (see .grid in app.css) rather than competing in a narrow auto-fill column —
+// that gives the revealed API key and the `claude mcp add` command room to sit
+// on a comfortable line instead of being squeezed and wrapped. To stop the wide
+// card reading as sparse, the body splits into two columns on wider screens
+// (.project-body): the key + command on the left where the width is needed,
+// the compact usage meter on the right rail. The "Manage skills" action stays a
+// full-width footer so its affordance and divider span the whole card.
 templ ProjectCard(p ProjectVM) {
 	<article class="project card">
 		<div class="project-top">
@@ -80,21 +89,27 @@ templ ProjectCard(p ProjectVM) {
 			</div>
 			<span class="badge">{ p.PlanName }</span>
 		</div>
-		@KeyBlock(KeyVM{TeamID: p.TeamID, CanReveal: p.CanReveal})
-		<div>
-			<div class="usage-head">
-				<span class="kv" style="margin:0">Requests this month</span>
-				<span class="nums">{ strconv.Itoa(p.Used) } / { capLabel(p) }</span>
+		<div class="project-body">
+			<div class="project-main">
+				@KeyBlock(KeyVM{TeamID: p.TeamID, CanReveal: p.CanReveal})
 			</div>
-			<div class={ barClass(p) }>
-				<span
-					style={ "width:" + strconv.Itoa(p.Pct) + "%" }
-					role="progressbar"
-					aria-label="Monthly request usage"
-					aria-valuenow={ strconv.Itoa(p.Used) }
-					aria-valuemin="0"
-					aria-valuemax={ strconv.Itoa(p.Cap) }
-				></span>
+			<div class="project-side">
+				<div class="usage">
+					<div class="usage-head">
+						<span class="kv" style="margin:0">Requests this month</span>
+						<span class="nums">{ strconv.Itoa(p.Used) } / { capLabel(p) }</span>
+					</div>
+					<div class={ barClass(p) }>
+						<span
+							style={ "width:" + strconv.Itoa(p.Pct) + "%" }
+							role="progressbar"
+							aria-label="Monthly request usage"
+							aria-valuenow={ strconv.Itoa(p.Used) }
+							aria-valuemin="0"
+							aria-valuemax={ strconv.Itoa(p.Cap) }
+						></span>
+					</div>
+				</div>
 			</div>
 		</div>
 		<div class="project-foot">
