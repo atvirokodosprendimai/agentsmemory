@@ -72,9 +72,11 @@ const bundle = `{"kind":"manifest","total":4}
 `
 
 // authedRequest builds a POST /import with the bundle body and a tenant already
-// on the context (as the gate would leave it).
+// on the context (as the gate would leave it). recompute=1 makes it a single-shot
+// migration: file every record AND rebuild the derived graph in one request (the
+// same flag the batched client sends on its final finalize call).
 func authedRequest(body string) *http.Request {
-	r := httptest.NewRequest(http.MethodPost, "/import", strings.NewReader(body))
+	r := httptest.NewRequest(http.MethodPost, "/import?recompute=1", strings.NewReader(body))
 	ctx := auth.WithTenant(r.Context(), tenant.Tenant{TeamID: "team-1"})
 	return r.WithContext(ctx)
 }
@@ -146,9 +148,10 @@ func TestImportOverCap(t *testing.T) {
 }
 
 // TestImportWireWithPythonPusher is a real cross-language round-trip: the Python
-// CLI streams the bundle over chunked HTTP to a live server wrapping the handler,
-// proving the two deliverables agree on the wire format. It is skipped when
-// python3 or the script is unavailable so `go test ./...` never depends on them.
+// CLI uploads the bundle in bounded, length-delimited batches (plus a finalize
+// request) to a live server wrapping the handler, proving the two deliverables
+// agree on the wire format. It is skipped when python3 or the script is
+// unavailable so `go test ./...` never depends on them.
 func TestImportWireWithPythonPusher(t *testing.T) {
 	py, err := exec.LookPath("python3")
 	if err != nil {
@@ -181,7 +184,8 @@ func TestImportWireWithPythonPusher(t *testing.T) {
 	if !strings.Contains(string(out), "done.") {
 		t.Errorf("expected a 'done.' summary in pusher output, got:\n%s", out)
 	}
-	// The in-process fake recorded exactly what the Python client streamed.
+	// The in-process fake recorded exactly what the Python client uploaded across
+	// its batch(es) and the finalize request.
 	if fd.drawers != 2 || fd.closets != 1 || fd.kg != 1 || fd.tunnels != 1 {
 		t.Errorf("routed drawers=%d closets=%d kg=%d tunnels=%d, want 2/1/1/1",
 			fd.drawers, fd.closets, fd.kg, fd.tunnels)

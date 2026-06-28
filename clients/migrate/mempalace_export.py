@@ -4,8 +4,15 @@
 This is a READ-ONLY exporter and pusher. It imports the frozen ``mempalace``
 package purely to read your palace (it never writes to it), serialises every
 drawer, diary entry, closet, knowledge-graph fact and explicit tunnel as
-newline-delimited JSON (NDJSON), and — with ``--push`` — streams that bundle to
+newline-delimited JSON (NDJSON), and — with ``--push`` — uploads that bundle to
 your project's ``/import`` endpoint over HTTPS using your API token.
+
+The upload is sent in bounded BATCHES (each a self-contained, length-delimited
+POST the server reads in full before replying), then a final ``?recompute=1``
+request rebuilds the derived graph once. This avoids depending on full-duplex
+streaming, which the CDN/proxy in front of the SaaS does not support. The import
+is idempotent — record ids are deterministic — so an interrupted migration is
+finished simply by running it again, and re-runs never duplicate.
 
 The server re-embeds every drawer with its own model, so the bundle carries TEXT
 only (no vectors): it stays small and portable.
@@ -298,58 +305,154 @@ def _byte_lines(path_or_stream):
             yield (json.dumps(rec, ensure_ascii=False) + "\n").encode("utf-8")
 
 
-def push(source, server, token, insecure=False):
-    """Stream the NDJSON bundle to <server>/import with a Bearer token and print
-    the server's progress lines as they arrive."""
-    u = urlparse(server.rstrip("/") + "/import")
+# Records per /import POST. The server reads each request in full and re-embeds
+# every record before it replies (no streaming), so a batch must finish well under
+# a CDN/reverse-proxy read timeout (~100s in front of the SaaS). Embedding
+# throughput — not bytes — is the limit, so this is sized in records: 500 keeps a
+# batch to a few seconds on a typical embedder. Tune with --batch.
+DEFAULT_BATCH = 500
+
+
+def _open(u):
+    """Open an HTTP(S) connection for a parsed URL."""
     if u.scheme == "https":
-        conn = http.client.HTTPSConnection(u.hostname, u.port or 443)
-    else:
-        conn = http.client.HTTPConnection(u.hostname, u.port or 80)
+        return http.client.HTTPSConnection(u.hostname, u.port or 443)
+    return http.client.HTTPConnection(u.hostname, u.port or 80)
+
+
+def _send(conn, path, body, headers):
+    """POST and return the response, surfacing an early server reply (e.g. the 401
+    the gate writes before it reads the body) instead of an opaque BrokenPipeError
+    when the server closes the socket mid-send. The response bytes are usually
+    already buffered, so a second getresponse() recovers the real status."""
+    try:
+        conn.request("POST", path, body=body, headers=headers)
+        return conn.getresponse()
+    except (BrokenPipeError, ConnectionResetError):
+        try:
+            return conn.getresponse()
+        except Exception:
+            raise SystemExit(
+                "  push failed: the server closed the connection during upload.\n"
+                "  Usually a bad/expired --token, or a batch too large for a proxy\n"
+                "  limit — lower --batch and retry (the import is idempotent)."
+            )
+
+
+def _post(u, token, body_bytes, recompute=False):
+    """Send one batch (or the finalize) as a length-delimited POST and return the
+    server's JSON summary. Length-delimited (Content-Length), NEVER chunked: a CDN
+    such as Cloudflare answers a chunked request body with a 520 and breaks the
+    socket. Each batch is small, so the body is held in memory as bytes — no
+    chunked generator, no temp file."""
+    conn = _open(u)
+    path = u.path + ("?recompute=1" if recompute else "")
     headers = {
         "Authorization": "Bearer " + token,
         "Content-Type": "application/x-ndjson",
+        "Content-Length": str(len(body_bytes)),
     }
-    # Passing an iterable body with no Content-Length makes http.client stream it
-    # with chunked transfer-encoding — so a 30k-drawer palace never has to be held
-    # in memory at once.
-    conn.request("POST", u.path, body=_byte_lines(source), headers=headers)
-    resp = conn.getresponse()
-    if resp.status >= 400:
-        body = resp.read().decode("utf-8", "replace").strip()
-        raise SystemExit("  push failed: HTTP %d — %s" % (resp.status, body))
-    last = None
-    for raw in resp:
-        line = raw.decode("utf-8", "replace").strip()
-        if not line:
-            continue
+    try:
+        resp = _send(conn, path, body_bytes, headers)
+        data = resp.read()
+        if resp.status >= 400:
+            raise SystemExit("  push failed: HTTP %d — %s" % (
+                resp.status, data.decode("utf-8", "replace").strip()))
+        # The server replies with a single JSON summary object. A 2xx with an
+        # empty or unparseable body is NOT success — the batch's fate is unknown,
+        # so fail loudly rather than silently dropping the pending records.
+        text = data.decode("utf-8", "replace").strip()
         try:
-            last = json.loads(line)
-        except ValueError:
-            continue
-        _print_progress(last)
-    conn.close()
-    return last
+            summary = json.loads(text.splitlines()[-1]) if text else None
+        except (ValueError, IndexError):
+            summary = None
+        if not isinstance(summary, dict):
+            raise SystemExit(
+                "  push failed: unexpected server response (HTTP %d): %s"
+                % (resp.status, text[:200] or "<empty>"))
+        return summary
+    finally:
+        conn.close()
 
 
-def _print_progress(p):
-    """Render one streamed progress/summary line."""
-    filed = p.get("drawers", 0) + p.get("closets", 0) + p.get("kg_facts", 0) + p.get("tunnels", 0)
-    total = p.get("total", 0)
+def push(source, server, token, batch=DEFAULT_BATCH):
+    """Migrate the NDJSON bundle to <server>/import in bounded batches, then
+    finalize. Each batch is a complete length-delimited POST the server reads in
+    full before replying, so nothing depends on full-duplex streaming (which a
+    CDN/proxy in front of the SaaS does not support, and which silently truncated
+    the old chunked upload). A closing ``?recompute=1`` request rebuilds the
+    derived graph once. Re-running is safe: every record id is deterministic, so
+    batches upsert rather than duplicate, and an interrupted migration is finished
+    simply by running it again."""
+    u = urlparse(server.rstrip("/") + "/import")
+    acc = {"drawers": 0, "closets": 0, "kg_facts": 0, "tunnels": 0, "skipped": 0}
+    total = 0
+    pending = []
+
+    def flush():
+        if not pending:
+            return
+        summary = _post(u, token, b"".join(pending))
+        # The server returns 200 + an "error" field for a mid-batch decode error
+        # or a body that hit its size cap: some records in this batch were NOT
+        # filed. Treat that as a failure (the refactor exists to stop silent
+        # partial imports), not success. The import is idempotent, so the user
+        # fixes the cause and re-runs to finish.
+        if summary.get("error"):
+            raise SystemExit(
+                "\n  push failed mid-batch: %s\n"
+                "  Some records may already be filed; the import is idempotent, so\n"
+                "  fix the cause (e.g. lower --batch) and re-run to finish." % summary["error"])
+        for k in acc:
+            acc[k] += int(summary.get(k, 0) or 0)
+        del pending[:]
+        _print_running(acc, total)
+
+    for i, line in enumerate(_byte_lines(source)):
+        if i == 0:
+            # The first line may be the manifest: capture its grand total for the
+            # progress denominator and don't send it (it is not a stored record).
+            try:
+                rec0 = json.loads(line.decode("utf-8", "replace"))
+            except ValueError:
+                rec0 = {}
+            if rec0.get("kind") == "manifest":
+                total = int(rec0.get("total", 0) or 0)
+                continue
+        pending.append(line)
+        if len(pending) >= batch:
+            flush()
+    flush()
+
+    # Finalize: one request rebuilds the derived graph (hallways + entity/topic
+    # tunnels) for the whole tenant, after every batch is filed. Idempotent, so a
+    # timed-out finalize can just be re-run.
+    summary = _post(u, token, b"", recompute=True)
+    _print_done(acc, summary, total)
+
+
+def _print_running(acc, total):
+    """Overwrite a single running progress line as batches land."""
+    filed = acc["drawers"] + acc["closets"] + acc["kg_facts"] + acc["tunnels"]
     tail = "/%d" % total if total else ""
-    msg = "  filed %d%s  (drawers %d, closets %d, facts %d, tunnels %d, skipped %d)" % (
-        filed, tail, p.get("drawers", 0), p.get("closets", 0),
-        p.get("kg_facts", 0), p.get("tunnels", 0), p.get("skipped", 0),
-    )
-    if p.get("done"):
-        extra = "  hallways rebuilt: %d  in %dms" % (p.get("hallways", 0), p.get("elapsed_ms", 0))
-        if p.get("error"):
-            extra += "  (error: %s)" % p["error"]
-        print(msg + "\n  done." + extra)
-    else:
-        # Carriage return keeps the running line in place in a terminal.
-        sys.stdout.write("\r" + msg)
-        sys.stdout.flush()
+    sys.stdout.write(
+        "\r  filed %d%s  (drawers %d, closets %d, facts %d, tunnels %d, skipped %d)" % (
+            filed, tail, acc["drawers"], acc["closets"], acc["kg_facts"],
+            acc["tunnels"], acc["skipped"]))
+    sys.stdout.flush()
+
+
+def _print_done(acc, final_summary, total):
+    """Print the final summary after the finalize request returns."""
+    filed = acc["drawers"] + acc["closets"] + acc["kg_facts"] + acc["tunnels"]
+    tail = "/%d" % total if total else ""
+    print(
+        "\n  done.  filed %d%s  (drawers %d, closets %d, facts %d, tunnels %d, skipped %d)"
+        "  hallways rebuilt: %d" % (
+            filed, tail, acc["drawers"], acc["closets"], acc["kg_facts"],
+            acc["tunnels"], acc["skipped"], int(final_summary.get("hallways", 0) or 0)))
+    if final_summary.get("error"):
+        print("  finalize error: %s" % final_summary["error"])
 
 
 def main(argv=None):
@@ -364,7 +467,11 @@ def main(argv=None):
     ap.add_argument("--push", action="store_true", help="Stream the bundle to the SaaS /import endpoint.")
     ap.add_argument("--server", default=None, help="SaaS base URL, e.g. https://memory.example.com (with --push).")
     ap.add_argument("--token", default=os.environ.get("AGENTSMEMORY_TOKEN"), help="Project API token / Bearer (or set AGENTSMEMORY_TOKEN).")
+    ap.add_argument("--batch", type=int, default=DEFAULT_BATCH,
+                    help="Records per /import request (default %d). Lower it if a batch times out behind a proxy." % DEFAULT_BATCH)
     args = ap.parse_args(argv)
+    if args.batch < 1:
+        ap.error("--batch must be >= 1")
 
     if not args.out and not args.push:
         ap.error("nothing to do: pass --out FILE and/or --push")
@@ -377,7 +484,7 @@ def main(argv=None):
         if not args.push:
             ap.error("--file is a bundle to push; pass --push with --server and --token")
         print("  pushing %s to %s/import ..." % (args.file, args.server.rstrip("/")))
-        push(args.file, args.server, args.token)
+        push(args.file, args.server, args.token, args.batch)
         return
 
     if args.mempalace_path:
@@ -405,7 +512,7 @@ def main(argv=None):
     if args.push:
         source = args.out if args.out else records(mp, palace_path, kg_db)
         print("  pushing to %s/import ..." % args.server.rstrip("/"))
-        push(source, args.server, args.token)
+        push(source, args.server, args.token, args.batch)
 
 
 if __name__ == "__main__":
