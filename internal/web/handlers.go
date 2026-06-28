@@ -192,9 +192,12 @@ func (s *Server) projectsForUser(ctx context.Context, userID string) ([]views.Pr
 				pct = 100
 			}
 		}
+		// Only an admin of the workspace may reveal its API key (revealing grants
+		// full access at the key owner's role). A lookup error fails closed.
+		role, _ := s.tenants.MembershipRole(ctx, userID, t.ID)
 		out = append(out, views.ProjectVM{
 			TeamID: t.ID, Name: t.Name, Slug: t.Slug, PlanName: planName, Endpoint: "/mcp",
-			Used: st.Used, Cap: st.Cap, Pct: pct,
+			Used: st.Used, Cap: st.Cap, Pct: pct, CanReveal: role == tenant.RoleAdmin,
 		})
 	}
 	return out, nil

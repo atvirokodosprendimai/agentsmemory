@@ -161,6 +161,12 @@ h1, h2, h3 { font-family: "Fraunces", Georgia, serif; font-weight: 600; letter-s
 .token.muted { color: var(--faint); }
 .token-note { color: var(--brass); font-size: .76rem; margin-top: .4rem; }
 
+/* API key reveal block (project card) */
+.keybox { display: grid; gap: .5rem; }
+.keybox code.token { display: block; }
+.key-actions { display: flex; gap: .5rem; flex-wrap: wrap; }
+.key-error { color: var(--danger); font-size: .8rem; line-height: 1.45; }
+
 .usage-head { display: flex; justify-content: space-between; align-items: baseline; font-size: .82rem; }
 .usage-head .nums { font-family: "IBM Plex Mono", monospace; font-variant-numeric: tabular-nums; color: var(--muted); }
 .bar { height: 8px; border-radius: 999px; background: var(--ink-2); border: 1px solid var(--line); overflow: hidden; margin-top: .45rem; }

@@ -76,6 +76,7 @@ func (s *Server) Routes(r chi.Router) {
 		// handler (see Server.membership) — a logged-in user can only reach a
 		// project they belong to.
 		r.Get("/projects/{teamID}", s.getProject)
+		r.Get("/projects/{teamID}/key", s.getProjectKey)
 		r.Post("/projects/{teamID}/skills", s.postSkill)
 		r.Get("/projects/{teamID}/skill-body", s.getSkillBody)
 	})

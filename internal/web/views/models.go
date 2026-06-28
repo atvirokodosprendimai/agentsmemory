@@ -70,9 +70,30 @@ type ProjectVM struct {
 	Used     int    // metered requests this month
 	Cap      int    // monthly cap (0 = unlimited)
 	Pct      int    // Used/Cap as 0..100 for the usage bar
-	// TokenOnce is the freshly minted API key, set ONLY on the card just
-	// created so it can be revealed once; empty on every other render.
-	TokenOnce string
+	// CanReveal is true when the viewer is an admin of this workspace, so the
+	// card offers a Reveal control for the API key. Revealing a key grants full
+	// access at the key owner's role, so it is restricted to admins (a member
+	// could otherwise lift the admin's bearer and escalate).
+	CanReveal bool
+}
+
+// KeyVM backs the API-key block on a project card. The block is a datastar morph
+// target (id "key-<TeamID>") the reveal endpoint patches between masked and
+// revealed states. Secret is populated only in the revealed state and is never
+// part of the initial page render.
+type KeyVM struct {
+	TeamID    string
+	CanReveal bool
+	Revealed  bool
+	Secret    string
+	Error     string // shown when a reveal can't be honored (e.g. a legacy key)
+}
+
+// copyExpr is the datastar expression the Copy button runs: write the revealed
+// secret to the clipboard. The secret is JSON-encoded for safe embedding; it is
+// already visible in the revealed block, so this exposes nothing new.
+func copyExpr(secret string) string {
+	return "navigator.clipboard.writeText(" + jsString(secret) + ")"
 }
 
 // SkillVM is one centralised skill as shown on the project page — metadata only
