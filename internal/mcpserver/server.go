@@ -47,6 +47,8 @@ func New(deps Deps) *server.MCPServer {
 	registerDrawers(srv, deps.Drawers, deps.Usage)
 	// The agent diary: append-only journal entries (diary_write/diary_read).
 	registerDiary(srv, deps.Drawers, deps.Usage)
+	// Mining: text -> chunked drawers + closet index (mine).
+	registerMine(srv, deps.Drawers, deps.Usage)
 	return srv
 }
 

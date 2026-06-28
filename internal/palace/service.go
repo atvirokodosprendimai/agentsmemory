@@ -101,6 +101,12 @@ type Service struct {
 	embed   Embedder
 	vectors store.VectorStore
 	dim     int // embedding dimension new namespaces are created with (bge-m3 = 1024)
+	// mineLocks serializes concurrent mines of the same (team, source) within this
+	// process, so two re-mines cannot interleave their purge-then-write and leave
+	// both content versions behind. It is the in-process analogue of the frozen
+	// miner's per-source mine_lock. Note: it does NOT coordinate across horizontally
+	// scaled instances — a cross-instance guard would need a DB advisory lock.
+	mineLocks keyedMutex
 }
 
 // NewService wires the collaborators. dim is the embedding width used to create a
@@ -426,14 +432,22 @@ func (s *Service) Search(ctx context.Context, teamID string, q SearchQuery) ([]S
 		survivors = append(survivors, SearchHit{Drawer: d, Distance: distance})
 	}
 
-	// Hybrid re-rank the survivors by content + distance, then take the page.
+	// Closet boost: search the team's closets with the same query and let the
+	// best-matching closets lift the rank of the drawers from their source. Closets
+	// are a SIGNAL, never a gate — a team that has never mined has no closets, so a
+	// failed or empty closet search simply yields no boosts and search proceeds.
+	closetBoostBySource := s.closetBoosts(ctx, teamID, vec)
+
+	// Hybrid re-rank the survivors by content + distance + closet boost, then page.
 	docs := make([]string, len(survivors))
 	dists := make([]float64, len(survivors))
+	boosts := make([]float64, len(survivors))
 	for i, h := range survivors {
 		docs[i] = h.Drawer.Content
 		dists[i] = h.Distance
+		boosts[i] = closetBoostBySource[h.Drawer.SourceFile]
 	}
-	ranked := rankHybrid(query, docs, dists)
+	ranked := rankHybrid(query, docs, dists, boosts)
 
 	results := make([]SearchHit, 0, limit)
 	for _, r := range ranked {
@@ -443,6 +457,7 @@ func (s *Service) Search(ctx context.Context, teamID string, q SearchQuery) ([]S
 		hit := survivors[r.Index]
 		hit.Score = r.Fused
 		hit.BM25 = r.BM25
+		hit.ClosetBoost = r.Boost
 		results = append(results, hit)
 	}
 	return results, nil

@@ -12,11 +12,13 @@ versioned skills** the team keeps up to date.
 > **Status: early skeleton.** The tenancy, auth, skill registry, storage clients
 > and MCP transport are wired and verified end-to-end, and the **core memory
 > loop** (file a drawer → recall it semantically) now works end-to-end against
-> Ollama + the vector store. Today the server exposes **16 of the planned 37 MCP
+> Ollama + the vector store. Today the server exposes **17 of the planned 37 MCP
 > tools** (`status`, `load_skill`, the WRITE/FILE + SEARCH/RECALL + STATUS/ADMIN
-> families, plus the agent `diary`). Search is now **hybrid** — vector candidates
-> re-ranked by a vector+BM25 blend (closet boost lands with mining). Mining and the
-> graph/KG tool families are the next phases — see the [Roadmap](#roadmap).
+> families, plus the agent `diary` and the `mine` pipeline). Search is **hybrid** —
+> vector candidates re-ranked by vector + BM25 + closet boost — and `mine` turns a
+> text payload into chunked drawers (with entities + a content date) plus the
+> closet index. The graph and KG tool families are the next phases — see the
+> [Roadmap](#roadmap).
 
 ---
 
@@ -138,13 +140,14 @@ shared, versioned source of truth** and its agents pull from it:
 | `add_drawer` | ✅ | File a verbatim memory (chunked + embedded; idempotent by source) |
 | `get_drawer` / `update_drawer` / `delete_drawer` | ✅ | Read, edit-in-place, or remove a drawer by id |
 | `list_drawers` | ✅ | Paginate drawers, optionally filtered by wing/room |
-| `search` | ✅ | Hybrid recall — vector candidates re-ranked by a vector+BM25 blend (closet boost with mining) |
+| `search` | ✅ | Hybrid recall — vector candidates re-ranked by vector + BM25 + closet boost |
 | `check_duplicate` | ✅ | Is content near-identical to an existing drawer? |
 | `list_wings` / `list_rooms` / `get_taxonomy` | ✅ | Indexed wing/room aggregations of a team's memory |
 | `get_aaak_spec` | ✅ | The AAAK compressed-memory dialect reference |
 | `reconnect` | ✅ | Re-ready the workspace's vector store (stateless liveness probe) |
 | `diary_write` / `diary_read` | ✅ | Append to / read an agent's append-only journal (timestamped, newest-first) |
-| `mine`, `create_tunnel`, `kg_add`, … | 🔜 | The remaining graph/KG/mining tools (21), ported from the Python contract |
+| `mine` | ✅ | Mine a text payload into chunked drawers (entities + content date) + the closet index; idempotent by source |
+| `create_tunnel`, `kg_add`, … | 🔜 | The remaining graph/KG tools (20), ported from the Python contract |
 
 ---
 
@@ -273,9 +276,9 @@ called). Schema changes are additive migrations under `db/migrations/`.
 - [x] Stateless Streamable-HTTP MCP server (`status`, `load_skill`)
 - [x] Core memory loop — drawer CRUD + semantic recall + taxonomy (12 tools, vector-only search)
 - [x] Agent diary — `diary_write` / `diary_read` (timestamped, append-only journal) (16 of 37)
-- [x] Hybrid search — vector candidates re-ranked by a vector+BM25 convex blend (closet boost lands with mining)
-- [ ] Mining pipeline (text → drawers, idempotent by source + chunk)
-- [ ] Remaining MCP tools — graph/tunnels, KG, mining (21 of 37)
+- [x] Hybrid search — vector candidates re-ranked by vector + BM25 + closet boost (RRF-style convex blend)
+- [x] Mining pipeline — `mine` text → chunked drawers (entities + content date) + closet index, idempotent by source (17 of 37)
+- [ ] Remaining MCP tools — graph/tunnels, KG (20 of 37)
 - [ ] `list_skills` + `update_skill` + a `/load-skill` Claude command
 - [ ] Web dashboard (`goth` login, key & skill management) — `templ` + datastar
 - [ ] Subscriptions / billing

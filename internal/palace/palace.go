@@ -102,8 +102,9 @@ type Tunnel struct {
 // that fed the blend, surfaced for transparency; Distance is the raw cosine
 // distance from the query.
 type SearchHit struct {
-	Drawer   Drawer
-	Score    float64 // fused rank score, higher is better
-	BM25     float64 // raw Okapi-BM25 lexical score (pre-normalization)
-	Distance float64 // raw cosine distance, lower is closer
+	Drawer      Drawer
+	Score       float64 // fused rank score, higher is better
+	BM25        float64 // raw Okapi-BM25 lexical score (pre-normalization)
+	ClosetBoost float64 // closet rank boost folded into Score (0 when none)
+	Distance    float64 // raw cosine distance, lower is closer
 }

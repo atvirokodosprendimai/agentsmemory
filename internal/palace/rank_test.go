@@ -3,6 +3,7 @@ package palace
 import (
 	"context"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -53,7 +54,7 @@ func TestRankHybridLexicalPromotesOverVector(t *testing.T) {
 		"a quiet meadow at dawn",                // no query terms
 	}
 	distances := []float64{0.5, 0.1}
-	ranked := rankHybrid("lru cache eviction", docs, distances)
+	ranked := rankHybrid("lru cache eviction", docs, distances, nil)
 	if ranked[0].Index != 0 {
 		t.Fatalf("lexical match should rank first; got index %d (fused %.3f)", ranked[0].Index, ranked[0].Fused)
 	}
@@ -68,11 +69,59 @@ func TestRankHybridLexicalPromotesOverVector(t *testing.T) {
 func TestRankHybridNoLexicalFallsBackToVector(t *testing.T) {
 	docs := []string{"alpha text", "beta text", "gamma text"}
 	distances := []float64{0.3, 0.1, 0.5}
-	ranked := rankHybrid("zzz qqq", docs, distances) // query terms appear in no doc
+	ranked := rankHybrid("zzz qqq", docs, distances, nil) // query terms appear in no doc
 	gotOrder := []int{ranked[0].Index, ranked[1].Index, ranked[2].Index}
 	want := []int{1, 0, 2} // by ascending distance: 0.1, 0.3, 0.5
 	if !reflect.DeepEqual(gotOrder, want) {
 		t.Fatalf("no-lexical order = %v, want vector order %v", gotOrder, want)
+	}
+}
+
+// TestRankHybridClosetBoostLifts pins the closet signal: two candidates with
+// equal vector distance and no lexical match are tied, but the one carrying a
+// closet boost must rank first, and the boost is recorded on the result.
+func TestRankHybridClosetBoostLifts(t *testing.T) {
+	docs := []string{"alpha note", "beta note"}
+	distances := []float64{0.5, 0.5}
+	boosts := []float64{0.0, 0.40}
+	ranked := rankHybrid("zzz qqq", docs, distances, boosts) // no lexical signal
+	if ranked[0].Index != 1 {
+		t.Fatalf("closet-boosted candidate should rank first, got index %d", ranked[0].Index)
+	}
+	if ranked[0].Boost != 0.40 {
+		t.Fatalf("boost should be recorded on the result, got %v", ranked[0].Boost)
+	}
+}
+
+// TestSearchAppliesClosetBoost is the end-to-end payoff: after mining a source,
+// a search whose query matches that source's closet lifts the source's drawers
+// with a visible ClosetBoost — the third frozen ranking signal, now wired.
+func TestSearchAppliesClosetBoost(t *testing.T) {
+	ctx := context.Background()
+	svc := newTestService(t)
+	const team = "team-1"
+
+	content := strings.Repeat("Kubernetes orchestrates the deployment pipeline. ", 20) +
+		"\n\n# Kubernetes Pipeline\n\nWe deployed the pipeline to production successfully."
+	if _, err := svc.Mine(ctx, team, MineInput{Content: content, Wing: "infra", Room: "ops", Source: "k8s"}); err != nil {
+		t.Fatalf("mine: %v", err)
+	}
+
+	hits, err := svc.Search(ctx, team, SearchQuery{Query: "Kubernetes deployment pipeline", Limit: 5})
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if len(hits) == 0 {
+		t.Fatal("expected hits from the mined source")
+	}
+	var boosted bool
+	for _, h := range hits {
+		if h.ClosetBoost > 0 {
+			boosted = true
+		}
+	}
+	if !boosted {
+		t.Fatal("expected a closet boost to be applied to the mined source's drawers")
 	}
 }
 
