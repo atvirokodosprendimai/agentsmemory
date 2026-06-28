@@ -7,14 +7,13 @@ import (
 	"github.com/atvirokodosprendimai/agentsmemory/internal/usage"
 
 	"github.com/mark3labs/mcp-go/mcp"
-	"github.com/mark3labs/mcp-go/server"
 )
 
 // registerMine wires the mine tool: an agent submits a blob of text and the server
 // chunks it into verbatim drawers (with entities + a content date) and builds the
 // closet pointer index over them. Mining is idempotent by `source` — re-mining the
 // same source replaces its drawers and closets. Scoped to the resolved tenant.
-func registerMine(srv *server.MCPServer, drawers *palace.Service, usageSvc *usage.Service) {
+func registerMine(reg *registrar, drawers *palace.Service, usageSvc *usage.Service) {
 	tool := newTool("mine",
 		mcp.WithDescription("Mine a blob of text into the palace: chunk it into verbatim drawers (with extracted entities and a detected date) and build the closet index. Idempotent by source — re-mining the same source replaces it."),
 		mcp.WithString("content", mcp.Required(), mcp.Description("The verbatim text to mine. Stored exactly, never summarised.")),
@@ -23,7 +22,7 @@ func registerMine(srv *server.MCPServer, drawers *palace.Service, usageSvc *usag
 		mcp.WithString("room", mcp.Description("Aspect within the wing (default \"general\").")),
 		mcp.WithString("agent", mcp.Description("Author recorded on each drawer (default \"mempalace\").")),
 	)
-	srv.AddTool(tool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	reg.add(tool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		t, errResult, ok := admit(ctx, usageSvc)
 		if !ok {
 			return errResult, nil

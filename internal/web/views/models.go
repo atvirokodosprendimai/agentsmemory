@@ -194,6 +194,38 @@ type DashboardData struct {
 	// OAuthProviders lists configured social providers (e.g. "google") so the
 	// login page can offer them; empty until keys are configured.
 	OAuthProviders []string
+	// IsSuperAdmin reveals the platform link to the global-skillset editor. It is
+	// presentation only — the route itself is gated server-side — but it keeps the
+	// one cross-tenant control out of every other user's sight.
+	IsSuperAdmin bool
+}
+
+// SkillsetAdminData backs the platform-superadmin editor for the global am_skillset
+// wakeup playbook. There is no CanWrite flag: only a superadmin reaches the page
+// (the route is gated), so being here IS the authority.
+type SkillsetAdminData struct {
+	UserEmail string
+	Content   string // the current playbook body (empty before the first edit/seed)
+	Version   int    // 0 when unset, else the stored version
+	UpdatedBy string // user id of the last editor (provenance)
+	Flash     FlashVM
+}
+
+// skillsetEditorSignals is the data-signals payload that seeds the editor: the
+// current playbook in the bound signal, plus a frontend-only (_ prefixed, so it is
+// never sent to the server) copy of the original, so Revert and the
+// unsaved-changes hint work without a round-trip.
+func skillsetEditorSignals(content string) string {
+	return "{skillsetContent: " + jsString(content) + ", _skillsetOriginal: " + jsString(content) + "}"
+}
+
+// skillsetVersionLabel renders the playbook version as "v3", or "unset" before the
+// first edit/seed.
+func skillsetVersionLabel(d SkillsetAdminData) string {
+	if d.Version <= 0 {
+		return "unset"
+	}
+	return "v" + strconv.Itoa(d.Version)
 }
 
 // AuthData backs the login and register pages.

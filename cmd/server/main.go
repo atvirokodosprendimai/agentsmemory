@@ -27,6 +27,7 @@ import (
 	"github.com/atvirokodosprendimai/agentsmemory/internal/oauth"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/palace"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/skill"
+	"github.com/atvirokodosprendimai/agentsmemory/internal/skillset"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/store"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/store/qdrant"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/store/sqlitevec"
@@ -98,6 +99,10 @@ func configFromCmd(c *cli.Command, def config.Config) config.Config {
 		OllamaEmbedModel: c.String("ollama-model"),
 		HTTPTimeout:      def.HTTPTimeout,
 		Debug:            c.Bool("debug"),
+		// Platform-superadmin allowlist (serve only). On the mcp CLI the flag is
+		// undefined so c.String returns "" → an empty allowlist, which is correct:
+		// the read-only CLI never edits the global skillset.
+		SuperAdminEmails: config.ParseSuperAdminEmails(c.String("superadmin-emails")),
 	}
 }
 
@@ -121,6 +126,7 @@ func dataFlags(def config.Config) []cli.Flag {
 func serveFlags(def config.Config) []cli.Flag {
 	return append([]cli.Flag{
 		&cli.StringFlag{Name: "addr", Sources: cli.EnvVars("AGENTSMEMORY_ADDR"), Value: def.Addr, Usage: "HTTP listen address"},
+		&cli.StringFlag{Name: "superadmin-emails", Sources: cli.EnvVars("SUPERADMIN_EMAILS"), Usage: "comma-separated emails allowed to edit the global am_skillset playbook"},
 	}, dataFlags(def)...)
 }
 
@@ -144,8 +150,10 @@ func run(ctx context.Context, cfg config.Config) error {
 	log.Printf("vector backend: %s (SQLite source of truth)", cfg.VectorBackend)
 	tenants, skills, usageSvc, drawers := svc.tenants, svc.skills, svc.usage, svc.drawers
 
-	// Seeding is serve-only: the read-only CLI must never create a demo team.
-	if err := seedIfEmpty(ctx, svc.gdb, tenants, skill.NewRepo(svc.gdb), svc.vectors); err != nil {
+	// Seeding is serve-only: the read-only CLI must never create a demo team. The
+	// global skillset is seeded here too (via its repo, bypassing the superadmin
+	// gate) so am_skillset is useful on a fresh database before any edit.
+	if err := seedIfEmpty(ctx, svc.gdb, tenants, skill.NewRepo(svc.gdb), skillset.NewRepo(svc.gdb), svc.vectors); err != nil {
 		return fmt.Errorf("seed: %w", err)
 	}
 
@@ -153,7 +161,7 @@ func run(ctx context.Context, cfg config.Config) error {
 	// per request, turning the Bearer token into a tenant on the context the
 	// tools read — this is the only place auth touches the transport. Tools
 	// meter each call against the workspace's monthly cap via usageSvc.
-	mcpSrv := mcpserver.New(mcpserver.Deps{Skills: skills, Usage: usageSvc, Drawers: drawers})
+	mcpSrv := mcpserver.New(mcpserver.Deps{Skills: skills, Skillset: svc.skillsets, Usage: usageSvc, Drawers: drawers})
 
 	// OAuth 2.1 authorization server (stateless), validating client credentials
 	// against our own api_keys (the merged authcounterapi role). It guards /mcp
@@ -179,7 +187,7 @@ func run(ctx context.Context, cfg config.Config) error {
 
 	// The human-facing dashboard (register/login/create project) shares the same
 	// chi router and database; agents use /mcp, people use the web routes.
-	webSrv := web.New(tenants, usageSvc, skills, sessionKey())
+	webSrv := web.New(tenants, usageSvc, skills, svc.skillsets, cfg.SuperAdminEmails, sessionKey())
 
 	r := chi.NewRouter()
 	// Logger before Recoverer so even a panicked request (recovered as a 500) is
@@ -300,12 +308,13 @@ const defaultVectorDim = 1024
 // palace/skill/usage services. Extracting the wiring keeps the two driving
 // adapters — the HTTP MCP server and the read-only CLI — over one domain core.
 type services struct {
-	gdb     *gorm.DB
-	vectors store.VectorStore
-	tenants *tenant.Repo
-	skills  *skill.Service
-	usage   *usage.Service
-	drawers *palace.Service
+	gdb       *gorm.DB
+	vectors   store.VectorStore
+	tenants   *tenant.Repo
+	skills    *skill.Service
+	skillsets *skillset.Service // the global wakeup-playbook use-cases (am_skillset)
+	usage     *usage.Service
+	drawers   *palace.Service
 }
 
 // buildServices opens and migrates the database, then wires the bounded-context
@@ -329,6 +338,7 @@ func buildServices(cfg config.Config) (*services, error) {
 	// usage (monthly request metering).
 	tenants := tenant.NewRepo(gdb, tenant.WithTokenSecret(tokenSecret()))
 	skills := skill.NewService(skill.NewRepo(gdb))
+	skillsets := skillset.NewService(skillset.NewRepo(gdb))
 	usageSvc := usage.NewService(usage.NewRepo(gdb), tenants)
 
 	// Vector storage: SQLite is always the source of truth; cfg.VectorBackend
@@ -343,7 +353,7 @@ func buildServices(cfg config.Config) (*services, error) {
 	embedder := ollama.New(cfg.OllamaURL, cfg.OllamaEmbedModel, cfg.HTTPTimeout)
 	drawers := palace.NewService(palace.NewRepo(gdb), embedder, vectors, defaultVectorDim)
 
-	return &services{gdb: gdb, vectors: vectors, tenants: tenants, skills: skills, usage: usageSvc, drawers: drawers}, nil
+	return &services{gdb: gdb, vectors: vectors, tenants: tenants, skills: skills, skillsets: skillsets, usage: usageSvc, drawers: drawers}, nil
 }
 
 // buildVectorStore assembles the vector layer from cfg. SQLite is always the
@@ -399,8 +409,9 @@ func migrate(sqlDB *sql.DB) error {
 
 // seedIfEmpty creates a demo team, owner, API key, and one example skill on a
 // brand-new database, printing the one-time token so the operator can connect an
-// agent immediately. On an already-seeded database it is a no-op.
-func seedIfEmpty(ctx context.Context, gdb *gorm.DB, tenants *tenant.Repo, skills *skill.Repo, vectors store.VectorStore) error {
+// agent immediately. It also seeds the global wakeup playbook so am_skillset is
+// useful from the first boot. On an already-seeded database it is a no-op.
+func seedIfEmpty(ctx context.Context, gdb *gorm.DB, tenants *tenant.Repo, skills *skill.Repo, skillsets *skillset.Repo, vectors store.VectorStore) error {
 	var teamCount int64
 	if err := gdb.WithContext(ctx).Model(&tenant.Team{}).Count(&teamCount).Error; err != nil {
 		return err
@@ -424,6 +435,14 @@ func seedIfEmpty(ctx context.Context, gdb *gorm.DB, tenants *tenant.Repo, skills
 		"# Hello Skill\n\nThis is a centralised, team-shared skill served by agentsmemory.\n",
 		t.UserID); err != nil {
 		return err
+	}
+
+	// Seed the global wakeup playbook with the default text so am_skillset returns
+	// real guidance immediately. Written via the repo (not the gated Service): this
+	// is system seeding, not a superadmin edit, and updated_by is left empty to
+	// mark it as the seeded default rather than an authored version.
+	if _, err := skillsets.Set(ctx, skillset.DefaultPlaybook, ""); err != nil {
+		return fmt.Errorf("seed global skillset: %w", err)
 	}
 
 	log.Printf("seeded demo team %s", t.TeamID)

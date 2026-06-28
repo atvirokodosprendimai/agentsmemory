@@ -292,6 +292,31 @@ func readOnlyTools() []mcpTool {
 			func(ctx context.Context, svc *services, team string, a cliArgs) (any, error) {
 				return svc.skills.Load(ctx, team, a.str("name"))
 			}},
+		{"skillset", "", "the global wakeup playbook + the read-only tool catalogue",
+			func(ctx context.Context, svc *services, team string, a cliArgs) (any, error) {
+				sk, found, err := svc.skillsets.Get(ctx)
+				if err != nil {
+					return nil, err
+				}
+				preamble, version := "", 0
+				if found {
+					preamble, version = sk.Content, sk.Version
+				}
+				// The CLI is a read-only adapter, so it advertises the read subset of
+				// the surface (the full set is over MCP). Build it from this very
+				// catalogue so it cannot drift from what the CLI actually exposes.
+				tools := readOnlyTools()
+				cat := make([]map[string]string, len(tools))
+				for i, t := range tools {
+					cat[i] = map[string]string{"name": "am_" + t.name, "usage": t.usage}
+				}
+				return map[string]any{
+					"preamble":   preamble,
+					"version":    version,
+					"tools":      cat,
+					"tool_count": len(cat),
+				}, nil
+			}},
 		{"diary_read", "agent_name", "read an agent's diary entries (args: wing, last_n)",
 			func(ctx context.Context, svc *services, team string, a cliArgs) (any, error) {
 				return svc.drawers.ReadDiary(ctx, team, a.str("agent_name"), a.str("wing"), a.intOr("last_n", palace.DefaultDiaryReadN))

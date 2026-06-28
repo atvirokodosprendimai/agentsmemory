@@ -1,8 +1,13 @@
 #!/usr/bin/env bash
 # Install the agentsmemory Claude Code kit:
-#   1. the /agentsmemory startup command -> <claude>/commands/agentsmemory.md
+#   1. the /am wake-up command           -> <claude>/commands/am.md
+#      and the verbose /agentsmemory      -> <claude>/commands/agentsmemory.md
 #   2. the Stop persistence hook         -> <claude>/hooks/agentsmemory-stop-hook.sh
 #   3. registers the Stop hook in        -> <claude>/settings.json (jq, with backup)
+#
+# /am is the thin, recommended command: it calls am_skillset and follows the
+# platform-curated playbook, so it never goes stale as tools change. The verbose
+# /agentsmemory is kept for offline use / reference.
 #
 # Usage:   ./install.sh            # installs into ~/.claude
 #          CLAUDE_DIR=/path ./install.sh
@@ -20,10 +25,13 @@ HOOK_CMD="bash $HOOK_DIR/agentsmemory-stop-hook.sh"
 
 mkdir -p "$CMD_DIR" "$HOOK_DIR"
 
-# 1 + 2: copy the command and the hook script.
+# 1 + 2: copy the commands and the hook script. /am is the thin wake-up command
+# (delegates to am_skillset); agentsmemory.md is the verbose reference.
+cp "$SRC/commands/am.md" "$CMD_DIR/am.md"
 cp "$SRC/commands/agentsmemory.md" "$CMD_DIR/agentsmemory.md"
 cp "$SRC/hooks/agentsmemory-stop-hook.sh" "$HOOK_DIR/agentsmemory-stop-hook.sh"
 chmod +x "$HOOK_DIR/agentsmemory-stop-hook.sh"
+echo "installed: $CMD_DIR/am.md"
 echo "installed: $CMD_DIR/agentsmemory.md"
 echo "installed: $HOOK_DIR/agentsmemory-stop-hook.sh"
 

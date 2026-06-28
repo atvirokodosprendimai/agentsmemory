@@ -8,8 +8,10 @@ package web
 import (
 	"context"
 	"net/http"
+	"strings"
 
 	"github.com/atvirokodosprendimai/agentsmemory/internal/skill"
+	"github.com/atvirokodosprendimai/agentsmemory/internal/skillset"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/tenant"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/usage"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/web/views"
@@ -34,16 +36,24 @@ var userCtxKey = ctxKey{}
 type Server struct {
 	tenants   *tenant.Repo
 	usage     *usage.Service
-	skills    *skill.Service // centralised-skill use-cases, shared with the MCP server
+	skills    *skill.Service    // centralised-skill use-cases, shared with the MCP server
+	skillsets *skillset.Service // the global wakeup-playbook use-cases (am_skillset)
 	store     sessions.Store
 	providers []string // configured OAuth providers; empty until keys are set
+	// superAdmins is the platform-superadmin allowlist as a set, keyed by
+	// normalized email. Membership grants the one cross-tenant power the dashboard
+	// exposes: editing the global skillset. It is process config (SUPERADMIN_EMAILS)
+	// resolved once at construction, not a per-request lookup.
+	superAdmins map[string]struct{}
 }
 
 // New builds the dashboard server. sessionKey signs/encrypts the session cookie;
 // it must be stable across restarts (else sessions are invalidated on deploy).
 // skills is the same service the MCP server exposes as list_skills/update_skill,
-// reused here so the web editor and the agent tools share one code path.
-func New(tenants *tenant.Repo, usageSvc *usage.Service, skills *skill.Service, sessionKey []byte) *Server {
+// reused here so the web editor and the agent tools share one code path; skillsets
+// backs the superadmin-only global wakeup-playbook editor. superAdmins is the
+// SUPERADMIN_EMAILS allowlist that gates that editor.
+func New(tenants *tenant.Repo, usageSvc *usage.Service, skills *skill.Service, skillsets *skillset.Service, superAdmins []string, sessionKey []byte) *Server {
 	store := sessions.NewCookieStore(sessionKey)
 	store.Options = &sessions.Options{
 		Path:     "/",
@@ -51,12 +61,32 @@ func New(tenants *tenant.Repo, usageSvc *usage.Service, skills *skill.Service, s
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   7 * 24 * 60 * 60, // one week
 	}
-	s := &Server{tenants: tenants, usage: usageSvc, skills: skills, store: store}
+	s := &Server{tenants: tenants, usage: usageSvc, skills: skills, skillsets: skillsets, store: store, superAdmins: superAdminSet(superAdmins)}
 	s.providers = registerOAuth(store) // gated: returns nil when no keys set
 	// Stamp the asset cache-buster from the embedded stylesheet's content hash so
 	// templates render <link …/app.css?v=hash>; this changes only when the CSS does.
 	views.AssetVersion = assetVersion()
 	return s
+}
+
+// superAdminSet turns the allowlist slice into a lookup set keyed by normalized
+// email, so isSuperAdmin is an O(1) check on every gated request.
+func superAdminSet(emails []string) map[string]struct{} {
+	set := make(map[string]struct{}, len(emails))
+	for _, e := range emails {
+		if e = strings.ToLower(strings.TrimSpace(e)); e != "" {
+			set[e] = struct{}{}
+		}
+	}
+	return set
+}
+
+// isSuperAdmin reports whether an email is on the platform-superadmin allowlist.
+// The comparison is on the same normalized footing the set was built with, so
+// case/whitespace differences never decide authority.
+func (s *Server) isSuperAdmin(email string) bool {
+	_, ok := s.superAdmins[strings.ToLower(strings.TrimSpace(email))]
+	return ok
 }
 
 // Routes mounts the dashboard routes onto r.
@@ -85,6 +115,16 @@ func (s *Server) Routes(r chi.Router) {
 		r.Post("/projects/{teamID}/key/rotate", s.postRotateKey)
 		r.Post("/projects/{teamID}/skills", s.postSkill)
 		r.Get("/projects/{teamID}/skill-body", s.getSkillBody)
+
+		// Platform-superadmin area: editing the GLOBAL am_skillset playbook every
+		// tenant shares. Nested inside requireUser and further gated by
+		// requireSuperAdmin, so a signed-in non-superadmin gets 404 (the surface is
+		// invisible to them) and the skillset service re-checks on write regardless.
+		r.Group(func(r chi.Router) {
+			r.Use(s.requireSuperAdmin)
+			r.Get("/superadmin/skillset", s.getSkillsetAdmin)
+			r.Post("/superadmin/skillset", s.postSkillset)
+		})
 	})
 
 	s.oauthRoutes(r) // gated: no-op when no providers configured
@@ -145,6 +185,22 @@ func (s *Server) requireUser(next http.Handler) http.Handler {
 		}
 		ctx := context.WithValue(r.Context(), userCtxKey, u)
 		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+// requireSuperAdmin is middleware that admits only platform superadmins. It runs
+// inside requireUser (so the user is already on the context) and returns 404 — not
+// 403 — for everyone else, so the superadmin surface never even confirms it exists
+// to a non-superadmin. It is the route-level half of a defense-in-depth pair: the
+// skillset service still enforces the gate on every write.
+func (s *Server) requireSuperAdmin(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		u, ok := userFrom(r.Context())
+		if !ok || !s.isSuperAdmin(u.Email) {
+			http.NotFound(w, r)
+			return
+		}
+		next.ServeHTTP(w, r)
 	})
 }
 
