@@ -115,6 +115,12 @@ templ KeyBlock(k KeyVM) {
 				<button class="btn btn-ghost btn-sm" type="button" data-on:click={ copyExpr(k.Secret) }>Copy</button>
 				<button class="btn btn-ghost btn-sm" type="button" data-on:click={ "@get('/projects/" + k.TeamID + "/key?reveal=0')" }>Hide</button>
 			</div>
+			// The revealed token is the bearer /mcp accepts directly, so offer the
+			// one-paste `claude mcp add` command right here. Guarded on ServerBase so a
+			// reveal that couldn't resolve the origin still shows the key without it.
+			if k.ServerBase != "" {
+				@MCPAddBlock(k.ServerBase, k.ServerName, k.Secret)
+			}
 		} else if k.ConfirmRotate {
 			<div class="token muted">••••••••••••••••••••••••</div>
 			<div class="key-warn" role="alert">
@@ -155,11 +161,47 @@ templ Flash(f FlashVM) {
 					<div class="kv" style="margin-top:.6rem">Secret / API key — shown once</div>
 					<div class="token">{ f.Token }</div>
 				}
+				// On creation the token is shown once here, so hand over the matching
+				// `claude mcp add` command in the same banner — connect Claude before
+				// navigating away loses the secret. Needs both the token and the origin.
+				if f.Token != "" && f.ServerBase != "" {
+					@MCPAddBlock(f.ServerBase, f.ServerName, f.Token)
+				}
 			</div>
 		} else if f.Kind == "error" {
 			<div class="flash error" role="alert">
 				<div class="ttl">{ f.Message }</div>
 			</div>
 		}
+	</div>
+}
+
+// MCPAddBlock renders the ready-to-run `claude mcp add` command that connects
+// Claude Code to this workspace, next to a freshly revealed or freshly minted
+// secret. It reuses MigrateCard's copy-a-command idiom (.cmd / .cmd-actions /
+// .cmd-hint, the $…Copied feedback) so the two command affordances look identical
+// and no new CSS is needed. The token is already visible in the surrounding
+// block, so embedding it here and on the clipboard exposes nothing new. The
+// _mcpCopied signal is FE-only (the _ prefix keeps it off the wire) and re-inits
+// whenever this fragment morphs in; it is shared by any command block shown at
+// the same time, so two at once would flash "Copied ✓" together — a harmless
+// cosmetic edge, never a correctness one.
+templ MCPAddBlock(base, name, token string) {
+	<div data-signals="{_mcpCopied: false}">
+		<div class="kv" style="margin-top:.7rem">Add to Claude Code</div>
+		<pre class="cmd" aria-label="Claude Code MCP add command"><code>{ MCPAddCommand(base, name, token) }</code></pre>
+		<div class="cmd-actions">
+			<button
+				class="btn btn-ghost btn-sm"
+				type="button"
+				data-on:click={ copyExpr(MCPAddCommand(base, name, token)) + "; $_mcpCopied = true; setTimeout(() => $_mcpCopied = false, 1600)" }
+			>
+				<span data-show="!$_mcpCopied">Copy command</span>
+				<span data-show="$_mcpCopied" style="display:none">Copied ✓</span>
+			</button>
+			<span class="cmd-hint">
+				Registers this workspace in <b>every</b> project (<span class="mono">--scope user</span>) so your agents recall memory over MCP. Drop <span class="mono">--scope user</span> to add it to just the current project.
+			</span>
+		</div>
 	</div>
 }

@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"errors"
 	"net/http"
 
@@ -21,7 +22,7 @@ import (
 // ?reveal=1 decrypts and shows the secret; ?reveal=0 (or anything else) returns
 // the masked state, so Hide is the same endpoint with no decryption.
 func (s *Server) getProjectKey(w http.ResponseWriter, r *http.Request) {
-	_, teamID, role, ok := s.membership(w, r)
+	u, teamID, role, ok := s.membership(w, r)
 	if !ok {
 		return
 	}
@@ -66,9 +67,23 @@ func (s *Server) getProjectKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The revealed token is a bearer /mcp accepts directly, so render the
+	// one-paste `claude mcp add` command beside it: ServerBase is this request's
+	// public origin, ServerName the project slug (unique, shell-safe).
 	_ = sse.PatchElementTempl(views.KeyBlock(views.KeyVM{
 		TeamID: teamID, CanReveal: admin, Revealed: true, Secret: secret,
+		ServerBase: requestBaseURL(r), ServerName: s.mcpServerName(r.Context(), u.ID, teamID),
 	}))
+}
+
+// mcpServerName resolves the `claude mcp add` server label for a workspace: its
+// slug, which is unique and shell-safe. A lookup miss falls back to a stable
+// default so the command is still runnable (the user can rename the server).
+func (s *Server) mcpServerName(ctx context.Context, userID, teamID string) string {
+	if p, ok := s.projectVM(ctx, userID, teamID); ok && p.Slug != "" {
+		return p.Slug
+	}
+	return "agent-memory"
 }
 
 // postRotateKey rotates a project's API key: it revokes the current key and mints
@@ -98,8 +113,10 @@ func (s *Server) postRotateKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Show the new secret immediately (it is the only time it is shown) with the
-	// rotated note so the admin copies it before navigating away.
+	// rotated note and the matching `claude mcp add` command so the admin re-wires
+	// Claude to the fresh key before navigating away.
 	_ = sse.PatchElementTempl(views.KeyBlock(views.KeyVM{
 		TeamID: teamID, CanReveal: true, Revealed: true, Rotated: true, Secret: cred.Secret,
+		ServerBase: requestBaseURL(r), ServerName: s.mcpServerName(r.Context(), u.ID, teamID),
 	}))
 }

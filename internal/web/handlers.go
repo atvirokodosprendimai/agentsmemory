@@ -157,12 +157,16 @@ func (s *Server) postCreateProject(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// The credential is shown once: client_key is the OAuth Client ID, the
-	// token is the secret (also usable directly as a Bearer).
+	// token is the secret (also usable directly as a Bearer). ServerBase + the
+	// slug feed the `claude mcp add` command shown with the token, so the user can
+	// wire Claude to the new workspace in one paste before the secret scrolls away.
 	_ = sse.PatchElementTempl(views.Flash(views.FlashVM{
-		Kind:      "success",
-		Message:   "Project \"" + name + "\" created.",
-		ClientKey: cred.ClientKey,
-		Token:     cred.Secret,
+		Kind:       "success",
+		Message:    "Project \"" + name + "\" created.",
+		ClientKey:  cred.ClientKey,
+		Token:      cred.Secret,
+		ServerBase: requestBaseURL(r),
+		ServerName: slug,
 	}))
 	_ = sse.PatchElementTempl(views.ProjectsList(projects))
 	_ = sse.MarshalAndPatchSignals(map[string]any{"projectName": ""})
