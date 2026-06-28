@@ -10,6 +10,16 @@
 // being squeezed into a per-call MCP tool. Tenant resolution is identical to
 // /mcp — the same OAuth/Bearer gate fronts both — so this handler only reads the
 // tenant the gate already put on the request context.
+//
+// Transport shape: the handler reads the WHOLE request body before it writes a
+// byte of the response (no full-duplex streaming). A CDN/reverse proxy in front
+// of the SaaS — Cloudflare in production — does not support full-duplex: the
+// first streamed response byte makes it close the still-uploading request body,
+// which silently truncates the import. So the client sends the export in bounded
+// BATCHES (each a self-contained POST it can finish well under the proxy's read
+// timeout), and finally one POST with ?recompute=1 that rebuilds the derived
+// graph once. Every record id is deterministic, so batches and re-runs upsert
+// rather than duplicate — a timed-out batch or finalize is simply retried.
 package importer
 
 import (
@@ -126,8 +136,13 @@ type progress struct {
 	Error     string `json:"error,omitempty"`
 }
 
-// serve runs the import: authorize, meter once, then stream-decode the body and
-// re-file each record, emitting progress lines as it goes.
+// serve runs one import request: authorize, meter, then read the WHOLE body,
+// re-file every record, optionally rebuild the derived graph, and write a single
+// JSON summary. It deliberately does not write the response while reading the
+// request (see the package doc): doing so would let a non-full-duplex proxy
+// truncate the upload. Because the body is fully consumed before we respond, a
+// real status code is safe to choose — unlike the old streaming handler, which
+// had to commit to a 200 up front.
 func serve(w http.ResponseWriter, r *http.Request, drawers Drawers, metering Metering) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -139,7 +154,11 @@ func serve(w http.ResponseWriter, r *http.Request, drawers Drawers, metering Met
 		http.Error(w, "unauthenticated: present a valid Bearer token", http.StatusUnauthorized)
 		return
 	}
-	// Meter the whole migration as a single request.
+	// Meter each request (each batch and the finalize). A migration is many small
+	// POSTs now rather than one stream, but each is bounded and the per-request
+	// embed load is real, so metering per request is both fair and still trivially
+	// under any monthly cap; an over-cap project is refused (already-filed batches
+	// persist and an idempotent re-run finishes after an upgrade).
 	st, err := metering.Allow(r.Context(), t.TeamID)
 	if err != nil {
 		http.Error(w, "usage metering failed", http.StatusInternalServerError)
@@ -149,34 +168,40 @@ func serve(w http.ResponseWriter, r *http.Request, drawers Drawers, metering Met
 		http.Error(w, "monthly request cap reached — upgrade the project's plan", http.StatusTooManyRequests)
 		return
 	}
-	// Bound the upload before we read a byte of it. A body over the cap fails the
-	// decoder mid-stream; finish() reports it in the summary line (the 200 is
-	// already committed below, so it cannot become a 413).
+	// Bound the upload before reading a byte of it. A body over the cap fails the
+	// decoder; finish() reports it in the summary.
 	r.Body = http.MaxBytesReader(w, r.Body, maxImportBodyBytes)
 
-	// From here we commit to a streaming 200: record-level problems are reported
-	// in the body, not via the status code (it is already sent).
-	w.Header().Set("Content-Type", "application/x-ndjson")
-	w.WriteHeader(http.StatusOK)
+	// recompute=1 finalizes a batched migration: after the last batch of records
+	// is filed (across prior requests), the client sends one request that rebuilds
+	// the derived graph (hallways + entity/topic tunnels) for the tenant. It is
+	// idempotent, so a timed-out finalize is just retried. A small single-shot
+	// migration can also set it on its only request to file and finalize at once.
+	recompute := r.URL.Query().Get("recompute") == "1"
 
-	imp := &runner{drawers: drawers, teamID: t.TeamID, w: w, start: time.Now()}
-	if f, ok := w.(http.Flusher); ok {
-		imp.flush = f.Flush
+	imp := &runner{drawers: drawers, teamID: t.TeamID, start: time.Now()}
+	imp.run(r.Context(), r.Body, recompute)
+
+	// The whole body is consumed, so the response is a single buffered summary.
+	w.Header().Set("Content-Type", "application/json")
+	b, err := json.Marshal(imp.p)
+	if err != nil {
+		http.Error(w, "encode summary failed", http.StatusInternalServerError)
+		return
 	}
-	imp.run(r.Context(), r.Body)
+	_, _ = w.Write(append(b, '\n'))
 }
 
-// runner carries the per-request import state: the target tenant, the output
-// writer, running counters, and the buffers that batch drawers/closets/tunnels.
+// runner carries the per-request import state: the target tenant, running
+// counters, and the buffers that batch drawers/closets/tunnels. It accumulates a
+// single progress summary (p) returned in the response after the whole body is
+// read — there is no incremental writer, because the handler does not stream.
 type runner struct {
 	drawers Drawers
 	teamID  string
-	w       io.Writer
-	flush   func()
 	start   time.Time
 
-	total int // from the manifest, for the progress denominator
-	p     progress
+	p progress
 
 	pendingDrawers []palace.ImportDrawer
 	pendingClosets []palace.ImportCloset
@@ -188,16 +213,16 @@ type runner struct {
 // json.Decoder reading successive values, so an arbitrarily large drawer content
 // is handled without a line-length cap. A malformed value is fatal (a Decoder
 // cannot reliably resync), but the exporter emits well-formed JSON, so in
-// practice the stream completes; the partial import is idempotent, so a retry
-// simply finishes it.
-func (rn *runner) run(ctx context.Context, body io.Reader) {
+// practice the body completes; the partial import is idempotent, so a retry
+// simply finishes it. recompute requests the one-time graph rebuild in finish().
+func (rn *runner) run(ctx context.Context, body io.Reader, recompute bool) {
 	rn.wings = map[string]struct{}{}
 	dec := json.NewDecoder(bufio.NewReaderSize(body, 1<<16))
 	for {
 		// Stop promptly if the client hung up — there is no point embedding and
 		// recomputing for a connection that will never read the result.
 		if err := ctx.Err(); err != nil {
-			rn.finish(ctx, err)
+			rn.finish(ctx, err, recompute)
 			return
 		}
 		var rec record
@@ -205,12 +230,12 @@ func (rn *runner) run(ctx context.Context, body io.Reader) {
 			if errors.Is(err, io.EOF) {
 				break
 			}
-			rn.finish(ctx, err)
+			rn.finish(ctx, err, recompute)
 			return
 		}
 		rn.dispatch(ctx, rec)
 	}
-	rn.finish(ctx, nil)
+	rn.finish(ctx, nil, recompute)
 }
 
 // dispatch routes one record. Drawers and closets batch; KG facts apply inline
@@ -219,7 +244,8 @@ func (rn *runner) run(ctx context.Context, body io.Reader) {
 func (rn *runner) dispatch(ctx context.Context, rec record) {
 	switch rec.Kind {
 	case "manifest":
-		rn.total = rec.Total
+		// Optional first line; carries the grand total for a progress denominator.
+		// The batched client tracks its own totals, so this is informational only.
 		rn.p.Total = rec.Total
 	case "drawer", "diary":
 		if w := rec.Wing; w != "" {
@@ -252,7 +278,6 @@ func (rn *runner) dispatch(ctx context.Context, rec record) {
 		} else {
 			rn.p.KGFacts++
 		}
-		rn.maybeEmit()
 	case "tunnel":
 		rn.pendingTunnels = append(rn.pendingTunnels, rec)
 		if len(rn.pendingTunnels) >= maxPendingTunnels {
@@ -279,7 +304,6 @@ func (rn *runner) flushDrawers(ctx context.Context) {
 	rn.p.Drawers += n
 	rn.p.Skipped += len(rn.pendingDrawers) - n
 	rn.pendingDrawers = rn.pendingDrawers[:0]
-	rn.emit()
 }
 
 // flushClosets embeds and stores the buffered closets, then clears the buffer.
@@ -294,7 +318,6 @@ func (rn *runner) flushClosets(ctx context.Context) {
 	rn.p.Closets += n
 	rn.p.Skipped += len(rn.pendingClosets) - n
 	rn.pendingClosets = rn.pendingClosets[:0]
-	rn.emit()
 }
 
 // applyTunnels creates the deferred explicit tunnels now that every drawer is
@@ -316,19 +339,22 @@ func (rn *runner) applyTunnels(ctx context.Context) {
 	rn.pendingTunnels = nil
 }
 
-// finish drains the buffers, applies tunnels, rebuilds the derived graph, and
-// writes the final summary line. fatal, when non-nil, is a stream decode error
-// that ended ingestion early; the partial import still stands (and is idempotent).
-func (rn *runner) finish(ctx context.Context, fatal error) {
+// finish drains the buffers, applies tunnels, and — only when this request asked
+// to finalize (recompute) — rebuilds the derived graph. It then stamps the
+// summary. fatal, when non-nil, is a decode error that ended ingestion early; the
+// partial import still stands (and is idempotent), so a retry finishes it.
+func (rn *runner) finish(ctx context.Context, fatal error, recompute bool) {
 	rn.flushDrawers(ctx)
 	rn.flushClosets(ctx)
 	rn.applyTunnels(ctx)
 
 	// Hallways and entity/topic tunnels are derived, so they are rebuilt from the
-	// imported drawers rather than carried over the wire. Best-effort: a recompute
-	// failure does not fail an otherwise-good migration. Skip it entirely when the
-	// client has already hung up — the partial import stands and is idempotent.
-	if ctx.Err() == nil {
+	// imported drawers rather than carried over the wire — but only on the client's
+	// finalize request, so a 60-batch migration rebuilds once at the end instead of
+	// 60 times. Best-effort: a recompute failure does not fail an otherwise-good
+	// migration. Skip it if the client has already hung up — the data stands and a
+	// re-run (or a retried finalize) rebuilds the graph.
+	if recompute && ctx.Err() == nil {
 		if res, err := rn.drawers.RecomputeGraph(ctx, rn.teamID, "", false); err == nil {
 			rn.p.Hallways = res.Hallways
 		}
@@ -338,31 +364,5 @@ func (rn *runner) finish(ctx context.Context, fatal error) {
 	rn.p.ElapsedMs = time.Since(rn.start).Milliseconds()
 	if fatal != nil && rn.p.Error == "" {
 		rn.p.Error = "stream ended early: " + fatal.Error()
-	}
-	rn.emit()
-}
-
-// progressEvery throttles inline progress lines (KG facts) so a long fact stream
-// does not write a line per fact.
-const progressEvery = 200
-
-// maybeEmit writes a progress line only every progressEvery records, keeping the
-// inline (per-fact) path from flooding the response.
-func (rn *runner) maybeEmit() {
-	if (rn.p.Drawers+rn.p.Closets+rn.p.KGFacts)%progressEvery == 0 {
-		rn.emit()
-	}
-}
-
-// emit writes one progress line and flushes it so the client sees streaming
-// progress rather than a buffered dump at the end.
-func (rn *runner) emit() {
-	b, err := json.Marshal(rn.p)
-	if err != nil {
-		return
-	}
-	_, _ = rn.w.Write(append(b, '\n'))
-	if rn.flush != nil {
-		rn.flush()
 	}
 }
