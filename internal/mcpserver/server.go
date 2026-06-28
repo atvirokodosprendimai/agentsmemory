@@ -56,7 +56,7 @@ func New(deps Deps) *server.MCPServer {
 		"0.1.0",
 		server.WithToolCapabilities(true), // advertise the tools/list capability
 	)
-	registerStatus(srv, deps.Usage)
+	registerStatus(srv, deps.Drawers, deps.Usage)
 	registerLoadSkill(srv, deps.Skills, deps.Usage)
 	// Skill-registry management: list + update (write is role-gated).
 	registerSkills(srv, deps.Skills, deps.Usage)
@@ -96,11 +96,15 @@ func admit(ctx context.Context, usageSvc *usage.Service) (tenant.Tenant, *mcp.Ca
 	return t, nil, true
 }
 
-// registerStatus adds the status tool: a cheap, metered call confirming the
-// session is authenticated and reporting the team and remaining quota.
-func registerStatus(srv *server.MCPServer, usageSvc *usage.Service) {
+// registerStatus adds the status tool: the wake-up call. Beyond liveness and the
+// session's team/role/quota, it returns the team's memory overview — total
+// drawers and the wing -> rooms taxonomy with counts — so an agent grounds itself
+// in the shape of its memory before searching, mirroring mempalace's status. The
+// taxonomy read is best-effort: a status call still succeeds (with an empty
+// overview) if the aggregation fails, so liveness never depends on it.
+func registerStatus(srv *server.MCPServer, drawers *palace.Service, usageSvc *usage.Service) {
 	tool := newTool("status",
-		mcp.WithDescription("Report server liveness, the team this MCP session is scoped to, and remaining monthly quota."),
+		mcp.WithDescription("Wake-up call: the team this MCP session is scoped to and its role, the memory overview (total drawers + the wing→rooms taxonomy with counts), and remaining monthly quota."),
 	)
 	srv.AddTool(tool, func(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		t, errResult, ok := admit(ctx, usageSvc)
@@ -108,13 +112,28 @@ func registerStatus(srv *server.MCPServer, usageSvc *usage.Service) {
 			return errResult, nil
 		}
 		st, _ := usageSvc.Snapshot(ctx, t.TeamID)
+
+		// Memory overview. Best-effort: an aggregation error leaves an empty
+		// overview rather than failing the wake-up call.
+		tax, _ := drawers.GetTaxonomy(ctx, t.TeamID)
+		total := 0
+		for _, w := range tax.Wings {
+			total += w.Drawers
+		}
+
 		out, _ := json.Marshal(map[string]any{
-			"ok":             true,
-			"team_id":        t.TeamID,
-			"role":           string(t.Role),
-			"used_this_month": st.Used,
-			"monthly_cap":    st.Cap,
-			"remaining":      st.Remaining(),
+			"ok":            true,
+			"team_id":       t.TeamID,
+			"role":          string(t.Role),
+			"total_drawers": total,
+			"wings":         tax.Wings, // [{wing, drawers, rooms:[{wing, room, drawers}]}]
+			"usage": map[string]any{
+				"used_this_month": st.Used,
+				"monthly_cap":     st.Cap,
+				"remaining":       st.Remaining(),
+			},
+			// Point the agent at the rest of the wake-up loop.
+			"hint": "Call am_get_aaak_spec for the write dialect and am_search to recall before acting; persist with am_diary_write, am_kg_add, and am_add_drawer.",
 		})
 		return mcp.NewToolResultText(string(out)), nil
 	})
