@@ -105,6 +105,12 @@ type KeyVM struct {
 	Rotated       bool   // the revealed secret is freshly rotated (old key revoked)
 	ConfirmRotate bool   // show the destructive-rotate confirmation prompt
 	Error         string // shown when a reveal can't be honored (e.g. a legacy key)
+	// ServerBase (scheme+host) and ServerName feed the ready-to-run `claude mcp
+	// add` command shown alongside a revealed secret. They are set only on the
+	// revealed/rotated paths — the masked initial render leaves them blank, so the
+	// command (which embeds the live token) never appears without a visible secret.
+	ServerBase string
+	ServerName string
 }
 
 // copyExpr is the datastar expression the Copy button runs: write the revealed
@@ -122,6 +128,22 @@ func MigrateCommand(serverBase string) string {
 	return "python mempalace_export.py --push \\\n" +
 		"  --server " + serverBase + " \\\n" +
 		"  --token YOUR_PROJECT_API_KEY"
+}
+
+// MCPAddCommand is the copy-paste `claude mcp add` command that registers this
+// workspace as a remote MCP server in Claude Code. It uses the raw-bearer form
+// (--header "Authorization: Bearer …") rather than the OAuth client-id/secret
+// flow because /mcp resolves a project token directly — so a single paste wires
+// Claude to the workspace with no authorization round-trip. --scope user makes
+// the server available in every project on the machine (a memory server you want
+// everywhere); the hint tells the user to drop it for a single-project scope.
+// base is the server origin (scheme+host), name the server label (project slug),
+// token the revealed secret. Line continuations match the migration command's
+// multi-line copy style so the rendered block reads as one runnable command.
+func MCPAddCommand(base, name, token string) string {
+	return "claude mcp add --transport http --scope user " + name + " \\\n" +
+		"  " + base + "/mcp \\\n" +
+		"  --header \"Authorization: Bearer " + token + "\""
 }
 
 // SkillVM is one centralised skill as shown on the project page — metadata only
@@ -157,6 +179,11 @@ type FlashVM struct {
 	Message   string
 	ClientKey string // one-time OAuth Client ID to reveal, when Kind == "success"
 	Token     string // one-time API key / OAuth secret to reveal
+	// ServerBase (scheme+host) and ServerName feed the `claude mcp add` command
+	// rendered with the one-time token on project creation. Set only when Token is
+	// — a skill-save flash carries no token and shows no command.
+	ServerBase string
+	ServerName string
 }
 
 // DashboardData is everything the dashboard page needs.
