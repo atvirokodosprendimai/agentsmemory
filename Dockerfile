@@ -34,5 +34,7 @@ VOLUME ["/data"]
 
 # Secrets/config come from the environment (see .env.example): OAUTH_ISSUER,
 # OAUTH_SECRET_KEY, AGENTSMEMORY_SESSION_KEY, optional social-login keys.
+# The entrypoint is the bare binary so `docker run <img> mcp search "q"` reaches
+# the read-only CLI; the default command serves explicitly.
 ENTRYPOINT ["agentsmemory"]
-CMD ["--addr", ":8080", "--db", "/data/agentsmemory.db"]
+CMD ["serve", "--addr", ":8080", "--db", "/data/agentsmemory.db"]
