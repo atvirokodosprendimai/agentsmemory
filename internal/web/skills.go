@@ -97,11 +97,24 @@ func (s *Server) getProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.render(w, r, views.ProjectDetailPage(views.ProjectDetailData{
-		UserEmail: u.Email,
-		Project:   proj,
-		Skills:    toSkillVMs(summaries),
-		CanWrite:  webSkillCaller{role: role}.CanWrite(),
+		UserEmail:  u.Email,
+		Project:    proj,
+		Skills:     toSkillVMs(summaries),
+		CanWrite:   webSkillCaller{role: role}.CanWrite(),
+		ServerBase: requestBaseURL(r),
 	}))
+}
+
+// requestBaseURL reconstructs this server's public origin (scheme + host) from
+// the request, honouring an X-Forwarded-Proto from a TLS-terminating proxy. It
+// is used to render the migration command with the correct /import host, so the
+// command works whether the dashboard is reached over localhost or a real domain.
+func requestBaseURL(r *http.Request) string {
+	scheme := "http"
+	if r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
+		scheme = "https"
+	}
+	return scheme + "://" + r.Host
 }
 
 // postSkill creates or updates a skill from the editor signals and streams back

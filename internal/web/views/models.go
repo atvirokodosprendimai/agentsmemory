@@ -98,6 +98,16 @@ func copyExpr(secret string) string {
 	return "navigator.clipboard.writeText(" + jsString(secret) + ")"
 }
 
+// MigrateCommand is the copy-paste shell command that streams a local mempalace
+// into this project over /import. The token is a placeholder, never the real key:
+// the secret is revealed only in the API-key block, so it never lands in page
+// source or the clipboard from here. serverBase is this server's public origin.
+func MigrateCommand(serverBase string) string {
+	return "python mempalace_export.py --push \\\n" +
+		"  --server " + serverBase + " \\\n" +
+		"  --token YOUR_PROJECT_API_KEY"
+}
+
 // SkillVM is one centralised skill as shown on the project page — metadata only
 // (no body), matching skill.Summary. The body is fetched on demand into the
 // editor when a writer clicks Edit, so the list stays light.
@@ -120,6 +130,9 @@ type ProjectDetailData struct {
 	Skills    []SkillVM
 	CanWrite  bool
 	Flash     FlashVM
+	// ServerBase is this server's public origin (scheme + host), used to render the
+	// ready-to-run mempalace migration command with the correct /import endpoint.
+	ServerBase string
 }
 
 // FlashVM is a transient banner (success or error) shown above the project list.

@@ -248,6 +248,21 @@ footer { color: var(--faint); font-size: .8rem; padding: 2rem 0 3rem; border-top
 .skill-meta { font-family: "IBM Plex Mono", monospace; font-size: .74rem; color: var(--faint); }
 .btn-sm { min-height: 34px; padding: 0 .8rem; font-size: .82rem; }
 
+/* migrate-from-mempalace card */
+.migrate { margin-top: 1.4rem; }
+.migrate h2 { font-size: 1.4rem; margin: 0 0 .5rem; }
+.migrate-lede { color: var(--muted); margin: 0 0 1.1rem; max-width: 62ch; font-size: .95rem; }
+.cmd {
+  font-family: "IBM Plex Mono", monospace; font-size: .82rem; line-height: 1.6; color: var(--bone);
+  background: var(--ink-2); border: 1px solid var(--line-2); border-left: 3px solid var(--ember);
+  border-radius: 10px; padding: .9rem 1.05rem; margin: 0 0 .85rem;
+  white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.cmd code { font: inherit; color: inherit; }
+.cmd-actions { display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; }
+.cmd-hint { font-size: .82rem; color: var(--faint); max-width: 48ch; }
+.cmd-hint b { color: var(--brass); }
+
 @media (max-width: 540px) {
   .topbar .wrap { min-height: 56px; }
   /* Drop the email on small screens so the brand + sign-out never overflow. */
