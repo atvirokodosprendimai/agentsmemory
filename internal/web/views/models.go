@@ -9,6 +9,22 @@ import (
 	"strconv"
 )
 
+// AssetVersion is a cache-busting token — a short content hash of the embedded
+// stylesheet — appended to static asset URLs as ?v=<hash>. The web package sets
+// it at startup (it owns the embedded FS); it is exported so web can write it
+// without a views→web import cycle. When empty, staticURL returns the bare path.
+var AssetVersion string
+
+// staticURL appends the asset version to a static path so a redeploy with changed
+// CSS busts browser/CDN caches (the fix for a deploy that rendered "without
+// CSS"). With no version set it returns the path unchanged.
+func staticURL(path string) string {
+	if AssetVersion == "" {
+		return path
+	}
+	return path + "?v=" + AssetVersion
+}
+
 // editExpr is the datastar expression a skill row's Edit button runs: it seeds
 // the editor's name/description signals from the row, then fetches the body into
 // $skillContent via the skill-body endpoint. The strings are JSON-encoded so any
