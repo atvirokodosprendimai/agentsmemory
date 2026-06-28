@@ -38,6 +38,11 @@ const (
 // "revoked" — both are simply unauthorized.
 var ErrInvalidToken = errors.New("tenant: invalid or revoked token")
 
+// ErrNotMember is returned by MembershipRole when a user has no membership in a
+// team. The dashboard treats it as "this project is not yours" — a project-scoped
+// page must never render for a team the signed-in user does not belong to.
+var ErrNotMember = errors.New("tenant: user is not a member of this team")
+
 // Tenant is the resolved identity of an authenticated MCP session. It is the
 // value injected into the request context; every tool scopes its work to
 // Tenant.TeamID. It is a plain value (no behaviour) so it travels cheaply.
@@ -118,6 +123,12 @@ type APIKey struct {
 	Prefix     string
 	ClientKey  string
 	TokenHash  string `gorm:"uniqueIndex"`
+	// TokenEnc is the AES-256-GCM seal of the plaintext token, kept so an
+	// authorized admin can reveal the key after creation. Empty for keys minted
+	// before the reveal feature (or when no token key is configured); those are
+	// reveal-unavailable and can only be rotated. It is never used for auth — the
+	// authentication path is TokenHash alone.
+	TokenEnc   string
 	CreatedAt  string
 	LastUsedAt *string
 	RevokedAt  *string
@@ -160,11 +171,50 @@ func GenerateClientKey() (string, error) {
 // Repo is the persistence boundary for the tenant context. It is a struct over
 // a *gorm.DB; consumers depend on the methods they need, not on gorm directly.
 type Repo struct {
-	db *gorm.DB
+	db     *gorm.DB
+	sealer *sealer // nil disables API-key reveal (tokens stay shown-once)
 }
 
-// NewRepo constructs a Repo over an open gorm connection.
-func NewRepo(db *gorm.DB) *Repo { return &Repo{db: db} }
+// Option configures a Repo at construction. Defined so optional capabilities
+// (like token reveal) are added without breaking the zero-config NewRepo(db)
+// callers that don't need them.
+type Option func(*Repo)
+
+// WithTokenSecret enables API-key reveal by deriving an AES-256-GCM sealer from
+// secret; minted tokens are sealed at rest and an admin can reveal them later.
+// An empty secret is a no-op (reveal stays disabled). A cipher-init failure is
+// fatal — a misconfigured key must not silently degrade to no encryption.
+func WithTokenSecret(secret string) Option {
+	return func(r *Repo) {
+		if secret == "" {
+			return
+		}
+		s, err := newSealer(secret)
+		if err != nil {
+			panic("tenant: token sealer init: " + err.Error())
+		}
+		r.sealer = s
+	}
+}
+
+// NewRepo constructs a Repo over an open gorm connection, applying any options.
+func NewRepo(db *gorm.DB, opts ...Option) *Repo {
+	r := &Repo{db: db}
+	for _, o := range opts {
+		o(r)
+	}
+	return r
+}
+
+// sealToken returns the at-rest seal of a plaintext token, or "" when reveal is
+// disabled (no sealer). It is called at mint time so the row can carry a
+// revealable copy alongside the one-way hash used for auth.
+func (r *Repo) sealToken(plaintext string) (string, error) {
+	if r.sealer == nil {
+		return "", nil
+	}
+	return r.sealer.seal(plaintext)
+}
 
 // ResolveToken maps a plaintext bearer token to its Tenant. It rejects revoked
 // keys and best-effort stamps last_used_at. This is the single choke point that
@@ -199,6 +249,27 @@ func (r *Repo) tenantFromKey(ctx context.Context, key APIKey) Tenant {
 		role = Role(m.Role)
 	}
 	return Tenant{TeamID: key.TeamID, UserID: key.UserID, Role: role}
+}
+
+// MembershipRole returns the signed-in user's role in a team, or ErrNotMember if
+// no membership row ties them to it. The dashboard calls this to authorize every
+// project-scoped action: the team id arrives from the URL (untrusted), so access
+// is granted only when a membership exists — never inferred from the id alone.
+// An empty stored role is normalized to the least-privileged RoleMember.
+func (r *Repo) MembershipRole(ctx context.Context, userID, teamID string) (Role, error) {
+	var m Membership
+	err := r.db.WithContext(ctx).
+		Where("team_id = ? AND user_id = ?", teamID, userID).First(&m).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return "", ErrNotMember
+	}
+	if err != nil {
+		return "", err
+	}
+	if m.Role == "" {
+		return RoleMember, nil
+	}
+	return Role(m.Role), nil
 }
 
 // touchKey best-effort stamps last_used_at; a failed update must not deny access.
@@ -307,6 +378,10 @@ func (r *Repo) CreateWorkspaceForUser(ctx context.Context, userID, name, slug, k
 	if err != nil {
 		return Tenant{}, Credential{}, err
 	}
+	// Seal the plaintext for later reveal (no-op when reveal is disabled).
+	if key.TokenEnc, err = r.sealToken(cred.Secret); err != nil {
+		return Tenant{}, Credential{}, err
+	}
 	// The workspace creator is its admin (can manage keys and shared skills).
 	err = r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(&team).Error; err != nil {
@@ -334,10 +409,70 @@ func (r *Repo) CreateAPIKey(ctx context.Context, teamID, userID, name string) (C
 	if err != nil {
 		return Credential{}, err
 	}
+	if key.TokenEnc, err = r.sealToken(cred.Secret); err != nil {
+		return Credential{}, err
+	}
 	if err := r.db.WithContext(ctx).Create(&key).Error; err != nil {
 		return Credential{}, err
 	}
 	return cred, nil
+}
+
+// RotateKey revokes a team's currently active API keys and mints a fresh one in a
+// single transaction, returning the new one-time credential. It is how an admin
+// recovers a key that can no longer be revealed (a legacy key, or one whose seal
+// predates a token-key change): the rotated-out key stops authenticating
+// immediately, and the new key is sealed so it can be revealed going forward. The
+// caller MUST authorize (admin) before calling — rotation is destructive.
+func (r *Repo) RotateKey(ctx context.Context, teamID, userID string) (Credential, error) {
+	now := time.Now().UTC().Format(time.RFC3339)
+	key, cred, err := newAPIKey(teamID, userID, "default", now)
+	if err != nil {
+		return Credential{}, err
+	}
+	if key.TokenEnc, err = r.sealToken(cred.Secret); err != nil {
+		return Credential{}, err
+	}
+	err = r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// Revoke every still-active key for the team so the old credential stops
+		// working the instant the new one is issued.
+		if err := tx.Model(&APIKey{}).
+			Where("team_id = ? AND revoked_at IS NULL", teamID).
+			Update("revoked_at", now).Error; err != nil {
+			return err
+		}
+		return tx.Create(&key).Error
+	})
+	if err != nil {
+		return Credential{}, err
+	}
+	return cred, nil
+}
+
+// RevealToken returns the plaintext bearer for a team's current (newest active)
+// API key by opening its at-rest seal. This is the dashboard "reveal" path — the
+// caller MUST authorize first, because the returned token grants full access at
+// the key owner's role. Returns ErrTokenUnavailable when reveal is disabled, no
+// active key exists, the key predates reveal (empty seal), or the seal cannot be
+// opened (e.g. the token key was rotated since the key was minted).
+func (r *Repo) RevealToken(ctx context.Context, teamID string) (string, error) {
+	if r.sealer == nil {
+		return "", ErrTokenUnavailable
+	}
+	var key APIKey
+	err := r.db.WithContext(ctx).
+		Where("team_id = ? AND revoked_at IS NULL", teamID).
+		Order("created_at DESC").First(&key).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return "", ErrTokenUnavailable
+	}
+	if err != nil {
+		return "", err
+	}
+	if key.TokenEnc == "" {
+		return "", ErrTokenUnavailable
+	}
+	return r.sealer.open(key.TokenEnc)
 }
 
 // --- web auth (local user + password; goth OAuth providers added later) ---

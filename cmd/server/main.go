@@ -111,7 +111,7 @@ func run(ctx context.Context, cfg config.Config) error {
 
 	// Bounded contexts: tenant (auth + workspaces), skill (load_skill), and
 	// usage (monthly request metering).
-	tenants := tenant.NewRepo(gdb)
+	tenants := tenant.NewRepo(gdb, tenant.WithTokenSecret(tokenSecret()))
 	skills := skill.NewService(skill.NewRepo(gdb))
 	usageSvc := usage.NewService(usage.NewRepo(gdb), tenants)
 
@@ -164,7 +164,7 @@ func run(ctx context.Context, cfg config.Config) error {
 
 	// The human-facing dashboard (register/login/create project) shares the same
 	// chi router and database; agents use /mcp, people use the web routes.
-	webSrv := web.New(tenants, usageSvc, sessionKey())
+	webSrv := web.New(tenants, usageSvc, skills, sessionKey())
 
 	r := chi.NewRouter()
 	// Logger before Recoverer so even a panicked request (recovered as a 500) is
@@ -224,6 +224,30 @@ func oauthIssuer(addr string) string {
 		host = "localhost" + host
 	}
 	return "http://" + host
+}
+
+// tokenSecret returns the secret that seals API keys at rest so the dashboard can
+// reveal them. AGENTSMEMORY_TOKEN_KEY keeps sealed keys revealable across
+// restarts; absent it, a random per-boot key is used and a warning is logged —
+// reveal still works within a run, but keys minted before a restart become
+// reveal-unavailable (the seal can't be opened with the new key). An empty
+// secret here disables reveal entirely (tokens stay shown-once).
+func tokenSecret() string {
+	if s := os.Getenv("AGENTSMEMORY_TOKEN_KEY"); s != "" {
+		// The seal key is SHA-256 of this string, so a short/low-entropy value is
+		// guessable offline against a leaked token_enc (GCM confirms a correct
+		// guess). Warn loudly; it should be 32+ random characters (hex/base64).
+		if len(s) < 32 {
+			log.Printf("warning: AGENTSMEMORY_TOKEN_KEY is shorter than 32 chars; use 32+ random bytes (hex/base64) so revealed keys resist offline guessing")
+		}
+		return s
+	}
+	log.Printf("warning: AGENTSMEMORY_TOKEN_KEY unset; using a random key (revealed keys reset on restart)")
+	buf := make([]byte, 32)
+	if _, err := rand.Read(buf); err != nil {
+		log.Fatalf("entropy failure generating token key: %v", err)
+	}
+	return hex.EncodeToString(buf)
 }
 
 // sessionKey returns the cookie signing key. AGENTSMEMORY_SESSION_KEY (hex) keeps

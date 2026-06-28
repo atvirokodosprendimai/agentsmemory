@@ -15,7 +15,7 @@ import (
 // closet pointer index over them. Mining is idempotent by `source` — re-mining the
 // same source replaces its drawers and closets. Scoped to the resolved tenant.
 func registerMine(srv *server.MCPServer, drawers *palace.Service, usageSvc *usage.Service) {
-	tool := mcp.NewTool("mine",
+	tool := newTool("mine",
 		mcp.WithDescription("Mine a blob of text into the palace: chunk it into verbatim drawers (with extracted entities and a detected date) and build the closet index. Idempotent by source — re-mining the same source replaces it."),
 		mcp.WithString("content", mcp.Required(), mcp.Description("The verbatim text to mine. Stored exactly, never summarised.")),
 		mcp.WithString("wing", mcp.Required(), mcp.Description("Project namespace the mined memory belongs to.")),

@@ -13,7 +13,7 @@ versioned skills** the team keeps up to date.
 > and MCP transport are wired and verified end-to-end, and the **core memory
 > loop** (file a drawer → recall it semantically) now works end-to-end against
 > Ollama + the vector store. Today the server exposes **36 of the planned 37 MCP
-> tools** — the WRITE/FILE + SEARCH/RECALL families, the agent `diary`, the `mine`
+> tools** — the WRITE/FILE + SEARCH/RECALL families, the agent `diary`, the `am_mine`
 > pipeline (text → chunked drawers + closet index), **hybrid** search (vector +
 > BM25 + closet boost), the navigable **graph** (hallways + tunnels + traverse),
 > the temporal **knowledge graph**, the skill-registry CRUD, and wing admin. Only
@@ -115,18 +115,18 @@ can slot in later without touching any tool.
 
 ---
 
-## Centralised skills (`load_skill`)
+## Centralised skills (`am_load_skill`)
 
 Instead of every developer copy-pasting local skill files, a team keeps **one
 shared, versioned source of truth** and its agents pull from it:
 
-- `load_skill(name)` → returns `{ id, name, version, description, content,
+- `am_load_skill(name)` → returns `{ id, name, version, description, content,
   updated_by, updated_at }` so the agent can drop the body straight into a skill
   slot. Read access for any team member; the lookup is a direct keyed query (no
   vector search).
 - Skills are **relational, not memory drawers** — they are mutable, named,
   permissioned authored artifacts with an owner and an update workflow.
-- `list_skills` (metadata for any member) and `update_skill` (version-bumping,
+- `am_list_skills` (metadata for any member) and `am_update_skill` (version-bumping,
   writer/admin) complete the registry CRUD. A `/load-skill <name>` Claude command
   that calls the tool is the remaining nicety.
 
@@ -134,26 +134,30 @@ shared, versioned source of truth** and its agents pull from it:
 
 ## MCP tools
 
+Every tool is namespaced with the `am_` prefix (e.g. `am_status`, `am_search`)
+so the server can run alongside other memory MCPs — notably mempalace, which
+exposes same-named tools — without the client seeing two tools of the same name.
+
 | Tool | Status | Description |
 |---|---|---|
-| `status` | ✅ | Liveness + the team this session is scoped to |
-| `load_skill` | ✅ | Load a centralised, team-shared skill by name |
-| `add_drawer` | ✅ | File a verbatim memory (chunked + embedded; idempotent by source) |
-| `get_drawer` / `update_drawer` / `delete_drawer` | ✅ | Read, edit-in-place, or remove a drawer by id |
-| `list_drawers` | ✅ | Paginate drawers, optionally filtered by wing/room |
-| `search` | ✅ | Hybrid recall — vector candidates re-ranked by vector + BM25 + closet boost |
-| `check_duplicate` | ✅ | Is content near-identical to an existing drawer? |
-| `list_wings` / `list_rooms` / `get_taxonomy` | ✅ | Indexed wing/room aggregations of a team's memory |
-| `get_aaak_spec` | ✅ | The AAAK compressed-memory dialect reference |
-| `reconnect` | ✅ | Re-ready the workspace's vector store (stateless liveness probe) |
-| `diary_write` / `diary_read` | ✅ | Append to / read an agent's append-only journal (timestamped, newest-first) |
-| `mine` | ✅ | Mine a text payload into chunked drawers (entities + content date) + the closet index; idempotent by source |
-| `list_hallways` / `delete_hallway` | ✅ | Within-wing entity co-occurrence links (derived from mined entities) |
-| `create_tunnel` / `delete_tunnel` / `list_tunnels` / `find_tunnels` / `follow_tunnels` | ✅ | Cross-wing links — explicit (authored, symmetric) + derived (entity) |
-| `traverse` / `graph_stats` / `recompute_graph` | ✅ | Walk the room↔wing graph, summarise it, rebuild hallways + entity tunnels |
-| `kg_add` / `kg_invalidate` / `kg_query` / `kg_stats` / `kg_timeline` | ✅ | Temporal knowledge graph — subject→predicate→object facts with validity windows, queryable as-of a point in time |
-| `list_skills` / `update_skill` | ✅ | List the team's centralised skills; create/version-bump a skill body (writer/admin) |
-| `merge_wing` / `memories_filed_away` | ✅ | Fold wings together; summarise what the team has filed |
+| `am_status` | ✅ | Liveness + the team this session is scoped to |
+| `am_load_skill` | ✅ | Load a centralised, team-shared skill by name |
+| `am_add_drawer` | ✅ | File a verbatim memory (chunked + embedded; idempotent by source) |
+| `am_get_drawer` / `am_update_drawer` / `am_delete_drawer` | ✅ | Read, edit-in-place, or remove a drawer by id |
+| `am_list_drawers` | ✅ | Paginate drawers, optionally filtered by wing/room |
+| `am_search` | ✅ | Hybrid recall — vector candidates re-ranked by vector + BM25 + closet boost |
+| `am_check_duplicate` | ✅ | Is content near-identical to an existing drawer? |
+| `am_list_wings` / `am_list_rooms` / `am_get_taxonomy` | ✅ | Indexed wing/room aggregations of a team's memory |
+| `am_get_aaak_spec` | ✅ | The AAAK compressed-memory dialect reference |
+| `am_reconnect` | ✅ | Re-ready the workspace's vector store (stateless liveness probe) |
+| `am_diary_write` / `am_diary_read` | ✅ | Append to / read an agent's append-only journal (timestamped, newest-first) |
+| `am_mine` | ✅ | Mine a text payload into chunked drawers (entities + content date) + the closet index; idempotent by source |
+| `am_list_hallways` / `am_delete_hallway` | ✅ | Within-wing entity co-occurrence links (derived from mined entities) |
+| `am_create_tunnel` / `am_delete_tunnel` / `am_list_tunnels` / `am_find_tunnels` / `am_follow_tunnels` | ✅ | Cross-wing links — explicit (authored, symmetric) + derived (entity) |
+| `am_traverse` / `am_graph_stats` / `am_recompute_graph` | ✅ | Walk the room↔wing graph, summarise it, rebuild hallways + entity tunnels |
+| `am_kg_add` / `am_kg_invalidate` / `am_kg_query` / `am_kg_stats` / `am_kg_timeline` | ✅ | Temporal knowledge graph — subject→predicate→object facts with validity windows, queryable as-of a point in time |
+| `am_list_skills` / `am_update_skill` | ✅ | List the team's centralised skills; create/version-bump a skill body (writer/admin) |
+| `am_merge_wing` / `am_memories_filed_away` | ✅ | Fold wings together; summarise what the team has filed |
 | `sync`, `hook_settings` | ⛔ | Not ported — single-user-local (on-disk source pruning / local hook config) with no multi-tenant meaning |
 
 ---
@@ -217,7 +221,7 @@ curl -s http://localhost:8080/mcp \
   -H 'Content-Type: application/json' \
   -H 'Accept: application/json, text/event-stream' \
   -d '{"jsonrpc":"2.0","id":2,"method":"tools/call",
-       "params":{"name":"load_skill","arguments":{"name":"hello"}}}'
+       "params":{"name":"am_load_skill","arguments":{"name":"hello"}}}'
 ```
 
 A request without a valid token comes back as a fail-closed
@@ -278,19 +282,21 @@ called). Schema changes are additive migrations under `db/migrations/`.
 
 - [x] Tenancy (workspaces, users, memberships, API keys) + plan/price tiers
 - [x] Bearer-token auth → tenant resolution; fail-closed tools
-- [x] `load_skill` centralised skill registry
+- [x] `am_load_skill` centralised skill registry
 - [x] Qdrant (collection-per-tenant) + Ollama (`bge-m3`) clients
-- [x] Stateless Streamable-HTTP MCP server (`status`, `load_skill`)
+- [x] Stateless Streamable-HTTP MCP server (`am_status`, `am_load_skill`)
 - [x] Core memory loop — drawer CRUD + semantic recall + taxonomy (12 tools, vector-only search)
-- [x] Agent diary — `diary_write` / `diary_read` (timestamped, append-only journal) (16 of 37)
+- [x] Agent diary — `am_diary_write` / `am_diary_read` (timestamped, append-only journal) (16 of 37)
 - [x] Hybrid search — vector candidates re-ranked by vector + BM25 + closet boost (RRF-style convex blend)
-- [x] Mining pipeline — `mine` text → chunked drawers (entities + content date) + closet index, idempotent by source (17 of 37)
+- [x] Mining pipeline — `am_mine` text → chunked drawers (entities + content date) + closet index, idempotent by source (17 of 37)
 - [x] Graph — hallways (entity co-occurrence) + tunnels (explicit + entity) + traverse/find/stats/recompute (10 tools, 27 of 37)
 - [x] Knowledge graph — temporal subject→predicate→object facts with validity windows (5 tools, 32 of 37)
-- [x] Skill registry CRUD — `list_skills` + `update_skill` (role-gated)
-- [x] Admin — `merge_wing` + `memories_filed_away` (36 of 37; `sync`/`hook_settings` are single-user-local, not ported)
-- [ ] `list_skills` + `update_skill` + a `/load-skill` Claude command
-- [ ] Web dashboard (`goth` login, key & skill management) — `templ` + datastar
+- [x] Skill registry CRUD — `am_list_skills` + `am_update_skill` (role-gated)
+- [x] Admin — `am_merge_wing` + `am_memories_filed_away` (36 of 37; `sync`/`hook_settings` are single-user-local, not ported)
+- [x] Web dashboard — local (`goth`) login, project create + one-time API key, monthly usage metering — `templ` + datastar
+- [x] Web skill management — per-project list / create / edit (role-gated to writer/admin), membership-checked routes
+- [ ] Web — API-key rotation/revoke + team/member management (invite, set role)
+- [ ] A `/load-skill` Claude command (the client-side nicety over the `am_load_skill` tool)
 - [ ] Subscriptions / billing
 
 ---

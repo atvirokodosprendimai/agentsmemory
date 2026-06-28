@@ -20,7 +20,7 @@ templ DashboardPage(d DashboardData) {
 				<input
 					class="input"
 					id="projectName"
-					data-bind:projectName
+					data-bind:project-name
 					placeholder="e.g. acme-research"
 					data-on:keydown="evt.key === 'Enter' && @post('/projects')"
 				/>
@@ -70,15 +70,7 @@ templ ProjectCard(p ProjectVM) {
 			</div>
 			<span class="badge">{ p.PlanName }</span>
 		</div>
-		<div>
-			<div class="kv">API key</div>
-			if p.TokenOnce != "" {
-				<div class="token">{ p.TokenOnce }</div>
-				<div class="token-note">Copy this now — it is shown only once.</div>
-			} else {
-				<div class="token muted">•••••••••••••••• · created, shown once</div>
-			}
-		</div>
+		@KeyBlock(KeyVM{TeamID: p.TeamID, CanReveal: p.CanReveal})
 		<div>
 			<div class="usage-head">
 				<span class="kv" style="margin:0">Requests this month</span>
@@ -95,7 +87,56 @@ templ ProjectCard(p ProjectVM) {
 				></span>
 			</div>
 		</div>
+		<div class="project-foot">
+			<a class="link-arrow" href={ templ.SafeURL("/projects/" + p.TeamID) }>
+				Manage skills
+				<span aria-hidden="true">→</span>
+			</a>
+		</div>
 	</article>
+}
+
+// KeyBlock renders a project's API key area as a datastar morph target
+// (id "key-<TeamID>"). It starts masked; an admin's Reveal button fetches the
+// decrypted secret into the revealed state (Copy + Hide), and Hide re-masks —
+// both via the server so one fragment owns the markup. Members see only the
+// masked state (no Reveal control), and the server refuses a reveal for them
+// regardless of the UI. No data-indicator here on purpose: datastar signals are
+// global, so a shared "revealing" signal would spin every card's button at once.
+templ KeyBlock(k KeyVM) {
+	<div id={ "key-" + k.TeamID } class="keybox">
+		<div class="kv">API key</div>
+		if k.Revealed {
+			<code class="token">{ k.Secret }</code>
+			if k.Rotated {
+				<div class="key-note" role="status">Key rotated — the previous key was revoked and has stopped working. Copy the new one now.</div>
+			}
+			<div class="key-actions">
+				<button class="btn btn-ghost btn-sm" type="button" data-on:click={ copyExpr(k.Secret) }>Copy</button>
+				<button class="btn btn-ghost btn-sm" type="button" data-on:click={ "@get('/projects/" + k.TeamID + "/key?reveal=0')" }>Hide</button>
+			</div>
+		} else if k.ConfirmRotate {
+			<div class="token muted">••••••••••••••••••••••••</div>
+			<div class="key-warn" role="alert">
+				Rotating issues a new key and <b>revokes the current one</b> — any agent still using the old key will stop working.
+			</div>
+			<div class="key-actions">
+				<button class="btn btn-primary btn-sm" type="button" data-on:click={ "@post('/projects/" + k.TeamID + "/key/rotate')" }>Confirm rotate</button>
+				<button class="btn btn-ghost btn-sm" type="button" data-on:click={ "@get('/projects/" + k.TeamID + "/key?reveal=0')" }>Cancel</button>
+			</div>
+		} else {
+			<div class="token muted">••••••••••••••••••••••••</div>
+			if k.CanReveal {
+				<div class="key-actions">
+					<button class="btn btn-ghost btn-sm" type="button" data-on:click={ "@get('/projects/" + k.TeamID + "/key?reveal=1')" }>Reveal</button>
+					<button class="btn btn-ghost btn-sm" type="button" data-on:click={ "@get('/projects/" + k.TeamID + "/key?confirm=rotate')" }>Rotate</button>
+				</div>
+			}
+		}
+		if k.Error != "" {
+			<div class="key-error" role="alert">{ k.Error }</div>
+		}
+	</div>
 }
 
 // Flash renders a transient success or error banner. Its root always carries

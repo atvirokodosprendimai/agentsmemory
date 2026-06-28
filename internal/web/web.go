@@ -9,6 +9,7 @@ import (
 	"context"
 	"net/http"
 
+	"github.com/atvirokodosprendimai/agentsmemory/internal/skill"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/tenant"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/usage"
 
@@ -32,13 +33,16 @@ var userCtxKey = ctxKey{}
 type Server struct {
 	tenants   *tenant.Repo
 	usage     *usage.Service
+	skills    *skill.Service // centralised-skill use-cases, shared with the MCP server
 	store     sessions.Store
 	providers []string // configured OAuth providers; empty until keys are set
 }
 
 // New builds the dashboard server. sessionKey signs/encrypts the session cookie;
 // it must be stable across restarts (else sessions are invalidated on deploy).
-func New(tenants *tenant.Repo, usageSvc *usage.Service, sessionKey []byte) *Server {
+// skills is the same service the MCP server exposes as list_skills/update_skill,
+// reused here so the web editor and the agent tools share one code path.
+func New(tenants *tenant.Repo, usageSvc *usage.Service, skills *skill.Service, sessionKey []byte) *Server {
 	store := sessions.NewCookieStore(sessionKey)
 	store.Options = &sessions.Options{
 		Path:     "/",
@@ -46,7 +50,7 @@ func New(tenants *tenant.Repo, usageSvc *usage.Service, sessionKey []byte) *Serv
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   7 * 24 * 60 * 60, // one week
 	}
-	s := &Server{tenants: tenants, usage: usageSvc, store: store}
+	s := &Server{tenants: tenants, usage: usageSvc, skills: skills, store: store}
 	s.providers = registerOAuth(store) // gated: returns nil when no keys set
 	return s
 }
@@ -68,6 +72,14 @@ func (s *Server) Routes(r chi.Router) {
 		r.Use(s.requireUser)
 		r.Get("/dashboard", s.getDashboard)
 		r.Post("/projects", s.postCreateProject)
+		// Project-scoped skill management. {teamID} is membership-checked in each
+		// handler (see Server.membership) — a logged-in user can only reach a
+		// project they belong to.
+		r.Get("/projects/{teamID}", s.getProject)
+		r.Get("/projects/{teamID}/key", s.getProjectKey)
+		r.Post("/projects/{teamID}/key/rotate", s.postRotateKey)
+		r.Post("/projects/{teamID}/skills", s.postSkill)
+		r.Get("/projects/{teamID}/skill-body", s.getSkillBody)
 	})
 
 	s.oauthRoutes(r) // gated: no-op when no providers configured

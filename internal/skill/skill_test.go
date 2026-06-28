@@ -3,6 +3,7 @@ package skill
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -108,5 +109,29 @@ func TestUpdateRequiresWriteRole(t *testing.T) {
 	}
 	if s.Version != 1 || s.UpdatedBy != "u2" {
 		t.Fatalf("unexpected skill after update: %+v", s)
+	}
+}
+
+// TestUpdateValidatesPayload confirms the untrusted write payload is bounded:
+// a blank name, a blank body, and an over-long description are each rejected
+// before storage, while an empty description (it is optional) is accepted.
+func TestUpdateValidatesPayload(t *testing.T) {
+	svc := NewService(newFakeStore())
+	w := fakeCaller{team: "team1", user: "u1", write: true}
+	ctx := context.Background()
+
+	if _, err := svc.Update(ctx, w, "  ", "d", "c"); !errors.Is(err, ErrInvalidName) {
+		t.Fatalf("blank name: got %v, want ErrInvalidName", err)
+	}
+	if _, err := svc.Update(ctx, w, "ok", "d", "   "); !errors.Is(err, ErrInvalidContent) {
+		t.Fatalf("blank content: got %v, want ErrInvalidContent", err)
+	}
+	long := strings.Repeat("x", maxSkillDescriptionLen+1)
+	if _, err := svc.Update(ctx, w, "ok", long, "c"); !errors.Is(err, ErrInvalidDescription) {
+		t.Fatalf("over-long description: got %v, want ErrInvalidDescription", err)
+	}
+	// Empty description is fine — it is optional metadata, not a second body.
+	if _, err := svc.Update(ctx, w, "ok", "", "c"); err != nil {
+		t.Fatalf("empty description should be accepted, got %v", err)
 	}
 }

@@ -17,10 +17,14 @@ import (
 )
 
 // Bounds on a skill write, so update_skill cannot store a blank name or an
-// unbounded body. A skill body (a SKILL.md) can be large but not arbitrary.
+// unbounded body. A skill body (a SKILL.md) can be large but not arbitrary; the
+// description is a one-liner, so it is kept short. These guard both write
+// surfaces — the MCP update_skill tool and the web editor — since both funnel
+// through Service.Update.
 const (
-	maxSkillNameLen    = 128
-	maxSkillContentLen = 1_000_000
+	maxSkillNameLen        = 128
+	maxSkillContentLen     = 1_000_000
+	maxSkillDescriptionLen = 1_024
 )
 
 // ErrNotFound is returned when no skill with the given name exists in the team.
@@ -29,9 +33,11 @@ var ErrNotFound = errors.New("skill: not found")
 // ErrForbidden is returned when a caller lacks the role to mutate a skill.
 var ErrForbidden = errors.New("skill: write requires writer or admin role")
 
-// ErrInvalidName / ErrInvalidContent reject a malformed update_skill payload.
+// ErrInvalidName / ErrInvalidContent / ErrInvalidDescription reject a malformed
+// update_skill payload before it is stored.
 var ErrInvalidName = errors.New("skill: name must be non-empty and at most 128 characters")
 var ErrInvalidContent = errors.New("skill: content must be non-empty and within the size limit")
+var ErrInvalidDescription = errors.New("skill: description must be at most 1024 characters")
 
 // Skill is a centralised, versioned skill owned by a team. content is the body
 // an agent loads; version is bumped on every update so a later load serves the
@@ -174,6 +180,12 @@ func (s *Service) Update(ctx context.Context, t RoleHolder, name, description, c
 	}
 	if strings.TrimSpace(content) == "" || len(content) > maxSkillContentLen {
 		return Skill{}, ErrInvalidContent
+	}
+	// Description is optional (may be empty) but bounded — it is a one-liner, not
+	// a second body. Trimmed so trailing whitespace does not consume the budget.
+	description = strings.TrimSpace(description)
+	if len(description) > maxSkillDescriptionLen {
+		return Skill{}, ErrInvalidDescription
 	}
 	return s.repo.Upsert(ctx, t.Team(), name, description, content, t.User())
 }

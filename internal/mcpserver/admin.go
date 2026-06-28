@@ -21,10 +21,10 @@ func registerAdmin(srv *server.MCPServer, drawers *palace.Service, usageSvc *usa
 }
 
 // registerMergeWing: fold one or more source wings into a target, relabeling every
-// drawer and closet. Run recompute_graph afterwards to rebuild the derived graph.
+// drawer and closet. Run am_recompute_graph afterwards to rebuild the derived graph.
 func registerMergeWing(srv *server.MCPServer, drawers *palace.Service, usageSvc *usage.Service) {
-	tool := mcp.NewTool("merge_wing",
-		mcp.WithDescription("Merge one or more source wings into a target wing, relabeling every drawer and closet in place. Run recompute_graph afterwards to rebuild hallways/tunnels."),
+	tool := newTool("merge_wing",
+		mcp.WithDescription("Merge one or more source wings into a target wing, relabeling every drawer and closet in place. Run am_recompute_graph afterwards to rebuild hallways/tunnels."),
 		mcp.WithArray("sources", mcp.Required(),
 			mcp.Description("The wing names to fold into the target."),
 			mcp.Items(map[string]any{"type": "string"}),
@@ -54,7 +54,7 @@ func registerMergeWing(srv *server.MCPServer, drawers *palace.Service, usageSvc 
 
 // registerMemoriesFiledAway: a quick summary of what the team has filed.
 func registerMemoriesFiledAway(srv *server.MCPServer, drawers *palace.Service, usageSvc *usage.Service) {
-	tool := mcp.NewTool("memories_filed_away",
+	tool := newTool("memories_filed_away",
 		mcp.WithDescription("Summarise what the team has filed: total memories, distinct wings and rooms, and the most recent filing."),
 	)
 	srv.AddTool(tool, func(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {

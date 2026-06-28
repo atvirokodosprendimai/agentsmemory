@@ -4,7 +4,45 @@
 // package) avoids an import cycle: web imports views, never the reverse.
 package views
 
-import "strconv"
+import (
+	"encoding/json"
+	"strconv"
+)
+
+// editExpr is the datastar expression a skill row's Edit button runs: it seeds
+// the editor's name/description signals from the row, then fetches the body into
+// $skillContent via the skill-body endpoint. The strings are JSON-encoded so any
+// quote or backslash in a skill name embeds safely in the JS-like expression
+// (and templ then HTML-escapes the whole attribute).
+func editExpr(teamID string, sk SkillVM) string {
+	return "$skillName = " + jsString(sk.Name) +
+		"; $skillDescription = " + jsString(sk.Description) +
+		"; @get(" + jsString("/projects/"+teamID+"/skill-body") + ")"
+}
+
+// jsString renders a Go string as a JSON string literal — safe to drop into a
+// datastar expression as a quoted value.
+func jsString(s string) string {
+	b, _ := json.Marshal(s)
+	return string(b)
+}
+
+// versionBadge renders a skill's version as a compact "v3" label.
+func versionBadge(sk SkillVM) string { return "v" + strconv.Itoa(sk.Version) }
+
+// skillMeta is the muted one-line provenance under a skill: when it was last
+// saved (date only — the RFC3339 time is noise in a list). A skill with no
+// timestamp (shouldn't happen post-save) reads as "New".
+func skillMeta(sk SkillVM) string {
+	when := sk.UpdatedAt
+	if len(when) >= 10 {
+		when = when[:10] // YYYY-MM-DD prefix of the RFC3339 stamp
+	}
+	if when == "" {
+		return "New"
+	}
+	return "Updated " + when
+}
 
 // capLabel renders a project's monthly cap, showing ∞ for an unlimited plan.
 func capLabel(p ProjectVM) string {
@@ -24,6 +62,7 @@ func barClass(p ProjectVM) string {
 
 // ProjectVM is one project (workspace) as shown on the dashboard.
 type ProjectVM struct {
+	TeamID   string // workspace id; used to link to the project's skills page
 	Name     string
 	Slug     string
 	PlanName string
@@ -31,9 +70,56 @@ type ProjectVM struct {
 	Used     int    // metered requests this month
 	Cap      int    // monthly cap (0 = unlimited)
 	Pct      int    // Used/Cap as 0..100 for the usage bar
-	// TokenOnce is the freshly minted API key, set ONLY on the card just
-	// created so it can be revealed once; empty on every other render.
-	TokenOnce string
+	// CanReveal is true when the viewer is an admin of this workspace, so the
+	// card offers a Reveal control for the API key. Revealing a key grants full
+	// access at the key owner's role, so it is restricted to admins (a member
+	// could otherwise lift the admin's bearer and escalate).
+	CanReveal bool
+}
+
+// KeyVM backs the API-key block on a project card. The block is a datastar morph
+// target (id "key-<TeamID>") the reveal endpoint patches between masked and
+// revealed states. Secret is populated only in the revealed state and is never
+// part of the initial page render.
+type KeyVM struct {
+	TeamID        string
+	CanReveal     bool // viewer is an admin: may reveal and rotate
+	Revealed      bool
+	Secret        string
+	Rotated       bool   // the revealed secret is freshly rotated (old key revoked)
+	ConfirmRotate bool   // show the destructive-rotate confirmation prompt
+	Error         string // shown when a reveal can't be honored (e.g. a legacy key)
+}
+
+// copyExpr is the datastar expression the Copy button runs: write the revealed
+// secret to the clipboard. The secret is JSON-encoded for safe embedding; it is
+// already visible in the revealed block, so this exposes nothing new.
+func copyExpr(secret string) string {
+	return "navigator.clipboard.writeText(" + jsString(secret) + ")"
+}
+
+// SkillVM is one centralised skill as shown on the project page — metadata only
+// (no body), matching skill.Summary. The body is fetched on demand into the
+// editor when a writer clicks Edit, so the list stays light.
+type SkillVM struct {
+	Name        string
+	Description string
+	Version     int    // bumped on every save; rendered as a "v3" badge
+	UpdatedBy   string // user id of the last author
+	UpdatedAt   string // RFC3339 timestamp of the last save
+}
+
+// ProjectDetailData backs the per-project skills page. CanWrite is the resolved
+// role gate: the editor and per-skill Edit controls render only when the
+// signed-in user is a writer or admin in this workspace. Members see a
+// read-only list. The template never decides authority on its own — it trusts
+// CanWrite, which the handler computes from the membership role.
+type ProjectDetailData struct {
+	UserEmail string
+	Project   ProjectVM
+	Skills    []SkillVM
+	CanWrite  bool
+	Flash     FlashVM
 }
 
 // FlashVM is a transient banner (success or error) shown above the project list.
