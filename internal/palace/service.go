@@ -348,18 +348,24 @@ type SearchQuery struct {
 	MaxDistance float64 // drop hits farther than this; <=0 disables the filter
 }
 
-// Search recalls drawers by semantic similarity to a query. It embeds the query,
-// pulls nearest neighbours from the vector index, applies the wing/room and
-// max-distance filters, then joins the surviving ids back to their verbatim
-// rows. Ranking is vector-only for now; the Python BM25 + closet-boost fusion is
-// a later phase, so Score is the cosine similarity and Distance is 1-similarity.
+// Search recalls drawers by hybrid relevance to a query. It embeds the query and
+// over-fetches a pool of nearest vector neighbours, applies the wing/room and
+// max-distance filters, then RE-RANKS the survivors by a convex blend of vector
+// similarity and lexical Okapi-BM25 (rankHybrid) before returning the top page.
+// The blend matches the frozen searcher — vector finds the semantically near,
+// BM25 rewards literal term overlap — and beats either alone. Closet boost (the
+// third frozen signal) arrives with the mining phase that builds closets; until
+// then Score is the vector+BM25 fusion and Distance the raw cosine distance.
 func (s *Service) Search(ctx context.Context, teamID string, q SearchQuery) ([]SearchHit, error) {
 	query := strings.TrimSpace(q.Query)
 	if query == "" {
 		return nil, fmt.Errorf("%w: query is required", ErrInvalidInput)
 	}
-	if len(query) > 250 {
-		query = query[:250] // the contract caps queries at 250 chars
+	// Cap by runes, not bytes: the contract caps queries at 250 characters, and a
+	// byte slice could split a multibyte rune into invalid UTF-8 before it reaches
+	// the embedder and tokenizer.
+	if r := []rune(query); len(r) > 250 {
+		query = string(r[:250])
 	}
 	limit := q.Limit
 	if limit <= 0 {
@@ -374,9 +380,12 @@ func (s *Service) Search(ctx context.Context, teamID string, q SearchQuery) ([]S
 		return nil, fmt.Errorf("embed query: %w", err)
 	}
 
-	// Over-fetch when filtering so enough candidates survive to fill the page;
-	// otherwise the page size is exactly what we need.
-	candidateK := limit
+	// Over-fetch a re-rank pool: BM25 can only reorder what vector retrieval
+	// surfaced, so the pool must be wider than the page (limit*multiplier) for a
+	// lexical match outside the top-N to be promoted into it. When filtering by
+	// wing/room the survivors are a subset of the pool, so over-fetch far more
+	// (searchCandidatePool) to be sure the page can still be filled.
+	candidateK := limit * hybridCandidateMultiplier
 	filtering := q.Wing != "" || q.Room != ""
 	if filtering && candidateK < searchCandidatePool {
 		candidateK = searchCandidatePool
@@ -386,7 +395,7 @@ func (s *Service) Search(ctx context.Context, teamID string, q SearchQuery) ([]S
 		return nil, fmt.Errorf("vector search: %w", err)
 	}
 
-	// Resolve candidate ids to rows in one query, then walk hits in score order.
+	// Resolve candidate ids to rows in one query.
 	ids := make([]string, len(hits))
 	for i, h := range hits {
 		ids[i] = h.ID
@@ -396,7 +405,9 @@ func (s *Service) Search(ctx context.Context, teamID string, q SearchQuery) ([]S
 		return nil, fmt.Errorf("load drawer rows: %w", err)
 	}
 
-	results := make([]SearchHit, 0, limit)
+	// Keep the survivors that pass the wing/room/max-distance filters, in vector
+	// order, carrying content (for BM25) and distance (for vector similarity).
+	survivors := make([]SearchHit, 0, len(hits))
 	for _, h := range hits {
 		d, ok := rows[h.ID]
 		if !ok {
@@ -412,14 +423,27 @@ func (s *Service) Search(ctx context.Context, teamID string, q SearchQuery) ([]S
 		if q.MaxDistance > 0 && distance > q.MaxDistance {
 			continue
 		}
-		results = append(results, SearchHit{
-			Drawer:   d,
-			Score:    float64(h.Score),
-			Distance: distance,
-		})
+		survivors = append(survivors, SearchHit{Drawer: d, Distance: distance})
+	}
+
+	// Hybrid re-rank the survivors by content + distance, then take the page.
+	docs := make([]string, len(survivors))
+	dists := make([]float64, len(survivors))
+	for i, h := range survivors {
+		docs[i] = h.Drawer.Content
+		dists[i] = h.Distance
+	}
+	ranked := rankHybrid(query, docs, dists)
+
+	results := make([]SearchHit, 0, limit)
+	for _, r := range ranked {
 		if len(results) >= limit {
 			break
 		}
+		hit := survivors[r.Index]
+		hit.Score = r.Fused
+		hit.BM25 = r.BM25
+		results = append(results, hit)
 	}
 	return results, nil
 }

@@ -14,8 +14,9 @@ versioned skills** the team keeps up to date.
 > loop** (file a drawer → recall it semantically) now works end-to-end against
 > Ollama + the vector store. Today the server exposes **16 of the planned 37 MCP
 > tools** (`status`, `load_skill`, the WRITE/FILE + SEARCH/RECALL + STATUS/ADMIN
-> families, plus the agent `diary`). Hybrid ranking (BM25 + closet boost), mining,
-> and the graph/KG tool families are the next phases — see the [Roadmap](#roadmap).
+> families, plus the agent `diary`). Search is now **hybrid** — vector candidates
+> re-ranked by a vector+BM25 blend (closet boost lands with mining). Mining and the
+> graph/KG tool families are the next phases — see the [Roadmap](#roadmap).
 
 ---
 
@@ -137,7 +138,7 @@ shared, versioned source of truth** and its agents pull from it:
 | `add_drawer` | ✅ | File a verbatim memory (chunked + embedded; idempotent by source) |
 | `get_drawer` / `update_drawer` / `delete_drawer` | ✅ | Read, edit-in-place, or remove a drawer by id |
 | `list_drawers` | ✅ | Paginate drawers, optionally filtered by wing/room |
-| `search` | ✅ | Semantic recall (vector-only for now; BM25 + closet boost to follow) |
+| `search` | ✅ | Hybrid recall — vector candidates re-ranked by a vector+BM25 blend (closet boost with mining) |
 | `check_duplicate` | ✅ | Is content near-identical to an existing drawer? |
 | `list_wings` / `list_rooms` / `get_taxonomy` | ✅ | Indexed wing/room aggregations of a team's memory |
 | `get_aaak_spec` | ✅ | The AAAK compressed-memory dialect reference |
@@ -272,7 +273,7 @@ called). Schema changes are additive migrations under `db/migrations/`.
 - [x] Stateless Streamable-HTTP MCP server (`status`, `load_skill`)
 - [x] Core memory loop — drawer CRUD + semantic recall + taxonomy (12 tools, vector-only search)
 - [x] Agent diary — `diary_write` / `diary_read` (timestamped, append-only journal) (16 of 37)
-- [ ] Hybrid search (vector + BM25 + closet boost, RRF) over Qdrant
+- [x] Hybrid search — vector candidates re-ranked by a vector+BM25 convex blend (closet boost lands with mining)
 - [ ] Mining pipeline (text → drawers, idempotent by source + chunk)
 - [ ] Remaining MCP tools — graph/tunnels, KG, mining (21 of 37)
 - [ ] `list_skills` + `update_skill` + a `/load-skill` Claude command
