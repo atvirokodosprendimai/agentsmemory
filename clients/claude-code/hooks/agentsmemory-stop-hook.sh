@@ -20,6 +20,15 @@ INPUT="$(cat || true)"
 MODE="${AGENTSMEMORY_STOP_HOOK:-on}"
 [ "$MODE" = "off" ] && exit 0
 
+# Loop prevention — mirror mempalace's hook: Claude Code sets stop_hook_active=true
+# on every Stop *after the first* in a turn. The first genuine Stop has it false
+# (we fire); the re-fires caused by our own exit 2 have it true (we let through).
+# Net: nudge once after each real stop, no infinite loop. Match on the raw JSON
+# with grep rather than parsing — robust to spacing and key ordering.
+if printf '%s' "$INPUT" | grep -Eq '"stop_hook_active"[[:space:]]*:[[:space:]]*true'; then
+  exit 0
+fi
+
 # In "once" mode, fire only the first time per harness session. The session id is
 # parsed from the event JSON without requiring jq, so the hook has no runtime deps.
 if [ "$MODE" = "once" ]; then
