@@ -112,6 +112,7 @@ func (s *Server) getDashboard(w http.ResponseWriter, r *http.Request) {
 	}
 	s.render(w, r, views.DashboardPage(views.DashboardData{
 		UserEmail: u.Email, Projects: projects, OAuthProviders: s.providers,
+		IsSuperAdmin: s.isSuperAdmin(u.Email),
 	}))
 }
 

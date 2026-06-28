@@ -40,8 +40,13 @@ looks like `mcp__claude_ai_<label>__<tool>` — the bare tool names are identica
 
 This copies:
 
-- `commands/agentsmemory.md` → `~/.claude/commands/agentsmemory.md` — the
-  `/agentsmemory` slash command.
+- `commands/am.md` → `~/.claude/commands/am.md` — the **`/am`** wake-up command
+  (recommended). It is thin on purpose: it calls **`am_skillset`** and follows the
+  platform-curated playbook it returns, so it stays correct as the toolset grows —
+  you never re-install to get new guidance.
+- `commands/agentsmemory.md` → `~/.claude/commands/agentsmemory.md` — the verbose
+  `/agentsmemory` command: the full wake-up steps and tool table written inline,
+  handy as an offline reference but hand-maintained.
 - `hooks/agentsmemory-stop-hook.sh` → `~/.claude/hooks/…` and registers it as a
   **Stop** hook in `~/.claude/settings.json` (a timestamped backup is made; the
   entry is not duplicated on re-run).
@@ -50,16 +55,21 @@ Restart Claude Code (or `/reload`) to pick them up.
 
 ## 3. Use it
 
-Run **`/agentsmemory <your task>`** at the start of a session. Claude will:
+Run **`/am <your task>`** at the start of a session. Claude will:
 
-1. **Wake + load** — `am_status`, `am_get_aaak_spec` / `am_get_taxonomy`, then
-   `am_list_skills` → `am_load_skill`, then `am_search` the memory for prior decisions.
-2. **Work memory-first** — query the palace / knowledge graph before grepping or
-   guessing.
+1. **Call `am_skillset` first** — the global wakeup playbook (how to use the
+   `am_*` tools, in what order, which skills to load) plus the live tool catalogue.
+   The platform curates this centrally, so the guidance is always current.
+2. **Follow it** — wake (`am_status`), recall (`am_search`), load named skills
+   (`am_load_skill`), and work memory-first as the playbook directs.
 3. **Persist before stopping** — `am_diary_write` (AAAK summary), `am_kg_add` (new
    facts as triples), `am_add_drawer` (notable decisions/code verbatim).
 
 With no task, it gives a short briefing of what the memory already knows.
+
+> Prefer `/am`. The verbose `/agentsmemory` predates `am_skillset` and lists the
+> tools inline, so it can drift as the server changes; `/am` reads the live list
+> from the server every time.
 
 ## The Stop hook
 

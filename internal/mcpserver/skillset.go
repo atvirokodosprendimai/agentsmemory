@@ -43,9 +43,9 @@ func registerSkillset(reg *registrar, skillsets *skillset.Service, usageSvc *usa
 		}
 
 		return jsonResult(map[string]any{
-			"preamble":   preamble,        // the curated "when/which/how" wakeup guidance
-			"version":    version,         // playbook version (0 when unset), for cache/staleness
-			"tools":      reg.catalog,     // live [{name, description}] — the real tool surface
+			"preamble":   preamble,    // the curated "when/which/how" wakeup guidance
+			"version":    version,     // playbook version (0 when unset), for cache/staleness
+			"tools":      reg.catalog, // live [{name, description}] — the real tool surface
 			"tool_count": len(reg.catalog),
 			"hint":       "Follow the preamble's wake-up order; load named skills with am_load_skill.",
 		}), nil

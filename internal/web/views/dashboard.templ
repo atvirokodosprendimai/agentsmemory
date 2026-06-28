@@ -12,6 +12,16 @@ templ DashboardPage(d DashboardData) {
 			<p class="eyebrow">Dashboard</p>
 			<h1>Your projects</h1>
 			<p>Each project is an isolated memory workspace your agents reach over MCP with a bearer token.</p>
+			if d.IsSuperAdmin {
+				// Platform control, shown only to superadmins: edit the global am_skillset
+				// playbook every workspace's agents wake up with.
+				<p class="meta-row">
+					<a class="link-arrow" href="/superadmin/skillset">
+						Edit the global wakeup skillset
+						<span aria-hidden="true">→</span>
+					</a>
+				</p>
+			}
 		</section>
 		@Flash(d.Flash)
 		<div class="card create" data-signals="{projectName: ''}">
