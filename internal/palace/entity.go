@@ -112,12 +112,12 @@ func loadEntityData() entityData {
 	return entityDB
 }
 
-// extractEntities returns the entities stamped on a mined drawer's metadata, in
-// sorted order and capped at entityMetadataLimit. It follows the frozen pipeline:
-// scan a bounded window, mask known-system compounds (counting each), then count
-// capitalized candidates that survive the stoplist and COCA filters, and keep
-// every token seen at least twice and longer than two characters.
-func extractEntities(content string) []string {
+// entityFreq is the shared counting pass behind both drawer-entity and
+// closet-entity extraction: it scans a bounded window, masks known-system
+// compounds (counting each as one), then counts capitalized candidates that
+// survive the stoplist and COCA filters. Returning the raw frequency map lets the
+// two consumers apply their own thresholds and ordering without re-scanning.
+func entityFreq(content string) map[string]int {
 	db := loadEntityData()
 
 	// Bound the scan by runes so multibyte content is windowed at a character
@@ -157,8 +157,14 @@ func extractEntities(content string) []string {
 		}
 		freq[w]++
 	}
+	return freq
+}
 
-	// Keep tokens seen at least twice and longer than two characters.
+// extractEntities returns the entities stamped on a mined drawer's metadata: every
+// candidate seen at least twice and longer than two characters, sorted
+// alphabetically and capped at entityMetadataLimit (the cap drops whole names).
+func extractEntities(content string) []string {
+	freq := entityFreq(content)
 	matched := make([]string, 0, len(freq))
 	for w, c := range freq {
 		if c >= entityMinFreq && len([]rune(w)) > entityMinLen {
@@ -168,6 +174,31 @@ func extractEntities(content string) []string {
 	sort.Strings(matched)
 	if len(matched) > entityMetadataLimit {
 		matched = matched[:entityMetadataLimit]
+	}
+	return matched
+}
+
+// closetEntities returns the few most salient entities for a closet line: the
+// candidates seen at least twice, ordered by descending frequency (ties broken
+// alphabetically for determinism) and capped at closetEntityLimit — the frozen
+// closet builder's top-N-by-frequency selection, distinct from the drawer's
+// alphabetical, length-filtered list.
+func closetEntities(content string) []string {
+	freq := entityFreq(content)
+	matched := make([]string, 0, len(freq))
+	for w, c := range freq {
+		if c >= entityMinFreq {
+			matched = append(matched, w)
+		}
+	}
+	sort.Slice(matched, func(i, j int) bool {
+		if freq[matched[i]] != freq[matched[j]] {
+			return freq[matched[i]] > freq[matched[j]]
+		}
+		return matched[i] < matched[j]
+	})
+	if len(matched) > closetEntityLimit {
+		matched = matched[:closetEntityLimit]
 	}
 	return matched
 }
