@@ -34,10 +34,10 @@ fi
 # The checkpoint goes to stderr; exit 2 makes Claude Code show it as Stop feedback.
 cat >&2 <<'MSG'
 agentsmemory checkpoint — persist this session into team memory before stopping:
-  1. diary_write — an AAAK session summary (what changed, why, open threads).
-  2. kg_add      — new durable facts as subject -> predicate -> object triples.
-  3. add_drawer  — notable decisions / code, verbatim, into the right wing + room.
-Use the agentsmemory MCP tools. Skip only if nothing was worth remembering — and
-say so. Disable this reminder with AGENTSMEMORY_STOP_HOOK=off (or =once).
+  1. am_diary_write — an AAAK session summary (what changed, why, open threads).
+  2. am_kg_add      — new durable facts as subject -> predicate -> object triples.
+  3. am_add_drawer  — notable decisions / code, verbatim, into the right wing + room.
+Use the agentsmemory MCP tools (am_ prefix). Skip only if nothing was worth
+remembering — and say so. Disable this reminder with AGENTSMEMORY_STOP_HOOK=off (or =once).
 MSG
 exit 2

@@ -52,12 +52,12 @@ Restart Claude Code (or `/reload`) to pick them up.
 
 Run **`/agentsmemory <your task>`** at the start of a session. Claude will:
 
-1. **Wake + load** — `status`, `get_aaak_spec` / `get_taxonomy`, then
-   `list_skills` → `load_skill`, then `search` the memory for prior decisions.
+1. **Wake + load** — `am_status`, `am_get_aaak_spec` / `am_get_taxonomy`, then
+   `am_list_skills` → `am_load_skill`, then `am_search` the memory for prior decisions.
 2. **Work memory-first** — query the palace / knowledge graph before grepping or
    guessing.
-3. **Persist before stopping** — `diary_write` (AAAK summary), `kg_add` (new
-   facts as triples), `add_drawer` (notable decisions/code verbatim).
+3. **Persist before stopping** — `am_diary_write` (AAAK summary), `am_kg_add` (new
+   facts as triples), `am_add_drawer` (notable decisions/code verbatim).
 
 With no task, it gives a short briefing of what the memory already knows.
 
