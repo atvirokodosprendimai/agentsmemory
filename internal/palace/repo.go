@@ -3,6 +3,7 @@ package palace
 import (
 	"context"
 	"strings"
+	"time"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -20,12 +21,16 @@ type drawerRow struct {
 	SourceFile  string `gorm:"column:source_file"`
 	ChunkIndex  int    `gorm:"column:chunk_index"`
 	Content     string `gorm:"column:content"`
-	Entities    string `gorm:"column:entities"`     // semicolon-joined on disk
+	Entities    string `gorm:"column:entities"` // semicolon-joined on disk
 	ParentID    string `gorm:"column:parent_id"`
 	FiledAt     string `gorm:"column:filed_at"`
 	ContentDate string `gorm:"column:content_date"`
 	Agent       string `gorm:"column:agent"` // diary: whose journal (lowercased); "" for normal drawers
 	Topic       string `gorm:"column:topic"` // diary: free grouping tag; "" for normal drawers
+	// EmbeddedAt is RFC3339 when the vector was built, or NULL while the row is
+	// awaiting background embedding (migration 00013). A pointer so "" and NULL
+	// are distinct: the sync filing paths stamp it now; absorb leaves it nil.
+	EmbeddedAt *string `gorm:"column:embedded_at"`
 }
 
 // TableName pins the table so gorm does not pluralise to "drawer_rows".
@@ -60,17 +65,123 @@ func NewRepo(db *gorm.DB) *Repo { return &Repo{db: db} }
 
 // Save upserts drawers by (team_id, id). Re-saving the same id replaces the row,
 // which is exactly what idempotent re-mining needs. An empty slice is a no-op.
+//
+// Every caller of Save is a SYNCHRONOUS filing path (add_drawer, diary_write,
+// mine) that embedded the drawer before calling, so the row is stamped
+// embedded_at=now — it never enters the background queue. Absorb (the migration
+// import) uses SaveUnembedded instead.
 func (r *Repo) Save(ctx context.Context, drawers []Drawer) error {
+	if len(drawers) == 0 {
+		return nil
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	rows := make([]drawerRow, 0, len(drawers))
+	for _, d := range drawers {
+		row := toRow(d)
+		row.EmbeddedAt = &now
+		rows = append(rows, row)
+	}
+	return r.db.WithContext(ctx).
+		Clauses(clause.OnConflict{UpdateAll: true}).
+		Create(&rows).Error
+}
+
+// SaveUnembedded inserts drawer rows WITHOUT a vector and WITHOUT marking them
+// embedded (embedded_at stays NULL on insert) — the absorb half of a migration
+// import. The background embed worker builds each vector later and stamps it.
+//
+// On conflict it updates the mutable columns but DELIBERATELY leaves embedded_at
+// untouched, which is the crux of idempotent re-runs: a re-absorb refreshes
+// metadata (entities, dates, agent/topic the source may have re-derived) yet
+// preserves an already-indexed drawer's embedded_at — so an identical re-run never
+// needlessly re-queues a valid vector, and never resets pending→embedded or back.
+// (The id is a content hash, so content/wing/room/source/chunk never differ on a
+// conflict; updating them is a harmless no-op.)
+func (r *Repo) SaveUnembedded(ctx context.Context, drawers []Drawer) error {
 	if len(drawers) == 0 {
 		return nil
 	}
 	rows := make([]drawerRow, 0, len(drawers))
 	for _, d := range drawers {
-		rows = append(rows, toRow(d))
+		rows = append(rows, toRow(d)) // EmbeddedAt nil -> NULL -> pending on insert
 	}
 	return r.db.WithContext(ctx).
-		Clauses(clause.OnConflict{UpdateAll: true}).
+		Clauses(clause.OnConflict{
+			Columns: []clause.Column{{Name: "team_id"}, {Name: "id"}},
+			// Every column except the (team_id, id) key and embedded_at.
+			DoUpdates: clause.AssignmentColumns([]string{
+				"wing", "room", "source_file", "chunk_index", "content",
+				"entities", "parent_id", "filed_at", "content_date", "agent", "topic",
+			}),
+		}).
 		Create(&rows).Error
+}
+
+// PendingDrawers returns up to limit drawers for a team whose vector has not been
+// built yet (embedded_at IS NULL), oldest first so absorb order is preserved. The
+// background worker embeds these, then calls MarkDrawersEmbedded.
+func (r *Repo) PendingDrawers(ctx context.Context, teamID string, limit int) ([]Drawer, error) {
+	if limit <= 0 {
+		limit = 64
+	}
+	var rows []drawerRow
+	if err := r.db.WithContext(ctx).
+		Where("team_id = ? AND embedded_at IS NULL", teamID).
+		Order("filed_at ASC, id ASC").
+		Limit(limit).
+		Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := make([]Drawer, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, fromRow(row))
+	}
+	return out, nil
+}
+
+// MarkDrawersEmbedded stamps embedded_at on the given ids within a team, removing
+// them from the pending queue. It is called only AFTER their vectors are durably
+// upserted, so a crash between upsert and mark merely re-embeds (idempotently)
+// next cycle rather than losing data. An empty id slice is a no-op.
+func (r *Repo) MarkDrawersEmbedded(ctx context.Context, teamID string, ids []string, at string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	return r.db.WithContext(ctx).
+		Model(&drawerRow{}).
+		Where("team_id = ? AND id IN ?", teamID, ids).
+		Update("embedded_at", at).Error
+}
+
+// TeamsWithPendingDrawers lists distinct teams holding at least one un-embedded
+// drawer, so the worker can round-robin tenants instead of draining one giant
+// migration before touching another's. limit bounds the slice (0 = unbounded).
+func (r *Repo) TeamsWithPendingDrawers(ctx context.Context, limit int) ([]string, error) {
+	q := r.db.WithContext(ctx).
+		Model(&drawerRow{}).
+		Distinct("team_id").
+		Where("embedded_at IS NULL")
+	if limit > 0 {
+		q = q.Limit(limit)
+	}
+	var teams []string
+	if err := q.Pluck("team_id", &teams).Error; err != nil {
+		return nil, err
+	}
+	return teams, nil
+}
+
+// PendingDrawerCount is how many of a team's drawers still await embedding — the
+// "indexing N in background" signal the importer returns on finalize.
+func (r *Repo) PendingDrawerCount(ctx context.Context, teamID string) (int64, error) {
+	var n int64
+	if err := r.db.WithContext(ctx).
+		Model(&drawerRow{}).
+		Where("team_id = ? AND embedded_at IS NULL", teamID).
+		Count(&n).Error; err != nil {
+		return 0, err
+	}
+	return n, nil
 }
 
 // Get loads a single drawer by id within a team. A missing drawer returns

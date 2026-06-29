@@ -214,6 +214,23 @@ func (s *Service) embedChunks(ctx context.Context, chunks []Chunk) ([][]float32,
 // s.dim can never make EnsureNamespace and Upsert disagree. drawers and vectors
 // must be index-aligned and the same length.
 func (s *Service) storeDrawers(ctx context.Context, teamID string, drawers []Drawer, vectors [][]float32) error {
+	if err := s.upsertDrawerVectors(ctx, teamID, drawers, vectors); err != nil {
+		return err
+	}
+	if err := s.repo.Save(ctx, drawers); err != nil {
+		return fmt.Errorf("save drawers: %w", err)
+	}
+	return nil
+}
+
+// upsertDrawerVectors ensures the tenant's vector namespace and writes the
+// embeddings only — no metadata rows. It is shared by the synchronous filing tail
+// (storeDrawers, which then writes rows) and the background embed worker (which
+// backfills vectors for rows absorb already wrote). drawers and vectors must be
+// index-aligned and the same length; the returned vector width is authoritative
+// for namespace creation so a mis-set s.dim cannot make EnsureNamespace and Upsert
+// disagree.
+func (s *Service) upsertDrawerVectors(ctx context.Context, teamID string, drawers []Drawer, vectors [][]float32) error {
 	dim := s.dim
 	if len(vectors) > 0 {
 		dim = len(vectors[0])
@@ -233,9 +250,6 @@ func (s *Service) storeDrawers(ctx context.Context, teamID string, drawers []Dra
 	}
 	if err := s.vectors.Upsert(ctx, teamID, points); err != nil {
 		return fmt.Errorf("upsert vectors: %w", err)
-	}
-	if err := s.repo.Save(ctx, drawers); err != nil {
-		return fmt.Errorf("save drawers: %w", err)
 	}
 	return nil
 }

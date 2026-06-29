@@ -58,12 +58,18 @@ const maxPendingTunnels = 512
 // Drawers is the subset of palace.Service the importer needs. Declaring it at the
 // consumer (Go's "accept interfaces" guidance) keeps the package decoupled from
 // the concrete service and trivially fakeable in tests.
+//
+// Absorb* write rows ONLY (no embedding); the background embed worker builds the
+// vectors afterwards. This is what lets an import finish in seconds rather than
+// blocking on the embedder per batch. PendingCount reports how many rows are still
+// awaiting that background embedding, surfaced to the client on finalize.
 type Drawers interface {
-	ImportDrawers(ctx context.Context, teamID string, in []palace.ImportDrawer) (int, error)
-	ImportClosets(ctx context.Context, teamID string, in []palace.ImportCloset) (int, error)
+	AbsorbDrawers(ctx context.Context, teamID string, in []palace.ImportDrawer) (int, error)
+	AbsorbClosets(ctx context.Context, teamID string, in []palace.ImportCloset) (int, error)
 	KGAdd(ctx context.Context, teamID, subject, predicate, object, validFrom, validTo, sourceCloset, sourceFile, sourceDrawerID string) (palace.KGAddResult, error)
 	CreateTunnel(ctx context.Context, teamID string, in palace.TunnelInput, now string) (palace.Tunnel, error)
 	RecomputeGraph(ctx context.Context, teamID, wing string, prune bool) (palace.RecomputeResult, error)
+	PendingCount(ctx context.Context, teamID string) (int, error)
 }
 
 // Metering is the slice of usage.Service the importer uses: a migration is
@@ -134,6 +140,9 @@ type progress struct {
 	Hallways  int    `json:"hallways,omitempty"`
 	ElapsedMs int64  `json:"elapsed_ms,omitempty"`
 	Error     string `json:"error,omitempty"`
+	// Pending is how many of the tenant's rows still await background embedding,
+	// set on the finalize request so the client can report "indexing N".
+	Pending int `json:"pending,omitempty"`
 }
 
 // serve runs one import request: authorize, meter, then read the WHOLE body,
@@ -297,7 +306,7 @@ func (rn *runner) flushDrawers(ctx context.Context) {
 	if len(rn.pendingDrawers) == 0 {
 		return
 	}
-	n, err := rn.drawers.ImportDrawers(ctx, rn.teamID, rn.pendingDrawers)
+	n, err := rn.drawers.AbsorbDrawers(ctx, rn.teamID, rn.pendingDrawers)
 	if err != nil {
 		rn.p.Error = "drawer import: " + err.Error()
 	}
@@ -311,7 +320,7 @@ func (rn *runner) flushClosets(ctx context.Context) {
 	if len(rn.pendingClosets) == 0 {
 		return
 	}
-	n, err := rn.drawers.ImportClosets(ctx, rn.teamID, rn.pendingClosets)
+	n, err := rn.drawers.AbsorbClosets(ctx, rn.teamID, rn.pendingClosets)
 	if err != nil {
 		rn.p.Error = "closet import: " + err.Error()
 	}
@@ -357,6 +366,12 @@ func (rn *runner) finish(ctx context.Context, fatal error, recompute bool) {
 	if recompute && ctx.Err() == nil {
 		if res, err := rn.drawers.RecomputeGraph(ctx, rn.teamID, "", false); err == nil {
 			rn.p.Hallways = res.Hallways
+		}
+		// Report how many rows are still queued for background embedding, so the
+		// client can tell the user the migration's text has landed but search is
+		// still catching up. Best-effort: a count error must not fail the import.
+		if n, err := rn.drawers.PendingCount(ctx, rn.teamID); err == nil {
+			rn.p.Pending = n
 		}
 	}
 

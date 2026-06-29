@@ -37,22 +37,24 @@ type ImportDrawer struct {
 	Topic       string   // diary only: grouping tag
 }
 
-// ImportDrawers files a batch of verbatim drawers from another palace under the
-// target tenant. It mirrors Add's persistence tail — embed every content in one
-// batch, then storeDrawers (vectors before rows) — but deliberately skips Add's
-// chunking and self-dating: an import record is already one chunk carrying its
-// own provenance, so re-deriving those would corrupt the migration. IDs are
-// recomputed with the target team's DrawerID recipe, so the same record imported
-// twice upserts one drawer (idempotent re-runs) instead of duplicating.
+// AbsorbDrawers files a batch of verbatim drawers from another palace under the
+// target tenant as ROWS ONLY — no embedding. The drawer's text and provenance are
+// written immediately with embedded_at NULL, and the background embed worker
+// builds each vector afterwards. This is the migration's "absorb fast, index
+// later" path: it turns a per-batch ollama round-trip (the slow part that tripped
+// the CDN timeout) into a plain DB write, so a huge palace upload finishes in
+// seconds. IDs are recomputed with the target team's DrawerID recipe, so the same
+// record imported twice resolves to one row (idempotent re-runs); SaveUnembedded
+// preserves an already-indexed row's embedded_at on conflict.
 //
 // Records with an empty wing, room, or content are skipped rather than rejected:
 // one unaddressable row must not abort a 30k-drawer migration. The returned count
-// is how many were actually filed, so the caller can report skips as the
-// difference from len(in).
-func (s *Service) ImportDrawers(ctx context.Context, teamID string, in []ImportDrawer) (int, error) {
+// is how many rows were absorbed, so the caller can report skips as the difference
+// from len(in). It deliberately skips Add's chunking and self-dating — an import
+// record is already one chunk carrying its own provenance.
+func (s *Service) AbsorbDrawers(ctx context.Context, teamID string, in []ImportDrawer) (int, error) {
 	now := time.Now().UTC().Format(time.RFC3339)
 	drawers := make([]Drawer, 0, len(in))
-	texts := make([]string, 0, len(in))
 	for _, r := range in {
 		wing := strings.TrimSpace(r.Wing)
 		room := strings.TrimSpace(r.Room)
@@ -79,19 +81,12 @@ func (s *Service) ImportDrawers(ctx context.Context, teamID string, in []ImportD
 			Agent:       strings.TrimSpace(r.Agent),
 			Topic:       strings.TrimSpace(r.Topic),
 		})
-		texts = append(texts, r.Content)
 	}
 	if len(drawers) == 0 {
 		return 0, nil
 	}
-	// Re-embed with THIS server's model (the migration carries text, not vectors),
-	// so every imported drawer is searchable by the same embedder as native writes.
-	vectors, err := s.embed.Embed(ctx, texts)
-	if err != nil {
-		return 0, fmt.Errorf("embed import batch: %w", err)
-	}
-	if err := s.storeDrawers(ctx, teamID, drawers, vectors); err != nil {
-		return 0, err
+	if err := s.repo.SaveUnembedded(ctx, drawers); err != nil {
+		return 0, fmt.Errorf("absorb drawers: %w", err)
 	}
 	return len(drawers), nil
 }
@@ -129,10 +124,12 @@ func importClosetID(teamID, wing, room, source, document string) string {
 // (vectors into the per-team closet namespace, then rows) — the same persistence
 // tail the miner ends in. Blank documents/locations are skipped; the count is how
 // many were filed.
-func (s *Service) ImportClosets(ctx context.Context, teamID string, in []ImportCloset) (int, error) {
+// AbsorbClosets is the closet twin of AbsorbDrawers: it writes closet rows only
+// (embedded_at NULL) for the background worker to embed later. Same idempotency
+// and skip rules.
+func (s *Service) AbsorbClosets(ctx context.Context, teamID string, in []ImportCloset) (int, error) {
 	now := time.Now().UTC().Format(time.RFC3339)
 	closets := make([]Closet, 0, len(in))
-	texts := make([]string, 0, len(in))
 	for _, r := range in {
 		doc := strings.TrimSpace(r.Document)
 		wing := strings.TrimSpace(r.Wing)
@@ -154,17 +151,12 @@ func (s *Service) ImportClosets(ctx context.Context, teamID string, in []ImportC
 			Entities:   r.Entities,
 			FiledAt:    filedAt,
 		})
-		texts = append(texts, r.Document)
 	}
 	if len(closets) == 0 {
 		return 0, nil
 	}
-	vectors, err := s.embed.Embed(ctx, texts)
-	if err != nil {
-		return 0, fmt.Errorf("embed closet import batch: %w", err)
-	}
-	if err := s.storeClosets(ctx, teamID, closets, vectors); err != nil {
-		return 0, err
+	if err := s.repo.SaveClosetsUnembedded(ctx, closets); err != nil {
+		return 0, fmt.Errorf("absorb closets: %w", err)
 	}
 	return len(closets), nil
 }

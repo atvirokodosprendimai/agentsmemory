@@ -22,6 +22,7 @@ import (
 	"github.com/atvirokodosprendimai/agentsmemory/internal/auth"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/config"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/embed/ollama"
+	"github.com/atvirokodosprendimai/agentsmemory/internal/embedworker"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/importer"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/mcpserver"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/oauth"
@@ -156,6 +157,12 @@ func run(ctx context.Context, cfg config.Config) error {
 	if err := seedIfEmpty(ctx, svc.gdb, tenants, skill.NewRepo(svc.gdb), skillset.NewRepo(svc.gdb), svc.vectors); err != nil {
 		return fmt.Errorf("seed: %w", err)
 	}
+
+	// Background embedder: drains rows that /import absorbed (text written, vector
+	// deferred) so a large migration never blocks on the embedder or a proxy read
+	// timeout. It runs for the process lifetime; ctx cancels it on shutdown, and the
+	// embedded_at queue is durable so a restart simply resumes. Defaults suffice.
+	go embedworker.New(drawers, 0, 0, nil).Run(ctx)
 
 	// The MCP server, exposed over Streamable HTTP. The HTTP context func runs
 	// per request, turning the Bearer token into a tenant on the context the
