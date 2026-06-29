@@ -36,6 +36,7 @@ type fakeRepo struct {
 	doneClose int64
 	failID    string
 	failMsg   string
+	released  int64
 }
 
 func (r *fakeRepo) Create(_ context.Context, job *Job) error {
@@ -50,6 +51,17 @@ func (r *fakeRepo) ListForTeam(_ context.Context, teamID string, _ int) ([]Job, 
 		}
 	}
 	return out, nil
+}
+func (r *fakeRepo) ReleaseRunning(_ context.Context) (int64, error) {
+	var n int64
+	for i := range r.queue {
+		if r.queue[i].Status == string(StatusRunning) {
+			r.queue[i].Status = string(StatusQueued)
+			n++
+		}
+	}
+	r.released = n
+	return n, nil
 }
 func (r *fakeRepo) ClaimNext(_ context.Context) (Job, bool, error) {
 	if len(r.queue) == 0 {

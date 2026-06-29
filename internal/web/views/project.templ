@@ -344,14 +344,7 @@ templ MergeCard(d MergeData) {
 			<span class="mono">wing_x</span> and <span class="mono">x</span>. The merge and
 			graph rebuild run as a background job, so you can leave this page.
 		</p>
-		if len(d.Duplicates) > 0 {
-			<div class="merge-dups">
-				<div class="kv">Duplicate wings detected</div>
-				for _, dup := range d.Duplicates {
-					@MergeDupRow(d.TeamID, dup)
-				}
-			</div>
-		}
+		@MergeSuggestions(d)
 		<div class="merge-grid">
 			<div class="field">
 				<label for="mergeSource">From wing</label>
@@ -395,6 +388,23 @@ templ MergeCard(d MergeData) {
 		</div>
 		@MergeJobs(d)
 	</section>
+}
+
+// MergeSuggestions is the auto-detected duplicate-pairs block and a morph target
+// (id="merge-suggestions") the enqueue + poll handlers refresh — so once a merge
+// finishes, the pair it resolved drops off rather than lingering as a stale
+// "duplicate detected" prompt. Renders nothing visible when there are no pairs.
+templ MergeSuggestions(d MergeData) {
+	<div id="merge-suggestions">
+		if len(d.Duplicates) > 0 {
+			<div class="merge-dups">
+				<div class="kv">Duplicate wings detected</div>
+				for _, dup := range d.Duplicates {
+					@MergeDupRow(d.TeamID, dup)
+				}
+			</div>
+		}
+	</div>
 }
 
 // MergeDupRow is one detected wing_X/X collision with a one-click merge. The

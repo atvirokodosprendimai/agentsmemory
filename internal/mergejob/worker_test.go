@@ -97,6 +97,22 @@ func TestWorkerRunMergeError(t *testing.T) {
 	}
 }
 
+// On startup the worker reclaims jobs a prior process left mid-flight: a 'running'
+// row is reset to 'queued' so the durable queue actually resumes it.
+func TestWorkerReclaimsOrphansOnStart(t *testing.T) {
+	repo := &fakeRepo{queue: []Job{{ID: "j9", Status: string(StatusRunning)}}}
+	w := quietWorker(repo, &fakeMerger{})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // already cancelled: Run reclaims orphans, then exits the loop at once
+	w.Run(ctx)
+	if repo.released != 1 {
+		t.Fatalf("want 1 reclaimed orphan, got %d", repo.released)
+	}
+	if repo.queue[0].Status != string(StatusQueued) {
+		t.Fatalf("orphaned running job should be reset to queued, got %q", repo.queue[0].Status)
+	}
+}
+
 // If the relabel succeeds but the graph rebuild fails, the job is marked failed
 // with a message that names the relabel that DID land.
 func TestWorkerRunRecomputeError(t *testing.T) {

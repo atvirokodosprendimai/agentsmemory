@@ -94,11 +94,14 @@ func (r *Repo) ClaimNext(ctx context.Context) (Job, bool, error) {
 	return job, true, nil
 }
 
-// MarkDone records a successful merge: counts, finished time, status done.
+// MarkDone records a successful merge: counts, finished time, status done. The
+// status='running' guard means only the job the worker is actually finalizing is
+// updated — a job reclaimed back to queued (see ReleaseRunning) is never silently
+// marked done.
 func (r *Repo) MarkDone(ctx context.Context, id string, drawers, closets int64) error {
 	now := time.Now().UTC().Format(time.RFC3339)
 	return r.db.WithContext(ctx).Model(&Job{}).
-		Where("id = ?", id).
+		Where("id = ? AND status = ?", id, string(StatusRunning)).
 		Updates(map[string]any{
 			"status":      string(StatusDone),
 			"drawers":     drawers,
@@ -108,14 +111,28 @@ func (r *Repo) MarkDone(ctx context.Context, id string, drawers, closets int64) 
 		}).Error
 }
 
-// MarkFailed records a failure message and finished time, status failed.
+// MarkFailed records a failure message and finished time, status failed (guarded
+// to the running job, as MarkDone).
 func (r *Repo) MarkFailed(ctx context.Context, id, msg string) error {
 	now := time.Now().UTC().Format(time.RFC3339)
 	return r.db.WithContext(ctx).Model(&Job{}).
-		Where("id = ?", id).
+		Where("id = ? AND status = ?", id, string(StatusRunning)).
 		Updates(map[string]any{
 			"status":      string(StatusFailed),
 			"error":       msg,
 			"finished_at": now,
 		}).Error
+}
+
+// ReleaseRunning resets any job stuck in 'running' back to 'queued', clearing its
+// started_at. The worker calls it once at startup: with a single worker, any row
+// found 'running' at boot is necessarily orphaned by a previous process that died
+// mid-job (claimed but never finalized), so reclaiming it is what lets the durable
+// queue actually resume mid-flight work rather than stranding it forever. Returns
+// how many it released.
+func (r *Repo) ReleaseRunning(ctx context.Context) (int64, error) {
+	res := r.db.WithContext(ctx).Model(&Job{}).
+		Where("status = ?", string(StatusRunning)).
+		Updates(map[string]any{"status": string(StatusQueued), "started_at": nil})
+	return res.RowsAffected, res.Error
 }

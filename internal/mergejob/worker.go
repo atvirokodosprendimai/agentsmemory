@@ -9,10 +9,12 @@ import (
 	"github.com/atvirokodosprendimai/agentsmemory/internal/palace"
 )
 
-// claimer is the slice of the repo the worker drains: claim the next queued job
-// and record its outcome. *Repo satisfies it. Declared at the consumer so the
-// worker is decoupled and fakeable, mirroring embedworker.
+// claimer is the slice of the repo the worker drains: reclaim orphaned jobs at
+// startup, claim the next queued job, and record its outcome. *Repo satisfies it.
+// Declared at the consumer so the worker is decoupled and fakeable, mirroring
+// embedworker.
 type claimer interface {
+	ReleaseRunning(ctx context.Context) (int64, error)
 	ClaimNext(ctx context.Context) (Job, bool, error)
 	MarkDone(ctx context.Context, id string, drawers, closets int64) error
 	MarkFailed(ctx context.Context, id, msg string) error
@@ -57,6 +59,14 @@ func New(jobs claimer, merger Merger, logger *log.Logger) *Worker {
 // so a restart resumes any still-queued jobs.
 func (w *Worker) Run(ctx context.Context) {
 	w.log.Printf("merge worker: started")
+	// Reclaim jobs a previous process left mid-flight (claimed running, never
+	// finalized). Single worker, so any running row at boot is orphaned — reset it
+	// to queued so the durable queue truly resumes rather than stranding it.
+	if n, err := w.jobs.ReleaseRunning(ctx); err != nil {
+		w.log.Printf("merge worker: release orphaned jobs: %v", err)
+	} else if n > 0 {
+		w.log.Printf("merge worker: reclaimed %d orphaned running job(s)", n)
+	}
 	for {
 		if ctx.Err() != nil {
 			w.log.Printf("merge worker: stopping (%v)", ctx.Err())
@@ -90,29 +100,43 @@ func (w *Worker) run(ctx context.Context, job Job) {
 	w.log.Printf("merge worker: job %s — %v -> %s (team %s)", job.ID, job.Sources, job.Target, job.TeamID)
 	res, err := w.merger.MergeWing(ctx, job.TeamID, job.Sources, job.Target)
 	if err != nil {
-		w.fail(ctx, job.ID, "merge failed: "+err.Error())
+		w.fail(job.ID, "merge failed: "+err.Error())
 		return
 	}
 	// Full prune-rebuild: a merge empties the source wings, so rebuilding the whole
 	// team graph regenerates the target's hallways AND drops the merged-away wings'
 	// stale hallways (prune). It is the slow step the background job exists for.
 	if _, err := w.merger.RecomputeGraph(ctx, job.TeamID, "", true); err != nil {
-		w.fail(ctx, job.ID, fmt.Sprintf(
+		w.fail(job.ID, fmt.Sprintf(
 			"relabeled %d drawers / %d closets, but graph rebuild failed: %v — re-run recompute_graph",
 			res.Drawers, res.Closets, err))
 		return
 	}
-	if err := w.jobs.MarkDone(ctx, job.ID, res.Drawers, res.Closets); err != nil {
+	fctx, cancel := w.finalCtx()
+	defer cancel()
+	if err := w.jobs.MarkDone(fctx, job.ID, res.Drawers, res.Closets); err != nil {
 		w.log.Printf("merge worker: job %s done but mark failed: %v", job.ID, err)
 	}
 }
 
-// fail records a job failure, logging if even that write fails.
-func (w *Worker) fail(ctx context.Context, id, msg string) {
+// fail records a job failure. It writes on a fresh, cancellation-detached context,
+// not the worker's run context: a shutdown mid-job cancels run ctx, but the
+// outcome must still be written or the job would be stuck running until the next
+// restart's ReleaseRunning reclaim. The detached write closes that window.
+func (w *Worker) fail(id, msg string) {
 	w.log.Printf("merge worker: job %s failed: %s", id, msg)
-	if err := w.jobs.MarkFailed(ctx, id, msg); err != nil {
+	fctx, cancel := w.finalCtx()
+	defer cancel()
+	if err := w.jobs.MarkFailed(fctx, id, msg); err != nil {
 		w.log.Printf("merge worker: job %s mark-failed write error: %v", id, err)
 	}
+}
+
+// finalCtx returns a short, cancellation-detached context (and its cancel) for a
+// terminal status write, so recording a job's outcome survives a shutdown that
+// cancelled the run context.
+func (w *Worker) finalCtx() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), 5*time.Second)
 }
 
 // nowRFC3339 is the package's single source of timestamps, kept here so service

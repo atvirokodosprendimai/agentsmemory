@@ -61,7 +61,9 @@ func (s *Server) postMergeRequest(w http.ResponseWriter, r *http.Request) {
 		Message: "Queued: merging \"" + strings.Join(job.Sources, ", ") + "\" into \"" + job.Target + "\". It runs in the background.",
 	}))
 	_ = sse.MarshalAndPatchSignals(map[string]any{"mergeSource": "", "mergeTarget": ""})
-	_ = sse.PatchElementTempl(views.MergeJobs(s.buildMergeData(r.Context(), u, teamID, role)))
+	data := s.buildMergeData(r.Context(), u, teamID, role)
+	_ = sse.PatchElementTempl(views.MergeSuggestions(data))
+	_ = sse.PatchElementTempl(views.MergeJobs(data))
 }
 
 // getMerges refreshes the jobs panel — the datastar poller calls it while a job is
@@ -72,7 +74,12 @@ func (s *Server) getMerges(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sse := datastar.NewSSE(w, r)
-	_ = sse.PatchElementTempl(views.MergeJobs(s.buildMergeData(r.Context(), u, teamID, role)))
+	// Refresh both dynamic parts: the suggestions (a finished merge removes its
+	// pair) and the jobs panel (status). The poller lives in MergeJobs, so jobs is
+	// patched last to keep the interval element present until nothing is active.
+	data := s.buildMergeData(r.Context(), u, teamID, role)
+	_ = sse.PatchElementTempl(views.MergeSuggestions(data))
+	_ = sse.PatchElementTempl(views.MergeJobs(data))
 }
 
 // buildMergeData shapes the merge section: the wings the viewer can pick, the
