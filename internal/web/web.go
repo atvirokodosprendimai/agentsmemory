@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/atvirokodosprendimai/agentsmemory/internal/mergejob"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/share"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/skill"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/skillset"
@@ -40,6 +41,7 @@ type Server struct {
 	skills    *skill.Service    // centralised-skill use-cases, shared with the MCP server
 	skillsets *skillset.Service // the global wakeup-playbook use-cases (am_skillset)
 	shares    *share.Service    // cross-workspace wing-share handshake (consent flow)
+	merges    *mergejob.Service // background wing-merge queue (enqueue/list/detect)
 	store     sessions.Store
 	providers []string // configured OAuth providers; empty until keys are set
 	// superAdmins is the platform-superadmin allowlist as a set, keyed by
@@ -55,7 +57,7 @@ type Server struct {
 // reused here so the web editor and the agent tools share one code path; skillsets
 // backs the superadmin-only global wakeup-playbook editor. superAdmins is the
 // SUPERADMIN_EMAILS allowlist that gates that editor.
-func New(tenants *tenant.Repo, usageSvc *usage.Service, skills *skill.Service, skillsets *skillset.Service, shares *share.Service, superAdmins []string, sessionKey []byte) *Server {
+func New(tenants *tenant.Repo, usageSvc *usage.Service, skills *skill.Service, skillsets *skillset.Service, shares *share.Service, merges *mergejob.Service, superAdmins []string, sessionKey []byte) *Server {
 	store := sessions.NewCookieStore(sessionKey)
 	store.Options = &sessions.Options{
 		Path:     "/",
@@ -63,7 +65,7 @@ func New(tenants *tenant.Repo, usageSvc *usage.Service, skills *skill.Service, s
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   7 * 24 * 60 * 60, // one week
 	}
-	s := &Server{tenants: tenants, usage: usageSvc, skills: skills, skillsets: skillsets, shares: shares, store: store, superAdmins: superAdminSet(superAdmins)}
+	s := &Server{tenants: tenants, usage: usageSvc, skills: skills, skillsets: skillsets, shares: shares, merges: merges, store: store, superAdmins: superAdminSet(superAdmins)}
 	s.providers = registerOAuth(store) // gated: returns nil when no keys set
 	// Stamp the asset cache-buster from the embedded stylesheet's content hash so
 	// templates render <link …/app.css?v=hash>; this changes only when the CSS does.
@@ -126,6 +128,12 @@ func (s *Server) Routes(r chi.Router) {
 		r.Post("/projects/{teamID}/share", s.postShareRequest)
 		r.Post("/projects/{teamID}/share/{reqID}/accept", s.postShareAccept)
 		r.Post("/projects/{teamID}/share/{reqID}/decline", s.postShareDecline)
+
+		// Wing merge (background job): POST enqueues a merge of two of this
+		// workspace's wings; GET refreshes the jobs panel (the status poller). Both
+		// membership-check {teamID}; the merge service layers the writer/admin gate.
+		r.Post("/projects/{teamID}/merges", s.postMergeRequest)
+		r.Get("/projects/{teamID}/merges", s.getMerges)
 
 		// Platform-superadmin area: editing the GLOBAL am_skillset playbook every
 		// tenant shares. Nested inside requireUser and further gated by

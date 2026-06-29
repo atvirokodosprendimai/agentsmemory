@@ -40,6 +40,9 @@ templ ProjectDetailPage(d ProjectDetailData) {
 		if d.Share.CanShare {
 			@ShareCard(d.Share)
 		}
+		if d.Merge.CanManage {
+			@MergeCard(d.Merge)
+		}
 		@MigrateCard(d.ServerBase)
 	}
 }
@@ -324,4 +327,139 @@ templ ShareRequestRow(teamID string, req ShareReqVM) {
 			>Decline</button>
 		</div>
 	</article>
+}
+
+// MergeCard folds one wing into another to clean up duplicates (e.g. an import
+// that left both wing_x and x). The merge + graph rebuild run as a background job,
+// so the card just enqueues: auto-detected wing_X/X pairs offer a one-click merge,
+// and the generic picker (source <select> -> target text+datalist) handles the
+// rest. The target is free text so folding into a fresh name works as a rename.
+// Rendered only for writers/admins (the page gates on CanManage); server re-checks.
+templ MergeCard(d MergeData) {
+	<section class="card merge-card" aria-labelledby="merge-h" data-signals="{mergeSource:'', mergeTarget:''}">
+		<p class="eyebrow">Maintain</p>
+		<h2 id="merge-h">Merge wings</h2>
+		<p class="merge-lede">
+			Fold one wing into another — useful when an import left duplicates like
+			<span class="mono">wing_x</span> and <span class="mono">x</span>. The merge and
+			graph rebuild run as a background job, so you can leave this page.
+		</p>
+		@MergeSuggestions(d)
+		<div class="merge-grid">
+			<div class="field">
+				<label for="mergeSource">From wing</label>
+				<select class="input" id="mergeSource" data-bind:merge-source>
+					<option value="">Choose a wing…</option>
+					for _, wname := range d.Wings {
+						<option value={ wname }>{ wname }</option>
+					}
+				</select>
+			</div>
+			<div class="field">
+				<label for="mergeTarget">Into wing</label>
+				<input
+					class="input"
+					id="mergeTarget"
+					list="merge-wing-list"
+					data-bind:merge-target
+					placeholder="existing or new wing name"
+					autocomplete="off"
+					spellcheck="false"
+					data-on:keydown={ "evt.key === 'Enter' && $mergeSource !== '' && $mergeTarget.trim() !== '' && $mergeSource !== $mergeTarget && @post('/projects/" + d.TeamID + "/merges')" }
+				/>
+				<datalist id="merge-wing-list">
+					for _, wname := range d.Wings {
+						<option value={ wname }></option>
+					}
+				</datalist>
+			</div>
+		</div>
+		<div class="merge-actions">
+			<button
+				class="btn btn-primary"
+				data-on:click={ "@post('/projects/" + d.TeamID + "/merges')" }
+				data-indicator:merging
+				data-attr:disabled="$merging || $mergeSource === '' || $mergeTarget.trim() === '' || $mergeSource === $mergeTarget"
+			>
+				<span data-show="!$merging">Queue merge</span>
+				<span class="spinner" data-show="$merging" style="display:none" aria-hidden="true"></span>
+			</button>
+			<span class="hint">Drawers and closets move into the target; ids and vectors are untouched.</span>
+		</div>
+		@MergeJobs(d)
+	</section>
+}
+
+// MergeSuggestions is the auto-detected duplicate-pairs block and a morph target
+// (id="merge-suggestions") the enqueue + poll handlers refresh — so once a merge
+// finishes, the pair it resolved drops off rather than lingering as a stale
+// "duplicate detected" prompt. Renders nothing visible when there are no pairs.
+templ MergeSuggestions(d MergeData) {
+	<div id="merge-suggestions">
+		if len(d.Duplicates) > 0 {
+			<div class="merge-dups">
+				<div class="kv">Duplicate wings detected</div>
+				for _, dup := range d.Duplicates {
+					@MergeDupRow(d.TeamID, dup)
+				}
+			</div>
+		}
+	</div>
+}
+
+// MergeDupRow is one detected wing_X/X collision with a one-click merge. The
+// button seeds the picker signals (so the form mirrors the action) and posts in
+// one expression; names are JSON-encoded for safe embedding.
+templ MergeDupRow(teamID string, dup MergeDupVM) {
+	<div class="merge-dup">
+		<span class="merge-dup-label">{ mergeDupLabel(dup) }</span>
+		<button
+			class="btn btn-ghost btn-sm"
+			data-on:click={ "$mergeSource = " + jsString(dup.Source) + "; $mergeTarget = " + jsString(dup.Target) + "; @post('/projects/" + teamID + "/merges')" }
+		>
+			Merge into { dup.Target }
+		</button>
+	</div>
+}
+
+// MergeJobs is the recent-jobs panel and the morph target (id="merge-jobs") the
+// enqueue + poll handlers patch. While any job is queued/running (Active), it
+// renders a data-on-interval poller that re-fetches itself every 2s; once the
+// worker finishes, the refreshed fragment omits the poller and polling stops.
+templ MergeJobs(d MergeData) {
+	<div id="merge-jobs" class="merge-jobs">
+		if len(d.Jobs) > 0 {
+			<div class="kv">Recent merges</div>
+			<div class="merge-job-list">
+				for _, j := range d.Jobs {
+					@MergeJobRow(j)
+				}
+			</div>
+		}
+		if d.Active {
+			<div
+				data-on-interval__duration.2s={ "@get('/projects/" + d.TeamID + "/merges')" }
+				aria-hidden="true"
+			></div>
+		}
+	</div>
+}
+
+// MergeJobRow is one job: the wings it folds, its outcome summary (counts on done,
+// the error on failed), a status badge, and the date.
+templ MergeJobRow(j MergeJobVM) {
+	<div class="merge-job">
+		<div class="merge-job-main">
+			<span class="merge-job-wings">{ j.Sources } → { j.Target }</span>
+			if j.Summary != "" {
+				<span class="merge-job-summary">{ j.Summary }</span>
+			}
+		</div>
+		<div class="merge-job-side">
+			<span class={ mergeJobStatusClass(j.Status) }>{ j.Status }</span>
+			if j.When != "" {
+				<span class="merge-job-when">{ j.When }</span>
+			}
+		</div>
+	</div>
 }

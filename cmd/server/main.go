@@ -25,6 +25,7 @@ import (
 	"github.com/atvirokodosprendimai/agentsmemory/internal/embedworker"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/importer"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/mcpserver"
+	"github.com/atvirokodosprendimai/agentsmemory/internal/mergejob"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/oauth"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/palace"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/share"
@@ -167,6 +168,12 @@ func run(ctx context.Context, cfg config.Config) error {
 	// embedded_at queue is durable so a restart simply resumes. Defaults suffice.
 	go embedworker.New(drawers, 0, 0, nil).Run(ctx)
 
+	// Background merge worker: drains the durable merge_jobs queue (a GUI enqueues
+	// a wing merge; this relabels + rebuilds the graph off the request path). Like
+	// the embedder it runs for the process lifetime, resumes from the queue on
+	// restart, and stops on ctx cancel.
+	go mergejob.New(mergejob.NewRepo(svc.gdb), drawers, nil).Run(ctx)
+
 	// The MCP server, exposed over Streamable HTTP. The HTTP context func runs
 	// per request, turning the Bearer token into a tenant on the context the
 	// tools read — this is the only place auth touches the transport. Tools
@@ -197,7 +204,7 @@ func run(ctx context.Context, cfg config.Config) error {
 
 	// The human-facing dashboard (register/login/create project) shares the same
 	// chi router and database; agents use /mcp, people use the web routes.
-	webSrv := web.New(tenants, usageSvc, skills, svc.skillsets, svc.shares, cfg.SuperAdminEmails, sessionKey())
+	webSrv := web.New(tenants, usageSvc, skills, svc.skillsets, svc.shares, svc.merges, cfg.SuperAdminEmails, sessionKey())
 
 	r := chi.NewRouter()
 	// Logger before Recoverer so even a panicked request (recovered as a 500) is
@@ -325,7 +332,8 @@ type services struct {
 	skillsets *skillset.Service // the global wakeup-playbook use-cases (am_skillset)
 	usage     *usage.Service
 	drawers   *palace.Service
-	shares    *share.Service // cross-workspace wing-share handshake (GUI consent flow)
+	shares    *share.Service    // cross-workspace wing-share handshake (GUI consent flow)
+	merges    *mergejob.Service // background wing-merge queue (GUI enqueue/list/detect)
 }
 
 // buildServices opens and migrates the database, then wires the bounded-context
@@ -368,7 +376,11 @@ func buildServices(cfg config.Config) (*services, error) {
 	// (resolve the destination slug, read roles) and palace (list + copy wings).
 	shares := share.NewService(share.NewRepo(gdb), tenants, drawers)
 
-	return &services{gdb: gdb, vectors: vectors, tenants: tenants, skills: skills, skillsets: skillsets, usage: usageSvc, drawers: drawers, shares: shares}, nil
+	// The wing-merge queue's web side: enqueue/list jobs and detect duplicates.
+	// The background worker that drains it is started in run() (serve-only).
+	merges := mergejob.NewService(mergejob.NewRepo(gdb), tenants, drawers)
+
+	return &services{gdb: gdb, vectors: vectors, tenants: tenants, skills: skills, skillsets: skillsets, usage: usageSvc, drawers: drawers, shares: shares, merges: merges}, nil
 }
 
 // buildVectorStore assembles the vector layer from cfg. SQLite is always the
