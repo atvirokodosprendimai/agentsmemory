@@ -159,7 +159,39 @@ h1, h2, h3 { font-family: "Fraunces", Georgia, serif; font-weight: 600; letter-s
   .project-body { grid-template-columns: minmax(0, 1.7fr) minmax(13rem, .8fr); gap: 2rem; align-items: start; }
 }
 .project h3 { font-size: 1.25rem; }
-.project .slug { font-family: "IBM Plex Mono", monospace; font-size: .8rem; color: var(--faint); margin-top: .15rem; }
+/* Workspace slug as a labeled, one-click-copy chip (templ SlugChip) — the handle
+   an owner hands to another workspace so it can push a shared wing here. Replaces
+   the old faint, unlabeled mono text that read as decoration. The whole chip is
+   the copy button; its trailing label flips Copy -> Copied ✓ via an .is-copied
+   class toggled on the element itself, so each card's feedback stays independent
+   (datastar signals are global — a shared one would flash every card at once). */
+.slug-chip {
+  display: inline-flex; align-items: center; gap: .5rem; max-width: 100%;
+  margin: 0; padding: .35rem .4rem .35rem .65rem; min-height: 36px;
+  font: inherit; line-height: 1; color: var(--bone); cursor: pointer;
+  background: var(--surface-2); border: 1px solid var(--line-2); border-radius: 999px;
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+.slug-chip:hover { border-color: var(--ember); }
+.slug-chip:active { transform: translateY(1px); }
+.slug-chip:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(224,122,62,.35); }
+.project-top .slug-chip { margin-top: .4rem; } /* sit just under the project name */
+.slug-chip-tag { font-size: .6rem; font-weight: 600; text-transform: uppercase; letter-spacing: .14em; color: var(--faint); }
+.slug-chip-val {
+  font-family: "IBM Plex Mono", monospace; font-size: .82rem; color: var(--bone);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; /* full slug still copies + lives in aria-label */
+}
+.slug-chip-act {
+  font-size: .66rem; text-transform: uppercase; letter-spacing: .08em; color: var(--faint);
+  padding: .22rem .5rem; border-radius: 999px; background: color-mix(in srgb, var(--line-2) 40%, transparent);
+}
+.slug-chip:hover .slug-chip-act { color: var(--ember); }
+.slug-chip-done { display: none; }
+.slug-chip.is-copied { border-color: color-mix(in srgb, var(--ok) 55%, var(--line-2)); }
+.slug-chip.is-copied .slug-chip-copy { display: none; }
+.slug-chip.is-copied .slug-chip-done { display: inline; }
+.slug-chip.is-copied .slug-chip-act { color: var(--ok); }
+@media (pointer: coarse) { .slug-chip { min-height: 44px; } } /* full touch target on touch devices */
 .badge {
   font-family: "IBM Plex Mono", monospace; font-size: .68rem; text-transform: uppercase; letter-spacing: .08em;
   padding: .25rem .5rem; border-radius: 999px; border: 1px solid var(--line-2); color: var(--brass); white-space: nowrap;
@@ -218,7 +250,6 @@ footer { color: var(--faint); font-size: .8rem; padding: 2rem 0 3rem; border-top
 .breadcrumb a { color: var(--muted); }
 .breadcrumb a:hover { color: var(--ember); text-decoration: none; }
 .meta-row { display: flex; align-items: center; gap: .8rem; margin-top: 1rem; flex-wrap: wrap; }
-.meta-row .slug { font-family: "IBM Plex Mono", monospace; font-size: .82rem; color: var(--faint); }
 
 .mono { font-family: "IBM Plex Mono", monospace; }
 
