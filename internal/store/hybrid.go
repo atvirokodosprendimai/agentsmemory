@@ -108,3 +108,9 @@ func (h *Hybrid) Rebuild(ctx context.Context, namespace string) error {
 func (h *Hybrid) Namespaces(ctx context.Context) ([]string, error) {
 	return h.sot.Namespaces(ctx)
 }
+
+// PointsByIDs reads stored points from the source of truth (never the derived
+// index), so a cross-tenant copy reuses the durable vectors without re-embedding.
+func (h *Hybrid) PointsByIDs(ctx context.Context, namespace string, ids []string) ([]Point, error) {
+	return h.sot.PointsByIDs(ctx, namespace, ids)
+}

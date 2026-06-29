@@ -153,6 +153,31 @@ func (s *Store) Namespaces(ctx context.Context) ([]string, error) {
 	return nss, nil
 }
 
+// PointsByIDs returns the stored points for the given ids within a namespace —
+// the read half of a cross-tenant copy (read source vectors, re-key, write under
+// the destination). Absent ids are omitted. The caller passes a bounded id list
+// (it pages) so the IN-list stays within SQLite's parameter limit.
+func (s *Store) PointsByIDs(ctx context.Context, namespace string, ids []string) ([]store.Point, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	var rows []vectorRow
+	if err := s.db.WithContext(ctx).
+		Where("namespace = ? AND id IN ?", namespace, ids).
+		Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	points := make([]store.Point, 0, len(rows))
+	for _, r := range rows {
+		points = append(points, store.Point{
+			ID:      r.ID,
+			Vector:  decodeVector(r.Vector),
+			Payload: decodePayload(r.Payload),
+		})
+	}
+	return points, nil
+}
+
 // rows loads all rows for a namespace — the shared read path for Search and
 // AllPoints.
 func (s *Store) rows(ctx context.Context, namespace string) ([]vectorRow, error) {

@@ -60,6 +60,20 @@ func (f *fakeSoT) Namespaces(_ context.Context) ([]string, error) {
 	return nss, nil
 }
 
+func (f *fakeSoT) PointsByIDs(_ context.Context, ns string, ids []string) ([]store.Point, error) {
+	want := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		want[id] = true
+	}
+	var out []store.Point
+	for _, p := range f.points[ns] {
+		if want[p.ID] {
+			out = append(out, p)
+		}
+	}
+	return out, nil
+}
+
 // fakeIndex records what the search index was asked to do and returns canned
 // search results.
 type fakeIndex struct {
