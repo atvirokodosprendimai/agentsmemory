@@ -102,3 +102,9 @@ func (h *Hybrid) Rebuild(ctx context.Context, namespace string) error {
 	}
 	return nil
 }
+
+// Namespaces lists the source-of-truth namespaces, so a caller (the `sync`
+// command) can Rebuild every one into the index.
+func (h *Hybrid) Namespaces(ctx context.Context) ([]string, error) {
+	return h.sot.Namespaces(ctx)
+}

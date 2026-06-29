@@ -79,4 +79,8 @@ type SourceOfTruth interface {
 	// AllPoints returns every stored point in the namespace, vectors included,
 	// for replay into a search index. Order is unspecified.
 	AllPoints(ctx context.Context, namespace string) ([]Point, error)
+
+	// Namespaces lists every namespace that currently holds at least one point —
+	// the set a full sync replays into the search index. Order is unspecified.
+	Namespaces(ctx context.Context) ([]string, error)
 }

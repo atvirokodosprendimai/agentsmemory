@@ -52,6 +52,14 @@ func (f *fakeSoT) AllPoints(_ context.Context, ns string) ([]store.Point, error)
 	return f.points[ns], nil
 }
 
+func (f *fakeSoT) Namespaces(_ context.Context) ([]string, error) {
+	nss := make([]string, 0, len(f.points))
+	for ns := range f.points {
+		nss = append(nss, ns)
+	}
+	return nss, nil
+}
+
 // fakeIndex records what the search index was asked to do and returns canned
 // search results.
 type fakeIndex struct {

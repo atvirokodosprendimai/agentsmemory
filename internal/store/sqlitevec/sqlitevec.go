@@ -139,6 +139,20 @@ func (s *Store) AllPoints(ctx context.Context, namespace string) ([]store.Point,
 	return points, nil
 }
 
+// Namespaces lists every namespace that currently holds at least one vector — the
+// set the `sync` command replays into the search index. DISTINCT over the shared
+// partitioned table; order is unspecified.
+func (s *Store) Namespaces(ctx context.Context) ([]string, error) {
+	var nss []string
+	if err := s.db.WithContext(ctx).
+		Model(&vectorRow{}).
+		Distinct("namespace").
+		Pluck("namespace", &nss).Error; err != nil {
+		return nil, err
+	}
+	return nss, nil
+}
+
 // rows loads all rows for a namespace — the shared read path for Search and
 // AllPoints.
 func (s *Store) rows(ctx context.Context, namespace string) ([]vectorRow, error) {
