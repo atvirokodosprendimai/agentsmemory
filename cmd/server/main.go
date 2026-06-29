@@ -366,6 +366,10 @@ func stripeBillingConfig() billing.Config {
 	}
 	if cfg.SecretKey == "" {
 		log.Printf("billing disabled: STRIPE_SECRET_KEY unset (no upgrade-to-Pro button)")
+	} else if cfg.WebhookSecret == "" {
+		// Checkout can start, but the webhook fails closed without a secret — so a
+		// completed payment would never flip the plan. Surface the misconfiguration.
+		log.Printf("warning: STRIPE_WEBHOOK_SECRET unset; the Stripe webhook will reject all events and upgrades will not take effect")
 	}
 	return cfg
 }

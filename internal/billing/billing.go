@@ -117,6 +117,13 @@ func (s *Service) StartCheckout(ctx context.Context, req CheckoutRequest) (strin
 // All handling is idempotent — Stripe re-delivers, so the same event arriving
 // twice must converge to the same state, not double-apply.
 func (s *Service) HandleWebhook(ctx context.Context, payload []byte, sigHeader string) error {
+	// Fail CLOSED on a missing signing secret. ConstructEvent with an empty secret
+	// would verify an empty-key HMAC, which an attacker who knows the payload shape
+	// could forge — so an unconfigured secret must reject every event, never accept
+	// one. (main.go also warns at startup when the key is set but this is not.)
+	if s.cfg.WebhookSecret == "" {
+		return fmt.Errorf("billing: webhook secret not configured")
+	}
 	event, err := webhook.ConstructEvent(payload, sigHeader, s.cfg.WebhookSecret)
 	if err != nil {
 		return fmt.Errorf("billing: webhook signature: %w", err)
@@ -145,6 +152,18 @@ func (s *Service) applyCheckoutCompleted(ctx context.Context, raw json.RawMessag
 	planCode := sess.Metadata["plan_code"]
 	if teamID == "" || planCode == "" {
 		return fmt.Errorf("billing: completed session missing team_id/plan_code")
+	}
+	// Guard against a stale or out-of-order re-delivery: if this exact Stripe
+	// subscription is already recorded as canceled for the team, a late "completed"
+	// event must NOT resurrect it to Pro. A genuinely new subscription has a
+	// different id and still proceeds. (A processed-event-id ledger would generalise
+	// this; the same-sub-canceled check covers the lifecycle race Stripe re-delivery
+	// actually produces.)
+	if sess.Subscription != nil {
+		if existing, err := s.subs.ByTeam(ctx, teamID); err == nil &&
+			existing.Status == "canceled" && existing.StripeSubscriptionID == sess.Subscription.ID {
+			return nil
+		}
 	}
 	plan, err := s.plans.PlanByCode(ctx, planCode)
 	if err != nil {

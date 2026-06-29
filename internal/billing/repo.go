@@ -2,7 +2,6 @@ package billing
 
 import (
 	"context"
-	"errors"
 	"time"
 
 	"github.com/google/uuid"
@@ -39,29 +38,31 @@ func NewRepo(db *gorm.DB) *Repo { return &Repo{db: db} }
 
 // Upsert records a subscription for a team, creating it on first sight and
 // updating the existing row otherwise (team_id is unique). It is the single
-// write the webhook makes against billing state, so it must be idempotent: a
-// re-delivered "completed" event simply rewrites the same row with the same
-// values. The caller supplies all fields except id/timestamps, which Upsert
-// manages — preserving the original CreatedAt across updates.
+// write the webhook makes against billing state, so it must be idempotent AND
+// safe under Stripe's concurrent re-delivery: two duplicate deliveries can race,
+// so the create-or-update is one atomic INSERT … ON CONFLICT(team_id) rather than
+// a read-then-create (which could have both deliveries miss the row and collide
+// on Create). created_at is written only on insert — left untouched on conflict —
+// so the original creation time survives updates.
 func (r *Repo) Upsert(ctx context.Context, sub Subscription) error {
 	now := time.Now().UTC().Format(time.RFC3339)
-	var existing Subscription
-	err := r.db.WithContext(ctx).Where("team_id = ?", sub.TeamID).First(&existing).Error
-	switch {
-	case errors.Is(err, gorm.ErrRecordNotFound):
-		sub.ID = uuid.NewString()
-		sub.CreatedAt = now
-		sub.UpdatedAt = now
-		return r.db.WithContext(ctx).Create(&sub).Error
-	case err != nil:
-		return err
-	default:
-		// Keep the row's identity and creation time; refresh the mutable fields.
-		sub.ID = existing.ID
-		sub.CreatedAt = existing.CreatedAt
-		sub.UpdatedAt = now
-		return r.db.WithContext(ctx).Save(&sub).Error
+	if sub.ID == "" {
+		sub.ID = uuid.NewString() // used only if this is an insert
 	}
+	return r.db.WithContext(ctx).Exec(`
+		INSERT INTO subscriptions
+			(id, team_id, plan_id, status, stripe_customer_id, stripe_subscription_id, current_period_end, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(team_id) DO UPDATE SET
+			plan_id                = excluded.plan_id,
+			status                 = excluded.status,
+			stripe_customer_id     = excluded.stripe_customer_id,
+			stripe_subscription_id = excluded.stripe_subscription_id,
+			current_period_end     = excluded.current_period_end,
+			updated_at             = excluded.updated_at`,
+		sub.ID, sub.TeamID, sub.PlanID, sub.Status,
+		sub.StripeCustomerID, sub.StripeSubscriptionID, sub.CurrentPeriodEnd,
+		now, now).Error
 }
 
 // ByTeam returns a workspace's subscription, or gorm.ErrRecordNotFound if it has

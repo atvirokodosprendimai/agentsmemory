@@ -246,6 +246,57 @@ func TestHandleWebhook_SubscriptionDeleted_Downgrades(t *testing.T) {
 	}
 }
 
+func TestHandleWebhook_NoSecret_FailsClosed(t *testing.T) {
+	svc, _, _, _, teamID := newTestEnv(t)
+	svc.cfg.WebhookSecret = "" // simulate STRIPE_WEBHOOK_SECRET unset
+	payload := eventPayload("checkout.session.completed", map[string]any{
+		"client_reference_id": teamID,
+		"metadata":            map[string]string{"plan_code": "pro_monthly"},
+	})
+	// Even a payload "signed" with the empty secret must be rejected — an
+	// unconfigured secret fails closed, it never verifies.
+	if err := svc.HandleWebhook(context.Background(), payload, signedHeader(payload, "")); err == nil {
+		t.Fatal("expected fail-closed rejection when webhook secret is unset")
+	}
+	if got := teamPlanID(t, svc.subs.db, teamID); got != tenant.FreePlanID {
+		t.Fatalf("plan changed with no webhook secret configured: %q", got)
+	}
+}
+
+func TestHandleWebhook_StaleCompletedAfterCancel_NoResurrect(t *testing.T) {
+	svc, _, _, gdb, teamID := newTestEnv(t)
+	ctx := context.Background()
+	deliver := func(p []byte) {
+		t.Helper()
+		if err := svc.HandleWebhook(ctx, p, signedHeader(p, testWebhookSecret)); err != nil {
+			t.Fatalf("HandleWebhook: %v", err)
+		}
+	}
+	completed := eventPayload("checkout.session.completed", map[string]any{
+		"client_reference_id": teamID,
+		"metadata":            map[string]string{"plan_code": "pro_monthly"},
+		"customer":            "cus_abc",
+		"subscription":        "sub_x",
+	})
+	deleted := eventPayload("customer.subscription.deleted", map[string]any{"id": "sub_x"})
+
+	deliver(completed) // upgrade
+	deliver(deleted)   // cancel -> back to Free
+	deliver(completed) // STALE re-delivery of the original completed event
+
+	// The stale completed event must NOT resurrect the canceled subscription.
+	if got := teamPlanID(t, gdb, teamID); got != tenant.FreePlanID {
+		t.Fatalf("stale completed event resurrected Pro: plan = %q", got)
+	}
+	sub, err := svc.subs.ByTeam(ctx, teamID)
+	if err != nil {
+		t.Fatalf("ByTeam: %v", err)
+	}
+	if sub.Status != "canceled" {
+		t.Fatalf("subscription status = %q, want canceled", sub.Status)
+	}
+}
+
 func TestHandleWebhook_UnknownEvent_NoOp(t *testing.T) {
 	svc, _, _, gdb, teamID := newTestEnv(t)
 	payload := eventPayload("invoice.paid", map[string]any{"id": "in_1"})
