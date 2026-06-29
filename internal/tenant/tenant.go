@@ -33,6 +33,12 @@ const (
 	RoleAdmin  Role = "admin"
 )
 
+// FreePlanID is the seeded id of the free entry tier. It is the plan a new
+// workspace starts on and the plan billing downgrades a workspace back to when
+// its paid subscription ends, so it is named once here rather than spelled as a
+// literal at each call site.
+const FreePlanID = "plan_personal"
+
 // ErrInvalidToken is returned when a bearer token matches no active API key.
 // It is deliberately opaque so callers cannot distinguish "unknown" from
 // "revoked" — both are simply unauthorized.
