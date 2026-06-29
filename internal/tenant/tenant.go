@@ -550,6 +550,15 @@ func (r *Repo) TeamBySlug(ctx context.Context, slug string) (Team, error) {
 	return t, r.db.WithContext(ctx).Where("slug = ?", slug).First(&t).Error
 }
 
+// TeamByID resolves a workspace id to its Team — used to label a share request's
+// source workspace (name + slug) in the destination admin's inbox, where the
+// source is a tenant the viewer may not belong to. Returns gorm.ErrRecordNotFound
+// if the id is unknown.
+func (r *Repo) TeamByID(ctx context.Context, id string) (Team, error) {
+	var t Team
+	return t, r.db.WithContext(ctx).Where("id = ?", id).First(&t).Error
+}
+
 // UpsertOAuthUser finds or creates a user by email for a social (goth) login.
 // OAuth users have no password hash; they authenticate only via their provider.
 func (r *Repo) UpsertOAuthUser(ctx context.Context, email, displayName string) (User, error) {

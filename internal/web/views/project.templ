@@ -34,6 +34,12 @@ templ ProjectDetailPage(d ProjectDetailData) {
 			}
 			@SkillsList(d.Project, d.Skills, d.CanWrite)
 		</div>
+		if d.Share.IsAdmin {
+			@IncomingShares(d.Share)
+		}
+		if d.Share.CanShare {
+			@ShareCard(d.Share)
+		}
 		@MigrateCard(d.ServerBase)
 	}
 }
@@ -189,5 +195,133 @@ templ SkillRow(p ProjectVM, sk SkillVM, canWrite bool) {
 			<p class="skill-desc">{ sk.Description }</p>
 		}
 		<div class="skill-meta">{ skillMeta(sk) }</div>
+	</article>
+}
+
+// ShareCard is the outgoing push form: copy one of THIS workspace's wings into
+// another, named by its slug. It is datastar-driven — the wing <select> and the
+// slug input bind to page signals that post to /share, and the server streams
+// back a flash + cleared inputs. It copies nothing on its own: filing the request
+// only asks; the destination admin's Accept (see IncomingShares) runs the copy.
+// Rendered only for writers/admins (the page gates on CanShare); the server
+// re-checks regardless. The empty state guides a workspace that has no wings yet.
+templ ShareCard(d ShareData) {
+	<section class="card share-card" aria-labelledby="share-h" data-signals="{shareWing:'', shareSlug:''}">
+		<p class="eyebrow">Share</p>
+		<h2 id="share-h">Share a wing</h2>
+		<p class="share-lede">
+			Copy one of this workspace's wings into another workspace. Nothing leaves
+			until an <b>admin</b> of the destination accepts the request — so a slug
+			alone never moves your memory.
+		</p>
+		if len(d.Wings) == 0 {
+			<div class="note" role="note">
+				No wings to share yet — file some memory into this workspace first, then
+				it can be shared.
+			</div>
+		} else {
+			<div class="share-grid">
+				<div class="field">
+					<label for="shareWing">Wing</label>
+					<select class="input" id="shareWing" data-bind:share-wing>
+						<option value="">Choose a wing…</option>
+						for _, wg := range d.Wings {
+							<option value={ wg.Name }>{ shareWingOption(wg) }</option>
+						}
+					</select>
+				</div>
+				<div class="field">
+					<label for="shareSlug">Destination workspace slug</label>
+					<input
+						class="input"
+						id="shareSlug"
+						data-bind:share-slug
+						placeholder="e.g. acme-team-9f2c1a"
+						autocomplete="off"
+						spellcheck="false"
+						data-on:keydown={ "evt.key === 'Enter' && $shareWing !== '' && $shareSlug.trim() !== '' && @post('/projects/" + d.TeamID + "/share')" }
+					/>
+				</div>
+			</div>
+			<div class="share-actions">
+				<button
+					class="btn btn-primary"
+					data-on:click={ "@post('/projects/" + d.TeamID + "/share')" }
+					data-indicator:sharing
+					data-attr:disabled="$sharing || $shareWing === '' || $shareSlug.trim() === ''"
+				>
+					<span data-show="!$sharing">Request share</span>
+					<span class="spinner" data-show="$sharing" style="display:none" aria-hidden="true"></span>
+				</button>
+				<span class="hint">
+					Ask the destination's owner for its slug — it's shown under the project
+					name on their dashboard.
+				</span>
+			</div>
+		}
+	</section>
+}
+
+// IncomingShares is the destination admin's inbox: pending requests from other
+// workspaces to copy a wing into this one. Its root carries the stable
+// id="incoming-shares" so the accept/decline handlers can morph it with the
+// refreshed list. A shared, frontend-only _resolving signal (the _ keeps it off
+// the wire) drives one "Working…" line and disables the buttons while a copy is in
+// flight — data-indicator auto-resets it on completion, success or error, so it
+// never sticks. Rendered only for admins (the page gates on IsAdmin).
+templ IncomingShares(d ShareData) {
+	<section id="incoming-shares" class="share-inbox" aria-labelledby="inbox-h" data-signals="{_resolving:false}">
+		<div class="skills-head">
+			<h2 id="inbox-h">Incoming share requests</h2>
+			<span class="count">{ strconv.Itoa(len(d.Incoming)) }</span>
+		</div>
+		<div class="share-working" data-show="$_resolving" style="display:none" role="status">Working…</div>
+		if len(d.Incoming) == 0 {
+			<div class="card empty">
+				<h3>No pending requests</h3>
+				<p>When another workspace asks to share a wing into this one, it appears here for you to accept or decline.</p>
+			</div>
+		} else {
+			<div class="share-req-list">
+				for _, req := range d.Incoming {
+					@ShareRequestRow(d.TeamID, req)
+				}
+			</div>
+		}
+	</section>
+}
+
+// ShareRequestRow is one pending incoming request with its provenance and the
+// Accept/Decline actions. Accept runs palace.CopyWing on the server; Decline just
+// resolves the row. Both post to a request-scoped path (the id is a server-minted
+// uuid, safe to embed) and share the inbox's _resolving indicator.
+templ ShareRequestRow(teamID string, req ShareReqVM) {
+	<article class="card share-req">
+		<div class="share-req-main">
+			<h3 class="share-req-wing">{ req.Wing }</h3>
+			<p class="share-req-meta">
+				from <b>{ shareReqFrom(req) }</b>
+				if req.Requester != "" {
+					{ " · requested by " }{ req.Requester }
+				}
+				if shareReqWhen(req) != "" {
+					{ " · " }{ shareReqWhen(req) }
+				}
+			</p>
+		</div>
+		<div class="share-req-actions">
+			<button
+				class="btn btn-primary btn-sm"
+				data-on:click={ "@post('/projects/" + teamID + "/share/" + req.ID + "/accept')" }
+				data-indicator:_resolving
+				data-attr:disabled="$_resolving"
+			>Accept</button>
+			<button
+				class="btn btn-ghost btn-sm"
+				data-on:click={ "@post('/projects/" + teamID + "/share/" + req.ID + "/decline')" }
+				data-indicator:_resolving
+				data-attr:disabled="$_resolving"
+			>Decline</button>
+		</div>
 	</article>
 }

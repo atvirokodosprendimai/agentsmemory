@@ -27,6 +27,7 @@ import (
 	"github.com/atvirokodosprendimai/agentsmemory/internal/mcpserver"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/oauth"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/palace"
+	"github.com/atvirokodosprendimai/agentsmemory/internal/share"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/skill"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/skillset"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/store"
@@ -196,7 +197,7 @@ func run(ctx context.Context, cfg config.Config) error {
 
 	// The human-facing dashboard (register/login/create project) shares the same
 	// chi router and database; agents use /mcp, people use the web routes.
-	webSrv := web.New(tenants, usageSvc, skills, svc.skillsets, cfg.SuperAdminEmails, sessionKey())
+	webSrv := web.New(tenants, usageSvc, skills, svc.skillsets, svc.shares, cfg.SuperAdminEmails, sessionKey())
 
 	r := chi.NewRouter()
 	// Logger before Recoverer so even a panicked request (recovered as a 500) is
@@ -324,6 +325,7 @@ type services struct {
 	skillsets *skillset.Service // the global wakeup-playbook use-cases (am_skillset)
 	usage     *usage.Service
 	drawers   *palace.Service
+	shares    *share.Service // cross-workspace wing-share handshake (GUI consent flow)
 }
 
 // buildServices opens and migrates the database, then wires the bounded-context
@@ -362,7 +364,11 @@ func buildServices(cfg config.Config) (*services, error) {
 	embedder := ollama.New(cfg.OllamaURL, cfg.OllamaEmbedModel, cfg.HTTPTimeout)
 	drawers := palace.NewService(palace.NewRepo(gdb), embedder, vectors, defaultVectorDim)
 
-	return &services{gdb: gdb, vectors: vectors, tenants: tenants, skills: skills, skillsets: skillsets, usage: usageSvc, drawers: drawers}, nil
+	// The wing-share handshake bridges the two contexts it sits over: tenant
+	// (resolve the destination slug, read roles) and palace (list + copy wings).
+	shares := share.NewService(share.NewRepo(gdb), tenants, drawers)
+
+	return &services{gdb: gdb, vectors: vectors, tenants: tenants, skills: skills, skillsets: skillsets, usage: usageSvc, drawers: drawers, shares: shares}, nil
 }
 
 // buildVectorStore assembles the vector layer from cfg. SQLite is always the
