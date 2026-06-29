@@ -171,6 +171,69 @@ type ProjectDetailData struct {
 	// ServerBase is this server's public origin (scheme + host), used to render the
 	// ready-to-run mempalace migration command with the correct /import endpoint.
 	ServerBase string
+	// Share backs the wing-share card (push a wing to another workspace) and the
+	// incoming-requests inbox. Its flags decide which halves render; the handler
+	// computes them from the membership role, the template never decides authority.
+	Share ShareData
+}
+
+// ShareData backs the "Share memory" section on the project page. The same struct
+// serves both halves: the outgoing push form (gated by CanShare) and the incoming
+// request inbox (gated by IsAdmin). TeamID is this workspace — the source for an
+// outgoing share, the destination for incoming requests.
+type ShareData struct {
+	TeamID   string
+	CanShare bool          // viewer is writer/admin: may push a wing out
+	IsAdmin  bool          // viewer is admin: may accept/decline incoming requests
+	Wings    []ShareWingVM // this workspace's wings, offered in the push picker
+	Incoming []ShareReqVM  // pending requests addressed to this workspace
+}
+
+// ShareWingVM is one wing offered in the push picker, with its size so the user
+// can tell wings apart at a glance.
+type ShareWingVM struct {
+	Name    string
+	Drawers int
+	Rooms   int
+}
+
+// ShareReqVM is one pending incoming request as shown to the destination admin:
+// who (FromName/Requester) wants to copy which wing here.
+type ShareReqVM struct {
+	ID        string
+	Wing      string
+	FromName  string // source workspace display name
+	FromSlug  string // source workspace slug
+	Requester string // email of the user who filed the request
+	CreatedAt string // RFC3339; rendered date-only
+}
+
+// shareWingOption renders a wing as a <select> option label, e.g.
+// "research — 124 drawers · 8 rooms", so a chooser sees each wing's weight.
+func shareWingOption(w ShareWingVM) string {
+	return w.Name + " — " + strconv.Itoa(w.Drawers) + " drawers · " + strconv.Itoa(w.Rooms) + " rooms"
+}
+
+// shareReqWhen renders a request's filing time as a YYYY-MM-DD date (the RFC3339
+// time is noise in a list); empty stays empty.
+func shareReqWhen(r ShareReqVM) string {
+	if len(r.CreatedAt) >= 10 {
+		return r.CreatedAt[:10]
+	}
+	return r.CreatedAt
+}
+
+// shareReqFrom names the source of an incoming request — its workspace name and
+// slug — with a neutral fallback when the source team could not be resolved (e.g.
+// deleted between the request and the admin reading the inbox).
+func shareReqFrom(r ShareReqVM) string {
+	if r.FromName == "" {
+		return "another workspace"
+	}
+	if r.FromSlug == "" {
+		return r.FromName
+	}
+	return r.FromName + " (" + r.FromSlug + ")"
 }
 
 // FlashVM is a transient banner (success or error) shown above the project list.

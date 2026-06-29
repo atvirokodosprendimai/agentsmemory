@@ -277,6 +277,38 @@ footer { color: var(--faint); font-size: .8rem; padding: 2rem 0 3rem; border-top
 .cmd-hint { font-size: .82rem; color: var(--faint); max-width: 48ch; }
 .cmd-hint b { color: var(--brass); }
 
+/* ---- share a wing (cross-workspace) ---- */
+.share-card { margin-top: 1.4rem; padding: 1.5rem 1.6rem; }
+.share-card h2 { font-size: 1.4rem; margin: 0 0 .5rem; }
+.share-lede { color: var(--muted); margin: 0 0 1.2rem; max-width: 64ch; font-size: .95rem; }
+.share-lede b { color: var(--brass); }
+.share-grid { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 1.1rem; }
+.share-grid .field { margin: 0; }
+
+/* Native <select> styled to match .input, with a brass chevron so it reads as a
+   chooser, not a text box. appearance:none drops the OS arrow; the SVG supplies
+   one in the theme's accent. */
+select.input {
+  appearance: none; -webkit-appearance: none; cursor: pointer;
+  padding-right: 2.4rem;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8' fill='none' stroke='%23d2ad55' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M1 1.5 6 6.5 11 1.5'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right .95rem center; background-size: .7rem;
+}
+select.input option { color: var(--bone); background: var(--ink-2); }
+
+.share-actions { display: flex; align-items: center; gap: .9rem; flex-wrap: wrap; margin-top: 1.2rem; }
+.share-actions .hint { color: var(--brass); font-size: .82rem; max-width: 44ch; }
+
+.share-inbox { margin-top: 1.4rem; }
+.share-working { color: var(--brass); font-size: .85rem; margin: .9rem 0 0; }
+.share-req-list { display: grid; gap: .8rem; margin-top: 1.1rem; }
+.share-req { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 1rem 1.15rem; flex-wrap: wrap; }
+.share-req-main { min-width: 0; }
+.share-req-wing { font-size: 1.05rem; margin: 0 0 .25rem; overflow-wrap: anywhere; }
+.share-req-meta { color: var(--muted); font-size: .85rem; margin: 0; overflow-wrap: anywhere; }
+.share-req-meta b { color: var(--bone); }
+.share-req-actions { display: flex; gap: .55rem; flex-shrink: 0; }
+
 @media (max-width: 540px) {
   .topbar .wrap { min-height: 56px; }
   /* Drop the email on small screens so the brand + sign-out never overflow. */
@@ -284,6 +316,12 @@ footer { color: var(--faint); font-size: .8rem; padding: 2rem 0 3rem; border-top
   .page-head { padding: 2rem 0 1rem; }
   .create { flex-direction: column; align-items: stretch; }
   .create .btn { width: 100%; }
+  /* Share: stack the picker + slug, and let the request actions go full-width so
+     the 44px touch targets aren't cramped on a phone. */
+  .share-grid { grid-template-columns: 1fr; }
+  .share-req { flex-direction: column; align-items: stretch; }
+  .share-req-actions { width: 100%; }
+  .share-req-actions .btn { flex: 1; }
 }
 
 @media (prefers-reduced-motion: reduce) {
