@@ -2,6 +2,7 @@ package qdrant
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 
 	"github.com/atvirokodosprendimai/agentsmemory/internal/store"
@@ -32,12 +33,31 @@ func (c *Client) EnsureNamespace(ctx context.Context, namespace string, dim int)
 	return c.EnsureCollection(ctx, namespace, dim)
 }
 
-// Upsert writes points to the namespace's collection in one request, waiting for
-// the operation to be applied (wait=true) so a following Search sees them.
+// upsertBatch bounds how many points go in one Qdrant upsert request. A bulk
+// replay (sync / Rebuild) can hand Upsert tens of thousands of points at once;
+// sending them in a single PUT builds a body of hundreds of MB that Qdrant times
+// out or rejects, so the whole namespace silently fails to land. Chunking keeps
+// every request small and fast regardless of how many points the caller passes.
+const upsertBatch = 256
+
+// Upsert writes points to the namespace's collection, chunked into batches of
+// upsertBatch and waiting for each to be applied (wait=true) so a following Search
+// sees them. Chunking is transparent to callers — pass any number of points.
 func (c *Client) Upsert(ctx context.Context, namespace string, points []store.Point) error {
-	if len(points) == 0 {
-		return nil
+	for start := 0; start < len(points); start += upsertBatch {
+		end := start + upsertBatch
+		if end > len(points) {
+			end = len(points)
+		}
+		if err := c.upsertChunk(ctx, namespace, points[start:end]); err != nil {
+			return fmt.Errorf("qdrant upsert points [%d:%d] of %d: %w", start, end, len(points), err)
+		}
 	}
+	return nil
+}
+
+// upsertChunk PUTs one bounded batch of points to the namespace's collection.
+func (c *Client) upsertChunk(ctx context.Context, namespace string, points []store.Point) error {
 	type qpoint struct {
 		ID      string         `json:"id"`
 		Vector  []float32      `json:"vector"`
