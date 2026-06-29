@@ -62,6 +62,15 @@ func NewService(cfg Config, plans PlanStore, subs *Repo) *Service {
 	return &Service{cfg: cfg, plans: plans, subs: subs, checkout: stripeClient{}}
 }
 
+// Enabled reports whether checkout can actually run — a Stripe secret key plus
+// at least one priced plan. main.go always constructs the Service (so the webhook
+// route and dashboard wiring are simple), so this is the runtime gate the
+// dashboard checks before offering an upgrade control. A nil Service is treated
+// as disabled so callers needn't nil-check.
+func (s *Service) Enabled() bool {
+	return s != nil && s.cfg.SecretKey != "" && len(s.cfg.PriceByPlanCode) > 0
+}
+
 // CheckoutRequest is the input to StartCheckout: which workspace is buying which
 // plan, plus where Stripe should return the user afterwards.
 type CheckoutRequest struct {
