@@ -25,15 +25,23 @@ func syncCommand(def config.Config) *cli.Command {
 	return &cli.Command{
 		Name:  "sync",
 		Usage: "Replay every tenant's vectors from the SQLite source of truth into Qdrant (creating collections as needed)",
-		Flags: dataFlags(def),
+		Flags: append(dataFlags(def),
+			&cli.BoolFlag{
+				Name:  "recreate",
+				Usage: "drop each tenant's Qdrant collection and rebuild it from scratch (prunes points no longer in the source of truth); without it, sync is additive (upsert only)",
+			},
+		),
 		Action: func(ctx context.Context, c *cli.Command) error {
-			return syncIndex(ctx, configFromCmd(c, def))
+			return syncIndex(ctx, configFromCmd(c, def), c.Bool("recreate"))
 		},
 	}
 }
 
 // syncIndex performs the source-of-truth -> index replay for every namespace.
-func syncIndex(ctx context.Context, cfg config.Config) error {
+// When recreate is set, each tenant's Qdrant collection is dropped first so the
+// rebuild prunes points that no longer exist in the source of truth; otherwise the
+// replay is purely additive (upsert).
+func syncIndex(ctx context.Context, cfg config.Config, recreate bool) error {
 	if cfg.VectorBackend != config.VectorBackendQdrant {
 		return fmt.Errorf("sync needs --vector-backend qdrant: with the sqlite backend the " +
 			"source of truth IS the search index, so there is nothing to sync")
@@ -66,13 +74,28 @@ func syncIndex(ctx context.Context, cfg config.Config) error {
 		return nil
 	}
 
-	log.Printf("sync: replaying %d namespace(s) from SQLite into Qdrant (%s)", len(namespaces), cfg.QdrantURL)
+	mode := "upsert"
+	if recreate {
+		mode = "recreate"
+	}
+	log.Printf("sync: replaying %d namespace(s) from SQLite into Qdrant (%s, mode=%s)", len(namespaces), cfg.QdrantURL, mode)
 	var failed int
 	for _, ns := range namespaces {
 		// Stop promptly on Ctrl-C; already-synced namespaces stay synced (the replay
 		// is idempotent), so a re-run resumes cleanly.
 		if err := ctx.Err(); err != nil {
 			return err
+		}
+		// --recreate: drop the collection first so Rebuild's EnsureNamespace makes a
+		// fresh one and the upsert leaves only what the source of truth still holds.
+		// Drop-then-rebuild per namespace (not all-drops-then-all-rebuilds) keeps each
+		// tenant's search-down window to its own rebuild rather than the whole run.
+		if recreate {
+			if err := index.DeleteCollection(ctx, ns); err != nil {
+				failed++
+				log.Printf("sync: namespace %q DROP FAILED: %v", ns, err)
+				continue
+			}
 		}
 		if err := hybrid.Rebuild(ctx, ns); err != nil {
 			failed++

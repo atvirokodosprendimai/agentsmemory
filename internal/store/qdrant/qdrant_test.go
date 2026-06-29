@@ -1,8 +1,12 @@
 package qdrant
 
 import (
+	"context"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestCollectionNameIsDeterministicAndScoped verifies the tenancy invariant the
@@ -28,5 +32,41 @@ func TestCollectionNameIsDeterministicAndScoped(t *testing.T) {
 	// mempalace_(16 hex)_drawers
 	if got := len(a1); got != len("mempalace_")+16+len("_drawers") {
 		t.Fatalf("unexpected length %d for %q", got, a1)
+	}
+}
+
+// TestDeleteCollection verifies the drop used by `sync --recreate`: it issues a
+// DELETE to the team's collection path and treats both 200 (deleted) and 404
+// (already absent) as success, but surfaces other failures.
+func TestDeleteCollection(t *testing.T) {
+	ctx := context.Background()
+	want := "/collections/" + CollectionName("team-x")
+
+	for _, status := range []int{http.StatusOK, http.StatusNotFound} {
+		var gotMethod, gotPath string
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			gotMethod, gotPath = r.Method, r.URL.Path
+			w.WriteHeader(status)
+		}))
+		err := New(srv.URL, "", time.Second).DeleteCollection(ctx, "team-x")
+		srv.Close()
+		if err != nil {
+			t.Fatalf("status %d: DeleteCollection err = %v, want nil (idempotent)", status, err)
+		}
+		if gotMethod != http.MethodDelete {
+			t.Errorf("status %d: method = %s, want DELETE", status, gotMethod)
+		}
+		if gotPath != want {
+			t.Errorf("status %d: path = %s, want %s", status, gotPath, want)
+		}
+	}
+
+	// A real failure (5xx) must surface as an error, not be swallowed.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+	if err := New(srv.URL, "", time.Second).DeleteCollection(ctx, "team-x"); err == nil {
+		t.Error("status 500: want error, got nil")
 	}
 }
