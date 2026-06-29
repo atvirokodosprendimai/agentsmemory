@@ -194,6 +194,7 @@ h1, h2, h3 { font-family: "Fraunces", Georgia, serif; font-weight: 600; letter-s
 .flash { border-radius: var(--radius); padding: 1rem 1.15rem; margin: 0 0 1.2rem; border: 1px solid var(--line-2); }
 .flash.success { background: rgba(134,176,107,.10); border-color: rgba(134,176,107,.4); }
 .flash.error { background: rgba(214,87,63,.10); border-color: rgba(214,87,63,.45); }
+.flash.note { background: rgba(210,173,85,.08); border-color: rgba(210,173,85,.38); }
 .flash .ttl { font-weight: 600; }
 .flash .token { margin-top: .6rem; }
 
@@ -592,4 +593,36 @@ select.input option { color: var(--bone); background: var(--ink-2); }
 @media (min-width: 760px) { .lp-footer-links { justify-content: flex-end; } }
 .lp-footer-links a { color: var(--muted); font-size: .9rem; }
 .lp-footer-links a:hover { color: var(--ember); text-decoration: none; }
+
+/* ---- upgrade-to-Pro card (project page) ---- */
+.upgrade-card { padding: 1.6rem; margin-bottom: 1.6rem; border-color: color-mix(in srgb, var(--ember) 32%, var(--line)); }
+.upgrade-lede { color: var(--muted); margin: 0 0 1.2rem; max-width: 52ch; line-height: 1.55; }
+/* segmented monthly/annual control */
+.seg { display: inline-flex; gap: .25rem; padding: .25rem; border: 1px solid var(--line-2); border-radius: 999px; background: rgba(0,0,0,.22); }
+.seg-btn {
+  display: inline-flex; align-items: center; gap: .5rem;
+  min-height: 40px; padding: .4rem 1rem; border: 0; border-radius: 999px;
+  background: transparent; color: var(--muted); cursor: pointer;
+  font: inherit; font-size: .9rem; font-weight: 600; letter-spacing: .01em;
+  transition: background .15s ease, color .15s ease;
+}
+.seg-btn:hover { color: var(--bone); }
+.seg-btn.active { background: var(--ember); color: var(--ember-ink); }
+.seg-btn:focus-visible { outline: 2px solid var(--brass); outline-offset: 2px; }
+.seg-save {
+  font-family: "IBM Plex Mono", monospace; font-size: .6rem; text-transform: uppercase; letter-spacing: .08em;
+  padding: .12rem .4rem; border-radius: 999px;
+  background: rgba(210,173,85,.16); color: var(--brass);
+}
+.seg-btn.active .seg-save { background: rgba(26,15,6,.22); color: var(--ember-ink); }
+/* price */
+.upgrade-price { margin: 1.3rem 0 .2rem; min-height: 3rem; display: flex; align-items: baseline; flex-wrap: wrap; gap: .5rem; }
+.upgrade-amt { font-family: "Fraunces", Georgia, serif; font-weight: 700; font-size: 2.6rem; color: var(--bone); line-height: 1; }
+.upgrade-per { color: var(--faint); font-size: .95rem; }
+.upgrade-sub { color: var(--brass); font-size: .82rem; width: 100%; }
+.upgrade-list { list-style: none; margin: 1rem 0 1.5rem; padding: 0; display: grid; gap: .55rem; }
+.upgrade-list li { color: var(--muted); font-size: .92rem; padding-left: 1.5rem; position: relative; line-height: 1.5; }
+.upgrade-list li::before { content: "✓"; position: absolute; left: 0; color: var(--ok); font-weight: 700; }
+.upgrade-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem 1rem; }
+.upgrade-actions .hint { color: var(--faint); font-size: .82rem; max-width: 40ch; }
 .lp-footer-fine { margin-top: 2rem; padding-top: 1.5rem; border-top: 1px solid var(--line); color: var(--faint); font-size: .78rem; }

@@ -183,8 +183,10 @@ func (s *Server) projectsForUser(ctx context.Context, userID string) ([]views.Pr
 	out := make([]views.ProjectVM, 0, len(teams))
 	for _, t := range teams {
 		planName := "—"
+		planCode := ""
 		if p, err := s.tenants.PlanForTeam(ctx, t.ID); err == nil {
 			planName = p.Name
+			planCode = p.Code
 		}
 		st, err := s.usage.Snapshot(ctx, t.ID)
 		if err != nil {
@@ -200,9 +202,15 @@ func (s *Server) projectsForUser(ctx context.Context, userID string) ([]views.Pr
 		// Only an admin of the workspace may reveal its API key (revealing grants
 		// full access at the key owner's role). A lookup error fails closed.
 		role, _ := s.tenants.MembershipRole(ctx, userID, t.ID)
+		// Upgrade is offered to an admin of a free-tier (or planless) workspace,
+		// and only when Stripe is configured — otherwise the button would lead
+		// nowhere. A non-free plan already has its tier; no upgrade prompt.
+		onFree := planCode == "personal" || planCode == ""
+		canUpgrade := s.billing.Enabled() && role == tenant.RoleAdmin && onFree
 		out = append(out, views.ProjectVM{
 			TeamID: t.ID, Name: t.Name, Slug: t.Slug, PlanName: planName, Endpoint: "/mcp",
-			Used: st.Used, Cap: st.Cap, Pct: pct, CanReveal: role == tenant.RoleAdmin,
+			Used: st.Used, Cap: st.Cap, Pct: pct,
+			CanReveal: role == tenant.RoleAdmin, CanUpgrade: canUpgrade,
 		})
 	}
 	return out, nil
