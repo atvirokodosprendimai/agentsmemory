@@ -309,7 +309,7 @@ func landingHero(d LandingData) templ.Component {
 			templ_7745c5c3_Var10 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 17, "<section class=\"lp-hero\"><div class=\"lp-wrap lp-hero-grid\"><div class=\"lp-hero-copy\"><p class=\"eyebrow\">Open-source · MCP · multi-tenant</p><h1>Long-term memory for your AI agents.</h1><p class=\"lp-lede\"><b>AI Agent Memory</b> is an open-source, multi-tenant <b>agent memory</b> server. Your agents connect over <span class=\"mono\">MCP</span>, file verbatim memories, and recall them with hybrid semantic search — so every session builds on the last instead of starting from zero.</p><div class=\"lp-cta-row\"><a class=\"btn btn-primary\" href=\"/register\">Start free →</a> <a class=\"btn btn-ghost\" href=\"#what\">How it works</a></div><p class=\"lp-cta-note\">Free Personal plan · 10,000 requests / month · no card required ")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 17, "<section class=\"lp-hero\"><div class=\"lp-wrap lp-hero-grid\"><div class=\"lp-hero-copy\"><p class=\"eyebrow\">Open-source · MCP · multi-tenant</p><h1>Long-term memory for your AI agents.</h1><p class=\"lp-lede\"><b>AI Agent Memory</b> is an open-source, multi-tenant <b>agent memory</b> server. Your agents connect over <span class=\"mono\">MCP</span>, file verbatim memories, and recall them with hybrid semantic search — so every session builds on the last instead of starting from zero.</p><div class=\"lp-cta-row\"><a class=\"btn btn-primary\" href=\"/register\">Start free →</a> <a class=\"btn btn-ghost\" href=\"#what\">How it works</a></div><p class=\"lp-cta-note\">Free plan · 10,000 requests / month · no card required ")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -724,7 +724,7 @@ func landingQuickStart() templ.Component {
 	})
 }
 
-// landingPricing renders the two plan tiers. The featured (Enterprise) card is
+// landingPricing renders the two plan tiers. The featured (Pro) card is
 // visually raised; both CTAs land on /register, where the free project is made.
 func landingPricing() templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {

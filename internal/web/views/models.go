@@ -189,11 +189,11 @@ type ProjectDetailData struct {
 // whole section (writer/admin); the handler computes it from the role.
 type MergeData struct {
 	TeamID     string
-	CanManage  bool          // viewer is writer/admin: may merge wings
-	Wings      []string      // all wing names — source <select> + target datalist
-	Duplicates []MergeDupVM  // detected wing_X / X collisions
-	Jobs       []MergeJobVM  // recent merge jobs, newest first
-	Active     bool          // a job is queued/running — drives the status poller
+	CanManage  bool         // viewer is writer/admin: may merge wings
+	Wings      []string     // all wing names — source <select> + target datalist
+	Duplicates []MergeDupVM // detected wing_X / X collisions
+	Jobs       []MergeJobVM // recent merge jobs, newest first
+	Active     bool         // a job is queued/running — drives the status poller
 }
 
 // MergeDupVM is one detected duplicate: Source (the wing_X) folds into Target (X).
@@ -424,7 +424,7 @@ func landingStats() []statItem {
 		{"36 / 37", "MCP tools shipped"},
 		{"3-way", "hybrid recall: vector · BM25 · closet"},
 		{"per-team", "isolated vector store"},
-		{"$0", "to start — 10k requests / month"},
+		{"€0", "to start — 10k requests / month"},
 	}
 }
 
@@ -465,18 +465,20 @@ func landingFeatureList() []feature {
 	}
 }
 
-// landingPlans are the pricing tiers, matching the plans catalog.
+// landingPlans are the pricing tiers, matching the plans catalog (Free + Pro).
+// Pro is one tier sold two ways — €50 / month or €500 / year (two months free) —
+// so the annual option rides as a point under the headline monthly price.
 func landingPlans() []plan {
 	return []plan{
 		{
-			Name: "Personal", Price: "$0", Period: "forever",
+			Name: "Free", Price: "€0", Period: "forever",
 			Tagline: "For solo agents and side projects.",
 			Points:  []string{"10,000 requests / month", "Unlimited drawers & diary", "Hybrid search + knowledge graph", "Centralised skills"},
 		},
 		{
-			Name: "Enterprise", Price: "$50", Period: "/ month",
-			Tagline: "For teams sharing memory across agents.", Featured: true,
-			Points: []string{"Everything in Personal", "Multiple workspaces & members", "Role-gated shared skills", "Per-team isolated vector store"},
+			Name: "Pro", Price: "€50", Period: "/ month",
+			Tagline: "For teams running agents in production.", Featured: true,
+			Points: []string{"or €500 / year — 2 months free", "1,000,000 requests / month", "Everything in Free", "Per-team isolated vector store"},
 		},
 	}
 }
@@ -507,7 +509,7 @@ func landingFAQ() []faqItem {
 		},
 		{
 			"What does agent memory cost to start?",
-			"The Personal plan is free with 10,000 requests per month. Teams that share memory across many agents and members use the Enterprise plan at $50 per month.",
+			"The Free plan is free forever with 10,000 requests per month. Teams running agents in production upgrade to Pro at €50 per month, or €500 per year (two months free).",
 		},
 	}
 }
@@ -576,8 +578,9 @@ func landingJSONLD() string {
 				"sameAs":              []string{repoURL},
 				"description":         "AI Agent Memory is a multi-tenant memory palace for AI agents — long-term agent memory served as a remote MCP server, with hybrid semantic search backed by Ollama and Qdrant.",
 				"offers": []map[string]any{
-					{"@type": "Offer", "name": "Personal", "price": "0", "priceCurrency": "USD"},
-					{"@type": "Offer", "name": "Enterprise", "price": "50", "priceCurrency": "USD"},
+					{"@type": "Offer", "name": "Free", "price": "0", "priceCurrency": "EUR"},
+					{"@type": "Offer", "name": "Pro Monthly", "price": "50", "priceCurrency": "EUR"},
+					{"@type": "Offer", "name": "Pro Annual", "price": "500", "priceCurrency": "EUR"},
 				},
 			},
 			{
