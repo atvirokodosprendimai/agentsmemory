@@ -76,3 +76,77 @@ func TestMembershipRoleEmptyRoleIsMember(t *testing.T) {
 		t.Fatalf("dan@team-a = (%q, %v), want (member, nil)", got, err)
 	}
 }
+
+// newPlanDB returns an in-memory SQLite with the teams + plans tables (the shape
+// PlanByCode/SetTeamPlan/PlanForTeam touch), seeded with the free plan, a Pro
+// plan, and one team on the free plan — the starting state billing flips.
+func newPlanDB(t *testing.T) *gorm.DB {
+	t.Helper()
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	if err := db.Exec(`CREATE TABLE plans (
+		id TEXT PRIMARY KEY, code TEXT NOT NULL UNIQUE, kind TEXT NOT NULL, name TEXT NOT NULL,
+		price_cents INTEGER NOT NULL DEFAULT 0, currency TEXT NOT NULL DEFAULT 'eur',
+		monthly_request_cap INTEGER NOT NULL DEFAULT 0, billing_interval TEXT NOT NULL DEFAULT 'month',
+		created_at TEXT NOT NULL)`).Error; err != nil {
+		t.Fatalf("create plans: %v", err)
+	}
+	if err := db.Exec(`CREATE TABLE teams (
+		id TEXT PRIMARY KEY, name TEXT NOT NULL, slug TEXT NOT NULL UNIQUE, kind TEXT NOT NULL DEFAULT 'personal',
+		plan_id TEXT, created_at TEXT NOT NULL)`).Error; err != nil {
+		t.Fatalf("create teams: %v", err)
+	}
+	if err := db.Exec(`INSERT INTO plans (id, code, kind, name, price_cents, currency, monthly_request_cap, billing_interval, created_at) VALUES
+		('plan_personal','personal','personal','Free',0,'eur',10000,'month','1970-01-01T00:00:00Z'),
+		('plan_pro_monthly','pro_monthly','personal','Pro',5000,'eur',1000000,'month','1970-01-01T00:00:00Z')`).Error; err != nil {
+		t.Fatalf("seed plans: %v", err)
+	}
+	if err := db.Exec(`INSERT INTO teams (id, name, slug, kind, plan_id, created_at) VALUES
+		('team-a','Acme','acme','personal','plan_personal','1970-01-01T00:00:00Z')`).Error; err != nil {
+		t.Fatalf("seed team: %v", err)
+	}
+	return db
+}
+
+// TestPlanByCode confirms a sellable plan is resolved by its stable code (with
+// its billing interval), and that an unknown code is an error.
+func TestPlanByCode(t *testing.T) {
+	r := NewRepo(newPlanDB(t))
+	ctx := context.Background()
+
+	pro, err := r.PlanByCode(ctx, "pro_monthly")
+	if err != nil {
+		t.Fatalf("PlanByCode(pro_monthly): %v", err)
+	}
+	if pro.ID != "plan_pro_monthly" || pro.Name != "Pro" || pro.BillingInterval != "month" || pro.PriceCents != 5000 {
+		t.Fatalf("unexpected plan: %+v", pro)
+	}
+	if _, err := r.PlanByCode(ctx, "nope"); err == nil {
+		t.Fatal("expected error for unknown plan code")
+	}
+}
+
+// TestSetTeamPlanFlipsEffectivePlan confirms SetTeamPlan changes teams.plan_id —
+// the single column PlanForTeam and MonthlyCap read — so an upgrade is visible to
+// the metering path with no other change.
+func TestSetTeamPlanFlipsEffectivePlan(t *testing.T) {
+	r := NewRepo(newPlanDB(t))
+	ctx := context.Background()
+
+	// Starts on Free (10k cap).
+	if cap, err := r.MonthlyCap(ctx, "team-a"); err != nil || cap != 10000 {
+		t.Fatalf("initial cap = (%d, %v), want (10000, nil)", cap, err)
+	}
+	if err := r.SetTeamPlan(ctx, "team-a", "plan_pro_monthly"); err != nil {
+		t.Fatalf("SetTeamPlan: %v", err)
+	}
+	plan, err := r.PlanForTeam(ctx, "team-a")
+	if err != nil || plan.ID != "plan_pro_monthly" {
+		t.Fatalf("PlanForTeam after upgrade = (%+v, %v)", plan, err)
+	}
+	if cap, err := r.MonthlyCap(ctx, "team-a"); err != nil || cap != 1000000 {
+		t.Fatalf("cap after upgrade = (%d, %v), want (1000000, nil)", cap, err)
+	}
+}
