@@ -147,7 +147,7 @@ func landingHead() templ.Component {
 			templ_7745c5c3_Var2 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "<head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>AI Agent Memory — Long-term Memory for AI Agents, served over MCP</title><meta name=\"description\" content=\"AI Agent Memory is an open-source, multi-tenant memory server for AI agents. Connect over MCP, file verbatim memories, and recall them with hybrid semantic search — long-term agent memory backed by Ollama and Qdrant.\"><meta name=\"keywords\" content=\"AI agent memory, agent memory, memory for AI agents, MCP memory server, long-term memory for LLM agents, semantic memory, memory palace, vector memory, Claude memory MCP, hybrid search\"><meta name=\"robots\" content=\"index, follow\"><meta name=\"theme-color\" content=\"#15120d\"><link rel=\"canonical\" href=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "<head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>AI Agent Memory — Long-term, Team-Wide Memory over MCP</title><meta name=\"description\" content=\"AI Agent Memory is an open-source, multi-tenant memory server for AI agents. Connect over MCP, file verbatim memories, and recall them with hybrid semantic search — long-term agent memory backed by Ollama and Qdrant.\"><meta name=\"keywords\" content=\"AI agent memory, agent memory, memory for AI agents, MCP memory server, long-term memory for LLM agents, semantic memory, memory palace, vector memory, Claude memory MCP, hybrid search\"><meta name=\"robots\" content=\"index, follow\"><meta name=\"theme-color\" content=\"#15120d\"><link rel=\"canonical\" href=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -160,7 +160,7 @@ func landingHead() templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "\"><!-- Open Graph + Twitter: brand the share card as \"AI Agent Memory\". --><meta property=\"og:type\" content=\"website\"><meta property=\"og:site_name\" content=\"AI Agent Memory\"><meta property=\"og:title\" content=\"AI Agent Memory — Long-term Memory for AI Agents\"><meta property=\"og:description\" content=\"Open-source, multi-tenant memory for AI agents over MCP. File verbatim memories; recall them with hybrid semantic search.\"><meta property=\"og:url\" content=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "\"><!-- Open Graph + Twitter: brand the share card as \"AI Agent Memory\". --><meta property=\"og:type\" content=\"website\"><meta property=\"og:site_name\" content=\"AI Agent Memory\"><meta property=\"og:title\" content=\"AI Agent Memory — Long-term Team-Wide Memory for AI Agents\"><meta property=\"og:description\" content=\"Open-source, multi-tenant memory for AI agents over MCP. File verbatim memories; recall them with hybrid semantic search.\"><meta property=\"og:url\" content=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -173,7 +173,7 @@ func landingHead() templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "\"><meta name=\"twitter:card\" content=\"summary\"><meta name=\"twitter:title\" content=\"AI Agent Memory — Long-term Memory for AI Agents\"><meta name=\"twitter:description\" content=\"Open-source, multi-tenant memory for AI agents over MCP. Hybrid semantic recall, backed by Ollama + Qdrant.\"><link rel=\"preconnect\" href=\"https://fonts.googleapis.com\"><link rel=\"preconnect\" href=\"https://fonts.gstatic.com\" crossorigin><link href=\"https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap\" rel=\"stylesheet\"><link rel=\"stylesheet\" href=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "\"><meta name=\"twitter:card\" content=\"summary\"><meta name=\"twitter:title\" content=\"AI Agent Memory — Long-term Team-Wide Memory for AI Agents\"><meta name=\"twitter:description\" content=\"Open-source, multi-tenant memory for AI agents over MCP. Hybrid semantic recall, backed by Ollama + Qdrant.\"><link rel=\"preconnect\" href=\"https://fonts.googleapis.com\"><link rel=\"preconnect\" href=\"https://fonts.gstatic.com\" crossorigin><link href=\"https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap\" rel=\"stylesheet\"><link rel=\"stylesheet\" href=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -309,7 +309,7 @@ func landingHero(d LandingData) templ.Component {
 			templ_7745c5c3_Var10 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 17, "<section class=\"lp-hero\"><div class=\"lp-wrap lp-hero-grid\"><div class=\"lp-hero-copy\"><p class=\"eyebrow\">Open-source · MCP · multi-tenant</p><h1>Long-term memory for your AI agents.</h1><p class=\"lp-lede\"><b>AI Agent Memory</b> is an open-source, multi-tenant <b>agent memory</b> server. Your agents connect over <span class=\"mono\">MCP</span>, file verbatim memories, and recall them with hybrid semantic search — so every session builds on the last instead of starting from zero.</p><div class=\"lp-cta-row\"><a class=\"btn btn-primary\" href=\"/register\">Start free →</a> <a class=\"btn btn-ghost\" href=\"#what\">How it works</a></div><p class=\"lp-cta-note\">Free plan · 10,000 requests / month · no card required ")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 17, "<section class=\"lp-hero\"><div class=\"lp-wrap lp-hero-grid\"><div class=\"lp-hero-copy\"><p class=\"eyebrow\">Open-source · MCP · multi-tenant</p><h1>Long-term team-wide memory for your AI agents.</h1><p class=\"lp-lede\"><b>AI Agent Memory</b> is an open-source, multi-tenant <b>agent memory</b> server. Your agents connect over <span class=\"mono\">MCP</span>, file verbatim memories, and recall them with hybrid semantic search — so every session builds on the last instead of starting from zero.</p><div class=\"lp-cta-row\"><a class=\"btn btn-primary\" href=\"/register\">Start free →</a> <a class=\"btn btn-ghost\" href=\"#what\">How it works</a></div><p class=\"lp-cta-note\">Free plan · 10,000 requests / month · no card required ")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
