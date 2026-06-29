@@ -103,6 +103,7 @@ func (s *Server) getProject(w http.ResponseWriter, r *http.Request) {
 		CanWrite:   webSkillCaller{role: role}.CanWrite(),
 		ServerBase: requestBaseURL(r),
 		Share:      s.buildShareData(r.Context(), u, teamID, role),
+		Merge:      s.buildMergeData(r.Context(), u, teamID, role),
 	}))
 }
 

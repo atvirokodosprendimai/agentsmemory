@@ -175,6 +175,59 @@ type ProjectDetailData struct {
 	// incoming-requests inbox. Its flags decide which halves render; the handler
 	// computes them from the membership role, the template never decides authority.
 	Share ShareData
+	// Merge backs the wing-merge card (fold duplicate wings together as a
+	// background job). Rendered only when the viewer manages the workspace.
+	Merge MergeData
+}
+
+// MergeData backs the "Merge wings" section: auto-detected duplicate pairs, the
+// generic from/to picker, and the recent background jobs. CanManage gates the
+// whole section (writer/admin); the handler computes it from the role.
+type MergeData struct {
+	TeamID     string
+	CanManage  bool          // viewer is writer/admin: may merge wings
+	Wings      []string      // all wing names — source <select> + target datalist
+	Duplicates []MergeDupVM  // detected wing_X / X collisions
+	Jobs       []MergeJobVM  // recent merge jobs, newest first
+	Active     bool          // a job is queued/running — drives the status poller
+}
+
+// MergeDupVM is one detected duplicate: Source (the wing_X) folds into Target (X).
+type MergeDupVM struct {
+	Source        string
+	Target        string
+	SourceDrawers int
+	TargetDrawers int
+}
+
+// MergeJobVM is one merge job as shown in the recent-jobs panel.
+type MergeJobVM struct {
+	ID      string
+	Sources string // source wings joined for display
+	Target  string
+	Status  string // queued|running|done|failed
+	Summary string // counts on done, the error on failed, else empty
+	When    string // created date (YYYY-MM-DD)
+}
+
+// mergeDupLabel renders a duplicate pair as a one-line description with weights,
+// e.g. "wing_research (5) -> research (3)".
+func mergeDupLabel(d MergeDupVM) string {
+	return d.Source + " (" + strconv.Itoa(d.SourceDrawers) + ") → " + d.Target + " (" + strconv.Itoa(d.TargetDrawers) + ")"
+}
+
+// mergeJobStatusClass maps a job status to its badge CSS modifier.
+func mergeJobStatusClass(status string) string {
+	switch status {
+	case "done":
+		return "badge ok"
+	case "failed":
+		return "badge danger"
+	case "running":
+		return "badge running"
+	default:
+		return "badge"
+	}
 }
 
 // ShareData backs the "Share memory" section on the project page. The same struct

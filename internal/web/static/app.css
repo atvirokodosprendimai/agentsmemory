@@ -309,6 +309,42 @@ select.input option { color: var(--bone); background: var(--ink-2); }
 .share-req-meta b { color: var(--bone); }
 .share-req-actions { display: flex; gap: .55rem; flex-shrink: 0; }
 
+/* ---- merge wings (background job) ---- */
+.merge-card { margin-top: 1.4rem; padding: 1.5rem 1.6rem; }
+.merge-card h2 { font-size: 1.4rem; margin: 0 0 .5rem; }
+.merge-lede { color: var(--muted); margin: 0 0 1.2rem; max-width: 64ch; font-size: .95rem; }
+.merge-lede .mono { color: var(--bone); }
+
+.merge-dups { margin-bottom: 1.2rem; }
+.merge-dup {
+  display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap;
+  padding: .7rem .9rem; border: 1px dashed var(--line-2); border-radius: 10px; margin-bottom: .55rem;
+}
+.merge-dup-label { font-family: "IBM Plex Mono", monospace; font-size: .85rem; color: var(--bone); overflow-wrap: anywhere; }
+
+.merge-grid { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 1.1rem; }
+.merge-grid .field { margin: 0; }
+.merge-actions { display: flex; align-items: center; gap: .9rem; flex-wrap: wrap; margin-top: 1.2rem; }
+.merge-actions .hint { color: var(--brass); font-size: .82rem; max-width: 44ch; }
+
+.merge-jobs { margin-top: 1.4rem; }
+.merge-jobs .kv { margin-top: .2rem; }
+.merge-job-list { display: grid; gap: .55rem; }
+.merge-job {
+  display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap;
+  padding: .7rem .9rem; background: var(--ink-2); border: 1px solid var(--line); border-radius: 10px;
+}
+.merge-job-main { min-width: 0; display: flex; flex-direction: column; gap: .2rem; }
+.merge-job-wings { font-family: "IBM Plex Mono", monospace; font-size: .85rem; color: var(--bone); overflow-wrap: anywhere; }
+.merge-job-summary { font-size: .8rem; color: var(--muted); overflow-wrap: anywhere; }
+.merge-job-side { display: flex; align-items: center; gap: .7rem; flex-shrink: 0; }
+.merge-job-when { font-size: .78rem; color: var(--faint); font-variant-numeric: tabular-nums; }
+
+/* status badge tints (reuse the .badge base) */
+.badge.ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 45%, var(--line-2)); }
+.badge.danger { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 45%, var(--line-2)); }
+.badge.running { color: var(--ember); border-color: color-mix(in srgb, var(--ember) 45%, var(--line-2)); }
+
 @media (max-width: 540px) {
   .topbar .wrap { min-height: 56px; }
   /* Drop the email on small screens so the brand + sign-out never overflow. */
@@ -322,6 +358,10 @@ select.input option { color: var(--bone); background: var(--ink-2); }
   .share-req { flex-direction: column; align-items: stretch; }
   .share-req-actions { width: 100%; }
   .share-req-actions .btn { flex: 1; }
+  /* Merge: stack the picker and let duplicate rows breathe on a phone. */
+  .merge-grid { grid-template-columns: 1fr; }
+  .merge-dup { flex-direction: column; align-items: stretch; }
+  .merge-dup .btn { width: 100%; }
 }
 
 @media (prefers-reduced-motion: reduce) {

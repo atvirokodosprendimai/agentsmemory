@@ -24,6 +24,7 @@ var (
 	ErrForbidden    = errors.New("mergejob: not authorized")
 	ErrSameWing     = errors.New("mergejob: source and target are the same wing")
 	ErrWingNotFound = errors.New("mergejob: that source wing does not exist")
+	ErrInvalidName  = errors.New("mergejob: invalid wing name")
 )
 
 // roleLookup is the slice of the tenant repo the merge flow needs: a user's role
@@ -85,13 +86,15 @@ func (s *Service) Enqueue(ctx context.Context, requesterID, teamID, source, targ
 	}
 	// Reuse palace's name sanitiser so a queued wing name obeys the same rules the
 	// merge itself enforces (non-empty, length, no path/NUL/unsafe chars).
+	// Translate palace's sanitiser errors into this package's sentinel so the web
+	// layer maps one error without importing palace.
 	src, err := palace.SanitizeName(source, "source")
 	if err != nil {
-		return Job{}, err
+		return Job{}, ErrInvalidName
 	}
 	tgt, err := palace.SanitizeName(target, "target")
 	if err != nil {
-		return Job{}, err
+		return Job{}, ErrInvalidName
 	}
 	if src == tgt {
 		return Job{}, ErrSameWing
@@ -123,6 +126,21 @@ func (s *Service) Enqueue(ctx context.Context, requesterID, teamID, source, targ
 // caller has already confirmed the viewer manages the team.
 func (s *Service) ListForTeam(ctx context.Context, teamID string, limit int) ([]Job, error) {
 	return s.jobs.ListForTeam(ctx, teamID, limit)
+}
+
+// WingNames lists a team's wing names (sorted) for the merge picker — the source
+// dropdown and the target datalist. Returns just names so the web layer need not
+// know palace's WingStat type.
+func (s *Service) WingNames(ctx context.Context, teamID string) ([]string, error) {
+	wings, err := s.wings.Wings(ctx, teamID)
+	if err != nil {
+		return nil, err
+	}
+	names := make([]string, 0, len(wings))
+	for _, w := range wings {
+		names = append(names, w.Wing)
+	}
+	return names, nil
 }
 
 // Duplicates finds wing_X/X collisions in a team: any wing named "wing_<X>" whose
