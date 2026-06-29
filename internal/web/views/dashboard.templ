@@ -197,6 +197,10 @@ templ Flash(f FlashVM) {
 			<div class="flash error" role="alert">
 				<div class="ttl">{ f.Message }</div>
 			</div>
+		} else if f.Kind == "note" {
+			<div class="flash note" role="status">
+				<div class="ttl">{ f.Message }</div>
+			</div>
 		}
 	</div>
 }

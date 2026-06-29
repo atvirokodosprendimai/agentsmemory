@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/atvirokodosprendimai/agentsmemory/internal/billing"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/mergejob"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/share"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/skill"
@@ -42,6 +43,7 @@ type Server struct {
 	skillsets *skillset.Service // the global wakeup-playbook use-cases (am_skillset)
 	shares    *share.Service    // cross-workspace wing-share handshake (consent flow)
 	merges    *mergejob.Service // background wing-merge queue (enqueue/list/detect)
+	billing   *billing.Service  // Stripe upgrade-to-Pro; inert until configured
 	store     sessions.Store
 	providers []string // configured OAuth providers; empty until keys are set
 	// superAdmins is the platform-superadmin allowlist as a set, keyed by
@@ -57,7 +59,7 @@ type Server struct {
 // reused here so the web editor and the agent tools share one code path; skillsets
 // backs the superadmin-only global wakeup-playbook editor. superAdmins is the
 // SUPERADMIN_EMAILS allowlist that gates that editor.
-func New(tenants *tenant.Repo, usageSvc *usage.Service, skills *skill.Service, skillsets *skillset.Service, shares *share.Service, merges *mergejob.Service, superAdmins []string, sessionKey []byte) *Server {
+func New(tenants *tenant.Repo, usageSvc *usage.Service, skills *skill.Service, skillsets *skillset.Service, shares *share.Service, merges *mergejob.Service, billingSvc *billing.Service, superAdmins []string, sessionKey []byte) *Server {
 	store := sessions.NewCookieStore(sessionKey)
 	store.Options = &sessions.Options{
 		Path:     "/",
@@ -65,7 +67,7 @@ func New(tenants *tenant.Repo, usageSvc *usage.Service, skills *skill.Service, s
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   7 * 24 * 60 * 60, // one week
 	}
-	s := &Server{tenants: tenants, usage: usageSvc, skills: skills, skillsets: skillsets, shares: shares, merges: merges, store: store, superAdmins: superAdminSet(superAdmins)}
+	s := &Server{tenants: tenants, usage: usageSvc, skills: skills, skillsets: skillsets, shares: shares, merges: merges, billing: billingSvc, store: store, superAdmins: superAdminSet(superAdmins)}
 	s.providers = registerOAuth(store) // gated: returns nil when no keys set
 	// Stamp the asset cache-buster from the embedded stylesheet's content hash so
 	// templates render <link …/app.css?v=hash>; this changes only when the CSS does.
@@ -119,6 +121,15 @@ func (s *Server) Routes(r chi.Router) {
 		r.Post("/projects/{teamID}/key/rotate", s.postRotateKey)
 		r.Post("/projects/{teamID}/skills", s.postSkill)
 		r.Get("/projects/{teamID}/skill-body", s.getSkillBody)
+
+		// Upgrade to Pro via Stripe hosted checkout. POST starts a checkout session
+		// and redirects the browser to Stripe (admin-gated; the workspace must be on
+		// the free plan). Stripe returns the user to the success/cancel GETs, which
+		// re-render the project page — the actual plan flip is webhook-driven, never
+		// trusted from the return redirect.
+		r.Post("/projects/{teamID}/upgrade", s.postUpgrade)
+		r.Get("/projects/{teamID}/billing/success", s.getBillingSuccess)
+		r.Get("/projects/{teamID}/billing/cancel", s.getBillingCancel)
 
 		// Cross-workspace wing sharing. POST /share files a pending request from
 		// this (source) workspace; accept/decline resolve a request addressed to

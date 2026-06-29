@@ -84,27 +84,9 @@ func (s *Server) getProject(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	proj, found := s.projectVM(r.Context(), u.ID, teamID)
-	if !found {
-		// Member of a team the dashboard can't shape (e.g. deleted mid-request):
-		// treat as not found rather than render a broken page.
-		http.NotFound(w, r)
-		return
-	}
-	summaries, err := s.skills.List(r.Context(), teamID)
-	if err != nil {
-		http.Error(w, "could not load skills", http.StatusInternalServerError)
-		return
-	}
-	s.render(w, r, views.ProjectDetailPage(views.ProjectDetailData{
-		UserEmail:  u.Email,
-		Project:    proj,
-		Skills:     toSkillVMs(summaries),
-		CanWrite:   webSkillCaller{role: role}.CanWrite(),
-		ServerBase: requestBaseURL(r),
-		Share:      s.buildShareData(r.Context(), u, teamID, role),
-		Merge:      s.buildMergeData(r.Context(), u, teamID, role),
-	}))
+	// renderProjectPage (web/billing.go) is the shared assembly; the plain page
+	// carries no flash. A 404 for a team the dashboard can't shape is handled there.
+	s.renderProjectPage(w, r, u, teamID, role, views.FlashVM{})
 }
 
 // requestBaseURL reconstructs this server's public origin (scheme + host) from

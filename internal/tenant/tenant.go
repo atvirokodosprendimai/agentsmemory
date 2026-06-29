@@ -33,6 +33,12 @@ const (
 	RoleAdmin  Role = "admin"
 )
 
+// FreePlanID is the seeded id of the free entry tier. It is the plan a new
+// workspace starts on and the plan billing downgrades a workspace back to when
+// its paid subscription ends, so it is named once here rather than spelled as a
+// literal at each call site.
+const FreePlanID = "plan_personal"
+
 // ErrInvalidToken is returned when a bearer token matches no active API key.
 // It is deliberately opaque so callers cannot distinguish "unknown" from
 // "revoked" — both are simply unauthorized.
@@ -62,7 +68,7 @@ type Tenant struct {
 type Team struct {
 	ID        string `gorm:"primaryKey"`
 	Name      string
-	Slug      string `gorm:"uniqueIndex"`
+	Slug      string  `gorm:"uniqueIndex"`
 	Kind      string  // personal | enterprise
 	PlanID    *string // FK to plans.id; nil until a plan is attached
 	CreatedAt string
@@ -81,7 +87,12 @@ type Plan struct {
 	PriceCents        int
 	Currency          string
 	MonthlyRequestCap int // metered MCP requests allowed per calendar month
-	CreatedAt         string
+	// BillingInterval is the cadence PriceCents is charged on — "month" or "year".
+	// A paid tier sold both ways (Pro €50/month, Pro €500/year) is two plan rows
+	// with the same name and cap, differing only in price and interval; this field
+	// is what lets the dashboard render "/ month" vs "/ year" unambiguously.
+	BillingInterval string
+	CreatedAt       string
 }
 
 // TableName pins the gorm model to the goose-managed table.
@@ -116,13 +127,13 @@ func (Membership) TableName() string { return "memberships" }
 // the OAuth client_secret. Direct callers send the token as a Bearer; OAuth
 // clients exchange (client_key, token) for a sealed Bearer.
 type APIKey struct {
-	ID         string `gorm:"primaryKey"`
-	TeamID     string
-	UserID     string
-	Name       string
-	Prefix     string
-	ClientKey  string
-	TokenHash  string `gorm:"uniqueIndex"`
+	ID        string `gorm:"primaryKey"`
+	TeamID    string
+	UserID    string
+	Name      string
+	Prefix    string
+	ClientKey string
+	TokenHash string `gorm:"uniqueIndex"`
 	// TokenEnc is the AES-256-GCM seal of the plaintext token, kept so an
 	// authorized admin can reveal the key after creation. Empty for keys minted
 	// before the reveal feature (or when no token key is configured); those are
@@ -614,6 +625,25 @@ func (r *Repo) PlanForTeam(ctx context.Context, teamID string) (Plan, error) {
 
 // ErrNoPlan is returned when a workspace has no plan attached.
 var ErrNoPlan = errors.New("tenant: workspace has no plan")
+
+// PlanByCode resolves a plan by its stable code (e.g. "pro_monthly"). Billing
+// uses it to turn the plan a customer chose at checkout into the plan_id to
+// attach. Returns gorm.ErrRecordNotFound for an unknown code.
+func (r *Repo) PlanByCode(ctx context.Context, code string) (Plan, error) {
+	var plan Plan
+	return plan, r.db.WithContext(ctx).Where("code = ?", code).First(&plan).Error
+}
+
+// SetTeamPlan changes the effective plan a workspace is on by updating
+// teams.plan_id — the single column PlanForTeam and MonthlyCap read, so the
+// metering path needs no change when billing flips a workspace up to Pro or back
+// down to Free. It is the one mutation the Stripe webhook performs against tenant
+// state; the durable Stripe relationship lives in the billing context's
+// subscriptions table, not here.
+func (r *Repo) SetTeamPlan(ctx context.Context, teamID, planID string) error {
+	return r.db.WithContext(ctx).Model(&Team{}).
+		Where("id = ?", teamID).Update("plan_id", planID).Error
+}
 
 // MonthlyCap returns the workspace's monthly request cap (0 = no plan / treat as
 // unlimited by the caller). It satisfies the usage package's CapLookup so the

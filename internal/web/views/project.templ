@@ -23,6 +23,9 @@ templ ProjectDetailPage(d ProjectDetailData) {
 			</div>
 		</section>
 		@Flash(d.Flash)
+		if d.Project.CanUpgrade {
+			@UpgradeCard(d.Project)
+		}
 		<div data-signals="{skillName:'', skillDescription:'', skillContent:''}">
 			if d.CanWrite {
 				@SkillEditor(d.Project.TeamID)
@@ -45,6 +48,72 @@ templ ProjectDetailPage(d ProjectDetailData) {
 		}
 		@MigrateCard(d.ServerBase)
 	}
+}
+
+// UpgradeCard is the per-workspace upgrade-to-Pro CTA, shown only to an admin of
+// a free-plan workspace when Stripe is configured (gated by ProjectVM.CanUpgrade;
+// the server re-checks on POST). It is fully backend-driven: a segmented control
+// writes the chosen plan code into the $proInterval signal, the price block reacts
+// to it, and Upgrade posts that signal — the handler opens a Stripe Checkout
+// session and redirects the browser. The two prices mirror the seeded Pro catalog
+// rows (€50 / month, €500 / year = two months free). $upgrading drives the
+// in-flight spinner/disabled state so a double-click can't open two sessions.
+templ UpgradeCard(p ProjectVM) {
+	<section class="card upgrade-card" aria-labelledby="upgrade-h" data-signals="{proInterval:'pro_monthly', upgrading:false}">
+		<p class="eyebrow">Plan</p>
+		<h2 id="upgrade-h">Upgrade to Pro</h2>
+		<p class="upgrade-lede">
+			This workspace is on the free plan. Pro lifts the monthly request cap to a
+			million and keeps every agent on the team running at full tilt.
+		</p>
+		<div class="seg" role="group" aria-label="Billing period">
+			<button
+				type="button"
+				class="seg-btn"
+				data-class="{active: $proInterval === 'pro_monthly'}"
+				data-attr:aria-pressed="$proInterval === 'pro_monthly' ? 'true' : 'false'"
+				data-on:click="$proInterval = 'pro_monthly'"
+			>Monthly</button>
+			<button
+				type="button"
+				class="seg-btn"
+				data-class="{active: $proInterval === 'pro_annual'}"
+				data-attr:aria-pressed="$proInterval === 'pro_annual' ? 'true' : 'false'"
+				data-on:click="$proInterval = 'pro_annual'"
+			>
+				Annual
+				<span class="seg-save">2 months free</span>
+			</button>
+		</div>
+		<div class="upgrade-price" aria-live="polite">
+			<div data-show="$proInterval === 'pro_monthly'">
+				<span class="upgrade-amt">€50</span>
+				<span class="upgrade-per">/ month</span>
+			</div>
+			<div data-show="$proInterval === 'pro_annual'" style="display:none">
+				<span class="upgrade-amt">€500</span>
+				<span class="upgrade-per">/ year</span>
+				<span class="upgrade-sub">≈ €41.67 / mo, billed yearly</span>
+			</div>
+		</div>
+		<ul class="upgrade-list">
+			<li>1,000,000 metered requests every month</li>
+			<li>Everything in Free — unlimited drawers, diary, knowledge graph</li>
+			<li>Per-team isolated vector store</li>
+		</ul>
+		<div class="upgrade-actions">
+			<button
+				class="btn btn-primary"
+				data-on:click={ "@post('/projects/" + p.TeamID + "/upgrade')" }
+				data-indicator:upgrading
+				data-attr:disabled="$upgrading"
+			>
+				<span data-show="!$upgrading">Upgrade to Pro</span>
+				<span class="spinner" data-show="$upgrading" style="display:none" aria-hidden="true"></span>
+			</button>
+			<span class="hint">Secure checkout via Stripe — you'll confirm payment on Stripe, then land back here. Cancel anytime.</span>
+		</div>
+	</section>
 }
 
 // MigrateCard is the one-time onboarding action: bring an existing local
