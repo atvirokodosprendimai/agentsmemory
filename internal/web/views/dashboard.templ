@@ -85,7 +85,7 @@ templ ProjectCard(p ProjectVM) {
 		<div class="project-top">
 			<div>
 				<h3>{ p.Name }</h3>
-				<div class="slug">{ p.Slug }</div>
+				@SlugChip(p.Slug)
 			</div>
 			<span class="badge">{ p.PlanName }</span>
 		</div>
@@ -119,6 +119,35 @@ templ ProjectCard(p ProjectVM) {
 			</a>
 		</div>
 	</article>
+}
+
+// SlugChip surfaces a workspace's slug as a labeled, one-click-copyable handle —
+// the identifier another workspace's owner types into "Share a wing" to push
+// memory here. Before this the slug was printed as faint, unlabeled mono text
+// that read as decoration, so owners couldn't tell it apart as the thing to hand
+// over and the cross-tenant share handshake had no starting point.
+//
+// The whole chip is the copy button (lowest friction: grab slug -> paste), and
+// the copied confirmation is scoped to the clicked element via el.classList, NOT
+// a datastar signal: the dashboard renders one chip per project card and signals
+// are global, so a shared _copied would flash "Copied ✓" on every card at once —
+// the same trap KeyBlock documents. el keeps each chip independent, so this works
+// unchanged whether the page shows one chip (project header) or many (dashboard).
+templ SlugChip(slug string) {
+	<button
+		type="button"
+		class="slug-chip"
+		title="Copy workspace slug"
+		aria-label={ "Copy workspace slug " + slug }
+		data-on:click={ copyExpr(slug) + "; el.classList.add('is-copied'); setTimeout(() => el.classList.remove('is-copied'), 1600)" }
+	>
+		<span class="slug-chip-tag">slug</span>
+		<span class="slug-chip-val">{ slug }</span>
+		<span class="slug-chip-act" aria-hidden="true">
+			<span class="slug-chip-copy">Copy</span>
+			<span class="slug-chip-done">Copied ✓</span>
+		</span>
+	</button>
 }
 
 // KeyBlock renders a project's API key area as a datastar morph target

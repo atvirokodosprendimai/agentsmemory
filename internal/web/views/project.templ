@@ -18,7 +18,7 @@ templ ProjectDetailPage(d ProjectDetailData) {
 			<h1>{ d.Project.Name }</h1>
 			<p>Centralised skills your agents pull by name over MCP — versioned, shared across the whole workspace.</p>
 			<div class="meta-row">
-				<span class="slug">{ d.Project.Slug }</span>
+				@SlugChip(d.Project.Slug)
 				<span class="badge">{ d.Project.PlanName }</span>
 			</div>
 		</section>
@@ -326,8 +326,9 @@ templ ShareCard(d ShareData) {
 					<span class="spinner" data-show="$sharing" style="display:none" aria-hidden="true"></span>
 				</button>
 				<span class="hint">
-					Ask the destination's owner for its slug — it's shown under the project
-					name on their dashboard.
+					Ask the destination's owner for their workspace slug — they copy it
+					in one click from the <b>slug</b> chip under their workspace name
+					(on the dashboard or its project page).
 				</span>
 			</div>
 		}
