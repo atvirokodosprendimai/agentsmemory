@@ -83,4 +83,10 @@ type SourceOfTruth interface {
 	// Namespaces lists every namespace that currently holds at least one point —
 	// the set a full sync replays into the search index. Order is unspecified.
 	Namespaces(ctx context.Context) ([]string, error)
+
+	// PointsByIDs returns the stored points for the given ids within a namespace,
+	// vectors included — the read half of copying memory between tenants without
+	// re-embedding. Absent ids are simply omitted; pass a bounded id list (the
+	// caller pages) so the underlying query stays within SQL parameter limits.
+	PointsByIDs(ctx context.Context, namespace string, ids []string) ([]Point, error)
 }

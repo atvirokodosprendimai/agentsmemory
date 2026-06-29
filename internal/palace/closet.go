@@ -342,6 +342,33 @@ func (r *Repo) PendingClosetCount(ctx context.Context, teamID string) (int64, er
 	return n, nil
 }
 
+// ClosetsByWing returns every closet in a team's wing — the read side of a
+// cross-tenant wing copy (closets carry the boost-search index). Closets are far
+// fewer than drawers (one per source file), so this returns them all rather than
+// paging.
+func (r *Repo) ClosetsByWing(ctx context.Context, teamID, wing string) ([]Closet, error) {
+	var rows []closetRow
+	if err := r.db.WithContext(ctx).
+		Where("team_id = ? AND wing = ?", teamID, wing).
+		Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := make([]Closet, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, Closet{
+			ID:         row.ID,
+			TeamID:     row.TeamID,
+			Wing:       row.Wing,
+			Room:       row.Room,
+			SourceFile: row.SourceFile,
+			Document:   row.Document,
+			Entities:   splitEntities(row.Entities),
+			FiledAt:    row.FiledAt,
+		})
+	}
+	return out, nil
+}
+
 // ClosetIDsBySource returns the ids of every closet built from a source, so a
 // re-mine can drop the prior closets (rows + vectors) before writing fresh ones.
 func (r *Repo) ClosetIDsBySource(ctx context.Context, teamID, source string) ([]string, error) {
