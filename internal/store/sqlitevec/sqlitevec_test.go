@@ -151,3 +151,38 @@ func TestNamespaceIsolation(t *testing.T) {
 		t.Fatalf("team1 vector leaked or got overwritten: %+v", hits)
 	}
 }
+
+// TestNamespaces lists the distinct namespaces holding vectors — the set the
+// `sync` command replays into the search index.
+func TestNamespaces(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	// Empty store -> no namespaces.
+	if nss, err := s.Namespaces(ctx); err != nil || len(nss) != 0 {
+		t.Fatalf("Namespaces on empty store = %v (err %v), want none", nss, err)
+	}
+
+	// Two tenants, one with two points: still two DISTINCT namespaces.
+	if err := s.Upsert(ctx, "team-a", []store.Point{
+		{ID: "1", Vector: []float32{1, 0}},
+		{ID: "2", Vector: []float32{0, 1}},
+	}); err != nil {
+		t.Fatalf("upsert team-a: %v", err)
+	}
+	if err := s.Upsert(ctx, "team-b", []store.Point{{ID: "1", Vector: []float32{1, 1}}}); err != nil {
+		t.Fatalf("upsert team-b: %v", err)
+	}
+
+	nss, err := s.Namespaces(ctx)
+	if err != nil {
+		t.Fatalf("Namespaces: %v", err)
+	}
+	got := map[string]bool{}
+	for _, ns := range nss {
+		got[ns] = true
+	}
+	if len(nss) != 2 || !got["team-a"] || !got["team-b"] {
+		t.Errorf("Namespaces = %v, want exactly [team-a team-b]", nss)
+	}
+}

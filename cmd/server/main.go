@@ -78,6 +78,7 @@ func main() {
 				Action: serveAction,
 			},
 			mcpCommand(def),
+			syncCommand(def),
 		},
 	}
 
