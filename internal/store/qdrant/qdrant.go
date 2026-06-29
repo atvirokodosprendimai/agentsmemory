@@ -71,6 +71,30 @@ func (c *Client) EnsureCollection(ctx context.Context, teamID string, dim int) e
 	return c.do(ctx, http.MethodPut, "/collections/"+name, body, nil)
 }
 
+// DeleteCollection drops a team's collection entirely — points and config. A
+// collection that does not exist is treated as already-deleted, not an error, so
+// the call is idempotent. Used by `sync --recreate` to rebuild a tenant from a
+// clean slate, pruning points that no longer exist in the source of truth.
+func (c *Client) DeleteCollection(ctx context.Context, teamID string) error {
+	name := CollectionName(teamID)
+	req, err := c.newRequest(ctx, http.MethodDelete, "/collections/"+name, nil)
+	if err != nil {
+		return err
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	io.Copy(io.Discard, resp.Body) // drain so the connection can be reused
+	switch resp.StatusCode {
+	case http.StatusOK, http.StatusNotFound:
+		return nil
+	default:
+		return fmt.Errorf("qdrant: unexpected status %d deleting collection", resp.StatusCode)
+	}
+}
+
 // collectionExists reports whether a collection is present, treating 404 as a
 // clean "no" rather than an error.
 func (c *Client) collectionExists(ctx context.Context, name string) (bool, error) {
