@@ -47,7 +47,38 @@ templ ProjectDetailPage(d ProjectDetailData) {
 			@MergeCard(d.Merge)
 		}
 		@MigrateCard(d.ServerBase)
+		@ExportCard(d.Project.TeamID)
 	}
+}
+
+// ExportCard is the BDAR/GDPR "download your data" action: it links to the
+// per-workspace export endpoint, which streams everything this workspace holds as
+// a portable SQLite file. It is the outbound counterpart to MigrateCard's inbound
+// import, so it reuses the same .card / .eyebrow / .cmd-actions layout for visual
+// symmetry and needs no new CSS. The action is a plain download anchor — a file
+// download is ordinary HTTP, not a datastar SSE fragment, so no signals are
+// involved; the server redacts credential material before the file leaves.
+templ ExportCard(teamID string) {
+	<section class="card migrate" aria-labelledby="export-h">
+		<p class="eyebrow">Your data</p>
+		<h2 id="export-h">Download your data</h2>
+		<p class="migrate-lede">
+			Export everything this workspace holds — every drawer, diary entry, closet,
+			knowledge-graph fact and tunnel, plus your account, membership and API-key
+			details — as a single <span class="mono">.sqlite</span> file. It is your right
+			under <abbr title="Bendrasis duomenų apsaugos reglamentas — the EU GDPR">BDAR</abbr>
+			to take your data with you.
+		</p>
+		<div class="cmd-actions">
+			<a class="btn btn-primary" href={ templ.SafeURL("/projects/" + teamID + "/export") } download>
+				Download (.sqlite)
+			</a>
+			<span class="cmd-hint">
+				A standard SQLite database — open it with any SQLite browser. Passwords and
+				API-key secrets are redacted. Large workspaces may take a moment.
+			</span>
+		</div>
+	</section>
 }
 
 // UpgradeCard is the per-workspace upgrade-to-Pro CTA, shown only to an admin of

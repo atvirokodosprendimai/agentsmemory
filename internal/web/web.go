@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/atvirokodosprendimai/agentsmemory/internal/billing"
+	"github.com/atvirokodosprendimai/agentsmemory/internal/dataexport"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/mergejob"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/share"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/skill"
@@ -39,11 +40,12 @@ var userCtxKey = ctxKey{}
 type Server struct {
 	tenants   *tenant.Repo
 	usage     *usage.Service
-	skills    *skill.Service    // centralised-skill use-cases, shared with the MCP server
-	skillsets *skillset.Service // the global wakeup-playbook use-cases (am_skillset)
-	shares    *share.Service    // cross-workspace wing-share handshake (consent flow)
-	merges    *mergejob.Service // background wing-merge queue (enqueue/list/detect)
-	billing   *billing.Service  // Stripe upgrade-to-Pro; inert until configured
+	skills    *skill.Service       // centralised-skill use-cases, shared with the MCP server
+	skillsets *skillset.Service    // the global wakeup-playbook use-cases (am_skillset)
+	shares    *share.Service       // cross-workspace wing-share handshake (consent flow)
+	merges    *mergejob.Service    // background wing-merge queue (enqueue/list/detect)
+	billing   *billing.Service     // Stripe upgrade-to-Pro; inert until configured
+	exporter  *dataexport.Exporter // per-workspace SQLite data export (BDAR right of access)
 	store     sessions.Store
 	providers []string // configured OAuth providers; empty until keys are set
 	// superAdmins is the platform-superadmin allowlist as a set, keyed by
@@ -58,8 +60,9 @@ type Server struct {
 // skills is the same service the MCP server exposes as list_skills/update_skill,
 // reused here so the web editor and the agent tools share one code path; skillsets
 // backs the superadmin-only global wakeup-playbook editor. superAdmins is the
-// SUPERADMIN_EMAILS allowlist that gates that editor.
-func New(tenants *tenant.Repo, usageSvc *usage.Service, skills *skill.Service, skillsets *skillset.Service, shares *share.Service, merges *mergejob.Service, billingSvc *billing.Service, superAdmins []string, sessionKey []byte) *Server {
+// SUPERADMIN_EMAILS allowlist that gates that editor. exporter builds the
+// per-workspace SQLite download that satisfies a user's BDAR right of access.
+func New(tenants *tenant.Repo, usageSvc *usage.Service, skills *skill.Service, skillsets *skillset.Service, shares *share.Service, merges *mergejob.Service, billingSvc *billing.Service, exporter *dataexport.Exporter, superAdmins []string, sessionKey []byte) *Server {
 	store := sessions.NewCookieStore(sessionKey)
 	store.Options = &sessions.Options{
 		Path:     "/",
@@ -67,7 +70,7 @@ func New(tenants *tenant.Repo, usageSvc *usage.Service, skills *skill.Service, s
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   7 * 24 * 60 * 60, // one week
 	}
-	s := &Server{tenants: tenants, usage: usageSvc, skills: skills, skillsets: skillsets, shares: shares, merges: merges, billing: billingSvc, store: store, superAdmins: superAdminSet(superAdmins)}
+	s := &Server{tenants: tenants, usage: usageSvc, skills: skills, skillsets: skillsets, shares: shares, merges: merges, billing: billingSvc, exporter: exporter, store: store, superAdmins: superAdminSet(superAdmins)}
 	s.providers = registerOAuth(store) // gated: returns nil when no keys set
 	// Stamp the asset cache-buster from the embedded stylesheet's content hash so
 	// templates render <link …/app.css?v=hash>; this changes only when the CSS does.
@@ -121,6 +124,12 @@ func (s *Server) Routes(r chi.Router) {
 		r.Post("/projects/{teamID}/key/rotate", s.postRotateKey)
 		r.Post("/projects/{teamID}/skills", s.postSkill)
 		r.Get("/projects/{teamID}/skill-body", s.getSkillBody)
+
+		// BDAR/GDPR right of access: download this workspace's data as a portable
+		// SQLite file. Membership-gated like every project route; the archive is
+		// scoped to this team plus the requester's own identity rows. A plain GET
+		// (not a datastar action) so the browser downloads the file directly.
+		r.Get("/projects/{teamID}/export", s.getExport)
 
 		// Upgrade to Pro via Stripe hosted checkout. POST starts a checkout session
 		// and redirects the browser to Stripe (admin-gated; the workspace must be on
