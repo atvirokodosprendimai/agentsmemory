@@ -96,7 +96,7 @@ aiagentmemory wrap [args]         run Claude against the global config
 | `--token <key>` | `$AGENTSMEMORY_TOKEN` | agentsmemory workspace token. |
 | `--mcp-url <url>` | `https://aiagentmemory.dev/mcp` | agentsmemory MCP endpoint. |
 | `--scope <scope>` | `user` | Claude MCP/plugin scope: `user`, `local`, `project`. |
-| `--claude-bin <bin>` | `$TEISORA_CLAUDE_BIN` → `teisora-claude` → `claude` | Claude CLI to drive. |
+| `--claude-bin <bin>` | `$AIAGENTMEMORY_CLAUDE_BIN` → `claude` | Claude CLI to drive. |
 | `--claude-dir <dir>` | `~/.claude` | Override the target config dir (ignored with `--sandbox`). |
 | `--yes`, `-y` | off | Non-interactive: never prompt. |
 | `--dry-run` | off | Print the full plan without writing files or running commands. |
@@ -120,8 +120,8 @@ aiagentmemory run acme -p "summarise the repo"        # args pass through to cla
 `wrap` is the global counterpart — it runs Claude against `~/.claude` with no
 override.
 
-The Claude CLI it drives is resolved from `TEISORA_CLAUDE_BIN`, then
-`teisora-claude`, then `claude` on `PATH`.
+The Claude CLI it drives is resolved from `AIAGENTMEMORY_CLAUDE_BIN`, then
+`claude` on `PATH`.
 
 ## The Stop hook
 

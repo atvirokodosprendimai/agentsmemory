@@ -95,8 +95,8 @@ func installCommand() *cli.Command {
 			},
 			&cli.StringFlag{
 				Name:    "claude-bin",
-				Sources: cli.EnvVars("TEISORA_CLAUDE_BIN"),
-				Usage:   "Claude CLI binary to drive (default: teisora-claude, then claude)",
+				Sources: cli.EnvVars("AIAGENTMEMORY_CLAUDE_BIN"),
+				Usage:   "Claude CLI binary to drive (default: claude)",
 			},
 			&cli.BoolFlag{
 				Name:    "yes",
