@@ -178,6 +178,89 @@ func TestValidSandboxName(t *testing.T) {
 	}
 }
 
+func TestPromptInstallModeSandbox(t *testing.T) {
+	// A typed, valid name switches the install to that sandbox.
+	inst := &Installer{
+		targetDir: filepath.Join(homeDir(), ".claude"),
+		out:       &bytes.Buffer{},
+		in:        strings.NewReader("myproj\n"),
+	}
+	inst.promptInstallMode()
+	if inst.sandboxName != "myproj" {
+		t.Errorf("sandboxName = %q, want myproj", inst.sandboxName)
+	}
+	if want := sandboxDir("myproj"); inst.targetDir != want {
+		t.Errorf("targetDir = %q, want %q", inst.targetDir, want)
+	}
+}
+
+func TestPromptInstallModeGlobalOnBlank(t *testing.T) {
+	// Pressing Enter (blank) keeps the global default untouched.
+	global := filepath.Join(homeDir(), ".claude")
+	inst := &Installer{targetDir: global, out: &bytes.Buffer{}, in: strings.NewReader("\n")}
+	inst.promptInstallMode()
+	if inst.sandboxName != "" {
+		t.Errorf("sandboxName = %q, want empty", inst.sandboxName)
+	}
+	if inst.targetDir != global {
+		t.Errorf("targetDir = %q, want %q (unchanged)", inst.targetDir, global)
+	}
+}
+
+func TestPromptInstallModeSkipped(t *testing.T) {
+	// An explicit --sandbox/--claude-dir (explicitTarget) or --yes must skip the
+	// prompt entirely: even a name waiting on stdin is ignored, so the target set
+	// by the flags is preserved.
+	for _, tc := range []struct {
+		name string
+		inst *Installer
+	}{
+		{"explicitTarget", &Installer{targetDir: "/x", explicitTarget: true, out: &bytes.Buffer{}, in: strings.NewReader("myproj\n")}},
+		{"yes", &Installer{targetDir: "/x", yes: true, out: &bytes.Buffer{}, in: strings.NewReader("myproj\n")}},
+		{"dryRun", &Installer{targetDir: "/x", dryRun: true, out: &bytes.Buffer{}, in: strings.NewReader("myproj\n")}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tc.inst.promptInstallMode()
+			if tc.inst.sandboxName != "" || tc.inst.targetDir != "/x" {
+				t.Errorf("prompt not skipped: sandbox=%q target=%q", tc.inst.sandboxName, tc.inst.targetDir)
+			}
+		})
+	}
+}
+
+func TestPromptInstallModeInvalidThenEOF(t *testing.T) {
+	// An invalid name is rejected; with no more input (EOF) the loop must not spin
+	// forever — it falls back to the global default rather than hanging.
+	global := filepath.Join(homeDir(), ".claude")
+	var out bytes.Buffer
+	inst := &Installer{targetDir: global, out: &out, in: strings.NewReader("bad name")}
+	inst.promptInstallMode()
+	if inst.sandboxName != "" || inst.targetDir != global {
+		t.Errorf("expected global fallback, got sandbox=%q target=%q", inst.sandboxName, inst.targetDir)
+	}
+	if !strings.Contains(out.String(), "invalid sandbox name") {
+		t.Errorf("expected an invalid-name message, got %q", out.String())
+	}
+}
+
+func TestPromptModeThenTokenShareReader(t *testing.T) {
+	// The mode prompt and the token prompt read from ONE stream: line 1 picks the
+	// sandbox, line 2 is consumed as the token. A shared bufio.Reader is what makes
+	// this work — a second reader would drop the buffered token line.
+	inst := &Installer{
+		targetDir: filepath.Join(homeDir(), ".claude"),
+		out:       &bytes.Buffer{},
+		in:        strings.NewReader("myproj\nTOKEN123\n"),
+	}
+	inst.promptInstallMode()
+	if inst.sandboxName != "myproj" {
+		t.Fatalf("sandboxName = %q, want myproj", inst.sandboxName)
+	}
+	if got := inst.resolveToken(); got != "TOKEN123" {
+		t.Errorf("resolveToken() = %q, want TOKEN123 (reader not shared?)", got)
+	}
+}
+
 func TestDryRunnerRedactsToken(t *testing.T) {
 	// --dry-run must never echo a bearer token to stdout or a captured log.
 	var buf bytes.Buffer

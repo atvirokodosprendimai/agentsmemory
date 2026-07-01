@@ -90,18 +90,20 @@ func (d dryRunner) runShell(script string) error {
 // hook, wires up the agentsmemory MCP, and (with recommended=true) installs the
 // companion extensions.
 type Installer struct {
-	targetDir   string        // Claude config dir to install into (~/.claude or a sandbox)
-	sandboxName string        // non-empty in isolated mode; drives messaging + run hint
-	claudeBin   string        // resolved Claude CLI name to drive for mcp/plugin ops
-	mcpURL      string        // agentsmemory remote MCP endpoint
-	scope       string        // Claude MCP/plugin scope (user|local|project)
-	token       string        // agentsmemory workspace token (empty ⇒ prompt or skip)
-	recommended bool          // also install codebase-memory + eidos + codex
-	yes         bool          // non-interactive: never prompt
-	dryRun      bool          // print instead of doing
-	out         io.Writer     // progress + banners
-	in          io.Reader     // interactive token prompt source
-	runner      commandRunner // how external commands execute (exec / dry / fake)
+	targetDir      string        // Claude config dir to install into (~/.claude or a sandbox)
+	sandboxName    string        // non-empty in isolated mode; drives messaging + run hint
+	explicitTarget bool          // true when --sandbox/--claude-dir pinned the target ⇒ skip the mode prompt
+	claudeBin      string        // resolved Claude CLI name to drive for mcp/plugin ops
+	mcpURL         string        // agentsmemory remote MCP endpoint
+	scope          string        // Claude MCP/plugin scope (user|local|project)
+	token          string        // agentsmemory workspace token (empty ⇒ prompt or skip)
+	recommended    bool          // also install codebase-memory + eidos + codex
+	yes            bool          // non-interactive: never prompt
+	dryRun         bool          // print instead of doing
+	out            io.Writer     // progress + banners
+	in             io.Reader     // interactive prompt source (mode + token)
+	reader         *bufio.Reader // shared line reader over in; lazily built so both prompts read one stream
+	runner         commandRunner // how external commands execute (exec / dry / fake)
 }
 
 // newInstaller builds an Installer from parsed CLI flags. It resolves the target
@@ -109,17 +111,22 @@ type Installer struct {
 // selecting a dry-run runner when --dry-run is set.
 func newInstaller(c *cli.Command, out io.Writer, in io.Reader) (*Installer, error) {
 	// Target config dir: an explicit --sandbox wins, then --claude-dir, then the
-	// global ~/.claude default.
+	// global ~/.claude default. explicitTarget records whether the user pinned the
+	// target on the command line; when they didn't, run() offers the interactive
+	// mode prompt so a bare `curl|bash` install isn't silently forced global.
 	targetDir := ""
 	sandboxName := ""
+	explicitTarget := false
 	if name := c.String("sandbox"); name != "" {
 		if err := validSandboxName(name); err != nil {
 			return nil, err
 		}
 		sandboxName = name
 		targetDir = sandboxDir(name)
+		explicitTarget = true
 	} else if dir := c.String("claude-dir"); dir != "" {
 		targetDir = dir
+		explicitTarget = true
 	} else {
 		targetDir = filepath.Join(homeDir(), ".claude")
 	}
@@ -142,18 +149,19 @@ func newInstaller(c *cli.Command, out io.Writer, in io.Reader) (*Installer, erro
 	}
 
 	return &Installer{
-		targetDir:   targetDir,
-		sandboxName: sandboxName,
-		claudeBin:   claudeBin,
-		mcpURL:      c.String("mcp-url"),
-		scope:       c.String("scope"),
-		token:       c.String("token"),
-		recommended: c.Bool("recommended"),
-		yes:         c.Bool("yes"),
-		dryRun:      dryRun,
-		out:         out,
-		in:          in,
-		runner:      runner,
+		targetDir:      targetDir,
+		sandboxName:    sandboxName,
+		explicitTarget: explicitTarget,
+		claudeBin:      claudeBin,
+		mcpURL:         c.String("mcp-url"),
+		scope:          c.String("scope"),
+		token:          c.String("token"),
+		recommended:    c.Bool("recommended"),
+		yes:            c.Bool("yes"),
+		dryRun:         dryRun,
+		out:            out,
+		in:             in,
+		runner:         runner,
 	}, nil
 }
 
@@ -162,6 +170,9 @@ func newInstaller(c *cli.Command, out io.Writer, in io.Reader) (*Installer, erro
 // extension steps are best-effort so a partial environment still leaves the
 // useful pieces installed.
 func (i *Installer) run() error {
+	// Ask global-vs-sandbox before anything is written, so the banner and every
+	// subsequent step reflect the chosen target. No-op unless we're interactive.
+	i.promptInstallMode()
 	i.banner()
 
 	i.step("1/4  slash commands + Stop hook")
@@ -329,6 +340,57 @@ func (i *Installer) claude(ignoreErr bool, args ...string) error {
 	return nil
 }
 
+// promptInstallMode asks, interactively, whether to install globally or into an
+// isolated sandbox — the choice a bare `curl|bash` user otherwise never gets,
+// since the mode is only selectable via the --sandbox flag and thus defaults to
+// global silently. It runs only when no target was pinned on the command line and
+// we can actually interact (not --yes, not --dry-run). On blank input or EOF it
+// leaves the global default in place; a typed, valid name switches the install to
+// that sandbox. It never fails the install: an unreadable stdin just falls back
+// to global, which is the safe, documented default.
+func (i *Installer) promptInstallMode() {
+	// Respect an explicit choice and every non-interactive path. install.sh adds
+	// --yes when there is no /dev/tty (CI), so this correctly stays silent there.
+	if i.explicitTarget || i.yes || i.dryRun {
+		return
+	}
+	fmt.Fprintln(i.out, "Where should the kit be installed?")
+	fmt.Fprintln(i.out, "  - press Enter for a GLOBAL install into ~/.claude (wraps your existing Claude)")
+	fmt.Fprintln(i.out, "  - or type a NAME for an isolated sandbox at ~/.sandboxes/<name>")
+	for {
+		fmt.Fprint(i.out, "Sandbox name (blank = global): ")
+		line, err := i.line()
+		name := strings.TrimSpace(line)
+		if name == "" {
+			// Blank line, or EOF on a piped/closed stdin → keep global default.
+			return
+		}
+		if verr := validSandboxName(name); verr != nil {
+			fmt.Fprintf(i.out, "  %v\n", verr)
+			if err != nil {
+				// Reader is exhausted (EOF); don't spin forever re-prompting a
+				// closed stdin — fall back to the global default.
+				return
+			}
+			continue // re-prompt on a live terminal
+		}
+		i.sandboxName = name
+		i.targetDir = sandboxDir(name)
+		return
+	}
+}
+
+// line reads one line from the shared prompt reader, building it from i.in on
+// first use. A single *bufio.Reader is essential: two separate bufio readers over
+// the same terminal fd would let the first buffer-read swallow bytes meant for
+// the second, so the mode prompt and the token prompt must share this one.
+func (i *Installer) line() (string, error) {
+	if i.reader == nil {
+		i.reader = bufio.NewReader(i.in)
+	}
+	return i.reader.ReadString('\n')
+}
+
 // resolveToken returns the agentsmemory token from --token/env, or prompts for
 // it interactively. Under --dry-run it returns a visible placeholder so the plan
 // prints the full `mcp add`. In --yes / non-interactive mode (or on an empty
@@ -344,7 +406,7 @@ func (i *Installer) resolveToken() string {
 		return ""
 	}
 	fmt.Fprint(i.out, "  Enter your agentsmemory workspace API token (blank to skip): ")
-	line, err := bufio.NewReader(i.in).ReadString('\n')
+	line, err := i.line()
 	if err != nil && line == "" {
 		return "" // EOF (piped / non-interactive stdin) → skip
 	}
