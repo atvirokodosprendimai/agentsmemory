@@ -23,6 +23,7 @@ import (
 	"github.com/atvirokodosprendimai/agentsmemory/internal/auth"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/billing"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/config"
+	"github.com/atvirokodosprendimai/agentsmemory/internal/dataexport"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/embed/ollama"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/embedworker"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/importer"
@@ -210,9 +211,13 @@ func run(ctx context.Context, cfg config.Config) error {
 	// it reuses tenants as its PlanStore.
 	billingSrv := billing.NewService(stripeBillingConfig(), tenants, billing.NewRepo(svc.gdb))
 
+	// Per-workspace data export (BDAR right of access): builds a scoped SQLite
+	// archive of a tenant's data from the same source-of-truth database.
+	exporter := dataexport.New(svc.gdb)
+
 	// The human-facing dashboard (register/login/create project) shares the same
 	// chi router and database; agents use /mcp, people use the web routes.
-	webSrv := web.New(tenants, usageSvc, skills, svc.skillsets, svc.shares, svc.merges, billingSrv, cfg.SuperAdminEmails, sessionKey())
+	webSrv := web.New(tenants, usageSvc, skills, svc.skillsets, svc.shares, svc.merges, billingSrv, exporter, cfg.SuperAdminEmails, sessionKey())
 
 	r := chi.NewRouter()
 	// Logger before Recoverer so even a panicked request (recovered as a 500) is
