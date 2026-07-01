@@ -1,8 +1,11 @@
 package web
 
 import (
+	"context"
+	"encoding/json"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/gorilla/sessions"
@@ -90,7 +93,21 @@ func (s *Server) oauthCallback(w http.ResponseWriter, r *http.Request) {
 // finishOAuth upserts the local user for the provider's email and opens a
 // session. An email-less provider account cannot be linked, so it is rejected.
 func (s *Server) finishOAuth(w http.ResponseWriter, r *http.Request, gu goth.User) {
-	if gu.Email == "" {
+	email := gu.Email
+	// GitHub's OAuth /user endpoint (which goth reads) returns the account's
+	// *public* profile email — often blank, or a different alias than the address
+	// the user actually signs in with elsewhere. goth only falls back to
+	// /user/emails (the primary *verified* address) when that public email is
+	// empty, so a user who has set a public email gets linked by the wrong
+	// address. Resolve the primary verified email ourselves and prefer it, so
+	// account linking keys on the identity the user really owns. On any failure we
+	// fall back to goth's email rather than break the sign-in.
+	if gu.Provider == "github" {
+		if primary := githubPrimaryEmail(r.Context(), gu.AccessToken); primary != "" {
+			email = primary
+		}
+	}
+	if email == "" {
 		http.Redirect(w, r, "/login", http.StatusSeeOther)
 		return
 	}
@@ -98,11 +115,62 @@ func (s *Server) finishOAuth(w http.ResponseWriter, r *http.Request, gu goth.Use
 	if name == "" {
 		name = gu.NickName
 	}
-	u, err := s.tenants.UpsertOAuthUser(r.Context(), gu.Email, name)
+	u, err := s.tenants.UpsertOAuthUser(r.Context(), email, name)
 	if err != nil {
 		http.Redirect(w, r, "/login", http.StatusSeeOther)
 		return
 	}
 	_ = s.setSessionUser(w, r, u.ID)
 	http.Redirect(w, r, "/dashboard", http.StatusSeeOther)
+}
+
+// githubPrimaryEmail resolves the account's primary, verified email via the
+// GitHub /user/emails API using the OAuth access token. It exists because
+// GitHub's profile endpoint only exposes the (optional) public email, while the
+// address a user is known by is their primary verified one — see finishOAuth.
+// The "user:email" scope requested in registerOAuth is what authorizes this
+// call. It returns "" on any error (network, non-200, no primary+verified entry)
+// so the caller can fall back to goth's email rather than fail the login; the
+// request is bounded by a short timeout to keep the sign-in path responsive.
+func githubPrimaryEmail(ctx context.Context, accessToken string) string {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	// per_page=100 (GitHub's max) fetches every address in one page: the default
+	// page size is 30, and the primary could otherwise sit on a later page and be
+	// missed. No realistic account has >100 emails, so a pagination loop is
+	// unnecessary.
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.github.com/user/emails?per_page=100", nil)
+	if err != nil {
+		return ""
+	}
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("Accept", "application/vnd.github+json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return ""
+	}
+
+	// GitHub returns every address on the account; the one we want is flagged both
+	// primary and verified. Verified matters for security: an unverified address
+	// must never key account linking.
+	var emails []struct {
+		Email    string `json:"email"`
+		Primary  bool   `json:"primary"`
+		Verified bool   `json:"verified"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&emails); err != nil {
+		return ""
+	}
+	for _, e := range emails {
+		if e.Primary && e.Verified {
+			return e.Email
+		}
+	}
+	return ""
 }
