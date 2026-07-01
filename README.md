@@ -229,6 +229,90 @@ A request without a valid token comes back as a fail-closed
 
 ---
 
+## Connect Claude Code (the `aiagentmemory` kit)
+
+The `aiagentmemory` binary wires [Claude Code](https://claude.com/claude-code)
+into your workspace — it installs the memory-grounded slash commands (`/M`,
+`/am`) and the Stop hook, registers the agentsmemory MCP, and can wrap the Claude
+CLI so each project runs against its own isolated configuration. It replaces the
+old shell installer; everything ships in one downloadable binary.
+
+Full reference: [`clients/claude-code/README.md`](clients/claude-code/README.md).
+
+### Install in one line
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/atvirokodosprendimai/agentsmemory/main/clients/claude-code/install.sh | bash
+```
+
+The bootstrap script detects your OS/arch, downloads the latest
+`aiagentmemory-<os>-<arch>` from
+[GitHub Releases](https://github.com/atvirokodosprendimai/agentsmemory/releases)
+into `~/.local/bin`, then runs `aiagentmemory install`. Anything after `--` is
+forwarded to `install`. Prefer to build it yourself?
+
+```bash
+go build -o aiagentmemory ./clients/claude-code
+./aiagentmemory install
+```
+
+`install` prompts for your **workspace API token** (create a project in the
+dashboard and copy or **Reveal** its key), then registers the agentsmemory MCP in
+one shot. Supply it non-interactively with `--token <key>` or the
+`AGENTSMEMORY_TOKEN` environment variable. Add `--recommended` to also install the
+companion tools: the [codebase-memory](https://github.com/DeusData/codebase-memory-mcp)
+MCP and the eidos and codex plugins. Preview any run with `--dry-run` — it prints
+every file write and command without touching anything.
+
+### Two ways to install
+
+| Mode | Command | What it does |
+|------|---------|--------------|
+| **Global** | `aiagentmemory install` | Wires the MCP, commands, and Stop hook into the global `~/.claude`. Wraps the Claude you already run. |
+| **Sandboxed** | `aiagentmemory install --sandbox <name>` | Installs a self-contained config under `~/.sandboxes/<name>`, isolated from every other project and from the global `~/.claude`. |
+
+### Sandboxed installation (per-project isolation)
+
+A **sandbox** is just a Claude config directory under `~/.sandboxes/<name>`.
+Running Claude with `CLAUDE_CONFIG_DIR` pointed at it isolates that project's
+slash commands, settings, MCP servers, and agentsmemory token from everything
+else — so a client project and an internal project never share memory, tools, or
+credentials. Set one up once, with or without the recommended tools:
+
+```bash
+aiagentmemory install --sandbox acme               # core: commands, hook, our MCP
+aiagentmemory install --sandbox acme --recommended # + codebase-memory, eidos, codex
+```
+
+The installer writes into `~/.sandboxes/acme/` and runs every `claude`
+registration with `CLAUDE_CONFIG_DIR` pinned there, so nothing leaks into your
+global config. Sandbox names are plain identifiers (letters, digits, dash,
+underscore).
+
+### Run a sandbox without re-installing
+
+Installing is a one-time setup. To **launch Claude against an existing sandbox**,
+just name it — no re-install:
+
+```bash
+aiagentmemory run acme                     # open Claude in the acme sandbox
+aiagentmemory run acme -p "summarise repo" # args after the name pass straight to claude
+```
+
+`run <name>` sets `CLAUDE_CONFIG_DIR=~/.sandboxes/<name>`, then exec-replaces the
+process with the Claude CLI — inheriting your terminal and its exit code, so it
+behaves exactly like running `claude`, only against that sandbox. It errors with a
+hint if the sandbox hasn't been installed yet. The global counterpart is:
+
+```bash
+aiagentmemory wrap                         # run Claude against the global ~/.claude
+```
+
+The Claude CLI it drives is resolved from `TEISORA_CLAUDE_BIN`, then
+`teisora-claude`, then `claude` on your `PATH`.
+
+---
+
 ## Configuration
 
 All flags have sensible local defaults:
