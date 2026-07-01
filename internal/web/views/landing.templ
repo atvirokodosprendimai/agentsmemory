@@ -373,18 +373,18 @@ templ landingInstall() {
 				</p>
 			</header>
 			<div class="lp-start-grid">
-				<div class="lp-install-modes">
-					<article class="card lp-install-mode">
-						<p class="lp-def-k">Global</p>
-						<p>Wrap the Claude you already run — our MCP and commands land in <span class="mono">~/.claude</span>.</p>
-						<pre class="cmd lp-install-cmd"><code>aiagentmemory install</code></pre>
-					</article>
-					<article class="card lp-install-mode">
-						<p class="lp-def-k">Isolated</p>
-						<p>A self-contained config per project under <span class="mono">~/.sandboxes/&lt;name&gt;</span>, launched with <span class="mono">run</span>.</p>
-						<pre class="cmd lp-install-cmd"><code>aiagentmemory install --sandbox acme
-aiagentmemory run acme</code></pre>
-					</article>
+				<div class="lp-install-copy">
+					<p>
+						The one-liner fetches the <span class="mono">aiagentmemory</span> binary
+						from GitHub Releases, installs the kit, and registers your workspace MCP
+						(it prompts for the token).
+					</p>
+					<p>
+						Choose where it lands: <b>global</b> wraps the Claude you already run;
+						<b>sandboxed</b> keeps a project's commands, settings, MCP and token
+						isolated under <span class="mono">~/.sandboxes/&lt;name&gt;</span> — opened
+						any time with <span class="mono">run &lt;name&gt;</span>, no re-install.
+					</p>
 				</div>
 				<div class="lp-code card">
 					<div class="lp-code-head">
@@ -402,6 +402,14 @@ aiagentmemory run acme</code></pre>
 					<pre class="cmd"><code>{ landingInstallCmd }</code></pre>
 				</div>
 			</div>
+			<dl class="lp-cmd-ref">
+				for _, c := range landingCommands() {
+					<div class="lp-cmd-row">
+						<dt><code>{ c.Cmd }</code></dt>
+						<dd>{ c.Desc }</dd>
+					</div>
+				}
+			</dl>
 			<div class="lp-model-grid lp-install-deps">
 				for _, g := range landingInstallGroups() {
 					<article class="lp-model card">
