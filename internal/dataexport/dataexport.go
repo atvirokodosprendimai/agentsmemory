@@ -45,6 +45,7 @@ const (
 	scopeUser                  // WHERE <col> = userID  (the requester's identity rows)
 	scopeTeamUser              // WHERE team_id = teamID AND user_id = userID
 	scopeShare                 // WHERE from_team_id = teamID OR to_team_id = teamID
+	scopeVectorNS              // vectors: the team's base namespace AND its sub-namespaces
 	scopeAll                   // no filter (non-personal reference data, e.g. plan catalog)
 )
 
@@ -70,6 +71,13 @@ func (ts tableSpec) where(teamID, userID string) (string, []any) {
 		return "team_id = ? AND user_id = ?", []any{teamID, userID}
 	case scopeShare:
 		return "from_team_id = ? OR to_team_id = ?", []any{teamID, teamID}
+	case scopeVectorNS:
+		// A team's embeddings live in more than one namespace: the base namespace
+		// (teamID, for drawers) plus per-team sub-namespaces (e.g. "teamID::closets",
+		// see palace.closetNamespace). Match the base exactly and any "teamID::…"
+		// suffix so closet vectors — and any future sub-namespace — are included.
+		// Team ids are UUIDs, so "teamID::%" can never match another tenant.
+		return "namespace = ? OR namespace LIKE ?", []any{teamID, teamID + "::%"}
 	case scopeAll:
 		return "", nil
 	default:
@@ -100,7 +108,7 @@ var manifest = []tableSpec{
 	{table: "skills", col: "team_id", scope: scopeTeam},
 	{table: "usage_counters", col: "team_id", scope: scopeTeam},
 	{table: "subscriptions", col: "team_id", scope: scopeTeam},
-	{table: "vectors", col: "namespace", scope: scopeTeam},
+	{table: "vectors", scope: scopeVectorNS},
 	{table: "drawers", col: "team_id", scope: scopeTeam},
 	{table: "closets", col: "team_id", scope: scopeTeam},
 	{table: "hallways", col: "team_id", scope: scopeTeam},
@@ -233,6 +241,13 @@ func (e *Exporter) replaySchema(ctx context.Context, dst *gorm.DB) error {
 // copyRows copies every manifest table's scoped rows into the archive inside a
 // single archive transaction, so thousands of drawer/vector rows load as one
 // commit rather than one commit per row.
+//
+// The source is read per-statement, NOT under one long snapshot transaction: on
+// this rollback-journal SQLite a read transaction held for the whole export would
+// block the live server's writers until it finished. The store is append-mostly
+// and export is a rare, user-initiated action, so at worst a row written mid-export
+// lands in the archive without a sibling (or vice versa) — an acceptable trade for
+// never stalling the running server.
 func (e *Exporter) copyRows(ctx context.Context, dst *gorm.DB, teamID, userID string) error {
 	return dst.Transaction(func(tx *gorm.DB) error {
 		for _, spec := range manifest {

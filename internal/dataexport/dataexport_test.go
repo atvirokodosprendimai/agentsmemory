@@ -68,6 +68,11 @@ func TestBuildTeamArchive_ScopesAndRedacts(t *testing.T) {
 	exec(t, src, `INSERT INTO api_keys (id,team_id,user_id,name,prefix,token_hash,created_at,token_enc) VALUES (?,?,?,?,?,?,?,?)`, keyA, teamA, userA, "default", "abc", secretHash, "2026-01-01T00:00:00Z", secretEnc)
 	exec(t, src, `INSERT INTO drawers (team_id,id,wing,room,content,filed_at) VALUES (?,?,?,?,?,?)`, teamA, "d-a1", "w", "r", "alpha memory one", "2026-01-01T00:00:00Z")
 	exec(t, src, `INSERT INTO drawers (team_id,id,wing,room,content,filed_at) VALUES (?,?,?,?,?,?)`, teamA, "d-a2", "w", "r", "alpha memory two", "2026-01-01T00:00:00Z")
+	// A drawer embedding (base namespace) and a closet embedding (sub-namespace
+	// teamA::closets) — the export must include BOTH namespaces for the team.
+	blob := []byte{0, 0, 0, 0}
+	exec(t, src, `INSERT INTO vectors (namespace,id,dim,vector) VALUES (?,?,?,?)`, teamA, "d-a1", 1, blob)
+	exec(t, src, `INSERT INTO vectors (namespace,id,dim,vector) VALUES (?,?,?,?)`, teamA+"::closets", "c-a1", 1, blob)
 
 	// Team B: a separate tenant that must NEVER appear in A's archive.
 	exec(t, src, `INSERT INTO teams (id,name,slug,created_at,kind) VALUES (?,?,?,?,?)`, teamB, "Beta", "beta", "2026-01-01T00:00:00Z", "personal")
@@ -75,6 +80,8 @@ func TestBuildTeamArchive_ScopesAndRedacts(t *testing.T) {
 	exec(t, src, `INSERT INTO memberships (id,team_id,user_id,role,created_at) VALUES (?,?,?,?,?)`, "m-b", teamB, userB, "admin", "2026-01-01T00:00:00Z")
 	exec(t, src, `INSERT INTO api_keys (id,team_id,user_id,name,prefix,token_hash,created_at,token_enc) VALUES (?,?,?,?,?,?,?,?)`, "key-b", teamB, userB, "default", "xyz", "B_HASH", "2026-01-01T00:00:00Z", "B_ENC")
 	exec(t, src, `INSERT INTO drawers (team_id,id,wing,room,content,filed_at) VALUES (?,?,?,?,?,?)`, teamB, "d-b1", "w", "r", "beta memory", "2026-01-01T00:00:00Z")
+	exec(t, src, `INSERT INTO vectors (namespace,id,dim,vector) VALUES (?,?,?,?)`, teamB, "d-b1", 1, []byte{0, 0, 0, 0})
+	exec(t, src, `INSERT INTO vectors (namespace,id,dim,vector) VALUES (?,?,?,?)`, teamB+"::closets", "c-b1", 1, []byte{0, 0, 0, 0})
 
 	path, cleanup, err := New(src).BuildTeamArchive(ctx, teamA, userA)
 	if err != nil {
@@ -101,6 +108,14 @@ func TestBuildTeamArchive_ScopesAndRedacts(t *testing.T) {
 	}
 	if got := count(`SELECT COUNT(*) FROM drawers WHERE team_id = ?`, teamB); got != 0 {
 		t.Errorf("team B drawers leaked into archive: %d, want 0", got)
+	}
+	// Vectors: both the base and the ::closets sub-namespace for team A are present;
+	// no team B vector (base or closet) leaks in.
+	if got := count(`SELECT COUNT(*) FROM vectors WHERE namespace = ? OR namespace LIKE ?`, teamA, teamA+"::%"); got != 2 {
+		t.Errorf("team A vectors (base + closets) = %d, want 2", got)
+	}
+	if got := count(`SELECT COUNT(*) FROM vectors WHERE namespace LIKE ?`, teamB+"%"); got != 0 {
+		t.Errorf("team B vectors leaked into archive: %d, want 0", got)
 	}
 	if got := count(`SELECT COUNT(*) FROM teams`); got != 1 {
 		t.Errorf("teams in archive = %d, want 1 (only team A)", got)
