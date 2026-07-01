@@ -13,7 +13,7 @@ on:
       - 'v*.*.*'
 
 permissions:
-  contents: read
+  contents: write # write: upload the aiagentmemory CLI binaries as release assets
   packages: write
 
 jobs:
@@ -74,3 +74,44 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  # Cross-compile the aiagentmemory installer binaries and attach them to the
+  # GitHub Release, so the curl|bash install.sh can download the latest one for
+  # the user's OS/arch. The installer package has no cgo/sqlite deps, so a static
+  # CGO_ENABLED=0 build is portable.
+  binaries:
+    # Depend on `image` (not just `check`) so the release binaries publish only
+    # after that job's `go test ./...` passes — untested binaries must not ship.
+    needs: [check, image]
+    if: needs.check.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - { goos: linux, goarch: amd64 }
+          - { goos: linux, goarch: arm64 }
+          - { goos: darwin, goarch: amd64 }
+          - { goos: darwin, goarch: arm64 }
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build aiagentmemory
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        run: |
+          out="aiagentmemory-${GOOS}-${GOARCH}"
+          go build -trimpath \
+            -ldflags "-s -w -X main.version=${GITHUB_REF_NAME}" \
+            -o "$out" ./clients/claude-code
+          echo "asset=$out" >>"$GITHUB_ENV"
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ env.asset }}

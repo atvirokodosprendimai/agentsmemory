@@ -413,6 +413,7 @@ func landingNav() []navItem {
 		{"#what", "What it is"},
 		{"#model", "Data model"},
 		{"#features", "Features"},
+		{"#install", "Install"},
 		{"#pricing", "Pricing"},
 		{"#faq", "FAQ"},
 	}
@@ -554,12 +555,56 @@ const landingQuickstart = `go build -o agentsmemory ./cmd/server
 ./agentsmemory --addr :8080 --db agentsmemory.db
 # prints a one-time MCP bearer token to the log`
 
-// clipboardExpr is the datastar click expression that copies the quick-start to
-// the clipboard and flashes a "copied" signal. The payload is JSON-encoded so
-// quotes/newlines embed safely as a JS string literal.
-func clipboardExpr(s string) string {
+// clipboardExpr copies s to the clipboard and flashes the default "_copied"
+// signal — the single-copy-button case used by the quick-start card.
+func clipboardExpr(s string) string { return clipboardExprSignal(s, "_copied") }
+
+// clipboardExprSignal is the datastar click expression that copies s to the
+// clipboard and flashes the named boolean signal. A distinct signal per copy
+// button matters because datastar signals are global: two buttons both driving
+// "_copied" would flash together. The payload is JSON-encoded so quotes/newlines
+// embed safely as a JS string literal.
+func clipboardExprSignal(s, signal string) string {
 	return "navigator.clipboard.writeText(" + jsString(s) +
-		"); $_copied = true; setTimeout(() => $_copied = false, 1600)"
+		"); $" + signal + " = true; setTimeout(() => $" + signal + " = false, 1600)"
+}
+
+// landingInstallCmd is the copy-paste one-liner in the install section: it
+// downloads the aiagentmemory binary from GitHub Releases and runs `install`.
+const landingInstallCmd = "curl -fsSL https://raw.githubusercontent.com/atvirokodosprendimai/agentsmemory/main/clients/claude-code/install.sh | bash"
+
+// installGroup is one column of the "what it installs" breakdown: a heading, the
+// command that triggers it, and the pieces it adds.
+type installGroup struct {
+	Title string
+	Cmd   string
+	Items []string
+}
+
+// landingInstallGroups enumerates what the installer sets up — the always-on
+// core versus the opt-in --recommended extensions — mirroring the kit README so
+// visitors see exactly which dependencies land on their machine.
+func landingInstallGroups() []installGroup {
+	return []installGroup{
+		{
+			Title: "Core — every install",
+			Cmd:   "aiagentmemory install",
+			Items: []string{
+				"The /M and /am bootstrap commands",
+				"The Stop hook that persists each session",
+				"The agentsmemory MCP, authed by your token",
+			},
+		},
+		{
+			Title: "Recommended — opt in",
+			Cmd:   "aiagentmemory install --recommended",
+			Items: []string{
+				"codebase-memory MCP — live code graph",
+				"eidos plugin — spec + plan skills",
+				"codex plugin — independent review",
+			},
+		},
+	}
 }
 
 // landingJSONLD builds the schema.org structured data for the landing page: a

@@ -1,70 +1,89 @@
 #!/usr/bin/env bash
-# Install the agentsmemory Claude Code kit:
-#   1. the /am wake-up command           -> <claude>/commands/am.md
-#      and the verbose /agentsmemory      -> <claude>/commands/agentsmemory.md
-#   2. the Stop persistence hook         -> <claude>/hooks/agentsmemory-stop-hook.sh
-#   3. registers the Stop hook in        -> <claude>/settings.json (jq, with backup)
+# agentsmemory installer bootstrap.
 #
-# /am is the thin, recommended command: it calls am_skillset and follows the
-# platform-curated playbook, so it never goes stale as tools change. The verbose
-# /agentsmemory is kept for offline use / reference.
+# Copy-paste one-liner (from the landing page):
 #
-# Usage:   ./install.sh            # installs into ~/.claude
-#          CLAUDE_DIR=/path ./install.sh
+#   curl -fsSL https://raw.githubusercontent.com/atvirokodosprendimai/agentsmemory/main/clients/claude-code/install.sh | bash
 #
-# Idempotent: re-running overwrites the command/hook files and never adds a
-# duplicate Stop-hook entry. Configure the MCP connection separately (see README).
+# It detects your OS/arch, downloads the latest `aiagentmemory` binary from
+# GitHub Releases into ~/.local/bin, and runs `aiagentmemory install`. Any extra
+# arguments are forwarded to `install` — e.g. to do an isolated install with all
+# recommended tools:
+#
+#   curl -fsSL <url>/install.sh | bash -s -- --sandbox myproject --recommended
+#
+# Environment:
+#   AIAGENTMEMORY_VERSION     release tag to install (default: latest)
+#   AIAGENTMEMORY_BIN_DIR     install dir (default: ~/.local/bin)
+#   AIAGENTMEMORY_NO_INSTALL  set to any value to download only, skip `install`
 set -euo pipefail
 
-SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CLAUDE_DIR="${CLAUDE_DIR:-$HOME/.claude}"
-CMD_DIR="$CLAUDE_DIR/commands"
-HOOK_DIR="$CLAUDE_DIR/hooks"
-SETTINGS="$CLAUDE_DIR/settings.json"
-HOOK_CMD="bash $HOOK_DIR/agentsmemory-stop-hook.sh"
+REPO="atvirokodosprendimai/agentsmemory"
+BIN="aiagentmemory"
+BIN_DIR="${AIAGENTMEMORY_BIN_DIR:-$HOME/.local/bin}"
 
-mkdir -p "$CMD_DIR" "$HOOK_DIR"
+info() { printf '==> %s\n' "$*"; }
+err() {
+	printf 'error: %s\n' "$*" >&2
+	exit 1
+}
 
-# 1 + 2: copy the commands and the hook script. /am is the thin wake-up command
-# (delegates to am_skillset); agentsmemory.md is the verbose reference.
-cp "$SRC/commands/am.md" "$CMD_DIR/am.md"
-cp "$SRC/commands/agentsmemory.md" "$CMD_DIR/agentsmemory.md"
-cp "$SRC/hooks/agentsmemory-stop-hook.sh" "$HOOK_DIR/agentsmemory-stop-hook.sh"
-chmod +x "$HOOK_DIR/agentsmemory-stop-hook.sh"
-echo "installed: $CMD_DIR/am.md"
-echo "installed: $CMD_DIR/agentsmemory.md"
-echo "installed: $HOOK_DIR/agentsmemory-stop-hook.sh"
+# 1. Detect OS/arch and map to the release asset naming used by the build.
+os="$(uname -s | tr '[:upper:]' '[:lower:]')"
+case "$os" in
+linux | darwin) ;;
+*) err "unsupported OS '$os' (need linux or darwin)" ;;
+esac
+arch="$(uname -m)"
+case "$arch" in
+x86_64 | amd64) arch="amd64" ;;
+arm64 | aarch64) arch="arm64" ;;
+*) err "unsupported arch '$arch' (need x86_64/amd64 or arm64/aarch64)" ;;
+esac
+asset="${BIN}-${os}-${arch}"
 
-# 3: register the Stop hook in settings.json.
-if ! command -v jq >/dev/null 2>&1; then
-  cat <<EOF
-
-jq not found — add the Stop hook to $SETTINGS manually:
-
-  "hooks": {
-    "Stop": [
-      { "hooks": [ { "type": "command", "command": "$HOOK_CMD" } ] }
-    ]
-  }
-EOF
-  exit 0
+# 2. Resolve the download URL: a pinned tag, or GitHub's 'latest' redirect.
+version="${AIAGENTMEMORY_VERSION:-latest}"
+if [ "$version" = "latest" ]; then
+	url="https://github.com/${REPO}/releases/latest/download/${asset}"
+else
+	url="https://github.com/${REPO}/releases/download/${version}/${asset}"
 fi
 
-[ -f "$SETTINGS" ] || echo '{}' >"$SETTINGS"
-cp "$SETTINGS" "$SETTINGS.bak.$(date +%s 2>/dev/null || echo backup)" 2>/dev/null || true
-
+# 3. Download to a temp file, then move it into place with the exec bit set.
+info "downloading ${asset} (${version})"
 tmp="$(mktemp)"
-# Append our Stop hook only if an identical command is not already registered.
-jq --arg cmd "$HOOK_CMD" '
-  .hooks //= {} |
-  .hooks.Stop //= [] |
-  if any(.hooks.Stop[]?; (.hooks[]?.command) == $cmd)
-  then .
-  else .hooks.Stop += [ { "hooks": [ { "type": "command", "command": $cmd } ] } ]
-  end
-' "$SETTINGS" >"$tmp" && mv "$tmp" "$SETTINGS"
+trap 'rm -f "$tmp"' EXIT
+curl -fSL --progress-bar "$url" -o "$tmp" ||
+	err "download failed: $url (has a release been published for ${os}/${arch}?)"
 
-echo "registered Stop hook in: $SETTINGS"
-echo
-echo "Done. Restart Claude Code (or /reload), then run /agentsmemory in a project"
-echo "where the agentsmemory MCP is connected (see README.md to configure it)."
+mkdir -p "$BIN_DIR"
+install -m 0755 "$tmp" "$BIN_DIR/$BIN"
+info "installed $BIN_DIR/$BIN"
+
+# 4. PATH hint — ~/.local/bin is not always on PATH.
+case ":$PATH:" in
+*":$BIN_DIR:"*) ;;
+*)
+	info "note: $BIN_DIR is not on your PATH. Add it, e.g.:"
+	printf '      echo '\''export PATH="%s:$PATH"'\'' >> ~/.profile\n' "$BIN_DIR"
+	;;
+esac
+
+# 5. Run the installer unless suppressed. Read from the terminal (/dev/tty) so
+#    the token prompt works even though stdin is the curl pipe here.
+if [ -n "${AIAGENTMEMORY_NO_INSTALL:-}" ]; then
+	info "download-only (AIAGENTMEMORY_NO_INSTALL set). Run it yourself: $BIN install"
+	exit 0
+fi
+
+info "running: $BIN install $*"
+if [ -t 0 ]; then
+	"$BIN_DIR/$BIN" install "$@"
+elif [ -e /dev/tty ]; then
+	"$BIN_DIR/$BIN" install "$@" </dev/tty
+else
+	# No terminal at all (CI): install non-interactively; the token prompt is
+	# skipped and can be completed later with `aiagentmemory install --token …`.
+	"$BIN_DIR/$BIN" install --yes "$@"
+fi

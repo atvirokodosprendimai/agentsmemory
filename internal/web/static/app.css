@@ -573,6 +573,13 @@ select.input option { color: var(--bone); background: var(--ink-2); }
 .lp-code-head { display: flex; align-items: center; justify-content: space-between; padding: .55rem .7rem .55rem 1rem; border-bottom: 1px solid var(--line); background: rgba(0,0,0,.22); }
 .lp-code .cmd { margin: 0; border: 0; border-left: 0; border-radius: 0; }
 
+/* ---- install (Claude Code kit) ---- */
+.lp-install-modes { display: grid; gap: 1rem; }
+.lp-install-mode { padding: 1.4rem; }
+.lp-install-mode > p { color: var(--muted); margin: .35rem 0 0; font-size: .95rem; line-height: 1.55; }
+.lp-install-cmd { margin: .9rem 0 0; font-size: .85rem; }
+.lp-install-deps { margin-top: 2.2rem; }
+
 /* ---- pricing ---- */
 .lp-plan-grid { display: grid; gap: 1.4rem; max-width: 46rem; margin: 0 auto; }
 @media (min-width: 760px) { .lp-plan-grid { grid-template-columns: repeat(2, 1fr); } }
