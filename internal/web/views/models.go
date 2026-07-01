@@ -607,6 +607,22 @@ func landingInstallGroups() []installGroup {
 	}
 }
 
+// cmdRef is one row of the install command reference: the command and a
+// one-line description of what it does.
+type cmdRef struct{ Cmd, Desc string }
+
+// landingCommands is the tidy command reference under the install one-liner —
+// install (global / sandboxed) plus the run/wrap launchers, so `run <name>`
+// (open Claude in a sandbox without re-installing) is front and centre.
+func landingCommands() []cmdRef {
+	return []cmdRef{
+		{"aiagentmemory install", "Global — wire the kit into your existing ~/.claude."},
+		{"aiagentmemory install --sandbox <name>", "Isolated — a self-contained config under ~/.sandboxes/<name>."},
+		{"aiagentmemory run <name>", "Open Claude in a sandbox — no re-install; args pass through to claude."},
+		{"aiagentmemory wrap", "Open Claude against the global config."},
+	}
+}
+
 // landingJSONLD builds the schema.org structured data for the landing page: a
 // SoftwareApplication describing the product (with both price tiers) and a
 // FAQPage built from landingFAQ. Emitting this as JSON-LD is the highest-signal

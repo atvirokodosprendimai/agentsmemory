@@ -574,10 +574,17 @@ select.input option { color: var(--bone); background: var(--ink-2); }
 .lp-code .cmd { margin: 0; border: 0; border-left: 0; border-radius: 0; }
 
 /* ---- install (Claude Code kit) ---- */
-.lp-install-modes { display: grid; gap: 1rem; }
-.lp-install-mode { padding: 1.4rem; }
-.lp-install-mode > p { color: var(--muted); margin: .35rem 0 0; font-size: .95rem; line-height: 1.55; }
-.lp-install-cmd { margin: .9rem 0 0; font-size: .85rem; }
+.lp-install-copy > p { color: var(--muted); line-height: 1.65; margin: 0 0 1rem; }
+.lp-install-copy > p:last-child { margin-bottom: 0; }
+.lp-cmd-ref { margin: 2rem 0 0; display: grid; gap: .5rem; }
+.lp-cmd-row {
+  display: grid; gap: .1rem .9rem;
+  padding: .7rem .9rem; border: 1px solid var(--line); border-radius: 10px; background: rgba(0,0,0,.14);
+}
+@media (min-width: 680px) { .lp-cmd-row { grid-template-columns: minmax(0, 23rem) 1fr; align-items: baseline; } }
+.lp-cmd-row dt { margin: 0; }
+.lp-cmd-row dt code { font-family: "IBM Plex Mono", monospace; font-size: .86rem; color: var(--brass); overflow-wrap: anywhere; }
+.lp-cmd-row dd { margin: 0; color: var(--muted); font-size: .9rem; line-height: 1.5; }
 .lp-install-deps { margin-top: 2.2rem; }
 
 /* ---- pricing ---- */
