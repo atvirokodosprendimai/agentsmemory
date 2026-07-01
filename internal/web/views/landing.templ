@@ -23,6 +23,7 @@ templ LandingPage(d LandingData) {
 				@landingHero(d)
 				@landingStatStrip()
 				@landingWhat()
+				@landingExplained()
 				@landingModel()
 				@landingHow()
 				@landingFeatures()
@@ -49,11 +50,11 @@ templ landingHead() {
 		<title>AI Agent Memory — Long-term, Team-Wide Memory over MCP</title>
 		<meta
 			name="description"
-			content="AI Agent Memory is an open-source, multi-tenant memory server for AI agents. Connect over MCP, file verbatim memories, and recall them with hybrid semantic search — long-term agent memory backed by Ollama and Qdrant."
+			content="AI Agent Memory is an open-source, multi-tenant memory server for AI agents — long-term, multi-agent memory over MCP. File verbatim memories and recall them with hybrid semantic search, backed by Ollama and Qdrant."
 		/>
 		<meta
 			name="keywords"
-			content="AI agent memory, agent memory, memory for AI agents, MCP memory server, long-term memory for LLM agents, semantic memory, memory palace, vector memory, Claude memory MCP, hybrid search"
+			content="AI agent memory, agent memory, long-term agent memory, multi-agent memory, open-source agent memory, memory for AI agents, MCP memory server, long-term memory for LLM agents, semantic memory, memory palace, vector memory, Claude memory MCP, hybrid search"
 		/>
 		<meta name="robots" content="index, follow"/>
 		<meta name="theme-color" content="#15120d"/>
@@ -199,6 +200,83 @@ templ landingWhat() {
 					all over one authenticated MCP endpoint.
 				</p>
 			</aside>
+		</div>
+	</section>
+}
+
+// landingExplained is the in-depth SEO/GEO explainer: it defines the three
+// long-tail search phrases the page targets — "long-term agent memory",
+// "multi-agent memory" and "open-source agent memory" — in full, self-contained
+// prose. Each block answers its query on its own (so an AI answer engine can
+// quote a single passage without the rest of the page) and uses the exact phrase
+// once in an <h3> heading, which is the highest-weight on-page signal short of
+// the <title>. The copy is intentionally distinct from the landingWhat and FAQ
+// wordings so the three surfaces reinforce rather than duplicate each other.
+templ landingExplained() {
+	<section class="lp-section" id="concepts">
+		<div class="lp-wrap">
+			<header class="lp-head">
+				<p class="eyebrow">In depth</p>
+				<h2>Long-term, multi-agent, open source</h2>
+				<p class="lp-head-sub">The three ideas behind AI Agent Memory, explained in full.</p>
+			</header>
+			<div class="lp-explain">
+				<article>
+					<h3>What is long-term agent memory?</h3>
+					<p>
+						<b>Long-term agent memory</b> is durable storage that outlives a single
+						model context window. A large language model is stateless between calls:
+						when its context fills or the session ends, everything it "knew" is
+						discarded. Long-term memory fixes that by externalising what the agent
+						learns into a persistent store it reads from and writes to across
+						sessions — the decisions it made, the facts it verified, the threads it
+						left open.
+					</p>
+					<p>
+						AI Agent Memory keeps every memory <b>verbatim</b> — the exact text of what
+						happened, never a lossy summary — and recalls the most relevant ones on
+						demand with <b>hybrid semantic search</b>. So an agent on its hundredth run
+						still has everything the first run learned, and nothing is silently dropped
+						when the window closes.
+					</p>
+				</article>
+				<article>
+					<h3>What is multi-agent memory?</h3>
+					<p>
+						<b>Multi-agent memory</b> is a single shared memory that a whole fleet of
+						agents reads and writes, instead of a private notebook per agent. When
+						several agents — or many runs of one agent — collaborate on the same work,
+						each one should build on what the others already discovered.
+					</p>
+					<p>
+						AI Agent Memory is <b>multi-tenant</b>: every team owns one isolated
+						workspace, and every agent that connects with that team's token shares the
+						same wings, drawers and knowledge graph. One agent files a decision; the
+						next agent — a different model, a different session — recalls it by meaning.
+						Memory stays isolated <em>between</em> teams, since each workspace has its
+						own physically separate vector store, but it is fully shared <em>within</em>
+						one.
+					</p>
+				</article>
+				<article>
+					<h3>Open-source agent memory you can self-host</h3>
+					<p>
+						AI Agent Memory is <b>open source</b>. The entire server is
+						<a href={ templ.SafeURL(repoURL) } rel="noopener" target="_blank">on GitHub</a>,
+						so you can read exactly how memories are stored, embedded and ranked — with
+						no proprietary core to trust. A single Go binary migrates its schema, seeds a
+						demo workspace and prints a one-time <span class="mono">MCP</span> bearer
+						token; point any MCP client at <span class="mono">POST /mcp</span> and you
+						have long-term memory running in two commands.
+					</p>
+					<p>
+						Use the hosted service or self-host the identical code — either way your
+						agents' memory is portable and never locked in. An existing local memory
+						palace imports over <span class="mono">/import</span>, and everything you
+						file can be read back out.
+					</p>
+				</article>
+			</div>
 		</div>
 	</section>
 }

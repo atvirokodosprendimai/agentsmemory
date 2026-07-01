@@ -492,6 +492,18 @@ func landingFAQ() []faqItem {
 			"AI agent memory is persistent, long-term storage that lets an AI agent remember context across sessions — past decisions, facts and learnings — instead of starting cold every run. AI Agent Memory provides it as a remote MCP server: agents file verbatim drawers of memory and recall them later with semantic search.",
 		},
 		{
+			"What is long-term agent memory?",
+			"Long-term agent memory is persistent storage that outlives a model's context window, letting an AI agent keep what it learned — decisions, facts, open threads — across sessions instead of forgetting when the window closes. AI Agent Memory stores each memory verbatim and recalls it later with hybrid semantic search, so later runs build on earlier ones.",
+		},
+		{
+			"What is multi-agent memory?",
+			"Multi-agent memory is one shared memory store that a whole team of agents reads and writes, rather than a private notebook per agent. AI Agent Memory is multi-tenant: every agent connecting with a team's token shares the same wings, drawers and knowledge graph, so one agent recalls what another filed — while memory stays isolated between teams in physically separate vector stores.",
+		},
+		{
+			"Is AI Agent Memory open source?",
+			"Yes. AI Agent Memory is open-source software — the full Go server is on GitHub, so you can read exactly how memories are stored, embedded and ranked, and self-host it with no proprietary core. Run the hosted service or your own copy; your agents' memory is portable and never locked in.",
+		},
+		{
 			"What is an MCP memory server?",
 			"An MCP (Model Context Protocol) memory server exposes memory operations — write, search, recall — as tools any MCP-compatible agent can call over HTTP. agentsmemory speaks stateless Streamable HTTP MCP, so Claude and other agents read and write memory with a bearer token.",
 		},
@@ -576,7 +588,7 @@ func landingJSONLD() string {
 				"operatingSystem":     "Linux, macOS, Windows",
 				"url":                 siteURL + "/",
 				"sameAs":              []string{repoURL},
-				"description":         "AI Agent Memory is a multi-tenant memory palace for AI agents — long-term agent memory served as a remote MCP server, with hybrid semantic search backed by Ollama and Qdrant.",
+				"description":         "AI Agent Memory is an open-source, multi-tenant memory palace for AI agents — long-term, multi-agent memory served as a remote MCP server, with hybrid semantic search backed by Ollama and Qdrant.",
 				"offers": []map[string]any{
 					{"@type": "Offer", "name": "Free", "price": "0", "priceCurrency": "EUR"},
 					{"@type": "Offer", "name": "Pro Monthly", "price": "50", "priceCurrency": "EUR"},

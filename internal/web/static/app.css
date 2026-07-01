@@ -524,6 +524,21 @@ select.input option { color: var(--bone); background: var(--ink-2); }
 .lp-def-k { font-family: "IBM Plex Mono", monospace; text-transform: uppercase; letter-spacing: .15em; font-size: .72rem; color: var(--brass); margin: 0 0 .6rem; }
 .lp-def-v { color: var(--bone); margin: 0; line-height: 1.6; font-size: 1.04rem; }
 
+/* ---- in-depth explainer (long-term / multi-agent / open source) ---- */
+.lp-explain { display: grid; gap: 1.4rem; }
+.lp-explain article {
+  padding: 1.5rem 1.7rem;
+  border: 1px solid var(--line); border-left: 3px solid var(--line-2);
+  border-radius: var(--radius); background: var(--surface);
+  transition: border-left-color .15s ease;
+}
+@media (hover: hover) { .lp-explain article:hover { border-left-color: var(--ember); } }
+.lp-explain h3 { font-size: 1.28rem; line-height: 1.2; }
+.lp-explain p { color: var(--muted); margin: .85rem 0 0; line-height: 1.75; max-width: 68ch; }
+.lp-explain p b { color: var(--bone); font-weight: 600; }
+.lp-explain p em { color: var(--bone); font-style: normal; text-decoration: underline; text-decoration-color: var(--brass); text-underline-offset: 2px; }
+.lp-explain a { color: var(--ember); text-underline-offset: 2px; }
+
 /* ---- data model grid ---- */
 .lp-model-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); gap: 1rem; }
 .lp-model { padding: 1.3rem 1.4rem; border-left: 3px solid var(--line-2); }
