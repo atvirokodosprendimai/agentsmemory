@@ -78,7 +78,7 @@ templ ProjectsList(projects []ProjectVM) {
 // on a comfortable line instead of being squeezed and wrapped. To stop the wide
 // card reading as sparse, the body splits into two columns on wider screens
 // (.project-body): the key + command on the left where the width is needed,
-// the compact usage meter on the right rail. The "Manage skills" action stays a
+// the compact usage meter on the right rail. The "Manage project" action stays a
 // full-width footer so its affordance and divider span the whole card.
 templ ProjectCard(p ProjectVM) {
 	<article class="project card">
@@ -114,7 +114,7 @@ templ ProjectCard(p ProjectVM) {
 		</div>
 		<div class="project-foot">
 			<a class="link-arrow" href={ templ.SafeURL("/projects/" + p.TeamID) }>
-				Manage skills
+				Manage project
 				<span aria-hidden="true">→</span>
 			</a>
 		</div>
