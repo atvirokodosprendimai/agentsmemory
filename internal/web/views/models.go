@@ -462,6 +462,7 @@ func landingFeatureList() []feature {
 		{"Mining", "Idempotent mining pipeline", "am_mine turns raw text into chunked, embedded drawers plus a closet index — keyed by source, so re-running finishes rather than duplicates."},
 		{"Graph", "A navigable memory graph", "Hallways link co-occurring entities; tunnels bridge wings. Traverse the graph to surface context a flat search would miss."},
 		{"Migrate", "Bring your mempalace", "A read-only exporter streams an existing local mempalace into your workspace over /import — re-embedded server-side, graph rebuilt, fully idempotent."},
+		{"Export", "Own and export your data", "Download everything a workspace holds as one self-contained SQLite file — scoped to your tenant, secrets redacted. Your BDAR/GDPR right of access and data portability, in one click."},
 	}
 }
 
@@ -518,6 +519,10 @@ func landingFAQ() []faqItem {
 		{
 			"Can I migrate an existing memory palace?",
 			"Yes. A read-only exporter streams an existing local Python mempalace — drawers, diary, closets, knowledge-graph facts and tunnels — into your workspace over /import. The server re-embeds each memory and rebuilds the graph, and the import is idempotent.",
+		},
+		{
+			"Can I export all my data (BDAR / GDPR)?",
+			"Yes. Any workspace member can download everything the workspace holds — drawers, diary, closets, knowledge-graph facts, tunnels, skills and account details — as a single self-contained SQLite file, scoped to your own tenant with credentials redacted. It is the BDAR (the EU GDPR) right of access and data portability: one click from the project page, and the file opens in any SQLite tool.",
 		},
 		{
 			"What does agent memory cost to start?",
