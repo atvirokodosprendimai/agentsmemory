@@ -1,91 +1,154 @@
-# agentsmemory — Claude Code kit
+# agentsmemory — Claude Code kit (`aiagentmemory`)
 
-Drop-in [Claude Code](https://claude.com/claude-code) integration for the
-**agentsmemory** MCP: a startup slash command that grounds Claude in your team
-memory, and a Stop hook that reminds it to write back before each turn ends.
+A single binary that wires [Claude Code](https://claude.com/claude-code) into
+your **agentsmemory** workspace: it installs the memory-grounded slash commands
+and the Stop hook, registers the agentsmemory MCP, and can optionally pull in the
+recommended companion tools. It also wraps the Claude CLI so each project can run
+against its own isolated configuration.
 
-It mirrors the mempalace pattern, but talks to *your* agentsmemory workspace over
-MCP — everything is scoped to your team by the bearer token, so you never pass a
-team id.
+It replaces the old `install.sh` shell installer — everything now ships inside
+one downloadable binary, `aiagentmemory`.
 
-## 1. Connect the MCP
-
-agentsmemory serves a stateless Streamable-HTTP MCP endpoint at `/mcp`, authed by
-a workspace API key (create a project in the dashboard, copy or **Reveal** its
-key). Add it to your project's `.mcp.json` (or `~/.claude/.mcp.json` for all
-projects):
-
-```json
-{
-  "mcpServers": {
-    "agentsmemory": {
-      "type": "http",
-      "url": "https://YOUR-HOST/mcp",
-      "headers": { "Authorization": "Bearer YOUR-API-KEY" }
-    }
-  }
-}
-```
-
-The server name you choose (`agentsmemory` here) becomes the tool prefix
-`mcp__agentsmemory__<tool>`. Through the claude.ai connector the prefix instead
-looks like `mcp__claude_ai_<label>__<tool>` — the bare tool names are identical.
-
-## 2. Install the command + hook
+## Quick install
 
 ```bash
-./install.sh                 # installs into ~/.claude
-# or: CLAUDE_DIR=/custom/.claude ./install.sh
+curl -fsSL https://raw.githubusercontent.com/atvirokodosprendimai/agentsmemory/main/clients/claude-code/install.sh | bash
 ```
 
-This copies:
+That bootstrap script downloads the latest `aiagentmemory` binary for your
+OS/arch from [GitHub Releases](https://github.com/atvirokodosprendimai/agentsmemory/releases)
+into `~/.local/bin`, then runs `aiagentmemory install`. Arguments after `--` are
+forwarded to `install`:
 
-- `commands/am.md` → `~/.claude/commands/am.md` — the **`/am`** wake-up command
-  (recommended). It is thin on purpose: it calls **`am_skillset`** and follows the
-  platform-curated playbook it returns, so it stays correct as the toolset grows —
-  you never re-install to get new guidance.
-- `commands/agentsmemory.md` → `~/.claude/commands/agentsmemory.md` — the verbose
-  `/agentsmemory` command: the full wake-up steps and tool table written inline,
-  handy as an offline reference but hand-maintained.
-- `hooks/agentsmemory-stop-hook.sh` → `~/.claude/hooks/…` and registers it as a
-  **Stop** hook in `~/.claude/settings.json` (a timestamped backup is made; the
-  entry is not duplicated on re-run).
+```bash
+# Isolated install for one project, with all recommended tools:
+curl -fsSL <url>/install.sh | bash -s -- --sandbox myproject --recommended
+```
 
-Restart Claude Code (or `/reload`) to pick them up.
+Bootstrap environment knobs: `AIAGENTMEMORY_VERSION` (pin a tag),
+`AIAGENTMEMORY_BIN_DIR` (install dir, default `~/.local/bin`),
+`AIAGENTMEMORY_NO_INSTALL` (download only).
 
-## 3. Use it
+## Two ways to install
 
-Run **`/am <your task>`** at the start of a session. Claude will:
+| Mode | Command | What it does |
+|------|---------|--------------|
+| **Global** | `aiagentmemory install` | Wires our MCP + commands + Stop hook into the global `~/.claude`. Wraps the Claude you already run. |
+| **Isolated** | `aiagentmemory install --sandbox <name>` | Installs a self-contained config under `~/.sandboxes/<name>`. Launch Claude against it with `aiagentmemory run <name>` — its commands, settings, MCP servers, and token stay isolated from every other project. |
 
-1. **Call `am_skillset` first** — the global wakeup playbook (how to use the
-   `am_*` tools, in what order, which skills to load) plus the live tool catalogue.
-   The platform curates this centrally, so the guidance is always current.
-2. **Follow it** — wake (`am_status`), recall (`am_search`), load named skills
-   (`am_load_skill`), and work memory-first as the playbook directs.
-3. **Persist before stopping** — `am_diary_write` (AAAK summary), `am_kg_add` (new
-   facts as triples), `am_add_drawer` (notable decisions/code verbatim).
+Add `--recommended` to either mode to also install the ecosystem tools (see
+below).
 
-With no task, it gives a short briefing of what the memory already knows.
+## What gets installed
 
-> Prefer `/am`. The verbose `/agentsmemory` predates `am_skillset` and lists the
-> tools inline, so it can drift as the server changes; `/am` reads the live list
-> from the server every time.
+**Core (always):**
+
+- `commands/M.md` → the **`/M`** bootstrap command (mempalace + codebase-memory
+  + eidos flavour).
+- `commands/am.md` → the **`/am`** bootstrap command (agentsmemory-native `am_*`
+  tools).
+- `hooks/agentsmemory-stop-hook.sh` → the Stop hook, registered in
+  `settings.json` (idempotent, with a timestamped backup; no `jq` needed).
+- The **agentsmemory MCP** — the remote Streamable-HTTP server at
+  `https://aiagentmemory.dev/mcp`, authed by your workspace token (see below).
+
+> The legacy verbose `/agentsmemory` command has been retired — only `/M` and
+> `/am` ship now.
+
+**Recommended (`--recommended`):**
+
+| Tool | How it is installed |
+|------|---------------------|
+| [codebase-memory-mcp](https://github.com/DeusData/codebase-memory-mcp) | Upstream `curl \| bash` installer, then registered as the `codebasememory` stdio MCP. |
+| [eidos](https://github.com/agenticnotetaking/eidos) plugin | `plugin marketplace add agenticnotetaking/eidos` + `plugin install eidos@eidos`. |
+| [codex](https://github.com/openai/codex-plugin-cc) plugin | `plugin marketplace add openai/codex-plugin-cc` + `plugin install codex@openai-codex`. |
+
+Recommended steps are best-effort: a plugin that is already installed or a
+network hiccup is reported but does not abort the install.
+
+## The MCP token
+
+The agentsmemory MCP is authed by a per-workspace API key (create a project in
+the dashboard and copy or **Reveal** its key). `install` resolves it from, in
+order:
+
+1. `--token <key>` flag, or the `AGENTSMEMORY_TOKEN` environment variable;
+2. an interactive prompt (works even through `curl | bash`, which reads
+   `/dev/tty`).
+
+With no token and no terminal (CI), the MCP step is skipped with a copy-paste
+hint so you can add it later.
+
+## Commands
+
+```text
+aiagentmemory install [flags]     install the kit (global, or --sandbox <name>)
+aiagentmemory run <name> [args]   run Claude against sandbox ~/.sandboxes/<name>
+aiagentmemory wrap [args]         run Claude against the global config
+```
+
+### `install` flags
+
+| Flag | Default | Purpose |
+|------|---------|---------|
+| `--sandbox <name>` | — | Install into `~/.sandboxes/<name>` (isolated mode). |
+| `--recommended` | off | Also install codebase-memory, eidos, codex. |
+| `--token <key>` | `$AGENTSMEMORY_TOKEN` | agentsmemory workspace token. |
+| `--mcp-url <url>` | `https://aiagentmemory.dev/mcp` | agentsmemory MCP endpoint. |
+| `--scope <scope>` | `user` | Claude MCP/plugin scope: `user`, `local`, `project`. |
+| `--claude-bin <bin>` | `$TEISORA_CLAUDE_BIN` → `teisora-claude` → `claude` | Claude CLI to drive. |
+| `--claude-dir <dir>` | `~/.claude` | Override the target config dir (ignored with `--sandbox`). |
+| `--yes`, `-y` | off | Non-interactive: never prompt. |
+| `--dry-run` | off | Print the full plan without writing files or running commands. |
+
+`--dry-run` is the safe way to see exactly what will happen — every file write
+and every Claude CLI call is printed.
+
+## Sandboxes
+
+A sandbox is just a Claude config directory under `~/.sandboxes/<name>`. Running
+Claude with `CLAUDE_CONFIG_DIR` pointed at it isolates that project's commands,
+settings, MCP servers, and agentsmemory token from everything else. `run` does
+exactly that and then execs Claude, inheriting your terminal and its exit code:
+
+```bash
+aiagentmemory install --sandbox acme --recommended   # set up once
+aiagentmemory run acme                                # launch Claude in it
+aiagentmemory run acme -p "summarise the repo"        # args pass through to claude
+```
+
+`wrap` is the global counterpart — it runs Claude against `~/.claude` with no
+override.
+
+The Claude CLI it drives is resolved from `TEISORA_CLAUDE_BIN`, then
+`teisora-claude`, then `claude` on `PATH`.
 
 ## The Stop hook
 
-On each turn end it reminds Claude to persist the session (diary + KG triples +
-drawers). Control it with the `AGENTSMEMORY_STOP_HOOK` environment variable:
+On each turn end the hook reminds Claude to persist the session into team memory
+(`am_diary_write`, `am_kg_add`, `am_add_drawer`). Control it with
+`AGENTSMEMORY_STOP_HOOK`: `on` (default), `once` (first Stop only), or `off`.
 
-| Value | Behavior |
-|-------|----------|
-| `on` (default) | Remind on every Stop, like mempalace. |
-| `once` | Remind only on the first Stop of a session, then stay quiet. |
-| `off` | Disabled. |
+## Build from source
 
-The reminder is advisory: persist, or say there was nothing worth remembering.
+```bash
+go build -o aiagentmemory ./clients/claude-code
+./aiagentmemory install --help
+```
+
+Releases are cross-compiled for linux/darwin on amd64/arm64 by the `release`
+GitHub workflow on every `vX.Y.Z` tag.
 
 ## Uninstall
 
-Delete `~/.claude/commands/agentsmemory.md` and
-`~/.claude/hooks/agentsmemory-stop-hook.sh`, and remove the agentsmemory entry
-from the `Stop` array in `~/.claude/settings.json`.
+Remove the installed pieces from the target config dir (`~/.claude` or
+`~/.sandboxes/<name>`):
+
+```bash
+rm ~/.claude/commands/M.md ~/.claude/commands/am.md
+rm ~/.claude/hooks/agentsmemory-stop-hook.sh
+# then remove the agentsmemory entry from the Stop array in ~/.claude/settings.json,
+# and: claude mcp remove --scope user agentsmemory
+```
+
+Delete a whole sandbox with `rm -rf ~/.sandboxes/<name>`.
