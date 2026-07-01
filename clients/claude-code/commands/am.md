@@ -1,52 +1,95 @@
 ---
-description: agentsmemory wake-up — call am_skillset, then follow the platform playbook it returns
-argument-hint: [your task]
+description: agentsmemory session bootstrap — load specs (eidos:spec), code reality (codebase-memory), and team memory (am_* MCP), then plan, work, and persist what you learned
+argument-hint: [your question or task]
 ---
 
-You have the **agentsmemory** MCP connected (tools prefixed `am_`) — your
-team-shared, cross-session memory. Before acting, let the server tell you how to
-use itself. This command is deliberately thin: all the real, current guidance
-lives in `am_skillset`, which the platform keeps up to date — so this file rarely
-changes even as the toolset grows.
+You are (re)starting a session. Ground yourself before acting: load the **specs**
+(what the system should be), the **code reality** (what it is), and the **team
+memory** (who did what, and why). Then plan, work, and — before you stop — write
+back what you learned so the next session starts ahead of where this one did.
+
+This command is **generic**: it wires up three sources — the **agentsmemory MCP**
+(`am_*` tools), the **codebase-memory** code graph, and the **eidos:spec** skill —
+and assumes no particular language, framework, or UI stack.
 
 ## Task
 
 $ARGUMENTS
 
-> If the task is empty, stop after Step 1 and give a short briefing of what the
-> memory already knows that is relevant — no plan, no code. Even then, finish with
-> Step 3: a briefing-only run still ends with the diary write.
+## Step 1 — Load context (specs, code, memory)
 
-## Step 1 — Call `am_skillset` FIRST (before any other tool)
+Fire these in parallel where you can; each answers a different question.
 
-Call **`am_skillset`**. It returns, straight from the platform:
+- **1a. Specs — `eidos:spec`.** Invoke the `eidos:spec` skill to load the
+  project's source-of-truth specs (`eidos/*.md`): what the system is *supposed* to
+  do. If the project has no specs, say so and move on.
 
-- **`preamble`** — the wake-up playbook: which `am_*` tools to call, in what
-  order, and which centralised skills to load. Treat it as your instructions for
-  this server.
-- **`tools`** — the live catalogue of every `am_*` method (name + description).
-  Treat it as the authoritative list of what you can call (it is generated from
-  the running server, so it is never out of date).
+- **1b. Code reality — codebase-memory.** Reindex first, then search — never
+  search a stale graph:
+  1. `index_repository(repo_path=<cwd>)` — refresh the code graph (it re-indexes
+     incrementally; `index_status` / `detect_changes` show what moved).
+  2. `mcp__codebase-memory-mcp__search_code(pattern=<task>, project=<repo>)` —
+     locate the symbols, files, and routes the task touches. Reach for
+     `get_architecture` or `trace_path` when you need structure or call paths.
 
-The playbook is curated centrally and kept current, so it — not this file — is the
-source of truth for *how* to use the memory.
+- **1c. Team memory — `am_*` MCP.** Two calls, in order:
+  1. `am_skillset` — the wake-up playbook: how to drive the `am_*` tools, in what
+     order, and which skills to load. The platform curates this centrally, so the
+     guidance stays current as the toolset grows — you never re-install to get it.
+  2. `am_search(<task>)` — recall past decisions, learnings, and rationale for
+     this work. This is the **only** source of cross-session *why*; don't
+     reconstruct from code what memory already explains.
 
-## Step 2 — Do exactly what it says
+Reconcile the three. If the spec (1a), the code (1b), and past decisions (1c)
+disagree, **surface the conflict** — that's a human decision, not one to make
+silently.
 
-Follow the preamble's order and act on its instructions literally. When it names a
-skill to load, **call the tool** — e.g. "load `effective-go`" becomes
-`am_load_skill(name="effective-go")`, then apply the returned body. The same goes
-for `am_status`, `am_search "<your task>"`, and the rest of the loop it lays out.
+## Memory-first — ask before you grep
 
-## Step 3 — Persist before you stop
+When the task pulls you into unfamiliar code, **ask memory first**: `am_search`
+for the symbol, subsystem, or behaviour; if the palace already explains it, use
+that instead of reverse-engineering it. Grep only the gap.
 
-**Required, every task:** `am_diary_write` (an AAAK session summary). This is
-unconditional — do it on **every** task, not only the ones that changed code. A
-read-only briefing, a plan you only printed, a question you answered — each still
-ends with `am_diary_write`. Do not end your turn without it: a session that recalls
-but never records leaves the next one cold.
+The same reflex applies to **tools**: if you're unsure how to drive one (an `am_*`
+tool, a codebase-memory call, a skill, a CLI flag), `am_search` for its usage
+before guessing. Whatever you had to work out the hard way, write back (Step 4) so
+the next session recalls it.
 
-**Optional, only when something is worth keeping on its own:** `am_add_drawer` (an
-important decision, a verbatim quote, a reusable snippet), `am_kg_add` (a durable
-subject→predicate→object fact), `am_create_tunnel` (links across topics). Skip
-these when the diary already says enough.
+## Step 2 — Plan
+
+Invoke **`eidos:plan`** to turn the loaded context into a structured, multi-step
+plan grounded in the specs (1a) and the code graph (1b). Cite concrete
+`file:line`. Surface unresolved conflicts as decision points, not silent choices.
+
+## Step 2b — Todo list
+
+Materialize the plan into a tracked todo list **before** you start changing code —
+one concrete, verifiable action per item. Drive the work off it: exactly one item
+in progress at a time, marked done the moment its check passes (test, build, lint,
+runtime output). Add new work you discover; never do it off-book.
+
+## Step 3 — Implement
+
+Work the list. Make surgical changes, verify as you go, and keep the list in sync
+with reality. Comment the **why** on non-obvious code, favour reuse over
+repetition, and commit after each verified step — one logical change per commit,
+pushed often. For changes that touch untrusted input, auth, or other high-stakes
+surfaces, get an independent review before committing.
+
+## Step 4 — Persist before you stop
+
+Write back what this session produced so the next one recalls it:
+
+- **`am_diary_write`** — an AAAK session summary: what you built, decided, or
+  learned, plus any open thread. Use a stable `agent_name` so the diary threads
+  across sessions.
+- **`am_kg_add`** — new durable facts as subject → predicate → object triples.
+- **`am_add_drawer`** — notable decisions or code, verbatim, into the right wing
+  and room.
+
+A verified change that isn't written back is memory lost. Skip only when the
+session produced nothing worth recalling — and say so.
+
+If `$ARGUMENTS` is empty, stop after Step 1 and give a short **briefing** instead:
+what the specs cover, the current code shape, and the most relevant recalled
+memories — no plan, no code.
