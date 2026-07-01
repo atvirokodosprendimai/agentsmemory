@@ -27,6 +27,7 @@ templ LandingPage(d LandingData) {
 				@landingModel()
 				@landingHow()
 				@landingFeatures()
+				@landingInstall()
 				@landingQuickStart()
 				@landingPricing()
 				@landingMigrate()
@@ -346,6 +347,71 @@ templ landingFeatures() {
 						<p class="lp-feat-tag">{ f.Tag }</p>
 						<h3>{ f.Title }</h3>
 						<p>{ f.Body }</p>
+					</article>
+				}
+			</div>
+		</div>
+	</section>
+}
+
+// landingInstall is the Claude Code kit install section: the copy-paste
+// curl|bash one-liner (its own front-end-only _copiedInstall signal, distinct
+// from the quick-start's _copied since datastar signals are global), the two
+// install modes side by side, and a breakdown of exactly what lands on the
+// machine — core versus the opt-in --recommended extensions.
+templ landingInstall() {
+	<section class="lp-section" id="install" data-signals="{_copiedInstall: false}">
+		<div class="lp-wrap">
+			<header class="lp-head">
+				<p class="eyebrow">Install</p>
+				<h2>Add memory to Claude in one line</h2>
+				<p class="lp-head-sub">
+					One command downloads the <span class="mono">aiagentmemory</span> binary and
+					wires our MCP, the <span class="mono">/M</span> and <span class="mono">/am</span>
+					commands, and the Stop hook into Claude Code — globally, or into an isolated
+					per-project sandbox.
+				</p>
+			</header>
+			<div class="lp-start-grid">
+				<div class="lp-install-modes">
+					<article class="card lp-install-mode">
+						<p class="lp-def-k">Global</p>
+						<p>Wrap the Claude you already run — our MCP and commands land in <span class="mono">~/.claude</span>.</p>
+						<pre class="cmd lp-install-cmd"><code>aiagentmemory install</code></pre>
+					</article>
+					<article class="card lp-install-mode">
+						<p class="lp-def-k">Isolated</p>
+						<p>A self-contained config per project under <span class="mono">~/.sandboxes/&lt;name&gt;</span>, launched with <span class="mono">run</span>.</p>
+						<pre class="cmd lp-install-cmd"><code>aiagentmemory install --sandbox acme
+aiagentmemory run acme</code></pre>
+					</article>
+				</div>
+				<div class="lp-code card">
+					<div class="lp-code-head">
+						<span class="kv">curl · bash</span>
+						<button
+							class="btn btn-ghost btn-sm"
+							type="button"
+							data-on:click={ clipboardExprSignal(landingInstallCmd, "_copiedInstall") }
+							aria-label="Copy install command"
+						>
+							<span data-show="!$_copiedInstall">Copy</span>
+							<span data-show="$_copiedInstall" style="display:none">Copied ✓</span>
+						</button>
+					</div>
+					<pre class="cmd"><code>{ landingInstallCmd }</code></pre>
+				</div>
+			</div>
+			<div class="lp-model-grid lp-install-deps">
+				for _, g := range landingInstallGroups() {
+					<article class="lp-model card">
+						<h3>{ g.Title }</h3>
+						<p class="lp-def-k">{ g.Cmd }</p>
+						<ul class="lp-plan-list">
+							for _, it := range g.Items {
+								<li>{ it }</li>
+							}
+						</ul>
 					</article>
 				}
 			</div>
