@@ -80,7 +80,9 @@ jobs:
   # the user's OS/arch. The installer package has no cgo/sqlite deps, so a static
   # CGO_ENABLED=0 build is portable.
   binaries:
-    needs: check
+    # Depend on `image` (not just `check`) so the release binaries publish only
+    # after that job's `go test ./...` passes — untested binaries must not ship.
+    needs: [check, image]
     if: needs.check.outputs.release == 'true'
     runs-on: ubuntu-latest
     strategy:

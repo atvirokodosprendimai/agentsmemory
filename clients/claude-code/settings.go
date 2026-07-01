@@ -56,8 +56,9 @@ func ensureStopHook(path, hookCmd string) (bool, error) {
 	settings["hooks"] = hooks
 
 	// Back up the original before writing, mirroring install.sh's .bak.<ts>.
+	// Nanosecond precision avoids clobbering an earlier backup on a same-second re-run.
 	if len(raw) > 0 {
-		backup := fmt.Sprintf("%s.bak.%d", path, time.Now().Unix())
+		backup := fmt.Sprintf("%s.bak.%d", path, time.Now().UnixNano())
 		if err := os.WriteFile(backup, raw, 0o644); err != nil {
 			return false, fmt.Errorf("backup %s: %w", path, err)
 		}

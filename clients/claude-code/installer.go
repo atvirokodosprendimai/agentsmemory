@@ -61,8 +61,23 @@ func (d dryRunner) run(name string, args, env []string) error {
 		prefix.WriteString(e)
 		prefix.WriteByte(' ')
 	}
-	fmt.Fprintf(d.out, "  would run: %s%s %s\n", prefix.String(), name, strings.Join(args, " "))
+	fmt.Fprintf(d.out, "  would run: %s%s %s\n", prefix.String(), name, strings.Join(redactArgs(args), " "))
 	return nil
+}
+
+// redactArgs masks secret-bearing argument values so --dry-run never echoes a
+// token to the terminal or a captured log. The Authorization bearer header is
+// the only secret the installer passes on a command line.
+func redactArgs(args []string) []string {
+	out := make([]string, len(args))
+	for i, a := range args {
+		if strings.HasPrefix(a, "Authorization: Bearer ") {
+			out[i] = "Authorization: Bearer ***"
+		} else {
+			out[i] = a
+		}
+	}
+	return out
 }
 
 func (d dryRunner) runShell(script string) error {
@@ -265,17 +280,25 @@ func (i *Installer) registerAgentsMemoryMCP() error {
 // is best-effort — one already-installed plugin or a network hiccup should not
 // abort the whole install — so failures are reported, not fatal.
 func (i *Installer) installRecommended() {
-	if err := i.runner.runShell(codebaseMemoryInstall); err != nil {
-		i.warn("codebase-memory install script failed: %v", err)
+	// Register the stdio MCP only if its binary actually landed: if the upstream
+	// installer failed, pointing the Claude CLI at a missing path would register
+	// a broken server. (--dry-run still shows the full plan.)
+	shellErr := i.runner.runShell(codebaseMemoryInstall)
+	if shellErr != nil {
+		i.warn("codebase-memory install script failed: %v", shellErr)
 	} else {
 		i.ok("installed codebase-memory-mcp")
 	}
 	bin := expandTilde(codebaseMemoryBin)
-	i.claude(true, "mcp", "remove", "--scope", i.scope, codebaseMemoryName)
-	if err := i.claude(false, "mcp", "add", "--transport", "stdio", "--scope", i.scope, codebaseMemoryName, "--", bin); err != nil {
-		i.warn("register codebasememory MCP failed: %v", err)
+	if shellErr == nil || i.dryRun {
+		i.claude(true, "mcp", "remove", "--scope", i.scope, codebaseMemoryName)
+		if err := i.claude(false, "mcp", "add", "--transport", "stdio", "--scope", i.scope, codebaseMemoryName, "--", bin); err != nil {
+			i.warn("register codebasememory MCP failed: %v", err)
+		} else {
+			i.ok("registered MCP %q → %s", codebaseMemoryName, bin)
+		}
 	} else {
-		i.ok("registered MCP %q → %s", codebaseMemoryName, bin)
+		i.warn("skipping codebasememory MCP registration — installer did not complete")
 	}
 
 	// Marketplace add is effectively idempotent; ignore its error and let the

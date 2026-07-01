@@ -169,11 +169,30 @@ func TestValidSandboxName(t *testing.T) {
 			t.Errorf("validSandboxName(%q) = %v, want nil", name, err)
 		}
 	}
-	invalid := []string{"", ".", "..", "a/b", "../escape", `a\b`}
+	// Reject traversal, separators, leading-dot hidden names, and control bytes.
+	invalid := []string{"", ".", "..", "a/b", "../escape", `a\b`, ".ssh", "a.b", "bad name", "x\x00y"}
 	for _, name := range invalid {
 		if err := validSandboxName(name); err == nil {
 			t.Errorf("validSandboxName(%q) = nil, want an error", name)
 		}
+	}
+}
+
+func TestDryRunnerRedactsToken(t *testing.T) {
+	// --dry-run must never echo a bearer token to stdout or a captured log.
+	var buf bytes.Buffer
+	d := dryRunner{out: &buf}
+	if err := d.run("claude",
+		[]string{"mcp", "add", "--header", "Authorization: Bearer SUPERSECRET"},
+		[]string{"CLAUDE_CONFIG_DIR=/x"}); err != nil {
+		t.Fatal(err)
+	}
+	got := buf.String()
+	if strings.Contains(got, "SUPERSECRET") {
+		t.Errorf("dry-run output leaked the token: %q", got)
+	}
+	if !strings.Contains(got, "Authorization: Bearer ***") {
+		t.Errorf("expected a redacted header, got %q", got)
 	}
 }
 

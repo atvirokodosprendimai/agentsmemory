@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"syscall"
 )
@@ -21,16 +22,21 @@ func sandboxRoot() string { return filepath.Join(homeDir(), ".sandboxes") }
 // validate name with validSandboxName first.
 func sandboxDir(name string) string { return filepath.Join(sandboxRoot(), name) }
 
-// validSandboxName rejects names that could escape ~/.sandboxes via path
-// separators or traversal. A sandbox is addressed by a plain name, so anything
-// else is a mistake (or an attempt to point CLAUDE_CONFIG_DIR somewhere
-// unexpected) — reject it rather than resolve a surprising path.
+// sandboxNameRe is the allowlist for sandbox names: it must start with an
+// alphanumeric and then contain only alphanumerics, dash or underscore. A single
+// allowlist rejects path separators, "."/".." traversal, leading-dot hidden
+// names, and NUL/control bytes at once — safer than blocklisting known-bad forms,
+// since the name feeds a filesystem path and CLAUDE_CONFIG_DIR.
+var sandboxNameRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]*$`)
+
+// validSandboxName rejects any name that isn't a plain identifier, so it can
+// never escape ~/.sandboxes or steer CLAUDE_CONFIG_DIR to a surprising path.
 func validSandboxName(name string) error {
 	if name == "" {
 		return errors.New("sandbox name is empty")
 	}
-	if name == "." || name == ".." || strings.ContainsAny(name, `/\`) || name != filepath.Base(name) {
-		return fmt.Errorf("invalid sandbox name %q: use a plain name with no path separators", name)
+	if !sandboxNameRe.MatchString(name) {
+		return fmt.Errorf("invalid sandbox name %q: use letters, digits, dash or underscore only (no path separators or leading dot)", name)
 	}
 	return nil
 }
