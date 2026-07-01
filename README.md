@@ -278,6 +278,41 @@ Full step-by-step guide, flag reference and troubleshooting:
 
 ---
 
+## Data export & BDAR/GDPR compliance
+
+A workspace member can download **everything the workspace holds** as a single,
+self-contained **SQLite file** — the *right of access* and *data portability*
+under **BDAR** (the Lithuanian implementation of the EU GDPR). The project page
+surfaces it under *Download your data*; it maps to a membership-gated
+`GET /projects/{teamID}/export`. It is the **outbound counterpart to `/import`**:
+import brings a palace in, export takes your workspace out.
+
+The archive is a standalone, valid SQLite database — open it with any SQLite
+browser — built from the live source of truth:
+
+- **Schema** is replayed **verbatim** from the source `sqlite_master`, so the
+  export is byte-faithful to the running schema (no goose re-run, no drift).
+- **Rows** are copied through an explicit, reviewed manifest, each **scoped to the
+  requesting tenant** — workspace-owned memory (drawers, diary, closets, hallways,
+  tunnels, knowledge-graph facts, vectors, skills, usage, subscriptions, merge
+  jobs) by `team_id` / namespace, plus the requester's own identity rows (account,
+  membership, API-key metadata). No other tenant's data can enter the archive.
+- **Credentials are redacted**: the password hash is blanked, an API key's
+  `token_hash` is replaced and `token_enc` blanked — the export carries *your
+  data*, never usable secrets.
+
+```bash
+# From the browser: project page → "Download your data".
+# Or with an authenticated session cookie:
+curl -b session.jar https://your-host/projects/<teamID>/export \
+  -o agentsmemory-<workspace>-<date>.sqlite
+```
+
+Implementation: [`internal/dataexport`](internal/dataexport/dataexport.go)
+(scoping manifest + redaction) and `internal/web/export.go` (the download route).
+
+---
+
 ## Project layout
 
 ```
@@ -292,6 +327,8 @@ internal/
   auth/                bearer token → tenant context injection
   palace/              core memory domain types (wing/room/drawer/hallway/tunnel)
   mcpserver/           MCP tool wiring (status, load_skill, …)
+  dataexport/          per-workspace SQLite data export (BDAR right of access)
+  web/                 dashboard (templ + datastar): projects, keys, export
 ```
 
 Bounded contexts are kept apart (DDD): `tenant` and `skill` share only tenancy
@@ -330,6 +367,7 @@ called). Schema changes are additive migrations under `db/migrations/`.
 - [x] Web dashboard — local (`goth`) login, project create + one-time API key, monthly usage metering — `templ` + datastar
 - [x] Web skill management — per-project list / create / edit (role-gated to writer/admin), membership-checked routes
 - [x] Migration — read-only `mempalace` exporter + streaming `POST /import` (drawers, diary, closets, KG facts, tunnels; re-embedded, graph rebuilt)
+- [x] Data export (BDAR/GDPR) — download a workspace's data as a self-contained SQLite file (`GET /projects/{teamID}/export`, membership-gated, tenant-scoped, secrets redacted)
 - [ ] Web — API-key rotation/revoke + team/member management (invite, set role)
 - [ ] A `/load-skill` Claude command (the client-side nicety over the `am_load_skill` tool)
 - [ ] Subscriptions / billing
