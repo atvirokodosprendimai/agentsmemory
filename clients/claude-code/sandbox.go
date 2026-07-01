@@ -77,22 +77,20 @@ func wrapClaude(configDir string, claudeArgs []string) error {
 }
 
 // resolveClaudeBin decides which Claude CLI to drive. Precedence: an explicit
-// override (the --claude-bin flag or TEISORA_CLAUDE_BIN), then a teisora-claude
-// on PATH (the user's branded build), then plain claude. It returns the command
-// name (not the resolved path) so callers can exec.LookPath it themselves.
+// override (the --claude-bin flag or AIAGENTMEMORY_CLAUDE_BIN), then plain
+// `claude` on PATH. It returns the command name (not the resolved path) so
+// callers can exec.LookPath it themselves.
 func resolveClaudeBin(override string) (string, error) {
 	if override != "" {
 		return override, nil
 	}
-	if env := os.Getenv("TEISORA_CLAUDE_BIN"); env != "" {
+	if env := os.Getenv("AIAGENTMEMORY_CLAUDE_BIN"); env != "" {
 		return env, nil
 	}
-	for _, candidate := range []string{"teisora-claude", "claude"} {
-		if _, err := exec.LookPath(candidate); err == nil {
-			return candidate, nil
-		}
+	if _, err := exec.LookPath("claude"); err == nil {
+		return "claude", nil
 	}
-	return "", errors.New("no Claude CLI found on PATH (looked for teisora-claude, claude); set --claude-bin or TEISORA_CLAUDE_BIN")
+	return "", errors.New("no Claude CLI found on PATH (looked for claude); set --claude-bin or AIAGENTMEMORY_CLAUDE_BIN")
 }
 
 // homeDir returns the user's home directory, falling back to $HOME. It does not

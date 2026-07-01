@@ -308,8 +308,8 @@ hint if the sandbox hasn't been installed yet. The global counterpart is:
 aiagentmemory wrap                         # run Claude against the global ~/.claude
 ```
 
-The Claude CLI it drives is resolved from `TEISORA_CLAUDE_BIN`, then
-`teisora-claude`, then `claude` on your `PATH`.
+The Claude CLI it drives is resolved from `AIAGENTMEMORY_CLAUDE_BIN`, then
+`claude` on your `PATH`.
 
 ---
 
