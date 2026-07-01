@@ -460,7 +460,9 @@ called). Schema changes are additive migrations under `db/migrations/`.
 
 ## Provenance
 
-A faithful Go SaaS rewrite of the Python `mempalace` (frozen). The domain model
+A faithful Go SaaS rewrite of the original single-user Python
+[`mempalace`](https://github.com/MemPalace/mempalace) (frozen) — that repository
+is the upstream source this project is derived from. The domain model
 (wings/rooms/drawers/closets/hallways/tunnels/KG/AAAK dialect), the 37-tool MCP
 contract, the hybrid ranking, and idempotent mining are ported; Chroma, local
 ONNX embeddings, and the HNSW repair tooling are dropped in favour of Qdrant +
