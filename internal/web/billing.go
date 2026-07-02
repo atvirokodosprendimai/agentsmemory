@@ -144,6 +144,15 @@ func (s *Server) renderProjectPage(w http.ResponseWriter, r *http.Request, u ten
 		http.Error(w, "could not load skills", http.StatusInternalServerError)
 		return
 	}
+	// A member-list failure shouldn't blank the whole page: render the section
+	// empty with a reload hint and keep everything else working.
+	members, err := s.buildMembersVM(r.Context(), teamID, u.ID, role)
+	if err != nil {
+		members = views.MembersVM{
+			TeamID: teamID, CanManage: role == tenant.RoleAdmin,
+			Error: "Could not load members — reload the page.",
+		}
+	}
 	s.render(w, r, views.ProjectDetailPage(views.ProjectDetailData{
 		UserEmail:  u.Email,
 		Project:    proj,
@@ -152,6 +161,7 @@ func (s *Server) renderProjectPage(w http.ResponseWriter, r *http.Request, u ten
 		ServerBase: requestBaseURL(r),
 		Share:      s.buildShareData(r.Context(), u, teamID, role),
 		Merge:      s.buildMergeData(r.Context(), u, teamID, role),
+		Members:    members,
 		Flash:      flash,
 	}))
 }

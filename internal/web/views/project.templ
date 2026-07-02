@@ -39,6 +39,7 @@ templ ProjectDetailPage(d ProjectDetailData) {
 			}
 			@SkillsList(d.Project, d.Skills, d.CanWrite)
 		</div>
+		@MembersBlock(d.Members)
 		if d.Share.IsAdmin {
 			@IncomingShares(d.Share)
 		}
@@ -596,4 +597,134 @@ templ MergeJobRow(j MergeJobVM) {
 			}
 		</div>
 	</div>
+}
+
+// MembersBlock renders the Members section: who belongs to this workspace, their
+// roles, and — for an admin — the controls to add a registered user, change a
+// role, or remove someone. It is the datastar morph target (id "members-<TeamID>")
+// the add/role/remove handlers patch with the refreshed roster and an inline
+// result. Every member has their own API key, so adding a person provisions their
+// token and removing them revokes it — this list IS the workspace's access panel.
+// data-signals__ifmissing seeds the add-form inputs without clobbering a
+// half-typed email when the fragment re-morphs after an error. Non-admins see the
+// roster read-only (no add form, role badges instead of selectors).
+templ MembersBlock(d MembersVM) {
+	<section id={ "members-" + d.TeamID } class="card members" aria-labelledby="members-h" data-signals__ifmissing="{memberEmail:'', memberRole:'member'}">
+		<div class="skills-head">
+			<h2 id="members-h">Members</h2>
+			<span class="count">{ strconv.Itoa(len(d.Members)) }</span>
+		</div>
+		<p class="members-lede">
+			Everyone here has their own API key. Add a teammate to give them their own
+			token; remove them and it is revoked immediately — they can no longer connect.
+		</p>
+		if d.Notice != "" {
+			<div class="members-msg ok" role="status">{ d.Notice }</div>
+		}
+		if d.Error != "" {
+			<div class="members-msg err" role="alert">{ d.Error }</div>
+		}
+		if d.CanManage {
+			@AddMemberForm(d.TeamID)
+		}
+		<div class="member-list">
+			for _, m := range d.Members {
+				@MemberRow(d.TeamID, m, d.CanManage)
+			}
+		</div>
+	</section>
+}
+
+// AddMemberForm is the admin-only control to add a registered user by email with a
+// starting role. It posts the memberEmail/memberRole signals; the server adds the
+// membership, mints the member's own key, and patches the list. The person must
+// already have an account — there are no email invitations — so the hint says so.
+// Add is disabled while in flight and until an email is entered, so the happy path
+// never sends an empty submit. Enter in the email field submits too.
+templ AddMemberForm(teamID string) {
+	<div class="member-add">
+		<div class="member-add-grid">
+			<div class="field">
+				<label for="memberEmail">Add a member by email</label>
+				<input
+					class="input"
+					id="memberEmail"
+					type="email"
+					data-bind:member-email
+					placeholder="teammate@company.com"
+					autocomplete="off"
+					spellcheck="false"
+					data-on:keydown={ "evt.key === 'Enter' && $memberEmail.trim() !== '' && @post('/projects/" + teamID + "/members')" }
+				/>
+			</div>
+			<div class="field">
+				<label for="memberRole">Role</label>
+				<select class="input" id="memberRole" data-bind:member-role>
+					<option value="member">Member — read-only</option>
+					<option value="writer">Writer — edit skills</option>
+					<option value="admin">Admin — manage members &amp; keys</option>
+				</select>
+			</div>
+		</div>
+		<div class="member-add-actions">
+			<button
+				class="btn btn-primary"
+				data-on:click={ "@post('/projects/" + teamID + "/members')" }
+				data-indicator:addingMember
+				data-attr:disabled="$addingMember || $memberEmail.trim() === ''"
+			>
+				<span data-show="!$addingMember">Add member</span>
+				<span class="spinner" data-show="$addingMember" style="display:none" aria-hidden="true"></span>
+			</button>
+			<span class="hint">They need an agentsmemory account already — ask them to sign up first, then add their email here.</span>
+		</div>
+	</div>
+}
+
+// MemberRow is one member: their identity and role, plus (for an admin) a role
+// selector that posts on change and a Remove button. The signed-in member's own
+// row is marked "you". Removing revokes that member's keys, so Remove carries a
+// confirm; the server still guards the last admin. Non-admins see a static role
+// badge only. The confirm message and the ids are safely embedded (email via
+// jsString; team/user ids are server-minted UUIDs).
+templ MemberRow(teamID string, m MemberVM, canManage bool) {
+	<div class="member-row">
+		<div class="member-main">
+			<span class="member-name">
+				{ memberName(m) }
+				if m.IsSelf {
+					<span class="member-you">you</span>
+				}
+			</span>
+			if memberName(m) != m.Email {
+				<span class="member-email">{ m.Email }</span>
+			}
+		</div>
+		if canManage {
+			<div class="member-actions">
+				<select
+					class="input member-role"
+					aria-label={ "Role for " + m.Email }
+					data-on:change={ "@post('/projects/" + teamID + "/members/" + m.UserID + "/role?role=' + evt.target.value)" }
+				>
+					@roleOption("member", m.Role)
+					@roleOption("writer", m.Role)
+					@roleOption("admin", m.Role)
+				</select>
+				<button
+					class="btn btn-ghost btn-sm member-remove"
+					aria-label={ "Remove " + m.Email }
+					data-on:click={ "confirm(" + jsString("Remove "+m.Email+"? Their API key will be revoked and they will lose access.") + ") && @post('/projects/" + teamID + "/members/" + m.UserID + "/remove')" }
+				>Remove</button>
+			</div>
+		} else {
+			<span class={ memberRoleBadgeClass(m.Role) }>{ roleLabel(m.Role) }</span>
+		}
+	</div>
+}
+
+// roleOption renders one <option> for a member's role selector, marking the
+// member's current role selected so the control opens on the right value.
+templ roleOption(value string, current string) {
+	<option value={ value } selected?={ value == current }>{ roleLabel(value) }</option>
 }

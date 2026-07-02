@@ -1,0 +1,110 @@
+# Changelog
+
+- 2026-06-28 `8c6e79f` Merge task/skills-admin-tools: list/update_skill + merge_wing + memories_filed_away (36/37)
+- 2026-06-28 `066ef9b` feat(tenant): MembershipRole authz primitive for project-scoped web access
+- 2026-06-28 `4606e60` feat(web): per-project skill management UI (list/create/edit, role-gated)
+- 2026-06-28 `4e72ba3` docs(readme): roadmap — web dashboard + per-project skill management done
+- 2026-06-28 `59810aa` feat(tenant): encrypt API keys at rest so they can be revealed later
+- 2026-06-28 `7098319` feat(web): reveal API key on the dashboard (admin-gated)
+- 2026-06-28 `7049861` feat(clients): Claude Code kit — /agentsmemory startup command + Stop hook
+- 2026-06-28 `5d33c25` docs: reference am_-prefixed tool names in the client kit and README
+- 2026-06-28 `8a8d537` feat(web): rotate API key from the dashboard (admin, with confirm)
+- 2026-06-28 `fcc7505` feat(mcp): am_status returns the memory overview, like mempalace status
+- 2026-06-28 `f69b606` feat(palace): verbatim import path for mempalace migration
+- 2026-06-28 `b208084` feat(importer): streaming POST /import endpoint for palace migration
+- 2026-06-28 `a5737d4` feat(migrate): read-only mempalace exporter + pusher CLI
+- 2026-06-28 `ced8e54` feat(web): "Bring your mempalace" migration card on the project page
+- 2026-06-28 `4a190a7` docs(readme): migrating from mempalace + roadmap entry
+- 2026-06-28 `4177a4a` Merge feat/mempalace-migration: mempalace → SaaS migration (export CLI + /import + UI)
+- 2026-06-28 `2e2047b` Merge task/migration-docs: import/export how-to guide
+- 2026-06-28 `f0f119e` test(palace): ranking parity regression vs frozen mempalace
+- 2026-06-28 `56798bb` tune(palace): chunk 800->1600 / overlap 320 for bge-m3 window
+- 2026-06-28 `3884980` feat(web): public SEO landing page at / ("AI Agent Memory")
+- 2026-06-28 `994909b` Merge task/css-cache-busting: content-hash cache-busting for embedded CSS
+- 2026-06-28 `328e744` feat(cmd): read-only `mcp` CLI subcommand over the same domain services
+- 2026-06-28 `204cf56` feat(web): one-paste `claude mcp add` command on reveal + create
+- 2026-06-28 `a700a02` feat(skillset): am_skillset wakeup tool + global superadmin playbook
+- 2026-06-28 `d5a5ae4` feat(web): superadmin editor for the global skillset + thin /am command
+- 2026-06-29 `1ca131c` docs(env): fill missing gaps in .env.example
+- 2026-06-29 `5568be5` feat(skillset): force end-of-task diary write in the global wakeup playbook
+- 2026-06-29 `150fc7e` feat(skillset): split end-of-task persistence into required diary + optional records
+- 2026-06-29 `272ccb0` fix(dashboard): full-width project cards so the MCP command isn't squeezed
+- 2026-06-29 `30a7b87` fix(clients): prevent agentsmemory stop-hook from re-firing in a loop
+- 2026-06-29 `2537b8b` fix(migrate): upload /import bundle with Content-Length, not chunked
+- 2026-06-29 `ceac9b3` fix(import): buffer-then-respond server + batched client (proxy-safe migration)
+- 2026-06-29 `05b4483` feat(import): absorb rows instantly, embed in the background
+- 2026-06-29 `ea11871` feat(store): `sync` command to replay SQLite vectors into Qdrant
+- 2026-06-29 `8b1fd76` feat(sync): --recreate flag to drop + rebuild tenant Qdrant collections
+- 2026-06-29 `cb3868a` fix(qdrant): batch point upserts so large namespaces actually land
+- 2026-06-29 `0bdb4f5` feat(share): copy a wing's memory across tenants (solo -> team)
+- 2026-06-29 `f8f0731` feat(share): wing-share request handshake domain
+- 2026-06-29 `7f4946b` feat(web): GUI to share a wing into another workspace by slug
+- 2026-06-29 `e2c8717` fix(share): atomic accept/decline + graceful duplicate handling
+- 2026-06-29 `05e8530` feat(web): GUI to share a wing into another workspace by slug
+- 2026-06-29 `ebc2820` feat(mergejob): durable background wing-merge queue
+- 2026-06-29 `1e4df08` feat(web): GUI to merge wings as a background job
+- 2026-06-29 `5ed627f` fix(mergejob): reclaim orphaned jobs, detached finalize; refresh suggestions
+- 2026-06-29 `21b4ff8` feat(billing): Pro plan catalog + subscriptions schema
+- 2026-06-29 `af0f37a` feat(billing): Stripe hosted-checkout + webhook service
+- 2026-06-29 `106b577` feat(billing): wire Stripe + upgrade-to-Pro UI
+- 2026-06-29 `00d7164` feat(billing): Service.Enabled gate for dashboard wiring
+- 2026-06-29 `0b08ae0` feat(billing): landing page + JSON-LD to Free + Pro (EUR)
+- 2026-06-29 `9046dd0` test(tenant): cover PlanByCode and SetTeamPlan
+- 2026-06-29 `2ee44c2` fix(billing): harden webhook per Codex review
+- 2026-06-29 `61bfc7a` seo(landing): add "team-wide" to headline + share titles
+- 2026-06-29 `994f52e` fix(share): surface workspace slug as a labeled, copyable chip
+- 2026-06-30 `7f0febe` ci: cross-compile binary artifacts on push + attach to releases
+- 2026-07-01 `6c70486` seo(landing): comprehensive explainers for long-term, multi-agent, open-source
+- 2026-07-01 `83252b1` feat(dataexport): per-workspace SQLite archive builder for BDAR
+- 2026-07-01 `283142f` feat(web): add GET /projects/{teamID}/export download endpoint
+- 2026-07-01 `3a23d52` feat(web): ExportCard on project page + rename link to "Manage project"
+- 2026-07-01 `754796a` fix(dataexport): include closet vectors in the archive
+- 2026-07-01 `2e3f04e` docs(readme): document BDAR/GDPR data export
+- 2026-07-01 `04bb244` feat(landing): surface BDAR/GDPR data export on the marketing page
+- 2026-07-02 `3621f50` feat(installer): single-binary aiagentmemory kit installer + Claude wrapper
+- 2026-07-02 `ad5c578` feat(installer): curl|bash downloader, release binaries, comprehensive README
+- 2026-07-02 `c0765a3` feat(landing): install section for the aiagentmemory Claude Code kit
+- 2026-07-02 `2d6a24b` harden(installer): fold in Codex review findings
+- 2026-07-02 `6db0999` Merge feat/aiagentmemory-installer: single-binary aiagentmemory installer + Claude wrapper, generic /am, landing install section
+- 2026-07-02 `9ddf10b` Merge docs/readme-install: comprehensive Claude Code kit install section
+- 2026-07-02 `608e72f` Merge chore/remove-teisora: drop teisora branding, env var -> AIAGENTMEMORY_CLAUDE_BIN
+- 2026-07-02 `9f61dd1` Merge fix/landing-install-section: declutter install section, surface run <name>
+- 2026-07-02 `2b9a328` fix(installer): prompt for global vs sandbox when run interactively
+- 2026-07-02 `30b3fde` fix(oauth): use GitHub primary verified email, not public profile email
+- 2026-07-02 `cf42d53` Merge docs/provenance-source-repo: link upstream Python mempalace repo
+- 2026-07-02 `77c1095` Merge ci/build-tag-only-semver: gate build.yml binaries on strict version tags
+- 2026-07-02 `fddcaa0` Merge fix/landing-signed-in-logo: signed-in landing + app logo to /
+- 2026-07-02 `a3a44b2` feat(claude-code): add --global flag + auto-loaded memory protocol
+- 2026-07-02 `3fb708f` feat(web): serve /claude-guide install guide as raw Markdown
+- 2026-07-02 `ab9fb16` test(claude-code): cover CLAUDE.md merge, --global, bootstrap write
+- 2026-07-02 `1473b71` feat(web): show tokenized one-paste install command in dashboard
+- 2026-07-02 `f2dd3ad` docs(claude-code): document --global, auto-loaded CLAUDE.md, /claude-guide
+- 2026-07-02 `acfb925` feat(web): installer-only connect + /claude-guide link & prompt on landing
+- 2026-07-02 `53c47bf` fix(web): unify dashboard logo wordmark with landing brand
+- 2026-07-02 `3587087` feat(web): argue why agent memory costs, under pricing
+- 2026-07-02 `ee706ca` feat(db): add TOTP 2FA schema (secret, enabled, recovery codes)
+- 2026-07-02 `ea5f757` feat(tenant): TOTP enrolment, login verify, recovery codes
+- 2026-07-02 `2e03959` feat(web): 2FA challenge on password login
+- 2026-07-02 `6f75670` feat(web): account security page with datastar 2FA enrol/disable
+- 2026-07-02 `c1b4003` docs(web): state honestly that the 2FA attempt cap is best-effort
+- 2026-07-02 `e9a605d` feat(tenant): per-user TOTP 2FA schema + domain with recovery codes
+- 2026-07-02 `5770a38` feat(web): 2FA login challenge + account setup page (datastar)
+- 2026-07-02 `4435e54` Merge task/social-login-2fa: apply 2FA to social logins too
+- 2026-07-02 `458ed4f` feat(db): add webauthn_credentials schema for passkeys
+- 2026-07-02 `df0dcef` feat(passkey): WebAuthn domain package (repo, ceremonies, RP config)
+- 2026-07-02 `1efe5ba` feat(web): passkey register + passwordless/2FA login (datastar)
+- 2026-07-02 `3334912` fix(passkey): set cookies before SSE stream; harden verify
+- 2026-07-02 `f5c0256` Merge feat/passkeys: WebAuthn passkeys (passwordless + 2nd factor)
+- 2026-07-02 `e5441f7` feat(billing): add Polar as a second payment provider behind a seam
+- 2026-07-02 `65b12dd` feat(billing): add Polar as a second payment provider behind a seam
+- 2026-07-02 `66ff7b5` docs(env): document BILLING_PROVIDER + Stripe/Polar billing config
+- 2026-07-02 `b1cc8a2` fix(billing): harden webhook verification (Codex review findings)
+- 2026-07-02 `a693362` fix(billing): harden webhook verification (Codex review findings)
+- 2026-07-02 `252610f` Merge fix/polar-webhook-secret: accept Polar raw-string webhook secret
+- 2026-07-02 `593e5b8` chore: stop tracking auto-generated internal/billing/CLAUDE.md
+- 2026-07-02 `fc11039` Merge feat/polar-manage-subscription: manage/cancel via customer portal + robust Polar activation
+- 2026-07-02 `4df48ca` fix(web): hide Manage-subscription for a comped/unlimited plan
+- 2026-07-02 `9aa6fb3` feat(landing): add "why you need agent memory" problem-awareness SEO section
+- 2026-07-02 `c5b02da` fix(web): unify card padding, fix zero-inset migrate/export cards
+- 2026-07-02 `841abf8` docs(readme): sync roadmap with shipped features
+- 2026-07-02 `0c82f99` feat(client): add /load-skill Claude command

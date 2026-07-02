@@ -172,6 +172,14 @@ func (s *Server) Routes(r chi.Router) {
 		r.Post("/projects/{teamID}/skills", s.postSkill)
 		r.Get("/projects/{teamID}/skill-body", s.getSkillBody)
 
+		// Team member management. Every route membership-checks {teamID}; the
+		// handlers layer an admin gate on top (adding/removing members and changing
+		// roles is privileged). Keys are per-member, so adding a member mints their
+		// own token and removing one revokes it — this is the access-control surface.
+		r.Post("/projects/{teamID}/members", s.postAddMember)
+		r.Post("/projects/{teamID}/members/{userID}/role", s.postSetMemberRole)
+		r.Post("/projects/{teamID}/members/{userID}/remove", s.postRemoveMember)
+
 		// BDAR/GDPR right of access: download this workspace's data as a portable
 		// SQLite file. Membership-gated like every project route; the archive is
 		// scoped to this team plus the requester's own identity rows. A plain GET
