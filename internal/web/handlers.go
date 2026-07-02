@@ -43,6 +43,17 @@ func (s *Server) postLogin(w http.ResponseWriter, r *http.Request) {
 		}))
 		return
 	}
+	// When 2FA is on, the password is only the first factor: withhold the real
+	// session, stash a short-lived pending marker, and send the user to the code
+	// step. The account is not signed in until /login/totp verifies the code.
+	if u.TOTPEnabled {
+		if err := s.setPending2FA(w, r, u.ID); err != nil {
+			http.Error(w, "session error", http.StatusInternalServerError)
+			return
+		}
+		http.Redirect(w, r, "/login/totp", http.StatusSeeOther)
+		return
+	}
 	if err := s.setSessionUser(w, r, u.ID); err != nil {
 		http.Error(w, "session error", http.StatusInternalServerError)
 		return

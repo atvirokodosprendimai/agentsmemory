@@ -1,0 +1,179 @@
+package views
+
+// AccountPage is the signed-in user's security page. Its only interactive
+// element is the two-factor card, which is datastar-driven: the buttons post to
+// the /account/totp/* endpoints and the server streams back a re-rendered card
+// (or, on a bad code, just the inline #totp-error slot).
+templ AccountPage(d AccountData) {
+	@Layout("Account", d.UserEmail) {
+		<section class="page-head">
+			<p class="eyebrow">Account</p>
+			<h1>Security</h1>
+			<p>Manage how you sign in to <span class="mono">{ d.UserEmail }</span>.</p>
+		</section>
+		@TwoFactorCard(d.TwoFactor)
+	}
+}
+
+// TwoFactorCard renders the two-factor control in one of three states (off /
+// enrolling / on), keyed off the view model. Its root id "twofactor" is the
+// stable morph target the handlers patch; each state seeds its own scoped signals
+// via data-signals so the bound inputs start empty on every transition.
+templ TwoFactorCard(vm TwoFactorVM) {
+	<article id="twofactor" class="card tfa">
+		if vm.Enabled {
+			<div class="tfa-head">
+				<div>
+					<p class="eyebrow">Two-factor authentication</p>
+					<h2>Two-factor authentication is on</h2>
+					<p class="tfa-lede">After your password, sign-in asks for a 6-digit code from your authenticator app. Your account is protected.</p>
+				</div>
+				<span class="badge ok">On</span>
+			</div>
+			if len(vm.RecoveryCodes) > 0 {
+				@recoveryCodesBlock(vm.RecoveryCodes)
+			}
+			<div class="tfa-disable" data-signals="{disableCode: ''}">
+				<div class="field">
+					<label for="disableCode">Turn off two-factor authentication</label>
+					<input
+						class="input code-input"
+						id="disableCode"
+						data-bind:disable-code
+						type="text"
+						inputmode="text"
+						autocomplete="off"
+						autocapitalize="off"
+						spellcheck="false"
+						placeholder="code"
+						data-on:keydown="evt.key === 'Enter' && @post('/account/totp/disable')"
+					/>
+					<p class="tfa-hint">Enter a current authenticator code — or a recovery code — to confirm it's you.</p>
+				</div>
+				<button
+					class="btn btn-danger"
+					type="button"
+					data-on:click="@post('/account/totp/disable')"
+					data-indicator:disabling
+					data-attr:disabled="$disabling"
+				>
+					<span data-show="!$disabling">Turn off 2FA</span>
+					<span class="spinner" data-show="$disabling" style="display:none" aria-hidden="true"></span>
+				</button>
+				<div id="totp-error" role="alert" aria-live="polite"></div>
+			</div>
+		} else if vm.Setup {
+			<div class="tfa-head">
+				<div>
+					<p class="eyebrow">Two-factor authentication</p>
+					<h2>Scan the QR code</h2>
+					<p class="tfa-lede">Scan this with Google Authenticator, Authy or 1Password, then enter the 6-digit code it shows to finish turning on 2FA.</p>
+				</div>
+			</div>
+			<div class="tfa-setup" data-signals="{totpCode: ''}">
+				<div class="tfa-qr-col">
+					<img
+						class="totp-qr"
+						src={ vm.QRDataURI }
+						width="220"
+						height="220"
+						alt="QR code for two-factor setup — scan it with your authenticator app"
+					/>
+					<details class="tfa-manual">
+						<summary>Can't scan? Enter the key by hand</summary>
+						<p class="kv" style="margin-top:.6rem">Setup key</p>
+						<code class="token">{ vm.Secret }</code>
+					</details>
+				</div>
+				<div class="tfa-confirm-col">
+					<div class="field">
+						<label for="totpCode">6-digit code</label>
+						<input
+							class="input code-input"
+							id="totpCode"
+							data-bind:totp-code
+							type="text"
+							inputmode="numeric"
+							autocomplete="one-time-code"
+							autocapitalize="off"
+							spellcheck="false"
+							placeholder="123456"
+							autofocus
+							data-on:keydown="evt.key === 'Enter' && @post('/account/totp/enable')"
+						/>
+					</div>
+					<div class="tfa-actions">
+						<button
+							class="btn btn-primary"
+							type="button"
+							data-on:click="@post('/account/totp/enable')"
+							data-indicator:enabling
+							data-attr:disabled="$enabling"
+						>
+							<span data-show="!$enabling">Turn on 2FA</span>
+							<span class="spinner" data-show="$enabling" style="display:none" aria-hidden="true"></span>
+						</button>
+						<a class="btn btn-ghost" href="/account">Cancel</a>
+					</div>
+					<div id="totp-error" role="alert" aria-live="polite"></div>
+				</div>
+			</div>
+		} else {
+			<div class="tfa-head">
+				<div>
+					<p class="eyebrow">Two-factor authentication</p>
+					<h2>Add two-factor authentication</h2>
+					<p class="tfa-lede">Add a second factor to your account. After your password you'll enter a 6-digit code from an authenticator app such as Google Authenticator or Authy — so a stolen password alone can't get in.</p>
+				</div>
+				<span class="badge">Off</span>
+			</div>
+			<button
+				class="btn btn-primary"
+				type="button"
+				data-on:click="@post('/account/totp/setup')"
+				data-indicator:starting
+				data-attr:disabled="$starting"
+			>
+				<span data-show="!$starting">Set up two-factor authentication</span>
+				<span class="spinner" data-show="$starting" style="display:none" aria-hidden="true"></span>
+			</button>
+		}
+	</article>
+}
+
+// recoveryCodesBlock shows the freshly minted recovery codes exactly once, with a
+// clear save-now warning and a copy-all button. The _rcCopied signal is
+// frontend-only (the _ prefix keeps it off the wire) and flips the button label
+// for a moment on copy.
+templ recoveryCodesBlock(codes []string) {
+	<div class="tfa-recovery" data-signals="{_rcCopied: false}">
+		<p class="eyebrow">Recovery codes</p>
+		<p class="tfa-recovery-warn"><b>Save these codes now.</b> Each one works once to sign in if you lose your authenticator. They will not be shown again.</p>
+		<ul class="rc-grid">
+			for _, c := range codes {
+				<li><code>{ c }</code></li>
+			}
+		</ul>
+		<div class="cmd-actions">
+			<button
+				class="btn btn-ghost btn-sm"
+				type="button"
+				data-on:click={ clipboardExprSignal(recoveryCodesText(codes), "_rcCopied") }
+			>
+				<span data-show="!$_rcCopied">Copy all codes</span>
+				<span data-show="$_rcCopied" style="display:none">Copied ✓</span>
+			</button>
+		</div>
+	</div>
+}
+
+// TOTPError renders just the inline error slot (#totp-error), so a bad code
+// re-renders one line instead of the whole card — the QR and inputs the user is
+// mid-way through stay put. An empty message clears a prior error.
+templ TOTPError(msg string) {
+	<div id="totp-error" role="alert" aria-live="polite">
+		if msg != "" {
+			<p class="tfa-error">{ msg }</p>
+		}
+	</div>
+}
