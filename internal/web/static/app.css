@@ -539,6 +539,14 @@ select.input option { color: var(--bone); background: var(--ink-2); }
 .lp-explain p em { color: var(--bone); font-style: normal; text-decoration: underline; text-decoration-color: var(--brass); text-underline-offset: 2px; }
 .lp-explain a { color: var(--ember); text-underline-offset: 2px; }
 
+/* ---- why you need it (problem-awareness: symptom grid) ---- */
+/* The lede reuses .lp-prose-grid + .lp-def and the closing line reuses
+   .lp-cost-foot, so only the symptom grid needs styling — and it borrows the
+   .lp-explain article look wholesale (padding, left rule, ember hover). All that
+   is left is to give it two columns on wider screens and space it off the lede. */
+.lp-why-symptoms { margin-top: clamp(2rem, 4vw, 2.8rem); }
+@media (min-width: 760px) { .lp-why-symptoms { grid-template-columns: repeat(2, 1fr); } }
+
 /* ---- data model grid ---- */
 .lp-model-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); gap: 1rem; }
 .lp-model { padding: 1.3rem 1.4rem; border-left: 3px solid var(--line-2); }
