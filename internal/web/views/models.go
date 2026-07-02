@@ -157,6 +157,68 @@ func InstallCommand(token string) string {
 		"  | AGENTSMEMORY_TOKEN=\"" + token + "\" bash -s -- --global"
 }
 
+// MemberVM is one team member as shown in the Members section: their identity and
+// current role. IsSelf marks the signed-in viewer's own row so the UI can label it
+// "you" — a cue that a demote/remove there acts on themselves (the server still
+// guards the last admin regardless).
+type MemberVM struct {
+	UserID      string
+	Email       string
+	DisplayName string
+	Role        string // member | writer | admin
+	IsSelf      bool
+}
+
+// MembersVM backs the Members section on the project page (morph target
+// id "members-<TeamID>"). CanManage gates the add form and per-row controls to
+// admins; the server re-checks on every mutation, so hiding them is convenience,
+// not the security boundary. Notice/Error carry the transient result of the last
+// action, rendered inline above the list.
+type MembersVM struct {
+	TeamID    string
+	CanManage bool
+	Members   []MemberVM
+	Notice    string // success line after a mutation
+	Error     string // inline failure (e.g. an add that bounced)
+}
+
+// memberName renders a member's display label: their name when it is set and
+// distinct from the email, else the email — so a row is never blank when
+// display_name defaults to empty or mirrors the address.
+func memberName(m MemberVM) string {
+	if m.DisplayName != "" && m.DisplayName != m.Email {
+		return m.DisplayName
+	}
+	return m.Email
+}
+
+// roleLabel is the human title for a role code, used in the role <select> and
+// badges so the UI never shows the raw lowercase slug.
+func roleLabel(role string) string {
+	switch role {
+	case "admin":
+		return "Admin"
+	case "writer":
+		return "Writer"
+	default:
+		return "Member"
+	}
+}
+
+// memberRoleBadgeClass tints the role badge so authority reads at a glance —
+// admin in brass, writer neutral-strong, member muted. It layers on the base
+// .badge (same approach as the merge-job status badges).
+func memberRoleBadgeClass(role string) string {
+	switch role {
+	case "admin":
+		return "badge role-admin"
+	case "writer":
+		return "badge role-writer"
+	default:
+		return "badge role-member"
+	}
+}
+
 // SkillVM is one centralised skill as shown on the project page — metadata only
 // (no body), matching skill.Summary. The body is fetched on demand into the
 // editor when a writer clicks Edit, so the list stays light.
@@ -189,6 +251,10 @@ type ProjectDetailData struct {
 	// Merge backs the wing-merge card (fold duplicate wings together as a
 	// background job). Rendered only when the viewer manages the workspace.
 	Merge MergeData
+	// Members backs the Members section: the workspace roster with per-member
+	// tokens. Every member sees the list; only an admin (CanManage) gets the
+	// add/role/remove controls, and the server re-checks on each mutation.
+	Members MembersVM
 }
 
 // MergeData backs the "Merge wings" section: auto-detected duplicate pairs, the

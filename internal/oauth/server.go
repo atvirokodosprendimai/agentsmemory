@@ -279,14 +279,27 @@ func (a *AuthServer) issueTokens(w http.ResponseWriter, t tenant.Tenant, clientK
 
 // --- resource gate ---
 
-// ResolveBearer opens a sealed access token into its tenant. It is the per-
-// request validation: no database hit, integrity guaranteed by the GCM seal.
-func (a *AuthServer) ResolveBearer(token string) (tenant.Tenant, error) {
+// ResolveBearer opens a sealed access token AND re-validates it against the
+// database. The GCM seal only proves the token was minted by us and hasn't
+// expired — but authority can be withdrawn after issuance: a key rotated or
+// revoked, a member removed (which revokes their keys), or a role changed. So the
+// sealed TeamID/UserID/Role are treated as an unverified claim, not the source of
+// truth: the authoritative tenant — and the CURRENT role — come from
+// ClientByKey, which rejects a revoked/removed key. Without this re-check a
+// removed member's still-valid access token would keep authenticating until it
+// expired, and a demoted admin would retain admin authority until then.
+//
+// The cost is one indexed lookup per request; the raw-token path (ResolveToken)
+// already hits the DB, so this makes the two credential kinds consistent rather
+// than adding a new kind of cost.
+func (a *AuthServer) ResolveBearer(ctx context.Context, token string) (tenant.Tenant, error) {
 	p, err := a.sealer.openPayload(token, kindAccess, a.now())
 	if err != nil {
 		return tenant.Tenant{}, err
 	}
-	return tenant.Tenant{TeamID: p.TeamID, UserID: p.UserID, Role: tenant.Role(p.Role)}, nil
+	// Re-check the minting key: revoked/removed → rejected here; otherwise take the
+	// live tenant + role (ClientByKey resolves the role from the membership row).
+	return a.clients.ClientByKey(ctx, p.ClientKey)
 }
 
 // Challenge writes the 401 that makes an MCP client begin OAuth: a
@@ -304,7 +317,7 @@ func (a *AuthServer) resolve(ctx context.Context, token string) (tenant.Tenant, 
 	if token == "" {
 		return tenant.Tenant{}, false
 	}
-	if t, err := a.ResolveBearer(token); err == nil {
+	if t, err := a.ResolveBearer(ctx, token); err == nil {
 		return t, true
 	}
 	if a.raw != nil {

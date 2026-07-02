@@ -208,8 +208,11 @@ func (s *Server) projectsForUser(ctx context.Context, userID string) ([]views.Pr
 				pct = 100
 			}
 		}
-		// Only an admin of the workspace may reveal its API key (revealing grants
-		// full access at the key owner's role). A lookup error fails closed.
+		// Keys are per-member: this card shows the signed-in member's OWN key, so
+		// every member may reveal/rotate it (revealing your own credential is no
+		// escalation). CanReveal is therefore always true here — the viewer is, by
+		// construction, a member of every team ListWorkspacesForUser returned. Role
+		// still gates the billing controls below. A lookup error fails closed.
 		role, _ := s.tenants.MembershipRole(ctx, userID, t.ID)
 		// Upgrade is offered to an admin of a free-tier (or planless) workspace,
 		// and only when Stripe is configured — otherwise the button would lead
@@ -229,7 +232,7 @@ func (s *Server) projectsForUser(ctx context.Context, userID string) ([]views.Pr
 		out = append(out, views.ProjectVM{
 			TeamID: t.ID, Name: t.Name, Slug: t.Slug, PlanName: planName, Endpoint: "/mcp",
 			Used: st.Used, Cap: st.Cap, Pct: pct,
-			CanReveal: isAdmin, CanUpgrade: canUpgrade, CanManage: canManage,
+			CanReveal: true, CanUpgrade: canUpgrade, CanManage: canManage,
 		})
 	}
 	return out, nil

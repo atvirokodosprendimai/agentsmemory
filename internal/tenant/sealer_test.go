@@ -72,7 +72,7 @@ func TestRevealToken(t *testing.T) {
 	}).Error; err != nil {
 		t.Fatalf("seed key: %v", err)
 	}
-	if got, err := r.RevealToken(ctx, "team-a"); err != nil || got != "plain-tok" {
+	if got, err := r.RevealToken(ctx, "team-a", "u1"); err != nil || got != "plain-tok" {
 		t.Fatalf("reveal = (%q, %v), want (plain-tok, nil)", got, err)
 	}
 
@@ -83,15 +83,15 @@ func TestRevealToken(t *testing.T) {
 	}).Error; err != nil {
 		t.Fatalf("seed legacy key: %v", err)
 	}
-	if _, err := r.RevealToken(ctx, "team-legacy"); !errors.Is(err, ErrTokenUnavailable) {
+	if _, err := r.RevealToken(ctx, "team-legacy", "u1"); !errors.Is(err, ErrTokenUnavailable) {
 		t.Fatalf("legacy reveal err = %v, want ErrTokenUnavailable", err)
 	}
 
 	// Unknown team and a reveal-disabled repo both fail closed.
-	if _, err := r.RevealToken(ctx, "nope"); !errors.Is(err, ErrTokenUnavailable) {
+	if _, err := r.RevealToken(ctx, "nope", "u1"); !errors.Is(err, ErrTokenUnavailable) {
 		t.Fatalf("unknown reveal err = %v, want ErrTokenUnavailable", err)
 	}
-	if _, err := NewRepo(db).RevealToken(ctx, "team-a"); !errors.Is(err, ErrTokenUnavailable) {
+	if _, err := NewRepo(db).RevealToken(ctx, "team-a", "u1"); !errors.Is(err, ErrTokenUnavailable) {
 		t.Fatalf("no-sealer reveal err = %v, want ErrTokenUnavailable", err)
 	}
 }
@@ -111,7 +111,7 @@ func TestRotateKeyRevokesOldAndRevealsNew(t *testing.T) {
 	}).Error; err != nil {
 		t.Fatalf("seed legacy key: %v", err)
 	}
-	if _, err := r.RevealToken(ctx, "team-a"); !errors.Is(err, ErrTokenUnavailable) {
+	if _, err := r.RevealToken(ctx, "team-a", "u1"); !errors.Is(err, ErrTokenUnavailable) {
 		t.Fatalf("precondition: legacy key should be unrevealable, got %v", err)
 	}
 
@@ -133,8 +133,39 @@ func TestRotateKeyRevokesOldAndRevealsNew(t *testing.T) {
 	}
 
 	// The new (active) key reveals to exactly the returned secret.
-	got, err := r.RevealToken(ctx, "team-a")
+	got, err := r.RevealToken(ctx, "team-a", "u1")
 	if err != nil || got != cred.Secret {
 		t.Fatalf("reveal after rotate = (%q, %v), want (%q, nil)", got, err, cred.Secret)
+	}
+}
+
+// TestRevealTokenIsPerMember confirms reveal is scoped to (team, user): one
+// member's reveal returns their own key, never another member's, even in the same
+// team. This is the property that lets any member reveal without escalation.
+func TestRevealTokenIsPerMember(t *testing.T) {
+	db := newAPIKeyDB(t)
+	r := NewRepo(db, WithTokenSecret("token-key"))
+	ctx := context.Background()
+
+	encA, _ := r.sealToken("tok-a")
+	encB, _ := r.sealToken("tok-b")
+	for _, k := range []APIKey{
+		{ID: "ka", TeamID: "team-a", UserID: "alice", TokenHash: "ha", TokenEnc: encA, CreatedAt: "2026-06-28T00:00:00Z"},
+		{ID: "kb", TeamID: "team-a", UserID: "bob", TokenHash: "hb", TokenEnc: encB, CreatedAt: "2026-06-28T00:00:00Z"},
+	} {
+		if err := db.Create(&k).Error; err != nil {
+			t.Fatalf("seed key %s: %v", k.ID, err)
+		}
+	}
+
+	if got, err := r.RevealToken(ctx, "team-a", "alice"); err != nil || got != "tok-a" {
+		t.Fatalf("alice reveal = (%q, %v), want (tok-a, nil)", got, err)
+	}
+	if got, err := r.RevealToken(ctx, "team-a", "bob"); err != nil || got != "tok-b" {
+		t.Fatalf("bob reveal = (%q, %v), want (tok-b, nil)", got, err)
+	}
+	// A member with no key in the team reveals nothing (not another member's key).
+	if _, err := r.RevealToken(ctx, "team-a", "carol"); !errors.Is(err, ErrTokenUnavailable) {
+		t.Fatalf("carol reveal err = %v, want ErrTokenUnavailable", err)
 	}
 }

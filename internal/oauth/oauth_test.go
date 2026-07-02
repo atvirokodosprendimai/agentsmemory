@@ -160,7 +160,7 @@ func TestFullAuthCodeFlow(t *testing.T) {
 	}
 
 	// The access token resolves to the right tenant.
-	tn, err := a.ResolveBearer(tok.Access)
+	tn, err := a.ResolveBearer(context.Background(), tok.Access)
 	if err != nil {
 		t.Fatalf("ResolveBearer: %v", err)
 	}
@@ -182,9 +182,60 @@ func TestFullAuthCodeFlow(t *testing.T) {
 		Access string `json:"access_token"`
 	}
 	_ = json.Unmarshal(w2.Body.Bytes(), &tok2)
-	if _, err := a.ResolveBearer(tok2.Access); err != nil {
+	if _, err := a.ResolveBearer(context.Background(), tok2.Access); err != nil {
 		t.Fatalf("refreshed access invalid: %v", err)
 	}
+}
+
+// TestResolveBearerRechecksRevocation confirms an access token stops resolving the
+// moment its minting key is revoked/removed in the DB — even though the sealed
+// token is still cryptographically valid and unexpired. This is the OAuth-path
+// half of revoke-on-remove: without the DB re-check, a removed member's live
+// token would keep working until it expired.
+func TestResolveBearerRechecksRevocation(t *testing.T) {
+	// mutableClients lets the test flip a key from valid to revoked between minting
+	// and resolving, standing in for RemoveMember revoking the api_key.
+	sealer, _ := NewSealer("unit-test-secret")
+	mc := &mutableClients{key: "mck_abc", tnt: tenant.Tenant{TeamID: "team1", UserID: "u1", Role: tenant.RoleAdmin}}
+	a := NewAuthServer("https://mcp.test", sealer, mc, nil)
+
+	// Mint a valid, unexpired access token for the key (same seal the /token
+	// endpoint uses, minus the HTTP plumbing).
+	access, err := sealer.sealPayload(payload{
+		Kind: kindAccess, TeamID: mc.tnt.TeamID, UserID: mc.tnt.UserID,
+		Role: string(mc.tnt.Role), ClientKey: mc.key, Exp: a.now() + 3600,
+	})
+	if err != nil {
+		t.Fatalf("mint: %v", err)
+	}
+	if _, err := a.ResolveBearer(context.Background(), access); err != nil {
+		t.Fatalf("precondition: fresh token should resolve, got %v", err)
+	}
+
+	// The member is removed → their key is revoked. ClientByKey now rejects it.
+	mc.revoked = true
+	if _, err := a.ResolveBearer(context.Background(), access); err == nil {
+		t.Fatal("revoked key: access token still resolved, want rejection")
+	}
+}
+
+// mutableClients is a ClientValidator whose key can be flipped to revoked, so a
+// test can simulate a key that becomes invalid after a token was minted.
+type mutableClients struct {
+	key     string
+	tnt     tenant.Tenant
+	revoked bool
+}
+
+func (m *mutableClients) ClientByKey(_ context.Context, k string) (tenant.Tenant, error) {
+	if k == m.key && !m.revoked {
+		return m.tnt, nil
+	}
+	return tenant.Tenant{}, errors.New("unknown or revoked client")
+}
+
+func (m *mutableClients) ValidateClient(_ context.Context, k, s string) (tenant.Tenant, error) {
+	return tenant.Tenant{}, errors.New("not used")
 }
 
 func TestAuthCodeIsSingleUse(t *testing.T) {

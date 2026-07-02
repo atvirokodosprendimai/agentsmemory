@@ -33,6 +33,18 @@ const (
 	RoleAdmin  Role = "admin"
 )
 
+// ValidRole reports whether role is one of the three defined authority levels.
+// Handlers run an untrusted role string through this before it reaches the
+// database, so a typo or a crafted form value can never persist a bogus role.
+func ValidRole(role Role) bool {
+	switch role {
+	case RoleMember, RoleWriter, RoleAdmin:
+		return true
+	default:
+		return false
+	}
+}
+
 // FreePlanID is the seeded id of the free entry tier. It is the plan a new
 // workspace starts on and the plan billing downgrades a workspace back to when
 // its paid subscription ends, so it is named once here rather than spelled as a
@@ -48,6 +60,26 @@ var ErrInvalidToken = errors.New("tenant: invalid or revoked token")
 // team. The dashboard treats it as "this project is not yours" — a project-scoped
 // page must never render for a team the signed-in user does not belong to.
 var ErrNotMember = errors.New("tenant: user is not a member of this team")
+
+// ErrUserNotFound is returned by AddMemberByEmail when no account exists for the
+// given email. Adding a member requires the person to have registered first — the
+// dashboard sends no email invitations, so an unknown email is a dead end the
+// admin resolves by asking them to sign up, not a retryable error.
+var ErrUserNotFound = errors.New("tenant: no user with that email")
+
+// ErrAlreadyMember is returned by AddMemberByEmail when the user already belongs
+// to the team (the memberships (team_id,user_id) uniqueness). Surfaced as
+// "already on the team", it is a no-op, not a failure to retry.
+var ErrAlreadyMember = errors.New("tenant: user is already a member")
+
+// ErrLastAdmin is returned when removing a member or lowering their role would
+// leave the team with no admin. A workspace must always keep at least one admin,
+// or nobody could manage members, keys, or shared skills again.
+var ErrLastAdmin = errors.New("tenant: cannot remove or demote the last admin")
+
+// ErrInvalidRole is returned when a role outside {member, writer, admin} is
+// supplied — e.g. a typo or a hand-crafted form value from an untrusted client.
+var ErrInvalidRole = errors.New("tenant: invalid role")
 
 // Tenant is the resolved identity of an authenticated MCP session. It is the
 // value injected into the request context; every tool scopes its work to
@@ -128,6 +160,17 @@ type Membership struct {
 
 // TableName pins the gorm model to the goose-managed table.
 func (Membership) TableName() string { return "memberships" }
+
+// Member is a team member as shown in the dashboard's member list: the joined
+// user identity plus their role in the team. It is a read view (no behaviour),
+// assembled by ListMembers from a memberships⋈users join.
+type Member struct {
+	UserID      string
+	Email       string
+	DisplayName string
+	Role        Role
+	CreatedAt   string // RFC3339 of when they joined the team
+}
 
 // APIKey is the bearer credential an agent presents. Only the hash is stored.
 // ClientKey is the public OAuth client_id ("mck_<hex>"); the plaintext token is
@@ -290,6 +333,185 @@ func (r *Repo) MembershipRole(ctx context.Context, userID, teamID string) (Role,
 	return Role(m.Role), nil
 }
 
+// ListMembers returns every member of a team — identity and role — oldest
+// membership first, so the workspace creator heads the dashboard list. It joins
+// memberships onto users; a membership whose user row is missing (shouldn't
+// happen under the FK) is skipped rather than shown blank.
+func (r *Repo) ListMembers(ctx context.Context, teamID string) ([]Member, error) {
+	var rows []struct {
+		UserID      string
+		Email       string
+		DisplayName string
+		Role        string
+		CreatedAt   string
+	}
+	err := r.db.WithContext(ctx).
+		Table("memberships").
+		Select("memberships.user_id AS user_id, users.email AS email, "+
+			"users.display_name AS display_name, memberships.role AS role, "+
+			"memberships.created_at AS created_at").
+		Joins("JOIN users ON users.id = memberships.user_id").
+		Where("memberships.team_id = ?", teamID).
+		Order("memberships.created_at ASC").
+		Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	members := make([]Member, 0, len(rows))
+	for _, row := range rows {
+		role := Role(row.Role)
+		if role == "" {
+			role = RoleMember // an empty stored role is the least-privileged member
+		}
+		members = append(members, Member{
+			UserID: row.UserID, Email: row.Email, DisplayName: row.DisplayName,
+			Role: role, CreatedAt: row.CreatedAt,
+		})
+	}
+	return members, nil
+}
+
+// AddMemberByEmail adds an existing user (looked up by email) to a team with the
+// given role and mints them their own API key in the same transaction — so a new
+// member can connect immediately with a credential nobody else holds. The person
+// must already have an account (the dashboard sends no email invitations):
+// ErrUserNotFound when the email is unknown, ErrAlreadyMember when they already
+// belong, ErrInvalidRole for a bad role. The minted token is sealed for later
+// per-member reveal, not returned here — the member reveals their own key from
+// their dashboard, so an admin never handles another member's secret.
+func (r *Repo) AddMemberByEmail(ctx context.Context, teamID, email string, role Role) (Member, error) {
+	if !ValidRole(role) {
+		return Member{}, ErrInvalidRole
+	}
+	var user User
+	err := r.db.WithContext(ctx).Where("email = ?", normalizeEmail(email)).First(&user).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return Member{}, ErrUserNotFound
+	}
+	if err != nil {
+		return Member{}, err
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	// Mint the member's own key up front so membership and credential land
+	// together; seal it so the member can reveal it later (no-op when reveal is off).
+	key, cred, err := newAPIKey(teamID, user.ID, "default", now)
+	if err != nil {
+		return Member{}, err
+	}
+	if key.TokenEnc, err = r.sealToken(cred.Secret); err != nil {
+		return Member{}, err
+	}
+	err = r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// Re-check membership inside the txn so a concurrent add can't slip a second
+		// membership past the (team_id,user_id) uniqueness with a confusing error.
+		var existing int64
+		if err := tx.Model(&Membership{}).
+			Where("team_id = ? AND user_id = ?", teamID, user.ID).
+			Count(&existing).Error; err != nil {
+			return err
+		}
+		if existing > 0 {
+			return ErrAlreadyMember
+		}
+		if err := tx.Create(&Membership{
+			ID: uuid.NewString(), TeamID: teamID, UserID: user.ID,
+			Role: string(role), CreatedAt: now,
+		}).Error; err != nil {
+			return err
+		}
+		return tx.Create(&key).Error
+	})
+	if err != nil {
+		return Member{}, err
+	}
+	return Member{
+		UserID: user.ID, Email: user.Email, DisplayName: user.DisplayName,
+		Role: role, CreatedAt: now,
+	}, nil
+}
+
+// SetMemberRole changes a member's role in a team. It refuses to demote the last
+// admin (ErrLastAdmin) so a workspace always retains someone who can manage it,
+// rejects an unknown role (ErrInvalidRole), and returns ErrNotMember when no
+// membership ties the user to the team. The read-then-write runs in one
+// transaction so the last-admin check can't race a concurrent change.
+func (r *Repo) SetMemberRole(ctx context.Context, teamID, userID string, role Role) error {
+	if !ValidRole(role) {
+		return ErrInvalidRole
+	}
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var m Membership
+		err := tx.Where("team_id = ? AND user_id = ?", teamID, userID).First(&m).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ErrNotMember
+		}
+		if err != nil {
+			return err
+		}
+		// Demoting the current admin is only safe while another admin remains.
+		if Role(m.Role) == RoleAdmin && role != RoleAdmin {
+			admins, err := countAdmins(tx, teamID)
+			if err != nil {
+				return err
+			}
+			if admins <= 1 {
+				return ErrLastAdmin
+			}
+		}
+		return tx.Model(&Membership{}).
+			Where("team_id = ? AND user_id = ?", teamID, userID).
+			Update("role", string(role)).Error
+	})
+}
+
+// RemoveMember removes a user from a team and revokes every API key they hold in
+// it, in one transaction — so a removed member stops being able to connect the
+// instant they are removed (their bearer no longer resolves through ResolveToken,
+// which rejects revoked keys). Keys are revoked (revoked_at set), not deleted, so
+// last_used_at and the audit trail survive. Refuses to remove the last admin
+// (ErrLastAdmin); ErrNotMember when the user is not in the team.
+func (r *Repo) RemoveMember(ctx context.Context, teamID, userID string) error {
+	now := time.Now().UTC().Format(time.RFC3339)
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var m Membership
+		err := tx.Where("team_id = ? AND user_id = ?", teamID, userID).First(&m).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ErrNotMember
+		}
+		if err != nil {
+			return err
+		}
+		if Role(m.Role) == RoleAdmin {
+			admins, err := countAdmins(tx, teamID)
+			if err != nil {
+				return err
+			}
+			if admins <= 1 {
+				return ErrLastAdmin
+			}
+		}
+		// Revoke the member's still-active keys for this team so their agents can no
+		// longer authenticate. Same soft-revoke (revoked_at) the rotate path uses.
+		if err := tx.Model(&APIKey{}).
+			Where("team_id = ? AND user_id = ? AND revoked_at IS NULL", teamID, userID).
+			Update("revoked_at", now).Error; err != nil {
+			return err
+		}
+		return tx.Where("team_id = ? AND user_id = ?", teamID, userID).Delete(&Membership{}).Error
+	})
+}
+
+// countAdmins returns how many admins a team has, within the given tx. It backs
+// the last-admin guard on role change and removal, so the count and the write
+// that depends on it share one transaction (no check-then-act race).
+func countAdmins(tx *gorm.DB, teamID string) (int64, error) {
+	var n int64
+	err := tx.Model(&Membership{}).
+		Where("team_id = ? AND role = ?", teamID, string(RoleAdmin)).
+		Count(&n).Error
+	return n, err
+}
+
 // touchKey best-effort stamps last_used_at; a failed update must not deny access.
 func (r *Repo) touchKey(ctx context.Context, id string) {
 	now := time.Now().UTC().Format(time.RFC3339)
@@ -436,12 +658,13 @@ func (r *Repo) CreateAPIKey(ctx context.Context, teamID, userID, name string) (C
 	return cred, nil
 }
 
-// RotateKey revokes a team's currently active API keys and mints a fresh one in a
-// single transaction, returning the new one-time credential. It is how an admin
-// recovers a key that can no longer be revealed (a legacy key, or one whose seal
-// predates a token-key change): the rotated-out key stops authenticating
-// immediately, and the new key is sealed so it can be revealed going forward. The
-// caller MUST authorize (admin) before calling — rotation is destructive.
+// RotateKey revokes the caller's OWN active API keys for a team and mints a fresh
+// one in a single transaction, returning the new one-time credential. Keys are
+// per-member, so rotation is scoped to (team, user): it only ever touches the
+// caller's credentials, never another member's. It is how a member recovers a key
+// they can no longer reveal (a legacy key, or one whose seal predates a token-key
+// change): the rotated-out key stops authenticating immediately, and the new key
+// is sealed so it can be revealed going forward.
 func (r *Repo) RotateKey(ctx context.Context, teamID, userID string) (Credential, error) {
 	now := time.Now().UTC().Format(time.RFC3339)
 	key, cred, err := newAPIKey(teamID, userID, "default", now)
@@ -452,10 +675,11 @@ func (r *Repo) RotateKey(ctx context.Context, teamID, userID string) (Credential
 		return Credential{}, err
 	}
 	err = r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		// Revoke every still-active key for the team so the old credential stops
-		// working the instant the new one is issued.
+		// Revoke the caller's own still-active keys for the team so their old
+		// credential stops working the instant the new one is issued. Scoped to
+		// user_id so one member's rotation never invalidates another member's key.
 		if err := tx.Model(&APIKey{}).
-			Where("team_id = ? AND revoked_at IS NULL", teamID).
+			Where("team_id = ? AND user_id = ? AND revoked_at IS NULL", teamID, userID).
 			Update("revoked_at", now).Error; err != nil {
 			return err
 		}
@@ -467,19 +691,20 @@ func (r *Repo) RotateKey(ctx context.Context, teamID, userID string) (Credential
 	return cred, nil
 }
 
-// RevealToken returns the plaintext bearer for a team's current (newest active)
-// API key by opening its at-rest seal. This is the dashboard "reveal" path — the
-// caller MUST authorize first, because the returned token grants full access at
-// the key owner's role. Returns ErrTokenUnavailable when reveal is disabled, no
-// active key exists, the key predates reveal (empty seal), or the seal cannot be
-// opened (e.g. the token key was rotated since the key was minted).
-func (r *Repo) RevealToken(ctx context.Context, teamID string) (string, error) {
+// RevealToken returns the plaintext bearer for a member's own current (newest
+// active) API key in a team by opening its at-rest seal. Keys are per-member, so
+// reveal is scoped to (team, user): a member reveals only their own credential,
+// never another member's — which is why any member (not just an admin) may reveal
+// here without escalation. Returns ErrTokenUnavailable when reveal is disabled,
+// the member has no active key, the key predates reveal (empty seal), or the seal
+// cannot be opened (e.g. the token key was rotated since the key was minted).
+func (r *Repo) RevealToken(ctx context.Context, teamID, userID string) (string, error) {
 	if r.sealer == nil {
 		return "", ErrTokenUnavailable
 	}
 	var key APIKey
 	err := r.db.WithContext(ctx).
-		Where("team_id = ? AND revoked_at IS NULL", teamID).
+		Where("team_id = ? AND user_id = ? AND revoked_at IS NULL", teamID, userID).
 		Order("created_at DESC").First(&key).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return "", ErrTokenUnavailable
