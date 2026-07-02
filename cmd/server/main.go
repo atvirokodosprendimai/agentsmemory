@@ -86,6 +86,7 @@ func main() {
 			mcpCommand(def),
 			syncCommand(def),
 			shareCommand(def),
+			setPlanCommand(def),
 		},
 	}
 

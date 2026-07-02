@@ -215,11 +215,17 @@ func (s *Server) projectsForUser(ctx context.Context, userID string) ([]views.Pr
 		// and only when Stripe is configured — otherwise the button would lead
 		// nowhere. A non-free plan already has its tier; no upgrade prompt.
 		onFree := planCode == "personal" || planCode == ""
+		// A comped/unlimited plan is granted by an operator (the set-plan CLI), not
+		// bought: there is no provider subscription behind it, so it offers neither an
+		// upgrade (it is already uncapped) nor a Manage-portal path (there is no
+		// customer to open a portal for). Excluding it keeps a broken "Manage
+		// subscription" button off the card for an operator-comped workspace.
+		isComped := planCode == "unlimited"
 		isAdmin := role == tenant.RoleAdmin
 		// Upgrade is offered on a free plan; Manage on a paid one. Both require an admin
 		// and configured billing, and they are mutually exclusive by the onFree split.
 		canUpgrade := s.billing.Enabled() && isAdmin && onFree
-		canManage := s.billing.Enabled() && isAdmin && !onFree
+		canManage := s.billing.Enabled() && isAdmin && !onFree && !isComped
 		out = append(out, views.ProjectVM{
 			TeamID: t.ID, Name: t.Name, Slug: t.Slug, PlanName: planName, Endpoint: "/mcp",
 			Used: st.Used, Cap: st.Cap, Pct: pct,

@@ -100,7 +100,8 @@ func newPlanDB(t *testing.T) *gorm.DB {
 	}
 	if err := db.Exec(`INSERT INTO plans (id, code, kind, name, price_cents, currency, monthly_request_cap, billing_interval, created_at) VALUES
 		('plan_personal','personal','personal','Free',0,'eur',10000,'month','1970-01-01T00:00:00Z'),
-		('plan_pro_monthly','pro_monthly','personal','Pro',5000,'eur',1000000,'month','1970-01-01T00:00:00Z')`).Error; err != nil {
+		('plan_pro_monthly','pro_monthly','personal','Pro',5000,'eur',1000000,'month','1970-01-01T00:00:00Z'),
+		('plan_unlimited','unlimited','enterprise','Unlimited',0,'eur',-1,'month','1970-01-01T00:00:00Z')`).Error; err != nil {
 		t.Fatalf("seed plans: %v", err)
 	}
 	if err := db.Exec(`INSERT INTO teams (id, name, slug, kind, plan_id, created_at) VALUES
@@ -148,5 +149,28 @@ func TestSetTeamPlanFlipsEffectivePlan(t *testing.T) {
 	}
 	if cap, err := r.MonthlyCap(ctx, "team-a"); err != nil || cap != 1000000 {
 		t.Fatalf("cap after upgrade = (%d, %v), want (1000000, nil)", cap, err)
+	}
+}
+
+// TestSetTeamPlanUnlimitedUncapsRequests confirms the operator override behind the
+// set-plan CLI: attaching the Unlimited plan (cap -1) resolves by code and makes
+// MonthlyCap report -1, the sentinel usage.Allow treats as "no limit". This is the
+// end-to-end tenant-side guarantee that a comped workspace runs uncapped.
+func TestSetTeamPlanUnlimitedUncapsRequests(t *testing.T) {
+	r := NewRepo(newPlanDB(t))
+	ctx := context.Background()
+
+	unlimited, err := r.PlanByCode(ctx, "unlimited")
+	if err != nil {
+		t.Fatalf("PlanByCode(unlimited): %v", err)
+	}
+	if unlimited.ID != "plan_unlimited" || unlimited.MonthlyRequestCap != -1 {
+		t.Fatalf("unexpected unlimited plan: %+v", unlimited)
+	}
+	if err := r.SetTeamPlan(ctx, "team-a", unlimited.ID); err != nil {
+		t.Fatalf("SetTeamPlan(unlimited): %v", err)
+	}
+	if cap, err := r.MonthlyCap(ctx, "team-a"); err != nil || cap != -1 {
+		t.Fatalf("cap after unlimited = (%d, %v), want (-1, nil)", cap, err)
 	}
 }
