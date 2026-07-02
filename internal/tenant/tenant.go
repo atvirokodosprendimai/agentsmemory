@@ -105,6 +105,13 @@ type User struct {
 	PasswordHash string
 	DisplayName  string
 	CreatedAt    string
+	// TOTPSecret is the base32 authenticator secret, set (pending) at enrolment
+	// and consulted at login only once TOTPEnabled flips true. Column names are
+	// pinned because gorm's acronym casing would otherwise mangle "TOTP".
+	TOTPSecret string `gorm:"column:totp_secret"`
+	// TOTPEnabled is the opt-in flag: true means the local-password login for this
+	// account requires a second factor. Social logins are unaffected (see totp.go).
+	TOTPEnabled bool `gorm:"column:totp_enabled"`
 }
 
 // TableName pins the gorm model to the goose-managed table.
