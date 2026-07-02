@@ -108,3 +108,5 @@
 - 2026-07-02 `c5b02da` fix(web): unify card padding, fix zero-inset migrate/export cards
 - 2026-07-02 `841abf8` docs(readme): sync roadmap with shipped features
 - 2026-07-02 `0c82f99` feat(client): add /load-skill Claude command
+- 2026-07-02 `da2c199` feat(web): team member management with per-member API keys
+- 2026-07-02 `c273f39` docs(readme): mark team/member management shipped; per-member key note
