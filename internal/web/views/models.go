@@ -493,6 +493,14 @@ type plan struct {
 // CSS. The copy answers the "why should I pay?" objection at the point it arises.
 type costDriver struct{ Tag, Title, Body string }
 
+// symptom is one recognisable "you already have this problem" tell shown in the
+// landingWhy section. Q is the pain phrased the way a developer would actually
+// describe (or search) it — an <h3> heading, the highest-weight on-page signal
+// short of the <title> — and A explains the underlying cause (a stateless model)
+// and what durable memory changes. Each pair is written to stand alone so an AI
+// answer engine can quote a single card without the rest of the page (GEO).
+type symptom struct{ Q, A string }
+
 // faqItem is one question/answer, rendered both as an accordion row and as a
 // schema.org Question in the JSON-LD so AI answer engines can cite it.
 type faqItem struct{ Q, A string }
@@ -501,6 +509,7 @@ type faqItem struct{ Q, A string }
 func landingNav() []navItem {
 	return []navItem{
 		{"#what", "What it is"},
+		{"#why", "Why memory"},
 		{"#model", "Data model"},
 		{"#features", "Features"},
 		{"#install", "Install"},
@@ -516,6 +525,43 @@ func landingStats() []statItem {
 		{"3-way", "hybrid recall: vector · BM25 · closet"},
 		{"per-team", "isolated vector store"},
 		{"€0", "to start — 10k requests / month"},
+	}
+}
+
+// landingWhySymptoms are the everyday tells that an agent's amnesia is already
+// costing the reader — the evidence behind the landingWhy section's claim that
+// "you need this even if you don't know it yet". Each names a friction a
+// developer feels but rarely traces back to a missing memory: re-explaining
+// context, re-deciding settled questions, losing good answers to a full window,
+// agents that contradict each other, a fresh start on every model swap, and
+// repeated mistakes. The phrasings double as long-tail search targets ("why does
+// my AI agent forget", "AI keeps asking about my codebase").
+func landingWhySymptoms() []symptom {
+	return []symptom{
+		{
+			"You explain your project again every session",
+			"A stateless model remembers nothing once its window closes, so each new chat starts blank and you re-describe the same stack, conventions and goals you explained yesterday. With a shared memory the agent recalls that context itself — you brief it once, not once per session.",
+		},
+		{
+			"It re-opens a decision you already settled",
+			"Last week the agent helped you choose an approach and reasoned through the trade-offs; today, with no record of it, it proposes the option you already rejected. Filing the decision verbatim means the next run recalls not just what you chose but why, and builds on it instead of relitigating it.",
+		},
+		{
+			"The best answer disappeared when the window filled",
+			"A long session produces a sharp insight, then scrolls out of the context window and is gone — the model never actually learned it. Durable memory captures that insight the moment it happens and keeps it recallable forever, so a full window stops erasing your best work.",
+		},
+		{
+			"Two agents reach two contradictory conclusions",
+			"Run several agents — or several sessions of one — on the same problem and each works from its own private scratchpad, so they duplicate effort and disagree. One shared, multi-agent memory lets each build on what the others already found, so the fleet converges instead of colliding.",
+		},
+		{
+			"Switching models means onboarding from zero",
+			"Move from one model to another — or just open a fresh chat — and all the hard-won context stays trapped in the old conversation. Because memory lives outside the model in a portable store, any agent that connects inherits the whole history; the knowledge is yours, not the chat's.",
+		},
+		{
+			"It repeats a mistake it already learned from",
+			"An agent hits the same wrong turn it hit before — the flaky command, the misread config — because nothing carried the lesson forward. Write the correction down once and every later run recalls it, so a mistake gets made once instead of on a loop.",
+		},
 	}
 }
 
@@ -623,6 +669,10 @@ func landingFAQ() []faqItem {
 		{
 			"What is an MCP memory server?",
 			"An MCP (Model Context Protocol) memory server exposes memory operations — write, search, recall — as tools any MCP-compatible agent can call over HTTP. agentsmemory speaks stateless Streamable HTTP MCP, so Claude and other agents read and write memory with a bearer token.",
+		},
+		{
+			"Why do AI agents forget everything between sessions?",
+			"Because a large language model is stateless: it only 'knows' what currently fits in its context window, and the moment that window fills or the session ends, everything is discarded — the model itself never learns from the conversation. That is why an agent re-asks about your project, re-opens settled decisions and repeats old mistakes. AI Agent Memory fixes it by storing what matters outside the model, in a persistent store the agent writes to and recalls from over MCP, so each session starts with everything the last one learned instead of a blank slate.",
 		},
 		{
 			"How do AI agents remember things long-term?",

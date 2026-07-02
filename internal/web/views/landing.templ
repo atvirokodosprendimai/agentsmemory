@@ -24,6 +24,7 @@ templ LandingPage(d LandingData) {
 				@landingHero(d)
 				@landingStatStrip()
 				@landingWhat()
+				@landingWhy()
 				@landingExplained()
 				@landingModel()
 				@landingHow()
@@ -212,6 +213,80 @@ templ landingWhat() {
 					all over one authenticated MCP endpoint.
 				</p>
 			</aside>
+		</div>
+	</section>
+}
+
+// landingWhy is the problem-awareness section: the earlier surfaces define what
+// AI agent memory *is*, but many visitors search from the pain, not the solution
+// ("why does my AI agent forget?") and don't yet know a memory server is the fix.
+// This section names the cost of the default — a stateless model that forgets
+// every session — then lists the everyday symptoms so the reader recognises the
+// problem as their own. It is deliberately persuasive prose over a symptom grid
+// rather than another definition, and reuses the existing "what" (lp-prose-grid +
+// lp-def aside), "explainer" (lp-explain articles) and "cost" (lp-cost-foot)
+// primitives, so it needs almost no new CSS. Parameterless like the other content
+// sections; the auth-aware call to action lives in landingFinalCTA.
+templ landingWhy() {
+	<section class="lp-section lp-section-alt" id="why">
+		<div class="lp-wrap">
+			<header class="lp-head">
+				<p class="eyebrow">Why it matters</p>
+				<h2>Why your AI agents need memory — even before you notice</h2>
+				<p class="lp-head-sub">
+					Every large language model begins each session with total amnesia. The cost is
+					easy to miss because it hides inside work you are already doing — re-explaining,
+					re-deciding, re-discovering. Here is what that amnesia actually costs, and how
+					to tell it is happening to you.
+				</p>
+			</header>
+			<div class="lp-prose-grid">
+				<div>
+					<p>
+						The default state of every AI agent is <b>forgetting</b>. A language model has
+						no memory of its own: it reasons only over the tokens in its context window,
+						and the instant that window fills or the chat ends, everything it "knew" is
+						gone. It did not learn — it was briefly told, and then reset.
+					</p>
+					<p>
+						You rarely log this as a bug, because the model still sounds fluent and helpful
+						in the moment. So the missing piece stays invisible: instead of noticing the
+						amnesia, you quietly work around it — pasting the same context back in, re-stating
+						the same rules, re-answering the same questions, session after session.
+					</p>
+					<p>
+						But the cost compounds. Every minute spent re-establishing what the agent
+						already figured out yesterday is a minute not spent on the actual work — and the
+						agent never gets <em>better</em> at your project, only repeatedly re-introduced to
+						it. <b>Long-term memory</b> is the piece that turns those repeated introductions
+						into accumulated knowledge.
+					</p>
+				</div>
+				<aside class="lp-def card" aria-label="The short version">
+					<p class="lp-def-k">The short version</p>
+					<p class="lp-def-v">
+						An agent without memory isn't smarter on its hundredth run — it's exactly as
+						new as the day you met it. Memory is the line between a tool you re-teach every
+						morning and a teammate who already knows.
+					</p>
+				</aside>
+			</div>
+			<div class="lp-explain lp-why-symptoms">
+				for _, s := range landingWhySymptoms() {
+					<article>
+						<h3>{ s.Q }</h3>
+						<p>{ s.A }</p>
+					</article>
+				}
+			</div>
+			<p class="lp-cost-foot">
+				Give an agent durable memory and the pattern inverts: it recalls your stack,
+				honours the decisions you already made, keeps its sharpest insights and learns
+				from each mistake <b>once</b>. That is the difference between an assistant that
+				resets every morning and one that <b>compounds</b> — and it is exactly what AI
+				Agent Memory adds over one MCP endpoint. <a href="/register">Start free</a> and
+				connect your first agent; it takes minutes, no card required.
+			</p>
 		</div>
 	</section>
 }
@@ -687,6 +762,7 @@ templ landingFooter() {
 			</div>
 			<nav class="lp-footer-links" aria-label="Footer">
 				<a href="#what">What it is</a>
+				<a href="#why">Why memory</a>
 				<a href="#model">Data model</a>
 				<a href="#features">Features</a>
 				<a href="#pricing">Pricing</a>
