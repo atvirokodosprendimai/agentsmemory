@@ -93,17 +93,18 @@ func (s *Server) passkeyCardVM(r *http.Request, userID string) views.PasskeysVM 
 // session is stashed for the finish step.
 func (s *Server) postPasskeyRegisterBegin(w http.ResponseWriter, r *http.Request) {
 	u, _ := userFrom(r.Context())
-	sse := datastar.NewSSE(w, r)
 	options, session, err := s.passkeys.BeginRegistration(r.Context(), u.ID, u.Email, displayNameFor(u))
 	if err != nil {
-		_ = sse.PatchElementTempl(views.PasskeyError("Couldn't start passkey setup. Please try again."))
+		_ = datastar.NewSSE(w, r).PatchElementTempl(views.PasskeyError("Couldn't start passkey setup. Please try again."))
 		return
 	}
+	// Set-Cookie must precede the SSE stream: datastar.NewSSE writes and flushes the
+	// response headers, so the ceremony-session cookie has to be saved BEFORE it.
 	if err := s.setPKSession(w, r, session); err != nil {
-		_ = sse.PatchElementTempl(views.PasskeyError("Couldn't start passkey setup. Please try again."))
+		_ = datastar.NewSSE(w, r).PatchElementTempl(views.PasskeyError("Couldn't start passkey setup. Please try again."))
 		return
 	}
-	_ = sse.MarshalAndPatchSignals(map[string]any{"pkCreateOpts": json.RawMessage(options)})
+	_ = datastar.NewSSE(w, r).MarshalAndPatchSignals(map[string]any{"pkCreateOpts": json.RawMessage(options)})
 }
 
 // postPasskeyRegisterFinish verifies the attestation and stores the credential
@@ -112,11 +113,10 @@ func (s *Server) postPasskeyRegisterFinish(w http.ResponseWriter, r *http.Reques
 	u, _ := userFrom(r.Context())
 	var sig passkeySignals
 	_ = datastar.ReadSignals(r, &sig)
-	sse := datastar.NewSSE(w, r)
 
 	session, ok := s.pkSession(r)
 	if !ok {
-		_ = sse.PatchElementTempl(views.PasskeyError("Your setup session expired. Please try again."))
+		_ = datastar.NewSSE(w, r).PatchElementTempl(views.PasskeyError("Your setup session expired. Please try again."))
 		return
 	}
 	label := strings.TrimSpace(sig.PkLabel)
@@ -124,10 +124,11 @@ func (s *Server) postPasskeyRegisterFinish(w http.ResponseWriter, r *http.Reques
 		label = "Passkey"
 	}
 	if err := s.passkeys.FinishRegistration(r.Context(), u.ID, u.Email, displayNameFor(u), label, session, sig.PkCred); err != nil {
-		_ = sse.PatchElementTempl(views.PasskeyError("That passkey couldn't be registered. Please try again."))
+		_ = datastar.NewSSE(w, r).PatchElementTempl(views.PasskeyError("That passkey couldn't be registered. Please try again."))
 		return
 	}
-	s.clearPKSession(w, r)
+	s.clearPKSession(w, r) // clear the one-time ceremony cookie before the stream opens
+	sse := datastar.NewSSE(w, r)
 	_ = sse.PatchElementTempl(views.PasskeyCard(s.passkeyCardVM(r, u.ID)))
 	_ = sse.MarshalAndPatchSignals(map[string]any{"pkLabel": ""}) // reset the label input
 }
@@ -150,17 +151,16 @@ func (s *Server) postPasskeyDelete(w http.ResponseWriter, r *http.Request) {
 // so the authenticator offers its resident credentials. The request options are
 // patched into $pkGetOpts to trigger the credentials.get bridge on the login page.
 func (s *Server) postLoginPasskeyBegin(w http.ResponseWriter, r *http.Request) {
-	sse := datastar.NewSSE(w, r)
 	options, session, err := s.passkeys.BeginDiscoverableLogin()
 	if err != nil {
-		_ = sse.PatchElementTempl(views.PasskeyError("Couldn't start passkey sign-in. Please try again."))
+		_ = datastar.NewSSE(w, r).PatchElementTempl(views.PasskeyError("Couldn't start passkey sign-in. Please try again."))
 		return
 	}
 	if err := s.setPKSession(w, r, session); err != nil {
-		_ = sse.PatchElementTempl(views.PasskeyError("Couldn't start passkey sign-in. Please try again."))
+		_ = datastar.NewSSE(w, r).PatchElementTempl(views.PasskeyError("Couldn't start passkey sign-in. Please try again."))
 		return
 	}
-	_ = sse.MarshalAndPatchSignals(map[string]any{"pkGetOpts": json.RawMessage(options)})
+	_ = datastar.NewSSE(w, r).MarshalAndPatchSignals(map[string]any{"pkGetOpts": json.RawMessage(options)})
 }
 
 // postLoginPasskeyFinish verifies a passwordless assertion, resolves the user it
@@ -168,24 +168,25 @@ func (s *Server) postLoginPasskeyBegin(w http.ResponseWriter, r *http.Request) {
 func (s *Server) postLoginPasskeyFinish(w http.ResponseWriter, r *http.Request) {
 	var sig passkeySignals
 	_ = datastar.ReadSignals(r, &sig)
-	sse := datastar.NewSSE(w, r)
 
 	session, ok := s.pkSession(r)
 	if !ok {
-		_ = sse.PatchElementTempl(views.PasskeyError("Sign-in expired. Please try again."))
+		_ = datastar.NewSSE(w, r).PatchElementTempl(views.PasskeyError("Sign-in expired. Please try again."))
 		return
 	}
 	userID, err := s.passkeys.FinishDiscoverableLogin(r.Context(), session, sig.PkCred)
 	if err != nil {
-		_ = sse.PatchElementTempl(views.PasskeyError("That passkey wasn't recognised. Please try again."))
+		_ = datastar.NewSSE(w, r).PatchElementTempl(views.PasskeyError("That passkey wasn't recognised. Please try again."))
 		return
 	}
+	// Set the auth session (and clear the ceremony cookie) BEFORE opening the SSE
+	// stream — Set-Cookie can't follow the flushed SSE headers.
 	s.clearPKSession(w, r)
 	if err := s.setSessionUser(w, r, userID); err != nil {
-		_ = sse.PatchElementTempl(views.PasskeyError("Session error. Please try again."))
+		_ = datastar.NewSSE(w, r).PatchElementTempl(views.PasskeyError("Session error. Please try again."))
 		return
 	}
-	_ = sse.Redirect("/dashboard")
+	_ = datastar.NewSSE(w, r).Redirect("/dashboard")
 }
 
 // --- passkey as the second factor (/login/totp) ---
@@ -194,49 +195,48 @@ func (s *Server) postLoginPasskeyFinish(w http.ResponseWriter, r *http.Request) 
 // pending-2FA cookie names them), scoped to that user's own credentials. Without
 // a pending marker there is nothing to authenticate, so it bounces to /login.
 func (s *Server) postTOTPPasskeyBegin(w http.ResponseWriter, r *http.Request) {
-	sse := datastar.NewSSE(w, r)
 	uid, ok := s.pending2FAUserID(r)
 	if !ok {
-		_ = sse.Redirect("/login")
+		_ = datastar.NewSSE(w, r).Redirect("/login")
 		return
 	}
 	options, session, err := s.passkeys.BeginLoginForUser(r.Context(), uid)
 	if err != nil {
-		_ = sse.PatchElementTempl(views.PasskeyError("No passkey is registered for this account. Use your code instead."))
+		_ = datastar.NewSSE(w, r).PatchElementTempl(views.PasskeyError("No passkey is registered for this account. Use your code instead."))
 		return
 	}
 	if err := s.setPKSession(w, r, session); err != nil {
-		_ = sse.PatchElementTempl(views.PasskeyError("Couldn't start passkey sign-in. Please try again."))
+		_ = datastar.NewSSE(w, r).PatchElementTempl(views.PasskeyError("Couldn't start passkey sign-in. Please try again."))
 		return
 	}
-	_ = sse.MarshalAndPatchSignals(map[string]any{"pkGetOpts": json.RawMessage(options)})
+	_ = datastar.NewSSE(w, r).MarshalAndPatchSignals(map[string]any{"pkGetOpts": json.RawMessage(options)})
 }
 
 // postTOTPPasskeyFinish verifies the second-factor assertion for the pending user
 // and promotes the pending marker to a real session.
 func (s *Server) postTOTPPasskeyFinish(w http.ResponseWriter, r *http.Request) {
-	sse := datastar.NewSSE(w, r)
 	uid, ok := s.pending2FAUserID(r)
 	if !ok {
-		_ = sse.Redirect("/login")
+		_ = datastar.NewSSE(w, r).Redirect("/login")
 		return
 	}
 	var sig passkeySignals
 	_ = datastar.ReadSignals(r, &sig)
 	session, ok := s.pkSession(r)
 	if !ok {
-		_ = sse.PatchElementTempl(views.PasskeyError("Sign-in expired. Please try again."))
+		_ = datastar.NewSSE(w, r).PatchElementTempl(views.PasskeyError("Sign-in expired. Please try again."))
 		return
 	}
 	if err := s.passkeys.FinishLoginForUser(r.Context(), uid, session, sig.PkCred); err != nil {
-		_ = sse.PatchElementTempl(views.PasskeyError("That passkey wasn't recognised. Please try again."))
+		_ = datastar.NewSSE(w, r).PatchElementTempl(views.PasskeyError("That passkey wasn't recognised. Please try again."))
 		return
 	}
+	// Promote the pending marker to a real session before opening the SSE stream.
 	s.clearPKSession(w, r)
 	s.clearPending2FA(w, r)
 	if err := s.setSessionUser(w, r, uid); err != nil {
-		_ = sse.PatchElementTempl(views.PasskeyError("Session error. Please try again."))
+		_ = datastar.NewSSE(w, r).PatchElementTempl(views.PasskeyError("Session error. Please try again."))
 		return
 	}
-	_ = sse.Redirect("/dashboard")
+	_ = datastar.NewSSE(w, r).Redirect("/dashboard")
 }

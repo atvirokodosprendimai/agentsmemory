@@ -25,11 +25,22 @@
     return "Passkey step failed. Please try again.";
   }
 
+  // clean normalizes the options before parsing. parseCreation/RequestOptionsFromJSON
+  // reject a null excludeCredentials/allowCredentials ("cannot be converted to a
+  // sequence") — but accept the field ABSENT. The value can arrive as null after a
+  // round-trip through the datastar signal store, so we drop those keys when null.
+  function clean(options) {
+    const o = Object.assign({}, options);
+    if (o.excludeCredentials == null) delete o.excludeCredentials;
+    if (o.allowCredentials == null) delete o.allowCredentials;
+    return o;
+  }
+
   // register runs the create ceremony (enrolment) and emits passkey-created with
   // the attestation as WebAuthn JSON on success.
   async function register(options) {
     try {
-      const publicKey = PublicKeyCredential.parseCreationOptionsFromJSON(options);
+      const publicKey = PublicKeyCredential.parseCreationOptionsFromJSON(clean(options));
       const cred = await navigator.credentials.create({ publicKey });
       window.dispatchEvent(new CustomEvent("passkey-created", { detail: cred.toJSON() }));
     } catch (e) {
@@ -41,7 +52,7 @@
   // passkey-asserted with the assertion as WebAuthn JSON on success.
   async function authenticate(options) {
     try {
-      const publicKey = PublicKeyCredential.parseRequestOptionsFromJSON(options);
+      const publicKey = PublicKeyCredential.parseRequestOptionsFromJSON(clean(options));
       const cred = await navigator.credentials.get({ publicKey });
       window.dispatchEvent(new CustomEvent("passkey-asserted", { detail: cred.toJSON() }));
     } catch (e) {

@@ -53,6 +53,14 @@ func (s *Service) BeginRegistration(ctx context.Context, id, name, display strin
 		return nil, nil, err
 	}
 	u := &user{id: id, name: name, display: display, creds: creds}
+	// NOTE: we intentionally do NOT pass webauthn.WithExclusions here. go-webauthn
+	// emits an excludeCredentials value that the browser's
+	// PublicKeyCredential.parseCreationOptionsFromJSON rejects ("cannot be
+	// converted to a sequence"), which would break every registration. Duplicate
+	// enrolment of the same authenticator is instead caught server-side by the
+	// UNIQUE constraint on webauthn_credentials.credential_id (it fails at insert
+	// rather than being blocked in-browser) — an acceptable trade for a working
+	// ceremony. Revisit if a future go-webauthn emits spec-compliant JSON here.
 	creation, sess, err := s.w.BeginRegistration(u)
 	if err != nil {
 		return nil, nil, err
@@ -118,6 +126,9 @@ func (s *Service) FinishDiscoverableLogin(ctx context.Context, session, response
 	if err != nil {
 		return "", err
 	}
+	if cred.Authenticator.CloneWarning {
+		return "", ErrClonedAuthenticator
+	}
 	if err := s.repo.updateAfterLogin(ctx, cred); err != nil {
 		return "", err
 	}
@@ -158,6 +169,9 @@ func (s *Service) FinishLoginForUser(ctx context.Context, id string, session, re
 	cred, err := s.w.ValidateLogin(&user{id: id, creds: creds}, *sess, parsed)
 	if err != nil {
 		return err
+	}
+	if cred.Authenticator.CloneWarning {
+		return ErrClonedAuthenticator
 	}
 	return s.repo.updateAfterLogin(ctx, cred)
 }

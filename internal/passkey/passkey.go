@@ -28,6 +28,13 @@ import (
 // is allowed to act on (unknown id, or one owned by another user).
 var ErrNoCredential = errors.New("passkey: no such credential")
 
+// ErrClonedAuthenticator is returned when an assertion's signature counter went
+// backwards relative to the stored value — go-webauthn's signal that two copies
+// of the credential's private key may exist (a cloned authenticator, or a
+// replayed assertion). We treat it as a hard login failure rather than an
+// RP-optional warning: the safe response to a possible clone is to refuse.
+var ErrClonedAuthenticator = errors.New("passkey: authenticator clone warning")
+
 // credentialRow is the gorm model for one stored passkey. The full
 // webauthn.Credential is kept JSON-encoded in Data (the source of truth);
 // CredentialID and SignCount are projected out as columns for the login lookup
