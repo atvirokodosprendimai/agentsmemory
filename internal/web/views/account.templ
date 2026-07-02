@@ -83,11 +83,11 @@ templ PasskeyCard(d PasskeysVM) {
 				class="btn btn-primary"
 				type="button"
 				data-on:click="$_pkMsg = ''; @post('/account/passkey/begin')"
-				data-indicator:pkBusy
-				data-attr:disabled="$pkBusy"
+				data-indicator:pkbusy
+				data-attr:disabled="$pkbusy"
 			>
-				<span data-show="!$pkBusy">Add a passkey</span>
-				<span class="spinner" data-show="$pkBusy" style="display:none" aria-hidden="true"></span>
+				<span data-show="!$pkbusy">Add a passkey</span>
+				<span class="spinner" data-show="$pkbusy" style="display:none" aria-hidden="true"></span>
 			</button>
 		</div>
 		<p class="tfa-hint" data-show="!$_pkSupported" style="display:none">Your browser doesn't support passkeys yet. Try an up-to-date Safari, Chrome or Edge.</p>

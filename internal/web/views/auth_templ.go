@@ -125,7 +125,7 @@ func LoginPage(d AuthData) templ.Component {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, "<div data-show=\"$_pkSupported\" style=\"display:none\"><div class=\"divider\">or</div><button class=\"btn btn-ghost btn-block\" type=\"button\" data-on:click=\"$_pkMsg = ''; @post('/login/passkey/begin')\" data-indicator:pkBusy data-attr:disabled=\"$pkBusy\"><span class=\"btn-inline\" data-show=\"!$pkBusy\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, "<div data-show=\"$_pkSupported\" style=\"display:none\"><div class=\"divider\">or</div><button class=\"btn btn-ghost btn-block\" type=\"button\" data-on:click=\"$_pkMsg = ''; @post('/login/passkey/begin')\" data-indicator:pkbusy data-attr:disabled=\"$pkbusy\"><span class=\"btn-inline\" data-show=\"!$pkbusy\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -133,7 +133,7 @@ func LoginPage(d AuthData) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 12, "Sign in with a passkey</span> <span class=\"spinner\" data-show=\"$pkBusy\" style=\"display:none\" aria-hidden=\"true\"></span></button></div><p class=\"tfa-error\" data-show=\"$_pkMsg !== ''\" data-text=\"$_pkMsg\" style=\"display:none\"></p>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 12, "Sign in with a passkey</span> <span class=\"spinner\" data-show=\"$pkbusy\" style=\"display:none\" aria-hidden=\"true\"></span></button></div><p class=\"tfa-error\" data-show=\"$_pkMsg !== ''\" data-text=\"$_pkMsg\" style=\"display:none\"></p>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -218,7 +218,7 @@ func TOTPChallengePage(d TOTPChallengeData) templ.Component {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 17, "<form method=\"post\" action=\"/login/totp\"><div class=\"field\"><label for=\"code\" data-text=\"$_recovery ? 'Recovery code' : 'Authentication code'\">Authentication code</label> <input class=\"input code-input\" id=\"code\" name=\"code\" type=\"text\" autocomplete=\"one-time-code\" autocapitalize=\"off\" autocorrect=\"off\" spellcheck=\"false\" required autofocus data-attr:inputmode=\"$_recovery ? 'text' : 'numeric'\" data-attr:placeholder=\"$_recovery ? 'xxxx-xxxx-xxxx-xxxx' : '123456'\" aria-describedby=\"code-hint\"></div><button class=\"btn btn-primary btn-block\" type=\"submit\">Verify</button></form><div data-show=\"$_pkSupported\" style=\"display:none\"><div class=\"divider\">or</div><button class=\"btn btn-ghost btn-block\" type=\"button\" data-on:click=\"$_pkMsg = ''; @post('/login/totp/passkey/begin')\" data-indicator:pkBusy data-attr:disabled=\"$pkBusy\"><span class=\"btn-inline\" data-show=\"!$pkBusy\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 17, "<form method=\"post\" action=\"/login/totp\"><div class=\"field\"><label for=\"code\" data-text=\"$_recovery ? 'Recovery code' : 'Authentication code'\">Authentication code</label> <input class=\"input code-input\" id=\"code\" name=\"code\" type=\"text\" autocomplete=\"one-time-code\" autocapitalize=\"off\" autocorrect=\"off\" spellcheck=\"false\" required autofocus data-attr:inputmode=\"$_recovery ? 'text' : 'numeric'\" data-attr:placeholder=\"$_recovery ? 'xxxx-xxxx-xxxx-xxxx' : '123456'\" aria-describedby=\"code-hint\"></div><button class=\"btn btn-primary btn-block\" type=\"submit\">Verify</button></form><div data-show=\"$_pkSupported\" style=\"display:none\"><div class=\"divider\">or</div><button class=\"btn btn-ghost btn-block\" type=\"button\" data-on:click=\"$_pkMsg = ''; @post('/login/totp/passkey/begin')\" data-indicator:pkbusy data-attr:disabled=\"$pkbusy\"><span class=\"btn-inline\" data-show=\"!$pkbusy\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -226,7 +226,7 @@ func TOTPChallengePage(d TOTPChallengeData) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 18, "Use a passkey instead</span> <span class=\"spinner\" data-show=\"$pkBusy\" style=\"display:none\" aria-hidden=\"true\"></span></button></div><p class=\"tfa-error\" data-show=\"$_pkMsg !== ''\" data-text=\"$_pkMsg\" style=\"display:none\"></p>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 18, "Use a passkey instead</span> <span class=\"spinner\" data-show=\"$pkbusy\" style=\"display:none\" aria-hidden=\"true\"></span></button></div><p class=\"tfa-error\" data-show=\"$_pkMsg !== ''\" data-text=\"$_pkMsg\" style=\"display:none\"></p>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

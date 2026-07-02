@@ -47,14 +47,14 @@ templ LoginPage(d AuthData) {
 						class="btn btn-ghost btn-block"
 						type="button"
 						data-on:click="$_pkMsg = ''; @post('/login/passkey/begin')"
-						data-indicator:pkBusy
-						data-attr:disabled="$pkBusy"
+						data-indicator:pkbusy
+						data-attr:disabled="$pkbusy"
 					>
-						<span class="btn-inline" data-show="!$pkBusy">
+						<span class="btn-inline" data-show="!$pkbusy">
 							@keyIcon()
 							Sign in with a passkey
 						</span>
-						<span class="spinner" data-show="$pkBusy" style="display:none" aria-hidden="true"></span>
+						<span class="spinner" data-show="$pkbusy" style="display:none" aria-hidden="true"></span>
 					</button>
 				</div>
 				<p class="tfa-error" data-show="$_pkMsg !== ''" data-text="$_pkMsg" style="display:none"></p>
@@ -120,14 +120,14 @@ templ TOTPChallengePage(d TOTPChallengeData) {
 						class="btn btn-ghost btn-block"
 						type="button"
 						data-on:click="$_pkMsg = ''; @post('/login/totp/passkey/begin')"
-						data-indicator:pkBusy
-						data-attr:disabled="$pkBusy"
+						data-indicator:pkbusy
+						data-attr:disabled="$pkbusy"
 					>
-						<span class="btn-inline" data-show="!$pkBusy">
+						<span class="btn-inline" data-show="!$pkbusy">
 							@keyIcon()
 							Use a passkey instead
 						</span>
-						<span class="spinner" data-show="$pkBusy" style="display:none" aria-hidden="true"></span>
+						<span class="spinner" data-show="$pkbusy" style="display:none" aria-hidden="true"></span>
 					</button>
 				</div>
 				<p class="tfa-error" data-show="$_pkMsg !== ''" data-text="$_pkMsg" style="display:none"></p>
