@@ -169,9 +169,12 @@ templ KeyBlock(k KeyVM) {
 				<button class="btn btn-ghost btn-sm" type="button" data-on:click={ copyExpr(k.Secret) }>Copy</button>
 				<button class="btn btn-ghost btn-sm" type="button" data-on:click={ "@get('/projects/" + k.TeamID + "/key?reveal=0')" }>Hide</button>
 			</div>
-			// The revealed token is the bearer /mcp accepts directly, so offer the
-			// one-paste `claude mcp add` command right here. Guarded on ServerBase so a
+			// The revealed token is the bearer /mcp accepts directly, so offer the two
+			// one-paste commands right here: the full install (primary, for a new
+			// machine) and the bare `claude mcp add` (for a setup that already has the
+			// kit). Install needs only the token; MCP-add is guarded on ServerBase so a
 			// reveal that couldn't resolve the origin still shows the key without it.
+			@InstallBlock(k.Secret)
 			if k.ServerBase != "" {
 				@MCPAddBlock(k.ServerBase, k.ServerName, k.Secret)
 			}
@@ -215,9 +218,13 @@ templ Flash(f FlashVM) {
 					<div class="kv" style="margin-top:.6rem">Secret / API key — shown once</div>
 					<div class="token">{ f.Token }</div>
 				}
-				// On creation the token is shown once here, so hand over the matching
-				// `claude mcp add` command in the same banner — connect Claude before
-				// navigating away loses the secret. Needs both the token and the origin.
+				// On creation the token is shown once here, so hand over the ready-to-run
+				// commands in the same banner — navigating away loses the secret. The
+				// install one-paste needs only the token; the `claude mcp add` command also
+				// needs the origin, so it stays guarded on ServerBase.
+				if f.Token != "" {
+					@InstallBlock(f.Token)
+				}
 				if f.Token != "" && f.ServerBase != "" {
 					@MCPAddBlock(f.ServerBase, f.ServerName, f.Token)
 				}
@@ -231,6 +238,38 @@ templ Flash(f FlashVM) {
 				<div class="ttl">{ f.Message }</div>
 			</div>
 		}
+	</div>
+}
+
+// InstallBlock renders the one-paste command that installs the whole kit and wires
+// this workspace's token into the global ~/.claude. It is the full-install
+// primary next to MCPAddBlock's register-only alternative: a new user pastes this
+// once and gets the slash commands, Stop hook, auto-loaded CLAUDE.md, and the MCP.
+// It reuses MigrateCard's .cmd / .cmd-actions / .cmd-hint idiom so the command
+// affordances look identical and need no new CSS. The token is embedded via the
+// AGENTSMEMORY_TOKEN env var in InstallCommand — the same secret already visible in
+// this block — so nothing new is exposed. _installCopied is FE-only (the _ prefix
+// keeps it off the wire) and re-inits whenever this fragment morphs in.
+templ InstallBlock(token string) {
+	<div data-signals="{_installCopied: false}">
+		<div class="kv" style="margin-top:.7rem">Install the kit (Claude Code)</div>
+		<pre class="cmd" aria-label="agentsmemory install command"><code>{ InstallCommand(token) }</code></pre>
+		<div class="cmd-actions">
+			<button
+				class="btn btn-ghost btn-sm"
+				type="button"
+				data-on:click={ copyExpr(InstallCommand(token)) + "; $_installCopied = true; setTimeout(() => $_installCopied = false, 1600)" }
+			>
+				<span data-show="!$_installCopied">Copy command</span>
+				<span data-show="$_installCopied" style="display:none">Copied ✓</span>
+			</button>
+			<span class="cmd-hint">
+				Downloads the <span class="mono">aiagentmemory</span> binary and installs the
+				slash commands, Stop hook, auto-loaded <span class="mono">CLAUDE.md</span>, and
+				this workspace's MCP into <span class="mono">~/.claude</span>. Already set up?
+				Use the <b>Add to Claude Code</b> command below instead.
+			</span>
+		</div>
 	</div>
 }
 

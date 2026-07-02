@@ -16,6 +16,16 @@ import (
 // and also the relative install path under the target config dir.
 const hookAsset = "hooks/agentsmemory-stop-hook.sh"
 
+const (
+	// bootstrapAsset is the embedded always-on protocol; bootstrapFile is the name
+	// it is installed under in the target config dir; memoryImportLine is the line
+	// merged into CLAUDE.md to pull it in. Claude Code resolves an @import relative
+	// to the importing file, so the import names a sibling of CLAUDE.md.
+	bootstrapAsset   = "bootstrap.md"
+	bootstrapFile    = "agentsmemory-bootstrap.md"
+	memoryImportLine = "@agentsmemory-bootstrap.md"
+)
+
 // commandRunner executes external commands on behalf of the installer. It is an
 // interface so tests can record calls and --dry-run can print them without ever
 // shelling out. Kept tiny on purpose (accept interfaces) so the whole install
@@ -106,29 +116,49 @@ type Installer struct {
 	runner         commandRunner // how external commands execute (exec / dry / fake)
 }
 
+// resolveInstallTarget picks the install target from the mode flags and reports
+// whether it was pinned on the command line. Precedence is --sandbox, then
+// --claude-dir, then an explicit --global, then the bare default (global
+// ~/.claude). explicit is true whenever the user named the target on the command
+// line; when it is false, run() offers the interactive mode prompt so a bare
+// `curl|bash` install isn't silently forced global.
+//
+// --global is the flag form of the global choice: it pins ~/.claude and marks the
+// target explicit, so `install --global --token <t>` is fully non-interactive.
+// Because --global names the same target the bare default and the prompt would,
+// combining it with --sandbox or --claude-dir is ambiguous and rejected rather
+// than silently resolved. home is passed in (not read here) so the helper is pure
+// and testable.
+func resolveInstallTarget(global bool, sandbox, claudeDir, home string) (targetDir, sandboxName string, explicit bool, err error) {
+	if global && (sandbox != "" || claudeDir != "") {
+		return "", "", false, fmt.Errorf("--global cannot be combined with --sandbox or --claude-dir")
+	}
+	switch {
+	case sandbox != "":
+		if err := validSandboxName(sandbox); err != nil {
+			return "", "", false, err
+		}
+		return sandboxDir(sandbox), sandbox, true, nil
+	case claudeDir != "":
+		return claudeDir, "", true, nil
+	case global:
+		return filepath.Join(home, ".claude"), "", true, nil
+	default:
+		return filepath.Join(home, ".claude"), "", false, nil
+	}
+}
+
 // newInstaller builds an Installer from parsed CLI flags. It resolves the target
 // config dir (isolated sandbox vs global ~/.claude) and the Claude CLI to drive,
 // selecting a dry-run runner when --dry-run is set.
 func newInstaller(c *cli.Command, out io.Writer, in io.Reader) (*Installer, error) {
-	// Target config dir: an explicit --sandbox wins, then --claude-dir, then the
-	// global ~/.claude default. explicitTarget records whether the user pinned the
-	// target on the command line; when they didn't, run() offers the interactive
-	// mode prompt so a bare `curl|bash` install isn't silently forced global.
-	targetDir := ""
-	sandboxName := ""
-	explicitTarget := false
-	if name := c.String("sandbox"); name != "" {
-		if err := validSandboxName(name); err != nil {
-			return nil, err
-		}
-		sandboxName = name
-		targetDir = sandboxDir(name)
-		explicitTarget = true
-	} else if dir := c.String("claude-dir"); dir != "" {
-		targetDir = dir
-		explicitTarget = true
-	} else {
-		targetDir = filepath.Join(homeDir(), ".claude")
+	// Resolve the install target (and whether it was pinned on the command line)
+	// from the mode flags. Kept as a pure helper so the precedence and the
+	// mutually-exclusive-flags rule are testable without CLI plumbing.
+	targetDir, sandboxName, explicitTarget, err := resolveInstallTarget(
+		c.Bool("global"), c.String("sandbox"), c.String("claude-dir"), homeDir())
+	if err != nil {
+		return nil, err
 	}
 
 	dryRun := c.Bool("dry-run")
@@ -175,12 +205,15 @@ func (i *Installer) run() error {
 	i.promptInstallMode()
 	i.banner()
 
-	i.step("1/4  slash commands + Stop hook")
+	i.step("1/4  commands, memory protocol, Stop hook")
 	if err := i.writeAssets(); err != nil {
 		return fmt.Errorf("writing kit assets: %w", err)
 	}
 	if err := i.registerStopHook(); err != nil {
 		return fmt.Errorf("registering Stop hook: %w", err)
+	}
+	if err := i.registerMemoryBootstrap(); err != nil {
+		return fmt.Errorf("installing memory bootstrap: %w", err)
 	}
 
 	i.step("2/4  agentsmemory MCP")
@@ -283,6 +316,44 @@ func (i *Installer) registerAgentsMemoryMCP() error {
 		return err
 	}
 	i.ok("registered MCP %q → %s", mcpName, i.mcpURL)
+	return nil
+}
+
+// registerMemoryBootstrap installs the always-on operating protocol so the
+// memory-first workflow applies every session without the user typing /am. It
+// writes our owned copy of the embedded protocol as agentsmemory-bootstrap.md and
+// merges a single managed @import line into CLAUDE.md. Claude Code loads
+// $CLAUDE_CONFIG_DIR/CLAUDE.md as user memory, so this applies both in a sandbox
+// (where we own the whole config dir) and in the global ~/.claude (where the merge
+// preserves the user's existing CLAUDE.md and only adds the import line).
+func (i *Installer) registerMemoryBootstrap() error {
+	data, err := assets.ReadFile(bootstrapAsset)
+	if err != nil {
+		return err // embed guarantees presence; an error here is a build bug
+	}
+	bootstrapPath := filepath.Join(i.targetDir, bootstrapFile)
+	if err := i.writeFile(bootstrapPath, data, 0o644); err != nil {
+		return err
+	}
+	i.ok("memory protocol %s", bootstrapFile)
+
+	// The @import lands in the user's memory file, so it goes through the managed
+	// idempotent merge (not a blind overwrite). Under dry-run, print the intent —
+	// mirroring registerStopHook, which also can't preview through the merge.
+	claudeMd := filepath.Join(i.targetDir, "CLAUDE.md")
+	if i.dryRun {
+		fmt.Fprintf(i.out, "  would import %q into %s (managed block)\n", memoryImportLine, claudeMd)
+		return nil
+	}
+	changed, err := ensureMemoryImport(claudeMd, memoryImportLine)
+	if err != nil {
+		return err
+	}
+	if changed {
+		i.ok("imported memory protocol into CLAUDE.md")
+	} else {
+		i.ok("CLAUDE.md already imports the memory protocol")
+	}
 	return nil
 }
 
@@ -460,5 +531,6 @@ func (i *Installer) summary() {
 	} else {
 		fmt.Fprintln(i.out, "  - restart Claude Code (or /reload) to pick up the new commands + hook")
 	}
-	fmt.Fprintln(i.out, "  - run /M or /am in a project to start a memory-grounded session")
+	fmt.Fprintln(i.out, "  - the memory protocol auto-loads every session via CLAUDE.md — no need to type /am")
+	fmt.Fprintln(i.out, "  - run /M or /am with a task to run the full grounding sequence on demand")
 }

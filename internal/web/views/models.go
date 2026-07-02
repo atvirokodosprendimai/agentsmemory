@@ -134,6 +134,28 @@ func MigrateCommand(serverBase string) string {
 		"  --token YOUR_PROJECT_API_KEY"
 }
 
+// installScriptURL is the raw GitHub URL of the kit's curl|bash bootstrap. It is a
+// fixed repo path (not derived from the request), so the install command is the
+// same wherever the dashboard runs.
+const installScriptURL = "https://raw.githubusercontent.com/atvirokodosprendimai/agentsmemory/main/clients/claude-code/install.sh"
+
+// InstallCommand is the one-paste shell command that installs the whole
+// aiagentmemory Claude Code kit globally with this workspace's token. It is the
+// full-install counterpart to MCPAddCommand (which only registers the MCP into an
+// existing setup): the bootstrap downloads the binary and runs `install --global`,
+// wiring the slash commands, Stop hook, auto-loaded CLAUDE.md, and the MCP.
+//
+// The token rides in the AGENTSMEMORY_TOKEN env var (the binary's --token flag
+// reads it there) rather than as a visible positional arg; --global pins the
+// target so the install never prompts. The token is double-quoted to match
+// MCPAddCommand's quoting and survive the odd non-alphanumeric character. It is
+// already visible in the surrounding revealed block, so embedding it here exposes
+// nothing new. Line continuations match the other copy commands' multi-line style.
+func InstallCommand(token string) string {
+	return "curl -fsSL " + installScriptURL + " \\\n" +
+		"  | AGENTSMEMORY_TOKEN=\"" + token + "\" bash -s -- --global"
+}
+
 // MCPAddCommand is the copy-paste `claude mcp add` command that registers this
 // workspace as a remote MCP server in Claude Code. It uses the raw-bearer form
 // (--header "Authorization: Bearer …") rather than the OAuth client-id/secret

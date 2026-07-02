@@ -71,7 +71,7 @@ func newTestInstaller(t *testing.T, recommended bool) (*Installer, *recordingRun
 func TestAssetsEmbedded(t *testing.T) {
 	// The three shipped assets must be embedded; the retired agentsmemory.md
 	// must not be.
-	for _, name := range []string{"commands/M.md", "commands/am.md", hookAsset} {
+	for _, name := range []string{"commands/M.md", "commands/am.md", hookAsset, bootstrapAsset} {
 		data, err := assets.ReadFile(name)
 		if err != nil {
 			t.Fatalf("asset %s not embedded: %v", name, err)
@@ -149,6 +149,74 @@ func TestInstallRecommendedSequence(t *testing.T) {
 	got := renderAll(rr.calls)
 	if !equalStrings(got, want) {
 		t.Errorf("recommended sequence mismatch\n got: %v\nwant: %v", got, want)
+	}
+}
+
+func TestInstallWritesMemoryBootstrap(t *testing.T) {
+	// A default install must drop the always-on protocol and wire CLAUDE.md to
+	// import it, so the memory-first workflow applies without typing /am.
+	inst, _, dir := newTestInstaller(t, false)
+	if err := inst.run(); err != nil {
+		t.Fatalf("install: %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(dir, bootstrapFile)); err != nil {
+		t.Errorf("expected %s written: %v", bootstrapFile, err)
+	}
+	claudeMd, err := os.ReadFile(filepath.Join(dir, "CLAUDE.md"))
+	if err != nil {
+		t.Fatalf("read CLAUDE.md: %v", err)
+	}
+	if !strings.Contains(string(claudeMd), memoryImportLine) {
+		t.Errorf("CLAUDE.md does not import the bootstrap: %q", claudeMd)
+	}
+}
+
+func TestResolveInstallTarget(t *testing.T) {
+	home := "/home/u"
+	global := filepath.Join(home, ".claude")
+
+	// --global cannot be combined with the other target selectors.
+	for _, tc := range []struct{ sandbox, claudeDir string }{
+		{sandbox: "proj"},
+		{claudeDir: "/x"},
+	} {
+		if _, _, _, err := resolveInstallTarget(true, tc.sandbox, tc.claudeDir, home); err == nil {
+			t.Errorf("resolveInstallTarget(global, %q, %q) = nil error, want conflict", tc.sandbox, tc.claudeDir)
+		}
+	}
+
+	// Precedence and the explicit-target flag.
+	cases := []struct {
+		name         string
+		global       bool
+		sandbox      string
+		claudeDir    string
+		wantTarget   string
+		wantSandbox  string
+		wantExplicit bool
+	}{
+		{"global flag", true, "", "", global, "", true},
+		{"sandbox", false, "proj", "", sandboxDir("proj"), "proj", true},
+		{"claude-dir", false, "", "/custom", "/custom", "", true},
+		{"bare default", false, "", "", global, "", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			target, sandbox, explicit, err := resolveInstallTarget(tc.global, tc.sandbox, tc.claudeDir, home)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if target != tc.wantTarget || sandbox != tc.wantSandbox || explicit != tc.wantExplicit {
+				t.Errorf("got (target=%q sandbox=%q explicit=%v), want (target=%q sandbox=%q explicit=%v)",
+					target, sandbox, explicit, tc.wantTarget, tc.wantSandbox, tc.wantExplicit)
+			}
+		})
+	}
+
+	// An invalid sandbox name is rejected here too (defense in depth with the CLI).
+	if _, _, _, err := resolveInstallTarget(false, "../escape", "", home); err == nil {
+		t.Error("resolveInstallTarget accepted an invalid sandbox name, want an error")
 	}
 }
 

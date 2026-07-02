@@ -23,7 +23,14 @@ forwarded to `install`:
 ```bash
 # Isolated install for one project, with all recommended tools:
 curl -fsSL <url>/install.sh | bash -s -- --sandbox myproject --recommended
+
+# Non-interactive global install with the token in an env var (no prompts):
+curl -fsSL <url>/install.sh | AGENTSMEMORY_TOKEN="<token>" bash -s -- --global
 ```
+
+For an agent-followable version of these steps, the server also publishes an
+install guide **for Claude** at `/claude-guide` (raw Markdown) — it tells the
+agent to ask you for the workspace token, then runs the commands above.
 
 Bootstrap environment knobs: `AIAGENTMEMORY_VERSION` (pin a tag),
 `AIAGENTMEMORY_BIN_DIR` (install dir, default `~/.local/bin`),
@@ -49,6 +56,12 @@ below).
   tools).
 - `hooks/agentsmemory-stop-hook.sh` → the Stop hook, registered in
   `settings.json` (idempotent, with a timestamped backup; no `jq` needed).
+- `agentsmemory-bootstrap.md` → the always-on operating protocol, pulled into
+  the config dir's `CLAUDE.md` via a managed `@agentsmemory-bootstrap.md` import.
+  Claude Code loads `$CLAUDE_CONFIG_DIR/CLAUDE.md` as user memory, so the
+  memory-first workflow applies **every session** — you never have to type `/am`.
+  The import is merged idempotently: an existing `CLAUDE.md` is preserved and
+  backed up, and only the one managed block is added or updated.
 - The **agentsmemory MCP** — the remote Streamable-HTTP server at
   `https://aiagentmemory.dev/mcp`, authed by your workspace token (see below).
 
@@ -91,6 +104,7 @@ aiagentmemory wrap [args]         run Claude against the global config
 
 | Flag | Default | Purpose |
 |------|---------|---------|
+| `--global` | — | Install into `~/.claude` non-interactively (skips the mode prompt); mutually exclusive with `--sandbox`/`--claude-dir`. |
 | `--sandbox <name>` | — | Install into `~/.sandboxes/<name>` (isolated mode). |
 | `--recommended` | off | Also install codebase-memory, eidos, codex. |
 | `--token <key>` | `$AGENTSMEMORY_TOKEN` | agentsmemory workspace token. |
@@ -147,7 +161,10 @@ Remove the installed pieces from the target config dir (`~/.claude` or
 ```bash
 rm ~/.claude/commands/M.md ~/.claude/commands/am.md
 rm ~/.claude/hooks/agentsmemory-stop-hook.sh
-# then remove the agentsmemory entry from the Stop array in ~/.claude/settings.json,
+rm ~/.claude/agentsmemory-bootstrap.md
+# then, in ~/.claude/CLAUDE.md, delete the managed block between
+#   <!-- BEGIN agentsmemory ... -->  and  <!-- END agentsmemory -->
+# remove the agentsmemory entry from the Stop array in ~/.claude/settings.json,
 # and: claude mcp remove --scope user agentsmemory
 ```
 
