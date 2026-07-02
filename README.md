@@ -127,8 +127,10 @@ shared, versioned source of truth** and its agents pull from it:
 - Skills are **relational, not memory drawers** — they are mutable, named,
   permissioned authored artifacts with an owner and an update workflow.
 - `am_list_skills` (metadata for any member) and `am_update_skill` (version-bumping,
-  writer/admin) complete the registry CRUD. A `/load-skill <name>` Claude command
-  that calls the tool is the remaining nicety.
+  writer/admin) complete the registry CRUD. The **`/load-skill <name>`** Claude
+  command is the client-side nicety over the tool: it fetches a skill by name and
+  installs it as a local `.claude/skills/<name>/SKILL.md` (with no name, it lists
+  what's available). Shipped by the `aiagentmemory` installer.
 
 ---
 
@@ -233,7 +235,7 @@ A request without a valid token comes back as a fail-closed
 
 The `aiagentmemory` binary wires [Claude Code](https://claude.com/claude-code)
 into your workspace — it installs the memory-grounded slash commands (`/M`,
-`/am`) and the Stop hook, registers the agentsmemory MCP, and can wrap the Claude
+`/am`, `/load-skill`) and the Stop hook, registers the agentsmemory MCP, and can wrap the Claude
 CLI so each project runs against its own isolated configuration. It replaces the
 old shell installer; everything ships in one downloadable binary.
 
@@ -457,11 +459,11 @@ called). Schema changes are additive migrations under `db/migrations/`.
 - [x] 2FA — per-user TOTP (Google-Authenticator compatible) + one-time recovery codes; enforced on password *and* social login
 - [x] Passwordless — WebAuthn passkeys (passwordless primary login + passkey as a 2nd factor)
 - [x] Operator plan override — unlimited (`-1` cap) plan + superadmin `set-plan` CLI
+- [x] `/load-skill` Claude command — client-side wrapper over `am_load_skill`: fetch a team-shared skill by name and install it as a local `.claude/skills/<name>/SKILL.md` (shipped in the `aiagentmemory` installer)
 
 **Left**
 
 - [ ] Web — team/member management (invite, set role) — domain supports it, no UI yet
-- [ ] A `/load-skill` Claude command (the client-side nicety over the `am_load_skill` tool)
 
 ---
 

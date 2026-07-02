@@ -69,9 +69,8 @@ func newTestInstaller(t *testing.T, recommended bool) (*Installer, *recordingRun
 }
 
 func TestAssetsEmbedded(t *testing.T) {
-	// The three shipped assets must be embedded; the retired agentsmemory.md
-	// must not be.
-	for _, name := range []string{"commands/M.md", "commands/am.md", hookAsset, bootstrapAsset} {
+	// The shipped assets must be embedded; the retired agentsmemory.md must not be.
+	for _, name := range []string{"commands/M.md", "commands/am.md", "commands/load-skill.md", hookAsset, bootstrapAsset} {
 		data, err := assets.ReadFile(name)
 		if err != nil {
 			t.Fatalf("asset %s not embedded: %v", name, err)
@@ -92,7 +91,7 @@ func TestInstallCoreWritesAssetsAndRegistersMCP(t *testing.T) {
 	}
 
 	// Commands + hook must be on disk.
-	for _, rel := range []string{"commands/M.md", "commands/am.md", hookAsset} {
+	for _, rel := range []string{"commands/M.md", "commands/am.md", "commands/load-skill.md", hookAsset} {
 		if _, err := os.Stat(filepath.Join(dir, rel)); err != nil {
 			t.Errorf("expected %s written: %v", rel, err)
 		}
