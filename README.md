@@ -452,9 +452,16 @@ called). Schema changes are additive migrations under `db/migrations/`.
 - [x] Web skill management — per-project list / create / edit (role-gated to writer/admin), membership-checked routes
 - [x] Migration — read-only `mempalace` exporter + streaming `POST /import` (drawers, diary, closets, KG facts, tunnels; re-embedded, graph rebuilt)
 - [x] Data export (BDAR/GDPR) — download a workspace's data as a self-contained SQLite file (`GET /projects/{teamID}/export`, membership-gated, tenant-scoped, secrets redacted)
-- [ ] Web — API-key rotation/revoke + team/member management (invite, set role)
+- [x] Web — API-key reveal + rotation (admin-gated, secret shown once, destructive-confirm flow; rotation revokes the old key and mints a new one)
+- [x] Subscriptions / billing — provider-agnostic (Stripe + Polar): hosted checkout, signature-verified webhooks, self-service customer portal (update card / cancel), FREE + PRO monthly/annual ladder
+- [x] 2FA — per-user TOTP (Google-Authenticator compatible) + one-time recovery codes; enforced on password *and* social login
+- [x] Passwordless — WebAuthn passkeys (passwordless primary login + passkey as a 2nd factor)
+- [x] Operator plan override — unlimited (`-1` cap) plan + superadmin `set-plan` CLI
+
+**Left**
+
+- [ ] Web — team/member management (invite, set role) — domain supports it, no UI yet
 - [ ] A `/load-skill` Claude command (the client-side nicety over the `am_load_skill` tool)
-- [ ] Subscriptions / billing
 
 ---
 
