@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"testing"
 	"time"
 
@@ -61,14 +62,14 @@ func newTestEnv(t *testing.T) (*Service, *fakeCheckout, *tenant.Repo, *gorm.DB, 
 
 	tenants := tenant.NewRepo(gdb)
 	fake := &fakeCheckout{url: "https://checkout.stripe.test/c/sess_123"}
+	// The checkout seam is faked (no network); the webhook seam is a REAL Stripe
+	// provider so these tests exercise genuine signature verification end-to-end.
 	svc := &Service{
-		cfg: Config{
-			WebhookSecret:   testWebhookSecret,
-			PriceByPlanCode: map[string]string{"pro_monthly": "price_m", "pro_annual": "price_y"},
-		},
-		plans:    tenants,
-		subs:     NewRepo(gdb),
-		checkout: fake,
+		priceByPlanCode: map[string]string{"pro_monthly": "price_m", "pro_annual": "price_y"},
+		plans:           tenants,
+		subs:            NewRepo(gdb),
+		checkout:        fake,
+		webhook:         newStripeProvider(Config{StripeSecretKey: "sk_test", StripeWebhookSecret: testWebhookSecret}),
 	}
 	return svc, fake, tenants, gdb, teamID
 }
@@ -84,12 +85,21 @@ func (f *fakeCheckout) createCheckout(_ context.Context, in checkoutInput) (stri
 	return f.url, nil
 }
 
-// signedHeader builds a valid Stripe-Signature header for payload using secret,
-// exactly as Stripe does (t=<unix>,v1=<hex hmac>), so ConstructEvent accepts it.
-func signedHeader(payload []byte, secret string) string {
+// signedHeader builds request headers carrying a valid Stripe-Signature for
+// payload, exactly as Stripe does (t=<unix>,v1=<hex hmac>), so ConstructEvent
+// accepts it. HandleWebhook takes the whole header set (providers differ in which
+// headers they read), so the helper returns an http.Header.
+func signedHeader(payload []byte, secret string) http.Header {
 	now := time.Now()
 	sig := webhook.ComputeSignature(now, payload, secret)
-	return fmt.Sprintf("t=%d,v1=%s", now.Unix(), hex.EncodeToString(sig))
+	return stripeSigHeader(fmt.Sprintf("t=%d,v1=%s", now.Unix(), hex.EncodeToString(sig)))
+}
+
+// stripeSigHeader wraps a raw Stripe-Signature value in an http.Header.
+func stripeSigHeader(sig string) http.Header {
+	h := http.Header{}
+	h.Set("Stripe-Signature", sig)
+	return h
 }
 
 // eventPayload marshals a minimal Stripe event envelope around object. The
@@ -156,7 +166,7 @@ func TestHandleWebhook_BadSignature(t *testing.T) {
 		"metadata":            map[string]string{"plan_code": "pro_monthly"},
 	})
 	// A forged/empty signature must be rejected before any state changes.
-	if err := svc.HandleWebhook(context.Background(), payload, "t=1,v1=deadbeef"); err == nil {
+	if err := svc.HandleWebhook(context.Background(), payload, stripeSigHeader("t=1,v1=deadbeef")); err == nil {
 		t.Fatal("expected signature verification to fail")
 	}
 	if got := teamPlanID(t, svc.subs.db, teamID); got != tenant.FreePlanID {
@@ -248,7 +258,7 @@ func TestHandleWebhook_SubscriptionDeleted_Downgrades(t *testing.T) {
 
 func TestHandleWebhook_NoSecret_FailsClosed(t *testing.T) {
 	svc, _, _, _, teamID := newTestEnv(t)
-	svc.cfg.WebhookSecret = "" // simulate STRIPE_WEBHOOK_SECRET unset
+	svc.webhook = &stripeProvider{} // simulate STRIPE_WEBHOOK_SECRET unset (fail-closed)
 	payload := eventPayload("checkout.session.completed", map[string]any{
 		"client_reference_id": teamID,
 		"metadata":            map[string]string{"plan_code": "pro_monthly"},
@@ -294,6 +304,29 @@ func TestHandleWebhook_StaleCompletedAfterCancel_NoResurrect(t *testing.T) {
 	}
 	if sub.Status != "canceled" {
 		t.Fatalf("subscription status = %q, want canceled", sub.Status)
+	}
+}
+
+func TestApplyCanceled_EmptySubID_NoOp(t *testing.T) {
+	svc, _, tenants, gdb, teamID := newTestEnv(t)
+	// Put the team on Pro with a recorded subscription first.
+	want := planID(t, tenants, "pro_monthly")
+	up := eventPayload("checkout.session.completed", map[string]any{
+		"client_reference_id": teamID,
+		"metadata":            map[string]string{"plan_code": "pro_monthly"},
+		"customer":            "cus_abc",
+		"subscription":        "sub_abc",
+	})
+	if err := svc.HandleWebhook(context.Background(), up, signedHeader(up, testWebhookSecret)); err != nil {
+		t.Fatalf("upgrade: %v", err)
+	}
+	// A cancellation carrying no subscription id must be a no-op — never matching a
+	// workspace by the empty-string key (which the pre-provider rows default to).
+	if err := svc.applyCanceled(context.Background(), providerEvent{kind: eventCanceled}); err != nil {
+		t.Fatalf("applyCanceled empty id: %v", err)
+	}
+	if got := teamPlanID(t, gdb, teamID); got != want {
+		t.Fatalf("empty-id cancel changed plan: %q", got)
 	}
 }
 
