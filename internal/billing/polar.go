@@ -210,41 +210,52 @@ func verifyStandardWebhook(secret string, headers http.Header, payload []byte) e
 		return fmt.Errorf("webhook timestamp outside tolerance")
 	}
 
-	key, err := standardWebhookKey(secret)
-	if err != nil {
-		return err
-	}
-	mac := hmac.New(sha256.New, key)
-	mac.Write([]byte(msgID + "." + tsStr + "."))
-	mac.Write(payload)
-	expected := base64.StdEncoding.EncodeToString(mac.Sum(nil))
+	// Polar deviates from strict Standard Webhooks: depending on how the endpoint's
+	// secret was created, Polar's HMAC key is either the spec's base64-DECODED secret
+	// or the raw secret STRING itself. We therefore verify against every deterministic
+	// key derivation of the SAME secret and accept the first match. This tolerates the
+	// provider's format without weakening anything — a forger who does not know the
+	// secret cannot match any derivation. (Requiring strict base64 here previously
+	// rejected real Polar secrets with "not valid base64".)
+	signedPrefix := []byte(msgID + "." + tsStr + ".")
+	keys := standardWebhookKeys(secret)
 
 	// The header may list multiple signatures (e.g. during a secret rotation); accept
-	// if any entry matches. Each entry is "<version>,<base64-signature>"; only the
-	// "v1" symmetric-HMAC scheme is valid here, so any other version label is skipped.
+	// if any entry matches under any candidate key. Each entry is
+	// "<version>,<base64-signature>"; only the "v1" symmetric-HMAC scheme is valid.
 	for _, entry := range strings.Fields(sigHeader) {
 		version, sig, found := strings.Cut(entry, ",")
 		if !found || version != "v1" {
 			continue
 		}
-		if hmac.Equal([]byte(sig), []byte(expected)) {
-			return nil
+		for _, key := range keys {
+			mac := hmac.New(sha256.New, key)
+			mac.Write(signedPrefix)
+			mac.Write(payload)
+			expected := base64.StdEncoding.EncodeToString(mac.Sum(nil))
+			if hmac.Equal([]byte(sig), []byte(expected)) {
+				return nil
+			}
 		}
 	}
 	return fmt.Errorf("no matching signature")
 }
 
-// standardWebhookKey derives the HMAC key bytes from the configured secret. The
-// spec's secret is base64, optionally carrying a "whsec_" prefix, so we strip an
-// optional prefix and base64-decode. A secret that is not valid base64 is a
-// configuration error surfaced to the caller — we deliberately do NOT fall back to
-// raw bytes, which would verify against different key material than the provider
-// signs with and silently mask the misconfiguration.
-func standardWebhookKey(secret string) ([]byte, error) {
-	s := strings.TrimPrefix(secret, "whsec_")
-	key, err := base64.StdEncoding.DecodeString(s)
-	if err != nil {
-		return nil, fmt.Errorf("webhook secret is not valid base64: %w", err)
+// standardWebhookKeys returns the candidate HMAC keys to try for a configured secret.
+// Standard Webhooks specifies a base64 secret (optionally "whsec_"-prefixed) whose
+// DECODED bytes are the key; Polar, however, signs some endpoints with the raw secret
+// STRING as the key. To interoperate with both, we return the raw secret as given,
+// the raw secret with an optional "whsec_" prefix stripped, and — when the stripped
+// secret is valid base64 — its decoded bytes. The duplicate raw form (when there is
+// no prefix) is collapsed.
+func standardWebhookKeys(secret string) [][]byte {
+	stripped := strings.TrimPrefix(secret, "whsec_")
+	keys := [][]byte{[]byte(secret)}
+	if stripped != secret {
+		keys = append(keys, []byte(stripped))
 	}
-	return key, nil
+	if b, err := base64.StdEncoding.DecodeString(stripped); err == nil {
+		keys = append(keys, b)
+	}
+	return keys
 }
