@@ -25,5 +25,9 @@ import "embed"
 // Note the deliberate omission of the legacy commands/agentsmemory.md: it was
 // retired in favour of the thin /am command, so only M.md and am.md ship.
 //
-//go:embed commands/M.md commands/am.md hooks/agentsmemory-stop-hook.sh
+// bootstrap.md is the always-on operating protocol the installer writes into the
+// target config dir as agentsmemory-bootstrap.md and imports from CLAUDE.md, so
+// the memory-first workflow applies every session without typing /am.
+//
+//go:embed commands/M.md commands/am.md hooks/agentsmemory-stop-hook.sh bootstrap.md
 var assets embed.FS

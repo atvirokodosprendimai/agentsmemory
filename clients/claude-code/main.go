@@ -66,6 +66,10 @@ func installCommand() *cli.Command {
 			"agentsmemory MCP. --recommended additionally installs the codebase-memory\n" +
 			"MCP and the eidos and codex plugins.",
 		Flags: []cli.Flag{
+			&cli.BoolFlag{
+				Name:  "global",
+				Usage: "install into the global ~/.claude non-interactively (skips the mode prompt); mutually exclusive with --sandbox/--claude-dir",
+			},
 			&cli.StringFlag{
 				Name:  "sandbox",
 				Usage: "install into an isolated config at ~/.sandboxes/<name> instead of the global ~/.claude",
