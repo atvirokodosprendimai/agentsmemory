@@ -105,6 +105,10 @@ func (s *Server) Routes(r chi.Router) {
 	r.Handle("/static/*", staticAssets())
 
 	r.Get("/", s.handleRoot)
+	// Public, unauthenticated install guide as raw Markdown, written for an agent to
+	// fetch and follow (see guide.go). It needs no session, so it sits outside the
+	// authenticated group alongside the landing page.
+	r.Get("/claude-guide", s.handleClaudeGuide)
 	r.Get("/register", s.getRegister)
 	r.Post("/register", s.postRegister)
 	r.Get("/login", s.getLogin)
