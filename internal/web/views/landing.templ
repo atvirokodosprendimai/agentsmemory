@@ -542,8 +542,47 @@ templ landingPricing() {
 					</article>
 				}
 			</div>
+			@landingCostRationale()
 		</div>
 	</section>
+}
+
+// landingCostRationale is the transparency band under the pricing plans: it
+// answers "why does this cost anything?" right where the objection arises. Real
+// hybrid recall runs embeddings on a GPU and keeps per-tenant vectors hot in RAM
+// around the clock, so the compute and electricity are recurring, not one-off.
+// The cards reuse the .lp-model grid (same as the data model + install deps), so
+// this needs no bespoke card CSS — only the thin .lp-cost wrapper. The closing
+// line points to the open-source escape hatch: self-host and pay your own bill.
+templ landingCostRationale() {
+	<div class="lp-cost">
+		<header class="lp-cost-head">
+			<p class="eyebrow">Why it costs</p>
+			<h3>Real memory runs on real hardware</h3>
+			<p>
+				Search that understands meaning isn't free to run. Behind every stored
+				drawer and every recall are three recurring costs — the compute, the
+				electricity and the isolation that keep your agents' memory fast and
+				private.
+			</p>
+		</header>
+		<div class="lp-model-grid">
+			for _, c := range landingCosts() {
+				<article class="lp-model card">
+					<p class="lp-def-k">{ c.Tag }</p>
+					<h3>{ c.Title }</h3>
+					<p>{ c.Body }</p>
+				</article>
+			}
+		</div>
+		<p class="lp-cost-foot">
+			The <b>Free</b> plan absorbs this for small, everyday use; <b>Pro</b> covers the
+			always-on GPU and power for teams that lean on it. And because the server is
+			<a href={ templ.SafeURL(repoURL) } rel="noopener" target="_blank">open source</a>,
+			you can always self-host and pay your own hardware bill instead — your memory is
+			never locked in.
+		</p>
+	</div>
 }
 
 // landingMigrate is the onboarding nudge for existing mempalace users — a

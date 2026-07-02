@@ -608,6 +608,18 @@ select.input option { color: var(--bone); background: var(--ink-2); }
 .lp-plan-list li::before { content: "✓"; position: absolute; left: 0; color: var(--ok); font-weight: 700; }
 .lp-plan .btn { margin-top: auto; }
 
+/* ---- pricing: why it costs (cost-rationale band under the plans) ---- */
+/* Reuses .lp-model-grid / .lp-model / .lp-def-k for the cards; only the wrapper,
+   sub-head and closing line need styling. A rule off the top separates it from
+   the plan grid without a whole new section. */
+.lp-cost { margin-top: clamp(2.5rem, 5vw, 3.5rem); border-top: 1px solid var(--line); padding-top: clamp(2rem, 4vw, 2.8rem); }
+.lp-cost-head { max-width: 60ch; margin: 0 0 1.8rem; }
+.lp-cost-head h3 { font-size: clamp(1.4rem, 2.6vw, 1.9rem); line-height: 1.15; margin: .15rem 0 0; }
+.lp-cost-head p { color: var(--muted); margin: .7rem 0 0; line-height: 1.6; }
+.lp-cost-foot { color: var(--muted); margin: 1.7rem 0 0; max-width: 68ch; font-size: .96rem; line-height: 1.65; }
+.lp-cost-foot b { color: var(--brass); font-weight: 600; }
+.lp-cost-foot a { color: var(--ember); text-underline-offset: 2px; }
+
 /* ---- migrate ---- */
 .lp-migrate { display: grid; gap: 1.5rem; padding: 2rem; }
 @media (min-width: 860px) { .lp-migrate { grid-template-columns: 1fr 1fr; align-items: center; gap: 2.5rem; padding: 2.5rem; } }
