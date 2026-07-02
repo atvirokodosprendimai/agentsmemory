@@ -110,3 +110,5 @@
 - 2026-07-02 `0c82f99` feat(client): add /load-skill Claude command
 - 2026-07-02 `da2c199` feat(web): team member management with per-member API keys
 - 2026-07-02 `c273f39` docs(readme): mark team/member management shipped; per-member key note
+- 2026-07-02 `3fa397d` chore(changelog): record member-management + roadmap commits
+- 2026-07-02 `eff6972` fix(oauth): re-check revocation + live role on bearer resolution
