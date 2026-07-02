@@ -129,8 +129,9 @@ shared, versioned source of truth** and its agents pull from it:
 - `am_list_skills` (metadata for any member) and `am_update_skill` (version-bumping,
   writer/admin) complete the registry CRUD. The **`/load-skill <name>`** Claude
   command is the client-side nicety over the tool: it fetches a skill by name and
-  installs it as a local `.claude/skills/<name>/SKILL.md` (with no name, it lists
-  what's available). Shipped by the `aiagentmemory` installer.
+  uses its body directly in the session — no file written, always the live
+  version (with no name, it lists what's available). Shipped by the
+  `aiagentmemory` installer.
 
 ---
 
