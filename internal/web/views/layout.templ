@@ -20,7 +20,7 @@ templ Layout(title string, userEmail string) {
 		<body>
 			<header class="topbar">
 				<div class="wrap">
-					<a class="brand" href="/">agents<b>memory</b><span class="dot">.</span></a>
+					<a class="brand" href="/" aria-label="AI Agent Memory — home">ai<b>agent</b>memory<span class="dot">.</span></a>
 					if userEmail != "" {
 						<div class="user">
 							<span class="email">{ userEmail }</span>
