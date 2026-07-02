@@ -454,16 +454,13 @@ called). Schema changes are additive migrations under `db/migrations/`.
 - [x] Web skill management — per-project list / create / edit (role-gated to writer/admin), membership-checked routes
 - [x] Migration — read-only `mempalace` exporter + streaming `POST /import` (drawers, diary, closets, KG facts, tunnels; re-embedded, graph rebuilt)
 - [x] Data export (BDAR/GDPR) — download a workspace's data as a self-contained SQLite file (`GET /projects/{teamID}/export`, membership-gated, tenant-scoped, secrets redacted)
-- [x] Web — API-key reveal + rotation (admin-gated, secret shown once, destructive-confirm flow; rotation revokes the old key and mints a new one)
+- [x] Web — per-member API-key reveal + rotation (each member reveals/rotates their own key — scoped to `(team, user)`, secret shown once, destructive-confirm flow)
 - [x] Subscriptions / billing — provider-agnostic (Stripe + Polar): hosted checkout, signature-verified webhooks, self-service customer portal (update card / cancel), FREE + PRO monthly/annual ladder
 - [x] 2FA — per-user TOTP (Google-Authenticator compatible) + one-time recovery codes; enforced on password *and* social login
 - [x] Passwordless — WebAuthn passkeys (passwordless primary login + passkey as a 2nd factor)
 - [x] Operator plan override — unlimited (`-1` cap) plan + superadmin `set-plan` CLI
 - [x] `/load-skill` Claude command — client-side wrapper over `am_load_skill`: fetch a team-shared skill by name and install it as a local `.claude/skills/<name>/SKILL.md` (shipped in the `aiagentmemory` installer)
-
-**Left**
-
-- [ ] Web — team/member management (invite, set role) — domain supports it, no UI yet
+- [x] Web — team/member management with per-member API keys: add a registered user by email (admin-gated) to mint them their own token, set roles (member/writer/admin) with a last-admin guard, and remove a member to revoke their keys in the same transaction (they can no longer connect)
 
 ---
 
