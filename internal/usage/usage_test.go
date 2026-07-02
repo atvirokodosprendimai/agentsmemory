@@ -70,14 +70,18 @@ func TestAllowEnforcesCap(t *testing.T) {
 	}
 }
 
-// TestUnlimitedCapAlwaysAllows confirms a cap of 0 means no enforcement.
+// TestUnlimitedCapAlwaysAllows confirms a non-positive cap means no enforcement:
+// both 0 (no plan / planless) and -1 (the Unlimited-plan sentinel the set-plan CLI
+// attaches) are treated as "no limit", so Allow admits every request.
 func TestUnlimitedCapAlwaysAllows(t *testing.T) {
-	svc := NewService(NewRepo(newTestDB(t)), fakeCaps{cap: 0})
-	st, err := svc.Allow(context.Background(), "t")
-	if err != nil {
-		t.Fatalf("error: %v", err)
-	}
-	if !st.Allowed || st.Cap != 0 {
-		t.Fatalf("unlimited should allow: %+v", st)
+	for _, cap := range []int{0, -1} {
+		svc := NewService(NewRepo(newTestDB(t)), fakeCaps{cap: cap})
+		st, err := svc.Allow(context.Background(), "t")
+		if err != nil {
+			t.Fatalf("cap %d: error: %v", cap, err)
+		}
+		if !st.Allowed || st.Cap != cap {
+			t.Fatalf("cap %d: unlimited should allow: %+v", cap, st)
+		}
 	}
 }
