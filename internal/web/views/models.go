@@ -406,6 +406,12 @@ type plan struct {
 	Featured                     bool
 }
 
+// costDriver is one honest reason the service is not free at scale, shown under
+// the pricing plans. Tag is a short brass mono kicker (matching the feature/
+// install-dep card catalog), so the cards reuse the .lp-model grid with no new
+// CSS. The copy answers the "why should I pay?" objection at the point it arises.
+type costDriver struct{ Tag, Title, Body string }
+
 // faqItem is one question/answer, rendered both as an accordion row and as a
 // schema.org Question in the JSON-LD so AI answer engines can cite it.
 type faqItem struct{ Q, A string }
@@ -488,6 +494,31 @@ func landingPlans() []plan {
 	}
 }
 
+// landingCosts explains why the Pro plan is priced rather than free — the three
+// real, recurring costs of hybrid semantic recall. They are specific to this
+// stack (Ollama bge-m3 embeddings, per-tenant Qdrant vectors) rather than vague
+// "infra costs", so the argument is concrete: the compute and the electricity
+// behind every write and every recall are what a subscription pays for.
+func landingCosts() []costDriver {
+	return []costDriver{
+		{
+			"Compute",
+			"Every memory runs a model on a GPU",
+			"There is no keyword shortcut to meaning. Each drawer you file and each search you run is embedded by the bge-m3 model — a neural network whose matrix maths is only fast on a GPU, and a busy GPU draws hundreds of watts. That electricity is spent on every write and every recall, not once at signup.",
+		},
+		{
+			"Always-on",
+			"Vectors live in memory, day and night",
+			"So recall stays fast, Qdrant keeps each team's vectors hot in RAM on a server that runs 24/7 — powered, cooled and standing by whether you query once an hour or a thousand times a minute. You are renting a slice of always-on hardware, not just the seconds you spend searching.",
+		},
+		{
+			"Isolation",
+			"Your memory can't share a bill",
+			"Every workspace gets its own physically separate vector store, named by a hash of the team id — the guarantee that one team's memory can never leak into another's. That isolation is the point, and it means we can't amortise one giant shared index across everyone: your compute is genuinely yours.",
+		},
+	}
+}
+
 // landingFAQ is the question/answer set, keyworded around agent memory. It feeds
 // both the on-page accordion and the schema.org FAQPage in the JSON-LD.
 func landingFAQ() []faqItem {
@@ -531,6 +562,10 @@ func landingFAQ() []faqItem {
 		{
 			"What does agent memory cost to start?",
 			"The Free plan is free forever with 10,000 requests per month. Teams running agents in production upgrade to Pro at €50 per month, or €500 per year (two months free).",
+		},
+		{
+			"Why does agent memory cost money?",
+			"Because hybrid semantic recall runs on real hardware. Every memory you file and every search you run is embedded by the bge-m3 model on a GPU that draws hundreds of watts, and each team's vectors are kept hot in a Qdrant store on a server that runs 24/7 — physically isolated per team, so the compute can't be shared. The Free plan absorbs that cost for small use; Pro covers the always-on GPU and electricity for teams that lean on it. And because the server is open source, you can always self-host and pay your own hardware bill instead.",
 		},
 	}
 }
