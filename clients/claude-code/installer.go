@@ -235,10 +235,11 @@ func (i *Installer) run() error {
 }
 
 // writeAssets writes the embedded slash commands and the Stop hook into the
-// target config dir. am.md and M.md are the two bootstrap commands; the legacy
-// agentsmemory.md was retired and is intentionally not shipped.
+// target config dir. M.md and am.md are the bootstrap commands; load-skill.md is
+// the /load-skill nicety over the am_load_skill tool. The legacy agentsmemory.md
+// was retired and is intentionally not shipped.
 func (i *Installer) writeAssets() error {
-	for _, name := range []string{"M.md", "am.md"} {
+	for _, name := range []string{"M.md", "am.md", "load-skill.md"} {
 		data, err := assets.ReadFile("commands/" + name)
 		if err != nil {
 			return err // embed guarantees presence; an error here is a build bug
