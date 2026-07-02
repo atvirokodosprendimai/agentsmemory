@@ -2,12 +2,13 @@ package views
 
 import "strconv"
 
-// LandingPage is the public marketing front door served at "/" to logged-out
-// visitors. It is deliberately a *self-contained* HTML document rather than the
-// shared Layout: the landing page owns its entire <head> (canonical, Open Graph,
-// Twitter and schema.org JSON-LD — the SEO/GEO surface for the "AI agent memory"
-// brand and aiagentmemory.dev domain) and uses a public marketing nav, whereas
-// Layout is the authenticated app shell (brand → /dashboard, Sign out). It still
+// LandingPage is the public marketing front door served at "/" to everyone —
+// logged-out visitors and signed-in users (who reach it via the header logo). It
+// is deliberately a *self-contained* HTML document rather than the shared Layout:
+// the landing page owns its entire <head> (canonical, Open Graph, Twitter and
+// schema.org JSON-LD — the SEO/GEO surface for the "AI agent memory" brand and
+// aiagentmemory.dev domain) and uses a public marketing nav, whereas Layout is
+// the authenticated app shell (brand → "/", Sign out). It still
 // reuses the embedded app.css design system ("The Archive") and the datastar
 // runtime, so it stays visually consistent and needs no bespoke JavaScript —
 // every interaction (mobile nav, FAQ accordion, copy-to-clipboard) is driven by
@@ -32,7 +33,7 @@ templ LandingPage(d LandingData) {
 				@landingPricing()
 				@landingMigrate()
 				@landingFAQSection()
-				@landingFinalCTA()
+				@landingFinalCTA(d)
 			</main>
 			@landingFooter()
 		</body>
@@ -97,8 +98,12 @@ templ landingNavbar(d LandingData) {
 					<a href={ templ.SafeURL(n.Href) } data-on:click="$_navOpen = false">{ n.Label }</a>
 				}
 				<a class="lp-ext" href={ templ.SafeURL(repoURL) } rel="noopener" target="_blank" data-on:click="$_navOpen = false">GitHub ↗</a>
-				<a class="btn btn-ghost btn-sm lp-nav-cta" href="/login" data-on:click="$_navOpen = false">Sign in</a>
-				<a class="btn btn-primary btn-sm lp-nav-cta" href="/register" data-on:click="$_navOpen = false">Get started</a>
+				if d.SignedIn {
+					<a class="btn btn-primary btn-sm lp-nav-cta" href="/dashboard" data-on:click="$_navOpen = false">Dashboard →</a>
+				} else {
+					<a class="btn btn-ghost btn-sm lp-nav-cta" href="/login" data-on:click="$_navOpen = false">Sign in</a>
+					<a class="btn btn-primary btn-sm lp-nav-cta" href="/register" data-on:click="$_navOpen = false">Get started</a>
+				}
 			</nav>
 			<button
 				class="lp-burger"
@@ -133,15 +138,21 @@ templ landingHero(d LandingData) {
 					builds on the last instead of starting from zero.
 				</p>
 				<div class="lp-cta-row">
-					<a class="btn btn-primary" href="/register">Start free →</a>
+					if d.SignedIn {
+						<a class="btn btn-primary" href="/dashboard">Open dashboard →</a>
+					} else {
+						<a class="btn btn-primary" href="/register">Start free →</a>
+					}
 					<a class="btn btn-ghost" href="#what">How it works</a>
 				</div>
-				<p class="lp-cta-note">
-					Free plan · 10,000 requests / month · no card required
-					if d.HasOAuth {
-						· social sign-in available
-					}
-				</p>
+				if !d.SignedIn {
+					<p class="lp-cta-note">
+						Free plan · 10,000 requests / month · no card required
+						if d.HasOAuth {
+							· social sign-in available
+						}
+					</p>
+				}
 			</div>
 			<div class="lp-peek" aria-hidden="true">
 				<div class="lp-peek-bar">
@@ -571,14 +582,24 @@ templ landingFAQSection() {
 	</section>
 }
 
-// landingFinalCTA is the closing call to action band.
-templ landingFinalCTA() {
+// landingFinalCTA is the closing call to action band. Its primary button adapts
+// to auth state: a signed-in visitor is routed back to their dashboard rather
+// than nudged to create an account they already have.
+templ landingFinalCTA(d LandingData) {
 	<section class="lp-final">
 		<div class="lp-wrap lp-final-inner">
 			<h2>Give your agents a memory that lasts.</h2>
-			<p>Spin up a free workspace and connect your first agent in minutes.</p>
+			if d.SignedIn {
+				<p>Your workspace is ready — jump back in and connect another agent.</p>
+			} else {
+				<p>Spin up a free workspace and connect your first agent in minutes.</p>
+			}
 			<div class="lp-cta-row">
-				<a class="btn btn-primary" href="/register">Create your free account →</a>
+				if d.SignedIn {
+					<a class="btn btn-primary" href="/dashboard">Open your dashboard →</a>
+				} else {
+					<a class="btn btn-primary" href="/register">Create your free account →</a>
+				}
 				<a class="btn btn-ghost" href={ templ.SafeURL(repoURL) } rel="noopener" target="_blank">Read the source</a>
 			</div>
 		</div>
