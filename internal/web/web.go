@@ -29,6 +29,18 @@ import (
 const (
 	sessionName    = "agentsmemory_session"
 	sessionUserKey = "uid"
+
+	// pending2FA is a separate, short-lived cookie holding the id of a user who
+	// passed the password check but still owes a TOTP code. It is deliberately NOT
+	// the real session: until the second factor lands, the browser holds no
+	// authenticated session at all. Storing it in a gorilla session means it is
+	// signed and sealed by the same key as the main session — so it needs no
+	// hand-rolled HMAC, the one weakness a raw pending cookie would carry.
+	pending2FAName        = "agentsmemory_2fa"
+	pending2FAUserKey     = "uid"
+	pending2FAAttemptsKey = "attempts"
+	pending2FAMaxAgeSec   = 5 * 60 // the code must be entered within five minutes
+	maxTOTPLoginAttempts  = 5      // wrong codes tolerated before the pending state is dropped
 )
 
 // ctxKey is an unexported context key type for the authenticated user.
@@ -113,12 +125,26 @@ func (s *Server) Routes(r chi.Router) {
 	r.Post("/register", s.postRegister)
 	r.Get("/login", s.getLogin)
 	r.Post("/login", s.postLogin)
+	// The second-factor step of a password login. It is public (no session exists
+	// yet — only the short-lived pending-2FA cookie), and reachable only after
+	// postLogin sets that cookie; without it both handlers bounce to /login.
+	r.Get("/login/totp", s.getLoginTOTP)
+	r.Post("/login/totp", s.postLoginTOTP)
 	r.Post("/logout", s.postLogout)
 
 	// Authenticated area.
 	r.Group(func(r chi.Router) {
 		r.Use(s.requireUser)
 		r.Get("/dashboard", s.getDashboard)
+
+		// Account/security page. Enrolling, enabling and disabling 2FA are datastar
+		// actions that re-render the two-factor card fragment; the login-time TOTP
+		// step lives in the public group above.
+		r.Get("/account", s.getAccount)
+		r.Post("/account/totp/setup", s.postTOTPSetup)
+		r.Post("/account/totp/enable", s.postTOTPEnable)
+		r.Post("/account/totp/disable", s.postTOTPDisable)
+
 		r.Post("/projects", s.postCreateProject)
 		// Project-scoped skill management. {teamID} is membership-checked in each
 		// handler (see Server.membership) — a logged-in user can only reach a
@@ -206,6 +232,69 @@ func (s *Server) sessionUserID(r *http.Request) (string, bool) {
 // clearSession deletes the session cookie (sign-out).
 func (s *Server) clearSession(w http.ResponseWriter, r *http.Request) {
 	sess, _ := s.store.Get(r, sessionName)
+	sess.Options.MaxAge = -1
+	_ = sess.Save(r, w)
+}
+
+// pending2FAOptions is the cookie policy for the pending-2FA session: same
+// hardening as the main session but a five-minute lifetime, so an abandoned
+// half-login can't linger.
+func pending2FAOptions() *sessions.Options {
+	return &sessions.Options{
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   pending2FAMaxAgeSec,
+	}
+}
+
+// setPending2FA records that userID passed the password check but still owes a
+// TOTP code, and resets the wrong-code counter. It replaces (never extends) the
+// real session — the caller must not have opened one.
+func (s *Server) setPending2FA(w http.ResponseWriter, r *http.Request, userID string) error {
+	sess, _ := s.store.Get(r, pending2FAName)
+	sess.Values[pending2FAUserKey] = userID
+	sess.Values[pending2FAAttemptsKey] = 0
+	sess.Options = pending2FAOptions()
+	return sess.Save(r, w)
+}
+
+// pending2FAUserID returns the id of the user mid-2FA, if the pending cookie is
+// present and valid. Absence means the challenge page has nothing to verify and
+// must bounce back to /login.
+func (s *Server) pending2FAUserID(r *http.Request) (string, bool) {
+	sess, _ := s.store.Get(r, pending2FAName)
+	id, ok := sess.Values[pending2FAUserKey].(string)
+	return id, ok && id != ""
+}
+
+// bumpPending2FAAttempts increments and returns the wrong-code count on the
+// pending cookie; at maxTOTPLoginAttempts the caller drops the pending state so a
+// casual guesser must re-pass the password to continue.
+//
+// This is best-effort, not a hard limit: the count lives in the client-held
+// (signed+sealed) cookie, so a determined attacker who ignores our Set-Cookie —
+// or simply re-POSTs /login for a fresh pending state — is not stopped by it.
+// That is by design here: this stateless service (see main.go) intentionally
+// defers real brute-force throttling to the edge (WAF/gateway), and the password
+// login has no in-app throttle either. A server-side per-user limiter would be
+// the app-layer fix, at the cost of the stateless property and a lockout-DoS
+// tradeoff — a deliberate decision left to the operator.
+func (s *Server) bumpPending2FAAttempts(w http.ResponseWriter, r *http.Request) int {
+	sess, _ := s.store.Get(r, pending2FAName)
+	n, _ := sess.Values[pending2FAAttemptsKey].(int)
+	n++
+	sess.Values[pending2FAAttemptsKey] = n
+	sess.Options = pending2FAOptions()
+	_ = sess.Save(r, w)
+	return n
+}
+
+// clearPending2FA deletes the pending-2FA cookie — on success (a real session
+// takes over), on giving up, or when the attempt limit is hit.
+func (s *Server) clearPending2FA(w http.ResponseWriter, r *http.Request) {
+	sess, _ := s.store.Get(r, pending2FAName)
+	sess.Options = pending2FAOptions()
 	sess.Options.MaxAge = -1
 	_ = sess.Save(r, w)
 }

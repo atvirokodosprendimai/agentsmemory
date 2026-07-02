@@ -23,7 +23,9 @@ templ Layout(title string, userEmail string) {
 					<a class="brand" href="/" aria-label="AI Agent Memory — home">ai<b>agent</b>memory<span class="dot">.</span></a>
 					if userEmail != "" {
 						<div class="user">
-							<span class="email">{ userEmail }</span>
+							// The email doubles as the link to the account/security page
+							// (where 2FA lives) — one affordance, no extra nav clutter.
+							<a class="email" href="/account" title="Account & security">{ userEmail }</a>
 							<form method="post" action="/logout">
 								<button class="btn btn-ghost" type="submit">Sign out</button>
 							</form>

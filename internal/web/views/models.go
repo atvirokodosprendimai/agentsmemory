@@ -7,6 +7,7 @@ package views
 import (
 	"encoding/json"
 	"strconv"
+	"strings"
 )
 
 // AssetVersion is a cache-busting token — a short content hash of the embedded
@@ -349,6 +350,44 @@ type AuthData struct {
 	Error          string
 	Email          string // preserved on error so the user need not retype
 	OAuthProviders []string
+}
+
+// TOTPChallengeData backs the login second-factor page. It carries only an error
+// message: the page is stateless otherwise (the pending user lives in a cookie,
+// never in the markup), so nothing about the account leaks into the HTML.
+type TOTPChallengeData struct {
+	Error string
+}
+
+// AccountData backs the account/security page. It holds the signed-in identity
+// and the two-factor card's state; the card is the page's only interactive part.
+type AccountData struct {
+	UserEmail string
+	TwoFactor TwoFactorVM
+}
+
+// TwoFactorVM drives the two-factor card, which is a single datastar morph target
+// (id "twofactor") the setup/enable/disable handlers swap between three states:
+//
+//   - off        — Enabled=false, Setup=false: an invitation to turn 2FA on.
+//   - enrolling  — Setup=true: the QR + secret + code field to confirm a new secret.
+//   - on         — Enabled=true: confirmation, plus the code-gated disable control.
+//
+// RecoveryCodes is non-empty only in the one render right after enabling, where
+// the codes are shown exactly once. QRDataURI/Secret are set only while enrolling.
+type TwoFactorVM struct {
+	Enabled       bool
+	Setup         bool
+	QRDataURI     string   // data:image/png;base64,… QR of the otpauth URL (enrolling)
+	Secret        string   // base32 secret for manual entry (enrolling)
+	RecoveryCodes []string // shown once, immediately after enabling
+	Error         string   // inline message; rendered into the #totp-error slot
+}
+
+// recoveryCodesText joins recovery codes one-per-line for the "copy all" button
+// and the download hint — the form a user pastes into a password manager.
+func recoveryCodesText(codes []string) string {
+	return strings.Join(codes, "\n")
 }
 
 // LandingData backs the public marketing landing page served at "/". It is

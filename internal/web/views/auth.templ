@@ -37,6 +37,60 @@ templ LoginPage(d AuthData) {
 	}
 }
 
+// TOTPChallengePage renders the login second-factor step: a single field that
+// accepts either the authenticator's 6-digit code or a one-time recovery code
+// (the server tries both, so one input covers both cases and there is no risk of
+// two same-named fields double-submitting). It is a classic full-page POST like
+// the rest of auth. The only datastar here is a frontend-only signal ($_recovery,
+// _-prefixed so it is never sent to the server) that swaps the field's hint and
+// keyboard between the two code kinds over a stable DOM — no round-trip needed.
+templ TOTPChallengePage(d TOTPChallengeData) {
+	@Layout("Two-step verification", "") {
+		<div class="auth">
+			<div class="auth-card card" data-signals="{_recovery: false}">
+				<p class="eyebrow">One more step</p>
+				<h1>Two-step verification</h1>
+				<p class="sub" data-show="!$_recovery">Enter the 6-digit code from your authenticator app.</p>
+				<p class="sub" data-show="$_recovery" style="display:none">Enter one of your one-time recovery codes.</p>
+				if d.Error != "" {
+					<div class="flash error" role="alert"><span class="ttl">{ d.Error }</span></div>
+				}
+				<form method="post" action="/login/totp">
+					<div class="field">
+						<label for="code" data-text="$_recovery ? 'Recovery code' : 'Authentication code'">Authentication code</label>
+						<input
+							class="input code-input"
+							id="code"
+							name="code"
+							type="text"
+							autocomplete="one-time-code"
+							autocapitalize="off"
+							autocorrect="off"
+							spellcheck="false"
+							required
+							autofocus
+							data-attr:inputmode="$_recovery ? 'text' : 'numeric'"
+							data-attr:placeholder="$_recovery ? 'xxxx-xxxx-xxxx-xxxx' : '123456'"
+							aria-describedby="code-hint"
+						/>
+					</div>
+					<button class="btn btn-primary btn-block" type="submit">Verify</button>
+				</form>
+				<p class="auth-alt" id="code-hint">
+					<button
+						type="button"
+						class="linkish"
+						data-on:click="$_recovery = !$_recovery"
+					>
+						<span data-show="!$_recovery">Lost your device? Use a recovery code</span>
+						<span data-show="$_recovery" style="display:none">Use your authenticator app instead</span>
+					</button>
+				</p>
+			</div>
+		</div>
+	}
+}
+
 // RegisterPage renders the account-creation form.
 templ RegisterPage(d AuthData) {
 	@Layout("Create account", "") {

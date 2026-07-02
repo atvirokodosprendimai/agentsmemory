@@ -698,3 +698,68 @@ select.input option { color: var(--bone); background: var(--ink-2); }
 .upgrade-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem 1rem; }
 .upgrade-actions .hint { color: var(--faint); font-size: .82rem; max-width: 40ch; }
 .lp-footer-fine { margin-top: 2rem; padding-top: 1.5rem; border-top: 1px solid var(--line); color: var(--faint); font-size: .78rem; }
+
+/* ---- two-factor auth (login challenge + account card) ---- */
+/* The code field reads as a credential slot: mono, spaced, centered, so a
+   6-digit code or a grouped recovery code sits legibly and never reflows. */
+.code-input {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 1.35rem;
+  letter-spacing: .35em;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.code-input::placeholder { letter-spacing: .35em; }
+/* A button that reads as an inline link — used for the "use a recovery code"
+   toggle, which must be a real <button> for keyboard/AX but look textual. */
+.linkish {
+  background: none; border: 0; padding: 0; margin: 0; font: inherit;
+  color: var(--ember); cursor: pointer; text-align: inherit;
+}
+.linkish:hover { text-decoration: underline; }
+.linkish:focus-visible { outline: 2px solid var(--brass); outline-offset: 3px; border-radius: 4px; }
+
+/* danger button — destructive confirm (turn off 2FA) */
+.btn-danger { background: transparent; color: var(--danger); border-color: color-mix(in srgb, var(--danger) 45%, var(--line-2)); }
+.btn-danger:hover { background: color-mix(in srgb, var(--danger) 12%, transparent); border-color: var(--danger); }
+.btn-danger[disabled], .btn-danger:disabled { opacity: .5; cursor: not-allowed; }
+
+/* ---- two-factor card (account page) ---- */
+.tfa { padding: 1.8rem; max-width: 42rem; }
+.tfa-head { display: flex; gap: 1rem; align-items: flex-start; justify-content: space-between; margin-bottom: 1.4rem; }
+.tfa-head h2 { font-size: 1.4rem; margin: .1rem 0 0; }
+.tfa-lede { color: var(--muted); margin: .55rem 0 0; max-width: 48ch; line-height: 1.55; font-size: .95rem; }
+.tfa-hint { color: var(--faint); font-size: .82rem; margin: .5rem 0 0; max-width: 44ch; line-height: 1.5; }
+.tfa-error { color: var(--danger); font-size: .88rem; margin: .8rem 0 0; }
+/* enrolling: QR beside the confirm field, stacking on narrow screens */
+.tfa-setup { display: grid; gap: 1.6rem; }
+@media (min-width: 620px) { .tfa-setup { grid-template-columns: auto 1fr; align-items: start; } }
+.tfa-qr-col { display: flex; flex-direction: column; gap: .8rem; }
+.totp-qr {
+  display: block; width: 220px; height: 220px; border-radius: 12px;
+  background: #fff; padding: 10px; /* quiet zone so scanners lock on against the dark card */
+  border: 1px solid var(--line-2);
+}
+.tfa-manual summary { cursor: pointer; color: var(--muted); font-size: .85rem; }
+.tfa-manual summary:hover { color: var(--ember); }
+.tfa-manual .token { display: block; margin-top: .4rem; word-break: break-all; }
+.tfa-confirm-col { min-width: 0; }
+.tfa-actions { display: flex; gap: .7rem; flex-wrap: wrap; align-items: center; }
+.tfa-disable { margin-top: 1.6rem; padding-top: 1.5rem; border-top: 1px solid var(--line); }
+/* recovery codes — a bordered, save-me-now block shown once on enable */
+.tfa-recovery {
+  margin: 0 0 1.6rem; padding: 1.2rem;
+  border: 1px solid color-mix(in srgb, var(--brass) 40%, var(--line));
+  border-radius: 12px; background: rgba(210,173,85,.06);
+}
+.tfa-recovery-warn { color: var(--bone); font-size: .9rem; margin: .3rem 0 1rem; line-height: 1.55; }
+.tfa-recovery-warn b { color: var(--brass); }
+.rc-grid {
+  list-style: none; margin: 0 0 1rem; padding: 0;
+  display: grid; grid-template-columns: repeat(2, 1fr); gap: .5rem .9rem;
+}
+@media (min-width: 520px) { .rc-grid { grid-template-columns: repeat(2, 1fr); } }
+.rc-grid code {
+  font-family: "IBM Plex Mono", monospace; font-size: .95rem; letter-spacing: .04em;
+  color: var(--bone); font-variant-numeric: tabular-nums;
+}
