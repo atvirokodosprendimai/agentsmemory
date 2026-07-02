@@ -14,7 +14,7 @@ require (
 	github.com/pressly/goose/v3 v3.27.1
 	github.com/starfederation/datastar-go v1.2.2
 	github.com/urfave/cli/v3 v3.10.0
-	golang.org/x/crypto v0.50.0
+	golang.org/x/crypto v0.52.0
 	gorm.io/gorm v1.31.2
 )
 
@@ -25,6 +25,7 @@ require (
 	github.com/boombuler/barcode v1.0.1-0.20190219062509-6c824513bacc // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/glebarez/go-sqlite v1.21.2 // indirect
+	github.com/go-webauthn/webauthn v0.17.4 // indirect
 	github.com/google/jsonschema-go v0.4.2 // indirect
 	github.com/gorilla/context v1.1.1 // indirect
 	github.com/gorilla/mux v1.6.2 // indirect
@@ -46,8 +47,8 @@ require (
 	go.uber.org/multierr v1.11.0 // indirect
 	golang.org/x/oauth2 v0.27.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
-	golang.org/x/sys v0.43.0 // indirect
-	golang.org/x/text v0.36.0 // indirect
+	golang.org/x/sys v0.45.0 // indirect
+	golang.org/x/text v0.37.0 // indirect
 	modernc.org/libc v1.72.1 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
