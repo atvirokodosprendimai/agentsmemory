@@ -109,12 +109,6 @@ type KeyVM struct {
 	Rotated       bool   // the revealed secret is freshly rotated (old key revoked)
 	ConfirmRotate bool   // show the destructive-rotate confirmation prompt
 	Error         string // shown when a reveal can't be honored (e.g. a legacy key)
-	// ServerBase (scheme+host) and ServerName feed the ready-to-run `claude mcp
-	// add` command shown alongside a revealed secret. They are set only on the
-	// revealed/rotated paths — the masked initial render leaves them blank, so the
-	// command (which embeds the live token) never appears without a visible secret.
-	ServerBase string
-	ServerName string
 }
 
 // copyExpr is the datastar expression the Copy button runs: write the revealed
@@ -140,36 +134,21 @@ func MigrateCommand(serverBase string) string {
 const installScriptURL = "https://raw.githubusercontent.com/atvirokodosprendimai/agentsmemory/main/clients/claude-code/install.sh"
 
 // InstallCommand is the one-paste shell command that installs the whole
-// aiagentmemory Claude Code kit globally with this workspace's token. It is the
-// full-install counterpart to MCPAddCommand (which only registers the MCP into an
-// existing setup): the bootstrap downloads the binary and runs `install --global`,
-// wiring the slash commands, Stop hook, auto-loaded CLAUDE.md, and the MCP.
+// aiagentmemory Claude Code kit globally with this workspace's token. The
+// bootstrap downloads the binary and runs `install --global`, wiring the slash
+// commands, Stop hook, auto-loaded CLAUDE.md, and the MCP in one step — which is
+// why the dashboard offers only this, not a bare `claude mcp add` that would set
+// up the MCP alone.
 //
 // The token rides in the AGENTSMEMORY_TOKEN env var (the binary's --token flag
 // reads it there) rather than as a visible positional arg; --global pins the
-// target so the install never prompts. The token is double-quoted to match
-// MCPAddCommand's quoting and survive the odd non-alphanumeric character. It is
-// already visible in the surrounding revealed block, so embedding it here exposes
-// nothing new. Line continuations match the other copy commands' multi-line style.
+// target so the install never prompts. The token is double-quoted so it survives
+// the odd non-alphanumeric character. It is already visible in the surrounding
+// revealed block, so embedding it here exposes nothing new. Line continuations
+// match the other copy commands' multi-line style.
 func InstallCommand(token string) string {
 	return "curl -fsSL " + installScriptURL + " \\\n" +
 		"  | AGENTSMEMORY_TOKEN=\"" + token + "\" bash -s -- --global"
-}
-
-// MCPAddCommand is the copy-paste `claude mcp add` command that registers this
-// workspace as a remote MCP server in Claude Code. It uses the raw-bearer form
-// (--header "Authorization: Bearer …") rather than the OAuth client-id/secret
-// flow because /mcp resolves a project token directly — so a single paste wires
-// Claude to the workspace with no authorization round-trip. --scope user makes
-// the server available in every project on the machine (a memory server you want
-// everywhere); the hint tells the user to drop it for a single-project scope.
-// base is the server origin (scheme+host), name the server label (project slug),
-// token the revealed secret. Line continuations match the migration command's
-// multi-line copy style so the rendered block reads as one runnable command.
-func MCPAddCommand(base, name, token string) string {
-	return "claude mcp add --transport http --scope user " + name + " \\\n" +
-		"  " + base + "/mcp \\\n" +
-		"  --header \"Authorization: Bearer " + token + "\""
 }
 
 // SkillVM is one centralised skill as shown on the project page — metadata only
@@ -321,11 +300,6 @@ type FlashVM struct {
 	Message   string
 	ClientKey string // one-time OAuth Client ID to reveal, when Kind == "success"
 	Token     string // one-time API key / OAuth secret to reveal
-	// ServerBase (scheme+host) and ServerName feed the `claude mcp add` command
-	// rendered with the one-time token on project creation. Set only when Token is
-	// — a skill-save flash carries no token and shows no command.
-	ServerBase string
-	ServerName string
 }
 
 // DashboardData is everything the dashboard page needs.
@@ -601,6 +575,17 @@ func clipboardExprSignal(s, signal string) string {
 // landingInstallCmd is the copy-paste one-liner in the install section: it
 // downloads the aiagentmemory binary from GitHub Releases and runs `install`.
 const landingInstallCmd = "curl -fsSL https://raw.githubusercontent.com/atvirokodosprendimai/agentsmemory/main/clients/claude-code/install.sh | bash"
+
+// claudeGuideURL is the canonical public URL of the agent-facing install guide
+// (served raw-Markdown by handleClaudeGuide). It is hardcoded like landingInstallCmd
+// because the landing page is static marketing copy, not request-scoped.
+const claudeGuideURL = "https://aiagentmemory.dev/claude-guide"
+
+// landingClaudePrompt is the copy-paste prompt a visitor hands to Claude (or any
+// agent) to install the kit hands-free: the agent fetches the guide, asks for the
+// workspace token, and runs the install itself. Kept as one line so it pastes
+// cleanly into a chat box.
+const landingClaudePrompt = "Read " + claudeGuideURL + " and install the agentsmemory Claude Code kit for me. When you need my workspace API token, ask me — I'll create one in the dashboard."
 
 // installGroup is one column of the "what it installs" breakdown: a heading, the
 // command that triggers it, and the pieces it adds.

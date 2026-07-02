@@ -371,7 +371,7 @@ templ landingFeatures() {
 // install modes side by side, and a breakdown of exactly what lands on the
 // machine — core versus the opt-in --recommended extensions.
 templ landingInstall() {
-	<section class="lp-section" id="install" data-signals="{_copiedInstall: false}">
+	<section class="lp-section" id="install" data-signals="{_copiedInstall: false, _copiedPrompt: false}">
 		<div class="lp-wrap">
 			<header class="lp-head">
 				<p class="eyebrow">Install</p>
@@ -411,6 +411,38 @@ templ landingInstall() {
 						</button>
 					</div>
 					<pre class="cmd"><code>{ landingInstallCmd }</code></pre>
+				</div>
+			</div>
+			// Hands-free path: hand Claude a prompt and let it read the guide and install
+			// itself. Mirrors the curl block's lp-start-grid two-column layout so it needs
+			// no new CSS; its own _copiedPrompt signal keeps the two Copy buttons independent
+			// (datastar signals are global).
+			<div class="lp-start-grid">
+				<div class="lp-install-copy">
+					<p class="eyebrow">Or let Claude install it</p>
+					<p>
+						Paste this into Claude Code (or any agent). It reads the
+						<a href="/claude-guide">install guide</a>, asks you for your workspace
+						token, and runs the install itself — nothing to copy by hand.
+					</p>
+					<p>
+						<a class="lp-guide-link" href="/claude-guide">Read the guide → <span class="mono">/claude-guide</span></a>
+					</p>
+				</div>
+				<div class="lp-code card">
+					<div class="lp-code-head">
+						<span class="kv">prompt for Claude</span>
+						<button
+							class="btn btn-ghost btn-sm"
+							type="button"
+							data-on:click={ clipboardExprSignal(landingClaudePrompt, "_copiedPrompt") }
+							aria-label="Copy the prompt for Claude"
+						>
+							<span data-show="!$_copiedPrompt">Copy</span>
+							<span data-show="$_copiedPrompt" style="display:none">Copied ✓</span>
+						</button>
+					</div>
+					<pre class="cmd"><code>{ landingClaudePrompt }</code></pre>
 				</div>
 			</div>
 			<dl class="lp-cmd-ref">
@@ -620,6 +652,7 @@ templ landingFooter() {
 				<a href="#features">Features</a>
 				<a href="#pricing">Pricing</a>
 				<a href="#faq">FAQ</a>
+				<a href="/claude-guide">Claude install guide</a>
 				<a href={ templ.SafeURL(repoURL) } rel="noopener" target="_blank">GitHub ↗</a>
 				<a href="/login">Sign in</a>
 			</nav>
