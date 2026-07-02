@@ -169,17 +169,17 @@ func (s *Server) Routes(r chi.Router) {
 	s.oauthRoutes(r) // gated: no-op when no providers configured
 }
 
-// handleRoot sends signed-in users straight to the dashboard and serves the
-// public marketing landing page to everyone else. The landing page is the
-// product's front door (SEO/GEO entry for "agent memory"), so logged-out
-// visitors get content here rather than an immediate redirect to /login.
+// handleRoot serves the public marketing landing page at "/" to everyone —
+// logged-out visitors and signed-in users alike. It deliberately does NOT bounce
+// signed-in users to /dashboard: "/" is the product's front door (SEO/GEO entry
+// for "agent memory") and the header logo points here, so a signed-in user must
+// be able to land on it. The page adapts via SignedIn: when set it offers a
+// route back to the dashboard instead of the sign-in/register CTAs.
 func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
-	if _, ok := s.sessionUserID(r); ok {
-		http.Redirect(w, r, "/dashboard", http.StatusSeeOther)
-		return
-	}
+	_, signedIn := s.sessionUserID(r)
 	s.render(w, r, views.LandingPage(views.LandingData{
 		HasOAuth: len(s.providers) > 0, // mention social login when wired
+		SignedIn: signedIn,
 	}))
 }
 

@@ -355,12 +355,19 @@ type AuthData struct {
 	OAuthProviders []string
 }
 
-// LandingData backs the public marketing landing page served at "/" for
-// logged-out visitors. The page is otherwise static.
+// LandingData backs the public marketing landing page served at "/". It is
+// shown to everyone — logged-out visitors and signed-in users alike (the latter
+// reach it via the header logo), so it carries just enough auth state to swap
+// the auth-specific calls to action.
 type LandingData struct {
 	// HasOAuth reports whether any social login provider is configured, so the
 	// hero/CTA copy can mention it; purely cosmetic, the buttons live on /register.
 	HasOAuth bool
+
+	// SignedIn is true when the visitor already has a session. When set, the nav
+	// and hero drop the "Sign in / Get started / Start free" prompts (meaningless
+	// to a logged-in user) in favour of a single route back to the dashboard.
+	SignedIn bool
 }
 
 // Brand and canonical-site constants. The marketing brand is "AI Agent Memory"
