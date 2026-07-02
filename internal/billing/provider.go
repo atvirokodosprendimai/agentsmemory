@@ -70,6 +70,15 @@ type providerEvent struct {
 	subscriptionID string // the provider's subscription id — the stable lifecycle key
 }
 
+// portalAPI opens a provider-hosted customer portal — where a subscriber updates
+// their payment method, downloads invoices, or cancels — and returns the URL to
+// send the customer to. customerID identifies the subscriber to the provider;
+// returnURL is where providers that support one send the customer back (Polar's
+// portal manages its own navigation and ignores it).
+type portalAPI interface {
+	createPortalSession(ctx context.Context, customerID, returnURL string) (url string, err error)
+}
+
 // webhookParser verifies a raw webhook request and returns the normalized event.
 // Verification always comes first: an unsigned or mis-signed payload is a non-nil
 // error and nothing downstream runs. Headers is passed whole because providers

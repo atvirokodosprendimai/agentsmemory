@@ -66,6 +66,7 @@ type Service struct {
 	subs            *Repo
 	checkout        checkoutAPI   // nil when the active provider is unconfigured
 	webhook         webhookParser // nil when the active provider is unconfigured
+	portal          portalAPI     // nil when the active provider is unconfigured
 }
 
 // NewService wires a Service around the provider named by cfg.Provider. The chosen
@@ -79,11 +80,11 @@ func NewService(cfg Config, plans PlanStore, subs *Repo) *Service {
 	switch cfg.Provider {
 	case ProviderPolar:
 		if p := newPolarProvider(cfg); p != nil {
-			s.checkout, s.webhook = p, p
+			s.checkout, s.webhook, s.portal = p, p, p
 		}
 	default: // ProviderStripe or unset — Stripe is the back-compatible default.
 		if p := newStripeProvider(cfg); p != nil {
-			s.checkout, s.webhook = p, p
+			s.checkout, s.webhook, s.portal = p, p, p
 		}
 	}
 	return s
@@ -137,6 +138,28 @@ func (s *Service) StartCheckout(ctx context.Context, req CheckoutRequest) (strin
 		SuccessURL:    req.SuccessURL,
 		CancelURL:     req.CancelURL,
 	})
+}
+
+// ErrNoSubscription is returned by ManageURL when a workspace has no recorded
+// provider customer to open a portal for — it never subscribed, or subscribed
+// before we captured a customer id. The handler treats it as "nothing to manage".
+var ErrNoSubscription = errors.New("billing: no subscription to manage")
+
+// ManageURL returns a provider-hosted customer-portal URL where the workspace's
+// admin can update payment, download invoices, or cancel. It resolves the
+// workspace's provider customer id from its recorded subscription; any cancel made
+// in the portal comes back as a webhook, so this only hands the user off — it never
+// changes the plan itself. returnURL is where providers that support it send the
+// user back.
+func (s *Service) ManageURL(ctx context.Context, teamID, returnURL string) (string, error) {
+	if s.portal == nil {
+		return "", fmt.Errorf("billing: no payment provider configured")
+	}
+	sub, err := s.subs.ByTeam(ctx, teamID)
+	if err != nil || sub.StripeCustomerID == "" {
+		return "", ErrNoSubscription
+	}
+	return s.portal.createPortalSession(ctx, sub.StripeCustomerID, returnURL)
 }
 
 // HandleWebhook verifies a provider webhook and applies its effect. Verification

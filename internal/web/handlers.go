@@ -215,11 +215,15 @@ func (s *Server) projectsForUser(ctx context.Context, userID string) ([]views.Pr
 		// and only when Stripe is configured — otherwise the button would lead
 		// nowhere. A non-free plan already has its tier; no upgrade prompt.
 		onFree := planCode == "personal" || planCode == ""
-		canUpgrade := s.billing.Enabled() && role == tenant.RoleAdmin && onFree
+		isAdmin := role == tenant.RoleAdmin
+		// Upgrade is offered on a free plan; Manage on a paid one. Both require an admin
+		// and configured billing, and they are mutually exclusive by the onFree split.
+		canUpgrade := s.billing.Enabled() && isAdmin && onFree
+		canManage := s.billing.Enabled() && isAdmin && !onFree
 		out = append(out, views.ProjectVM{
 			TeamID: t.ID, Name: t.Name, Slug: t.Slug, PlanName: planName, Endpoint: "/mcp",
 			Used: st.Used, Cap: st.Cap, Pct: pct,
-			CanReveal: role == tenant.RoleAdmin, CanUpgrade: canUpgrade,
+			CanReveal: isAdmin, CanUpgrade: canUpgrade, CanManage: canManage,
 		})
 	}
 	return out, nil
