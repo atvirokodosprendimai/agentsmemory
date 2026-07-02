@@ -7,10 +7,12 @@ import (
 	"net/http"
 )
 
-// staticFS holds the dashboard's static assets (the stylesheet), embedded so the
-// binary is self-contained. Served read-only under /static/.
+// staticFS holds the dashboard's static assets (the stylesheet and the passkey
+// bridge script), embedded so the binary is self-contained. Served read-only
+// under /static/. http.FileServer sets Content-Type from the file extension, so
+// .css and .js are served with the right type.
 //
-//go:embed static/app.css
+//go:embed static/app.css static/passkey.js
 var staticFS embed.FS
 
 // assetVersion is a short content hash of the embedded stylesheet. It is appended

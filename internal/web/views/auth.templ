@@ -5,7 +5,14 @@ package views
 templ LoginPage(d AuthData) {
 	@Layout("Sign in", "") {
 		<div class="auth">
-			<div class="auth-card card">
+			<div
+				class="auth-card card"
+				data-signals="{pkGetOpts: null, pkCred: null, _pkSupported: false, _pkMsg: ''}"
+				data-init="$_pkSupported = !!(window.PublicKeyCredential && window.PublicKeyCredential.parseRequestOptionsFromJSON)"
+				data-effect="$pkGetOpts && pkAuthenticate($pkGetOpts)"
+				data-on:passkey-asserted__window="$pkCred = evt.detail; @post('/login/passkey/finish')"
+				data-on:passkey-failed__window="$_pkMsg = evt.detail"
+			>
 				<p class="eyebrow">Welcome back</p>
 				<h1>Sign in</h1>
 				<p class="sub">Access your projects and API keys.</p>
@@ -31,6 +38,27 @@ templ LoginPage(d AuthData) {
 						}
 					</div>
 				}
+				// Passwordless passkey sign-in — shown only where the browser supports it.
+				// The button @posts begin; the data-effect above then runs the credentials.get
+				// bridge and the passkey-asserted handler finishes the login.
+				<div data-show="$_pkSupported" style="display:none">
+					<div class="divider">or</div>
+					<button
+						class="btn btn-ghost btn-block"
+						type="button"
+						data-on:click="$_pkMsg = ''; @post('/login/passkey/begin')"
+						data-indicator:pkbusy
+						data-attr:disabled="$pkbusy"
+					>
+						<span class="btn-inline" data-show="!$pkbusy">
+							@keyIcon()
+							Sign in with a passkey
+						</span>
+						<span class="spinner" data-show="$pkbusy" style="display:none" aria-hidden="true"></span>
+					</button>
+				</div>
+				<p class="tfa-error" data-show="$_pkMsg !== ''" data-text="$_pkMsg" style="display:none"></p>
+				@PasskeyError("")
 				<p class="auth-alt">New here? <a href="/register">Create an account</a></p>
 			</div>
 		</div>
@@ -47,7 +75,14 @@ templ LoginPage(d AuthData) {
 templ TOTPChallengePage(d TOTPChallengeData) {
 	@Layout("Two-step verification", "") {
 		<div class="auth">
-			<div class="auth-card card" data-signals="{_recovery: false}">
+			<div
+				class="auth-card card"
+				data-signals="{_recovery: false, pkGetOpts: null, pkCred: null, _pkSupported: false, _pkMsg: ''}"
+				data-init="$_pkSupported = !!(window.PublicKeyCredential && window.PublicKeyCredential.parseRequestOptionsFromJSON)"
+				data-effect="$pkGetOpts && pkAuthenticate($pkGetOpts)"
+				data-on:passkey-asserted__window="$pkCred = evt.detail; @post('/login/totp/passkey/finish')"
+				data-on:passkey-failed__window="$_pkMsg = evt.detail"
+			>
 				<p class="eyebrow">One more step</p>
 				<h1>Two-step verification</h1>
 				<p class="sub" data-show="!$_recovery">Enter the 6-digit code from your authenticator app.</p>
@@ -76,6 +111,27 @@ templ TOTPChallengePage(d TOTPChallengeData) {
 					</div>
 					<button class="btn btn-primary btn-block" type="submit">Verify</button>
 				</form>
+				// Passkey as the second factor — an alternative to typing a code, shown
+				// only where supported. Posts begin for this pending user; the data-effect
+				// runs credentials.get and the passkey-asserted handler finishes the login.
+				<div data-show="$_pkSupported" style="display:none">
+					<div class="divider">or</div>
+					<button
+						class="btn btn-ghost btn-block"
+						type="button"
+						data-on:click="$_pkMsg = ''; @post('/login/totp/passkey/begin')"
+						data-indicator:pkbusy
+						data-attr:disabled="$pkbusy"
+					>
+						<span class="btn-inline" data-show="!$pkbusy">
+							@keyIcon()
+							Use a passkey instead
+						</span>
+						<span class="spinner" data-show="$pkbusy" style="display:none" aria-hidden="true"></span>
+					</button>
+				</div>
+				<p class="tfa-error" data-show="$_pkMsg !== ''" data-text="$_pkMsg" style="display:none"></p>
+				@PasskeyError("")
 				<p class="auth-alt" id="code-hint">
 					<button
 						type="button"
@@ -89,6 +145,17 @@ templ TOTPChallengePage(d TOTPChallengeData) {
 			</div>
 		</div>
 	}
+}
+
+// keyIcon is a small inline key glyph for the passkey buttons — an SVG (not an
+// emoji) so it inherits currentColor and stays crisp, per the icon guidelines.
+templ keyIcon() {
+	<svg class="btn-ico" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+		<circle cx="7.5" cy="15.5" r="4.5"></circle>
+		<path d="M10.7 12.3 21 2"></path>
+		<path d="m16 7 3 3"></path>
+		<path d="m18 5 3 3"></path>
+	</svg>
 }
 
 // RegisterPage renders the account-creation form.

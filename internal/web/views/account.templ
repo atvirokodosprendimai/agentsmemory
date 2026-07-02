@@ -12,7 +12,99 @@ templ AccountPage(d AccountData) {
 			<p>Manage how you sign in to <span class="mono">{ d.UserEmail }</span>.</p>
 		</section>
 		@TwoFactorCard(d.TwoFactor)
+		@PasskeyCard(d.Passkeys)
 	}
+}
+
+// PasskeyCard lists the user's registered passkeys and offers registration. It is
+// a datastar morph target (id "passkeys") the register/delete handlers re-render.
+//
+// The WebAuthn ceremony is choreographed the DS way: the "Add a passkey" button
+// @posts begin, the server patches $pkCreateOpts, and the data-effect below feeds
+// that to the pkRegister bridge (the one bit of JS — see /static/passkey.js). The
+// bridge emits a passkey-created window event; the data-on handler assigns the
+// result to $pkCred and @posts finish. $_pkSupported (set by data-init) hides the
+// controls on browsers without the modern WebAuthn JSON API; $_pkMsg surfaces a
+// client-side failure (e.g. the user dismissing the prompt).
+templ PasskeyCard(d PasskeysVM) {
+	<article
+		id="passkeys"
+		class="card tfa"
+		data-signals="{pkLabel: '', pkCreateOpts: null, pkCred: null, _pkSupported: false, _pkMsg: ''}"
+		data-init="$_pkSupported = !!(window.PublicKeyCredential && window.PublicKeyCredential.parseCreationOptionsFromJSON)"
+		data-effect="$pkCreateOpts && pkRegister($pkCreateOpts)"
+		data-on:passkey-created__window="$pkCred = evt.detail; @post('/account/passkey/finish')"
+		data-on:passkey-failed__window="$_pkMsg = evt.detail"
+	>
+		<div class="tfa-head">
+			<div>
+				<p class="eyebrow">Passkeys</p>
+				<h2>Passkeys</h2>
+				<p class="tfa-lede">Sign in with your device — Touch ID, Windows Hello or a security key — instead of a password and code. A passkey is phishing-resistant and can't be reused across sites.</p>
+			</div>
+			if len(d.Passkeys) > 0 {
+				<span class="badge ok">{ passkeyCountLabel(d) }</span>
+			}
+		</div>
+		if len(d.Passkeys) > 0 {
+			<ul class="pk-list">
+				for _, p := range d.Passkeys {
+					<li class="pk-row">
+						<div class="pk-row-main">
+							<span class="pk-name">{ p.Name }</span>
+							<span class="pk-meta">{ passkeyMeta(p) }</span>
+						</div>
+						<button
+							class="btn btn-ghost btn-sm"
+							type="button"
+							data-on:click={ "@post('/account/passkey/" + p.ID + "/delete')" }
+							aria-label={ "Remove passkey " + p.Name }
+						>Remove</button>
+					</li>
+				}
+			</ul>
+		} else {
+			<p class="pk-empty">No passkeys yet. Add one to sign in without a password.</p>
+		}
+		// Registration controls — hidden on browsers without WebAuthn JSON support.
+		<div class="pk-add" data-show="$_pkSupported" style="display:none">
+			<div class="field">
+				<label for="pkLabel">Add a passkey</label>
+				<input
+					class="input"
+					id="pkLabel"
+					data-bind:pk-label
+					type="text"
+					placeholder="Name this device (e.g. MacBook)"
+					maxlength="40"
+				/>
+			</div>
+			<button
+				class="btn btn-primary"
+				type="button"
+				data-on:click="$_pkMsg = ''; @post('/account/passkey/begin')"
+				data-indicator:pkbusy
+				data-attr:disabled="$pkbusy"
+			>
+				<span data-show="!$pkbusy">Add a passkey</span>
+				<span class="spinner" data-show="$pkbusy" style="display:none" aria-hidden="true"></span>
+			</button>
+		</div>
+		<p class="tfa-hint" data-show="!$_pkSupported" style="display:none">Your browser doesn't support passkeys yet. Try an up-to-date Safari, Chrome or Edge.</p>
+		<p class="tfa-error" data-show="$_pkMsg !== ''" data-text="$_pkMsg" style="display:none"></p>
+		@PasskeyError(d.Error)
+	</article>
+}
+
+// PasskeyError renders the inline server-error slot (#passkey-error) for the
+// passkey flows, so a failed register/verify updates one line rather than the
+// whole card. An empty message clears it.
+templ PasskeyError(msg string) {
+	<div id="passkey-error" role="alert" aria-live="polite">
+		if msg != "" {
+			<p class="tfa-error">{ msg }</p>
+		}
+	</div>
 }
 
 // TwoFactorCard renders the two-factor control in one of three states (off /

@@ -16,6 +16,10 @@ templ Layout(title string, userEmail string) {
 			<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet"/>
 			<link rel="stylesheet" href={ templ.SafeURL(staticURL("/static/app.css")) }/>
 			<script type="module" src="https://cdn.jsdelivr.net/gh/starfederation/datastar@v1.0.2/bundles/datastar.js"></script>
+			// The passkey bridge: the only bespoke JS. It exposes window.pkRegister /
+			// pkAuthenticate for the data-effect triggers, calls navigator.credentials,
+			// and reports back via custom events. Deferred so it is ready before use.
+			<script src={ templ.SafeURL(staticURL("/static/passkey.js")) } defer></script>
 		</head>
 		<body>
 			<header class="topbar">
@@ -23,9 +27,12 @@ templ Layout(title string, userEmail string) {
 					<a class="brand" href="/" aria-label="AI Agent Memory — home">ai<b>agent</b>memory<span class="dot">.</span></a>
 					if userEmail != "" {
 						<div class="user">
-							// The email doubles as the link to the account/security page
-							// (where 2FA lives) — one affordance, no extra nav clutter.
-							<a class="email" href="/account" title="Account & security">{ userEmail }</a>
+							// Account & security link: the shield icon (not a bare email) makes
+							// it read as the settings entry — this is where 2FA and passkeys live.
+							<a class="user-account" href="/account" title="Account & security">
+								@shieldIcon()
+								<span class="email">{ userEmail }</span>
+							</a>
 							<form method="post" action="/logout">
 								<button class="btn btn-ghost" type="submit">Sign out</button>
 							</form>
@@ -41,4 +48,13 @@ templ Layout(title string, userEmail string) {
 			</footer>
 		</body>
 	</html>
+}
+
+// shieldIcon is a small inline shield-check glyph for the account/security link —
+// an SVG (not an emoji) inheriting currentColor, per the icon guidelines.
+templ shieldIcon() {
+	<svg class="user-ico" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+		<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10"></path>
+		<path d="m9 12 2 2 4-4"></path>
+	</svg>
 }
