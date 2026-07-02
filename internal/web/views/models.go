@@ -93,9 +93,14 @@ type ProjectVM struct {
 	// could otherwise lift the admin's bearer and escalate).
 	CanReveal bool
 	// CanUpgrade is true when the viewer may upgrade this workspace to Pro — an
-	// admin of a workspace on the free plan, with Stripe billing configured. It
-	// gates the UpgradeCard; the upgrade handler re-checks the role server-side.
+	// admin of a workspace on the free plan, with billing configured. It gates the
+	// UpgradeCard; the upgrade handler re-checks the role server-side.
 	CanUpgrade bool
+	// CanManage is true when the viewer may manage this workspace's paid plan — an
+	// admin of a workspace already on a paid plan, with billing configured. It gates
+	// the ManageCard (opens the provider's customer portal) and is mutually exclusive
+	// with CanUpgrade; the manage handler re-checks the role server-side.
+	CanManage bool
 }
 
 // KeyVM backs the API-key block on a project card. The block is a datastar morph

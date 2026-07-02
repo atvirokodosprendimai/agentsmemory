@@ -184,6 +184,9 @@ func (s *Server) Routes(r chi.Router) {
 		// re-render the project page — the actual plan flip is webhook-driven, never
 		// trusted from the return redirect.
 		r.Post("/projects/{teamID}/upgrade", s.postUpgrade)
+		// Manage/cancel an active subscription: opens the provider's hosted customer
+		// portal. Admin-gated inside the handler; any cancel comes back as a webhook.
+		r.Post("/projects/{teamID}/billing/manage", s.postManageSubscription)
 		r.Get("/projects/{teamID}/billing/success", s.getBillingSuccess)
 		r.Get("/projects/{teamID}/billing/cancel", s.getBillingCancel)
 

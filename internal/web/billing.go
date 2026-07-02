@@ -97,6 +97,39 @@ func (s *Server) getBillingCancel(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// postManageSubscription opens the active provider's hosted customer portal for the
+// workspace and redirects the admin to it, where they update payment, download
+// invoices, or cancel. Admin-gated (only an admin manages billing). Any cancellation
+// is applied by the provider webhook, so this handler only hands the browser off to
+// the portal — it never changes the plan itself.
+func (s *Server) postManageSubscription(w http.ResponseWriter, r *http.Request) {
+	_, teamID, role, ok := s.membership(w, r)
+	if !ok {
+		return
+	}
+	sse := datastar.NewSSE(w, r)
+	flash := func(msg string) {
+		_ = sse.PatchElementTempl(views.Flash(views.FlashVM{Kind: "error", Message: msg}))
+	}
+	if !s.billing.Enabled() {
+		flash("Billing isn't available right now.")
+		return
+	}
+	if role != tenant.RoleAdmin {
+		flash("Only a workspace admin can manage the plan.")
+		return
+	}
+	url, err := s.billing.ManageURL(r.Context(), teamID, requestBaseURL(r)+"/projects/"+teamID)
+	if err != nil {
+		// ErrNoSubscription (nothing to manage) or a provider/transient failure — kept
+		// off the page as a generic retry message.
+		flash("Couldn't open the billing portal. Please try again.")
+		return
+	}
+	// Hand the browser off to the provider's hosted portal.
+	_ = sse.Redirect(url)
+}
+
 // renderProjectPage renders the full project page with an optional flash. It is
 // the shared assembly behind getProject (empty flash) and the billing
 // success/cancel returns, so the page is built in exactly one place.

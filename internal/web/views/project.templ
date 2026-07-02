@@ -25,6 +25,8 @@ templ ProjectDetailPage(d ProjectDetailData) {
 		@Flash(d.Flash)
 		if d.Project.CanUpgrade {
 			@UpgradeCard(d.Project)
+		} else if d.Project.CanManage {
+			@ManageCard(d.Project)
 		}
 		<div data-signals="{skillName:'', skillDescription:'', skillContent:''}">
 			if d.CanWrite {
@@ -143,6 +145,37 @@ templ UpgradeCard(p ProjectVM) {
 				<span class="spinner" data-show="$upgrading" style="display:none" aria-hidden="true"></span>
 			</button>
 			<span class="hint">Secure checkout via Stripe — you'll confirm payment on Stripe, then land back here. Cancel anytime.</span>
+		</div>
+	</section>
+}
+
+// ManageCard is the counterpart to UpgradeCard, shown to an admin of a workspace
+// already on a paid plan (gated by ProjectVM.CanManage; the server re-checks on
+// POST). It reads as a settled/active state — a brass accent and a live status dot
+// rather than the ember "buy now" urgency — and its one action hands the browser to
+// the provider's hosted customer portal to update payment, view invoices, or cancel.
+// $managing drives the in-flight spinner/disabled state so a double-click can't open
+// two sessions. The actual plan change from any cancellation is webhook-driven.
+templ ManageCard(p ProjectVM) {
+	<section class="card manage-card" aria-labelledby="manage-h" data-signals="{managing:false}">
+		<p class="eyebrow">Plan</p>
+		<h2 id="manage-h">Manage your plan</h2>
+		<p class="manage-status"><span class="dot" aria-hidden="true"></span>{ p.PlanName } — active</p>
+		<p class="manage-lede">
+			Update your payment method, download invoices, or cancel your subscription —
+			anytime, in the secure billing portal.
+		</p>
+		<div class="manage-actions">
+			<button
+				class="btn btn-primary"
+				data-on:click={ "@post('/projects/" + p.TeamID + "/billing/manage')" }
+				data-indicator:managing
+				data-attr:disabled="$managing"
+			>
+				<span data-show="!$managing">Manage subscription</span>
+				<span class="spinner" data-show="$managing" style="display:none" aria-hidden="true"></span>
+			</button>
+			<span class="hint">Opens the billing portal in this tab. A cancellation stays active until the end of the period you've paid for.</span>
 		</div>
 	</section>
 }

@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/stripe/stripe-go/v82"
+	portalsession "github.com/stripe/stripe-go/v82/billingportal/session"
 	"github.com/stripe/stripe-go/v82/checkout/session"
 	"github.com/stripe/stripe-go/v82/webhook"
 )
@@ -56,6 +57,20 @@ func (stripeProvider) createCheckout(_ context.Context, in checkoutInput) (strin
 	params.AddMetadata("plan_code", in.PlanCode)
 
 	sess, err := session.New(params)
+	if err != nil {
+		return "", err
+	}
+	return sess.URL, nil
+}
+
+// createPortalSession opens a Stripe Billing Portal session for a customer and
+// returns its hosted URL. ReturnURL is where Stripe sends the customer when they
+// leave the portal (back to the project page).
+func (stripeProvider) createPortalSession(_ context.Context, customerID, returnURL string) (string, error) {
+	sess, err := portalsession.New(&stripe.BillingPortalSessionParams{
+		Customer:  stripe.String(customerID),
+		ReturnURL: stripe.String(returnURL),
+	})
 	if err != nil {
 		return "", err
 	}

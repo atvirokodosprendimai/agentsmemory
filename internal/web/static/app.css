@@ -697,6 +697,16 @@ select.input option { color: var(--bone); background: var(--ink-2); }
 .upgrade-list li::before { content: "✓"; position: absolute; left: 0; color: var(--ok); font-weight: 700; }
 .upgrade-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem 1rem; }
 .upgrade-actions .hint { color: var(--faint); font-size: .82rem; max-width: 40ch; }
+
+/* ---- manage-plan card (project page, active paid plan) ---- */
+/* A settled/active counterpart to the upgrade CTA: brass accent (not ember urgency)
+   and a live status dot signal "your plan is running" rather than "buy now". */
+.manage-card { padding: 1.6rem; margin-bottom: 1.6rem; border-color: color-mix(in srgb, var(--brass) 34%, var(--line)); }
+.manage-status { display: inline-flex; align-items: center; gap: .5rem; margin: 0 0 1rem; font-size: .92rem; font-weight: 600; color: var(--brass); }
+.manage-status .dot { width: .5rem; height: .5rem; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 24%, transparent); }
+.manage-lede { color: var(--muted); margin: 0 0 1.3rem; max-width: 52ch; line-height: 1.55; }
+.manage-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem 1rem; }
+.manage-actions .hint { color: var(--faint); font-size: .82rem; max-width: 42ch; }
 .lp-footer-fine { margin-top: 2rem; padding-top: 1.5rem; border-top: 1px solid var(--line); color: var(--faint); font-size: .78rem; }
 
 /* ---- two-factor auth (login challenge + account card) ---- */

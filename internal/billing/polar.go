@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -71,13 +72,41 @@ type polarCheckoutResp struct {
 	URL string `json:"url"`
 }
 
+// postJSON performs an authenticated POST of a JSON body to a Polar API path and
+// returns the response body (read capped at the network boundary). It is the one
+// place the bearer auth, content type, and status handling live, shared by the
+// checkout and customer-portal calls.
+func (p *polarProvider) postJSON(ctx context.Context, path string, body any) ([]byte, error) {
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL+path, bytes.NewReader(buf))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+p.accessToken)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := p.httpc.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("billing: polar %s: status %d: %s", path, resp.StatusCode, raw)
+	}
+	return raw, nil
+}
+
 // createCheckout opens a Polar hosted checkout for the plan's product and returns
 // its URL. Polar has no cancel-url concept, so in.CancelURL is intentionally
 // unused here (the customer simply navigates away). The trailing slash on the path
 // is required — Polar 307-redirects the un-slashed form, which would drop the POST
 // body.
 func (p *polarProvider) createCheckout(ctx context.Context, in checkoutInput) (string, error) {
-	body, err := json.Marshal(polarCheckoutReq{
+	raw, err := p.postJSON(ctx, "/v1/checkouts/", polarCheckoutReq{
 		Products:      []string{in.PriceID},
 		SuccessURL:    in.SuccessURL,
 		CustomerEmail: in.CustomerEmail,
@@ -85,23 +114,6 @@ func (p *polarProvider) createCheckout(ctx context.Context, in checkoutInput) (s
 	})
 	if err != nil {
 		return "", err
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL+"/v1/checkouts/", bytes.NewReader(body))
-	if err != nil {
-		return "", err
-	}
-	req.Header.Set("Authorization", "Bearer "+p.accessToken)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := p.httpc.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-	// Cap the read: a checkout response is small, and this is a network boundary.
-	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("billing: polar checkout: status %d: %s", resp.StatusCode, raw)
 	}
 	var out polarCheckoutResp
 	if err := json.Unmarshal(raw, &out); err != nil {
@@ -111,6 +123,30 @@ func (p *polarProvider) createCheckout(ctx context.Context, in checkoutInput) (s
 		return "", fmt.Errorf("billing: polar checkout returned no url")
 	}
 	return out.URL, nil
+}
+
+// polarCustomerSessionResp is the slice of the customer-session response we use: a
+// pre-authenticated URL into the customer portal.
+type polarCustomerSessionResp struct {
+	CustomerPortalURL string `json:"customer_portal_url"`
+}
+
+// createPortalSession creates a Polar customer session and returns its
+// pre-authenticated customer-portal URL, where the customer manages or cancels the
+// subscription. Polar's portal handles its own navigation, so returnURL is unused.
+func (p *polarProvider) createPortalSession(ctx context.Context, customerID, _ string) (string, error) {
+	raw, err := p.postJSON(ctx, "/v1/customer-sessions/", map[string]string{"customer_id": customerID})
+	if err != nil {
+		return "", err
+	}
+	var out polarCustomerSessionResp
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return "", fmt.Errorf("billing: decode polar customer session: %w", err)
+	}
+	if out.CustomerPortalURL == "" {
+		return "", fmt.Errorf("billing: polar customer session returned no portal url")
+	}
+	return out.CustomerPortalURL, nil
 }
 
 // polarWebhookEnvelope is Polar's webhook shape: an event type plus the affected
@@ -150,33 +186,84 @@ func (p *polarProvider) parseWebhook(payload []byte, headers http.Header) (provi
 	if err := json.Unmarshal(payload, &env); err != nil {
 		return providerEvent{}, fmt.Errorf("billing: decode polar webhook: %w", err)
 	}
+	// Trace which events the endpoint actually delivers (and their status) — invaluable
+	// while wiring a live integration, since providers differ in which events they send.
+	log.Printf("polar webhook: type=%q status=%q", env.Type, env.Data.Status)
+
 	metaString := func(k string) string {
 		if v, ok := env.Data.Metadata[k].(string); ok {
 			return v
 		}
 		return ""
 	}
+	teamID, planCode := metaString("team_id"), metaString("plan_code")
+	// We can only place a payment when the checkout metadata we set rode through onto
+	// the event. Polar propagates it onto the checkout, order and subscription objects;
+	// an event without it (a renewal order, or a subscription created outside our flow)
+	// is ignored rather than errored, so another attributed event can carry it and the
+	// endpoint never 400-storms.
+	attributed := teamID != "" && planCode != ""
+
 	switch env.Type {
 	case "checkout.updated":
-		// Only a finalized checkout upgrades the workspace; earlier statuses (open,
-		// confirmed) are interim and ignored.
-		if env.Data.Status != "succeeded" {
-			return providerEvent{}, nil
+		// A finalized checkout carries our metadata plus the resulting subscription id.
+		// Interim statuses (open/confirmed) and unattributable checkouts are ignored.
+		if env.Data.Status == "succeeded" && attributed {
+			return providerEvent{
+				kind:           eventActivated,
+				teamID:         teamID,
+				planCode:       planCode,
+				customerID:     env.Data.CustomerID,
+				subscriptionID: env.Data.SubscriptionID,
+			}, nil
 		}
-		return providerEvent{
-			kind:           eventActivated,
-			teamID:         metaString("team_id"),
-			planCode:       metaString("plan_code"),
-			customerID:     env.Data.CustomerID,
-			subscriptionID: env.Data.SubscriptionID,
-		}, nil
+		return providerEvent{}, nil
+
+	case "order.paid":
+		// The paid order is Polar's most reliable "money received" signal; it references
+		// the subscription it paid for. Renewals also fire this but usually without our
+		// metadata, so they fall through to ignored (the plan simply stays Pro).
+		if attributed {
+			return providerEvent{
+				kind:           eventActivated,
+				teamID:         teamID,
+				planCode:       planCode,
+				customerID:     env.Data.CustomerID,
+				subscriptionID: env.Data.SubscriptionID,
+			}, nil
+		}
+		return providerEvent{}, nil
+
+	case "subscription.created", "subscription.active", "subscription.updated":
+		// subscription.active is Polar's recommended "grant access" signal. Here the data
+		// object IS the subscription, so its own id is the durable key. Grant only once
+		// the subscription is actually active (or trialing), never while incomplete.
+		if attributed && polarSubscriptionActive(env.Data.Status) {
+			return providerEvent{
+				kind:           eventActivated,
+				teamID:         teamID,
+				planCode:       planCode,
+				customerID:     env.Data.CustomerID,
+				subscriptionID: env.Data.ID,
+			}, nil
+		}
+		return providerEvent{}, nil
+
 	case "subscription.revoked":
-		// The data object is the subscription; its id is the key we recorded at
-		// activation, so applyCanceled can find the workspace to downgrade.
+		// Access has actually ended — downgrade. (subscription.canceled means won't-renew
+		// but still active until period end, so it is intentionally ignored.)
 		return providerEvent{kind: eventCanceled, subscriptionID: env.Data.ID}, nil
+
 	default:
 		return providerEvent{}, nil
 	}
+}
+
+// polarSubscriptionActive reports whether a Polar subscription status is one that
+// should grant access. Polar statuses: incomplete, incomplete_expired, trialing,
+// active, past_due, canceled, unpaid — only active and trialing grant Pro here.
+func polarSubscriptionActive(status string) bool {
+	return status == "active" || status == "trialing"
 }
 
 // verifyStandardWebhook validates a payload against the Standard Webhooks spec that
