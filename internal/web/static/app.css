@@ -763,3 +763,26 @@ select.input option { color: var(--bone); background: var(--ink-2); }
   font-family: "IBM Plex Mono", monospace; font-size: .95rem; letter-spacing: .04em;
   color: var(--bone); font-variant-numeric: tabular-nums;
 }
+
+/* ---- passkeys (account card + login buttons) ---- */
+/* inline icon + label inside a button, vertically centered */
+.btn-inline { display: inline-flex; align-items: center; gap: .5rem; }
+.btn-ico { flex: 0 0 auto; }
+/* account/security link in the topbar — shield icon reads as "settings" */
+.user-account { display: inline-flex; align-items: center; gap: .45rem; color: var(--muted); }
+.user-account:hover { text-decoration: none; color: var(--ember); }
+.user-account:hover .email { color: var(--ember); }
+.user-account:focus-visible { outline: 2px solid var(--brass); outline-offset: 3px; border-radius: 6px; }
+.user-ico { flex: 0 0 auto; color: var(--brass); }
+/* registered-passkey list */
+.pk-list { list-style: none; margin: .4rem 0 1.4rem; padding: 0; display: grid; gap: .6rem; }
+.pk-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+  padding: .8rem 1rem; border: 1px solid var(--line); border-radius: 10px;
+  background: rgba(0,0,0,.14);
+}
+.pk-row-main { display: flex; flex-direction: column; gap: .15rem; min-width: 0; }
+.pk-name { color: var(--bone); font-weight: 600; font-size: .95rem; }
+.pk-meta { color: var(--faint); font-size: .78rem; font-variant-numeric: tabular-nums; }
+.pk-empty { color: var(--muted); font-size: .92rem; margin: .2rem 0 1.4rem; }
+.pk-add { border-top: 1px solid var(--line); padding-top: 1.3rem; }

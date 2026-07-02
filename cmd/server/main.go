@@ -31,6 +31,7 @@ import (
 	"github.com/atvirokodosprendimai/agentsmemory/internal/mergejob"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/oauth"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/palace"
+	"github.com/atvirokodosprendimai/agentsmemory/internal/passkey"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/share"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/skill"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/skillset"
@@ -215,9 +216,23 @@ func run(ctx context.Context, cfg config.Config) error {
 	// archive of a tenant's data from the same source-of-truth database.
 	exporter := dataexport.New(svc.gdb)
 
+	// Passkey (WebAuthn) service: registers and verifies device credentials for
+	// passwordless login and as a second factor. The Relying Party config derives
+	// from PUBLIC_BASE_URL — the same public origin the OAuth callbacks use — so
+	// the RPID/origin match the domain the browser is on (a mismatch is the classic
+	// passkey failure). A bad config is a fatal startup error, never a silent one.
+	baseURL := os.Getenv("PUBLIC_BASE_URL")
+	if baseURL == "" {
+		baseURL = "http://localhost:8080"
+	}
+	passkeys, err := passkey.NewService(passkey.ConfigFromBaseURL(baseURL, "AI Agent Memory"), passkey.NewRepo(svc.gdb))
+	if err != nil {
+		return fmt.Errorf("passkey service: %w", err)
+	}
+
 	// The human-facing dashboard (register/login/create project) shares the same
 	// chi router and database; agents use /mcp, people use the web routes.
-	webSrv := web.New(tenants, usageSvc, skills, svc.skillsets, svc.shares, svc.merges, billingSrv, exporter, cfg.SuperAdminEmails, sessionKey())
+	webSrv := web.New(tenants, usageSvc, skills, svc.skillsets, svc.shares, svc.merges, billingSrv, exporter, passkeys, cfg.SuperAdminEmails, sessionKey())
 
 	r := chi.NewRouter()
 	// Logger before Recoverer so even a panicked request (recovered as a 500) is

@@ -13,6 +13,7 @@ import (
 	"github.com/atvirokodosprendimai/agentsmemory/internal/billing"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/dataexport"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/mergejob"
+	"github.com/atvirokodosprendimai/agentsmemory/internal/passkey"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/share"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/skill"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/skillset"
@@ -58,6 +59,7 @@ type Server struct {
 	merges    *mergejob.Service    // background wing-merge queue (enqueue/list/detect)
 	billing   *billing.Service     // Stripe upgrade-to-Pro; inert until configured
 	exporter  *dataexport.Exporter // per-workspace SQLite data export (BDAR right of access)
+	passkeys  *passkey.Service     // WebAuthn register/verify for passwordless + 2nd-factor login
 	store     sessions.Store
 	providers []string // configured OAuth providers; empty until keys are set
 	// superAdmins is the platform-superadmin allowlist as a set, keyed by
@@ -74,7 +76,7 @@ type Server struct {
 // backs the superadmin-only global wakeup-playbook editor. superAdmins is the
 // SUPERADMIN_EMAILS allowlist that gates that editor. exporter builds the
 // per-workspace SQLite download that satisfies a user's BDAR right of access.
-func New(tenants *tenant.Repo, usageSvc *usage.Service, skills *skill.Service, skillsets *skillset.Service, shares *share.Service, merges *mergejob.Service, billingSvc *billing.Service, exporter *dataexport.Exporter, superAdmins []string, sessionKey []byte) *Server {
+func New(tenants *tenant.Repo, usageSvc *usage.Service, skills *skill.Service, skillsets *skillset.Service, shares *share.Service, merges *mergejob.Service, billingSvc *billing.Service, exporter *dataexport.Exporter, passkeys *passkey.Service, superAdmins []string, sessionKey []byte) *Server {
 	store := sessions.NewCookieStore(sessionKey)
 	store.Options = &sessions.Options{
 		Path:     "/",
@@ -82,7 +84,7 @@ func New(tenants *tenant.Repo, usageSvc *usage.Service, skills *skill.Service, s
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   7 * 24 * 60 * 60, // one week
 	}
-	s := &Server{tenants: tenants, usage: usageSvc, skills: skills, skillsets: skillsets, shares: shares, merges: merges, billing: billingSvc, exporter: exporter, store: store, superAdmins: superAdminSet(superAdmins)}
+	s := &Server{tenants: tenants, usage: usageSvc, skills: skills, skillsets: skillsets, shares: shares, merges: merges, billing: billingSvc, exporter: exporter, passkeys: passkeys, store: store, superAdmins: superAdminSet(superAdmins)}
 	s.providers = registerOAuth(store) // gated: returns nil when no keys set
 	// Stamp the asset cache-buster from the embedded stylesheet's content hash so
 	// templates render <link …/app.css?v=hash>; this changes only when the CSS does.
@@ -130,6 +132,15 @@ func (s *Server) Routes(r chi.Router) {
 	// postLogin sets that cookie; without it both handlers bounce to /login.
 	r.Get("/login/totp", s.getLoginTOTP)
 	r.Post("/login/totp", s.postLoginTOTP)
+	// Passwordless passkey login (WebAuthn discoverable): no username — the
+	// authenticator offers its resident credentials. begin issues the challenge,
+	// finish verifies the assertion and mints the real session directly.
+	r.Post("/login/passkey/begin", s.postLoginPasskeyBegin)
+	r.Post("/login/passkey/finish", s.postLoginPasskeyFinish)
+	// Passkey AS the second factor: reachable only mid-login (the pending-2FA cookie
+	// names the user), verified against that user's own credentials.
+	r.Post("/login/totp/passkey/begin", s.postTOTPPasskeyBegin)
+	r.Post("/login/totp/passkey/finish", s.postTOTPPasskeyFinish)
 	r.Post("/logout", s.postLogout)
 
 	// Authenticated area.
@@ -144,6 +155,12 @@ func (s *Server) Routes(r chi.Router) {
 		r.Post("/account/totp/setup", s.postTOTPSetup)
 		r.Post("/account/totp/enable", s.postTOTPEnable)
 		r.Post("/account/totp/disable", s.postTOTPDisable)
+
+		// Passkey (WebAuthn) registration + management. begin/finish run the
+		// registration ceremony; {id}/delete removes one registered passkey.
+		r.Post("/account/passkey/begin", s.postPasskeyRegisterBegin)
+		r.Post("/account/passkey/finish", s.postPasskeyRegisterFinish)
+		r.Post("/account/passkey/{id}/delete", s.postPasskeyDelete)
 
 		r.Post("/projects", s.postCreateProject)
 		// Project-scoped skill management. {teamID} is membership-checked in each

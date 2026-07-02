@@ -43,7 +43,7 @@ func LoginPage(d AuthData) templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div class=\"auth\"><div class=\"auth-card card\"><p class=\"eyebrow\">Welcome back</p><h1>Sign in</h1><p class=\"sub\">Access your projects and API keys.</p>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div class=\"auth\"><div class=\"auth-card card\" data-signals=\"{pkGetOpts: null, pkCred: null, _pkSupported: false, _pkMsg: ''}\" data-init=\"$_pkSupported = !!(window.PublicKeyCredential && window.PublicKeyCredential.parseRequestOptionsFromJSON)\" data-effect=\"$pkGetOpts && pkAuthenticate($pkGetOpts)\" data-on:passkey-asserted__window=\"$pkCred = evt.detail; @post('/login/passkey/finish')\" data-on:passkey-failed__window=\"$_pkMsg = evt.detail\"><p class=\"eyebrow\">Welcome back</p><h1>Sign in</h1><p class=\"sub\">Access your projects and API keys.</p>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -55,7 +55,7 @@ func LoginPage(d AuthData) templ.Component {
 				var templ_7745c5c3_Var3 string
 				templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.JoinStringErrs(d.Error)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/views/auth.templ`, Line: 13, Col: 70}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/views/auth.templ`, Line: 20, Col: 70}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var3))
 				if templ_7745c5c3_Err != nil {
@@ -73,7 +73,7 @@ func LoginPage(d AuthData) templ.Component {
 			var templ_7745c5c3_Var4 string
 			templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.ResolveAttributeValue(d.Email)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/views/auth.templ`, Line: 18, Col: 109}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/views/auth.templ`, Line: 25, Col: 109}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var4)
 			if templ_7745c5c3_Err != nil {
@@ -96,7 +96,7 @@ func LoginPage(d AuthData) templ.Component {
 					var templ_7745c5c3_Var5 templ.SafeURL
 					templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL("/auth/" + p))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/views/auth.templ`, Line: 30, Col: 76}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/views/auth.templ`, Line: 37, Col: 76}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var5))
 					if templ_7745c5c3_Err != nil {
@@ -109,7 +109,7 @@ func LoginPage(d AuthData) templ.Component {
 					var templ_7745c5c3_Var6 string
 					templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.JoinStringErrs(p)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/views/auth.templ`, Line: 30, Col: 96}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/views/auth.templ`, Line: 37, Col: 96}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var6))
 					if templ_7745c5c3_Err != nil {
@@ -125,7 +125,23 @@ func LoginPage(d AuthData) templ.Component {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, "<p class=\"auth-alt\">New here? <a href=\"/register\">Create an account</a></p></div></div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, "<div data-show=\"$_pkSupported\" style=\"display:none\"><div class=\"divider\">or</div><button class=\"btn btn-ghost btn-block\" type=\"button\" data-on:click=\"$_pkMsg = ''; @post('/login/passkey/begin')\" data-indicator:pkBusy data-attr:disabled=\"$pkBusy\"><span class=\"btn-inline\" data-show=\"!$pkBusy\">")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = keyIcon().Render(ctx, templ_7745c5c3_Buffer)
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 12, "Sign in with a passkey</span> <span class=\"spinner\" data-show=\"$pkBusy\" style=\"display:none\" aria-hidden=\"true\"></span></button></div><p class=\"tfa-error\" data-show=\"$_pkMsg !== ''\" data-text=\"$_pkMsg\" style=\"display:none\"></p>")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = PasskeyError("").Render(ctx, templ_7745c5c3_Buffer)
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, "<p class=\"auth-alt\">New here? <a href=\"/register\">Create an account</a></p></div></div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -179,36 +195,83 @@ func TOTPChallengePage(d TOTPChallengeData) templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 12, "<div class=\"auth\"><div class=\"auth-card card\" data-signals=\"{_recovery: false}\"><p class=\"eyebrow\">One more step</p><h1>Two-step verification</h1><p class=\"sub\" data-show=\"!$_recovery\">Enter the 6-digit code from your authenticator app.</p><p class=\"sub\" data-show=\"$_recovery\" style=\"display:none\">Enter one of your one-time recovery codes.</p>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 14, "<div class=\"auth\"><div class=\"auth-card card\" data-signals=\"{_recovery: false, pkGetOpts: null, pkCred: null, _pkSupported: false, _pkMsg: ''}\" data-init=\"$_pkSupported = !!(window.PublicKeyCredential && window.PublicKeyCredential.parseRequestOptionsFromJSON)\" data-effect=\"$pkGetOpts && pkAuthenticate($pkGetOpts)\" data-on:passkey-asserted__window=\"$pkCred = evt.detail; @post('/login/totp/passkey/finish')\" data-on:passkey-failed__window=\"$_pkMsg = evt.detail\"><p class=\"eyebrow\">One more step</p><h1>Two-step verification</h1><p class=\"sub\" data-show=\"!$_recovery\">Enter the 6-digit code from your authenticator app.</p><p class=\"sub\" data-show=\"$_recovery\" style=\"display:none\">Enter one of your one-time recovery codes.</p>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			if d.Error != "" {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, "<div class=\"flash error\" role=\"alert\"><span class=\"ttl\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 15, "<div class=\"flash error\" role=\"alert\"><span class=\"ttl\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var9 string
 				templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.JoinStringErrs(d.Error)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/views/auth.templ`, Line: 56, Col: 70}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/views/auth.templ`, Line: 91, Col: 70}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var9))
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 14, "</span></div>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 16, "</span></div>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 15, "<form method=\"post\" action=\"/login/totp\"><div class=\"field\"><label for=\"code\" data-text=\"$_recovery ? 'Recovery code' : 'Authentication code'\">Authentication code</label> <input class=\"input code-input\" id=\"code\" name=\"code\" type=\"text\" autocomplete=\"one-time-code\" autocapitalize=\"off\" autocorrect=\"off\" spellcheck=\"false\" required autofocus data-attr:inputmode=\"$_recovery ? 'text' : 'numeric'\" data-attr:placeholder=\"$_recovery ? 'xxxx-xxxx-xxxx-xxxx' : '123456'\" aria-describedby=\"code-hint\"></div><button class=\"btn btn-primary btn-block\" type=\"submit\">Verify</button></form><p class=\"auth-alt\" id=\"code-hint\"><button type=\"button\" class=\"linkish\" data-on:click=\"$_recovery = !$_recovery\"><span data-show=\"!$_recovery\">Lost your device? Use a recovery code</span> <span data-show=\"$_recovery\" style=\"display:none\">Use your authenticator app instead</span></button></p></div></div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 17, "<form method=\"post\" action=\"/login/totp\"><div class=\"field\"><label for=\"code\" data-text=\"$_recovery ? 'Recovery code' : 'Authentication code'\">Authentication code</label> <input class=\"input code-input\" id=\"code\" name=\"code\" type=\"text\" autocomplete=\"one-time-code\" autocapitalize=\"off\" autocorrect=\"off\" spellcheck=\"false\" required autofocus data-attr:inputmode=\"$_recovery ? 'text' : 'numeric'\" data-attr:placeholder=\"$_recovery ? 'xxxx-xxxx-xxxx-xxxx' : '123456'\" aria-describedby=\"code-hint\"></div><button class=\"btn btn-primary btn-block\" type=\"submit\">Verify</button></form><div data-show=\"$_pkSupported\" style=\"display:none\"><div class=\"divider\">or</div><button class=\"btn btn-ghost btn-block\" type=\"button\" data-on:click=\"$_pkMsg = ''; @post('/login/totp/passkey/begin')\" data-indicator:pkBusy data-attr:disabled=\"$pkBusy\"><span class=\"btn-inline\" data-show=\"!$pkBusy\">")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = keyIcon().Render(ctx, templ_7745c5c3_Buffer)
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 18, "Use a passkey instead</span> <span class=\"spinner\" data-show=\"$pkBusy\" style=\"display:none\" aria-hidden=\"true\"></span></button></div><p class=\"tfa-error\" data-show=\"$_pkMsg !== ''\" data-text=\"$_pkMsg\" style=\"display:none\"></p>")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = PasskeyError("").Render(ctx, templ_7745c5c3_Buffer)
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 19, "<p class=\"auth-alt\" id=\"code-hint\"><button type=\"button\" class=\"linkish\" data-on:click=\"$_recovery = !$_recovery\"><span data-show=\"!$_recovery\">Lost your device? Use a recovery code</span> <span data-show=\"$_recovery\" style=\"display:none\">Use your authenticator app instead</span></button></p></div></div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			return nil
 		})
 		templ_7745c5c3_Err = Layout("Two-step verification", "").Render(templ.WithChildren(ctx, templ_7745c5c3_Var8), templ_7745c5c3_Buffer)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		return nil
+	})
+}
+
+// keyIcon is a small inline key glyph for the passkey buttons — an SVG (not an
+// emoji) so it inherits currentColor and stays crisp, per the icon guidelines.
+func keyIcon() templ.Component {
+	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
+			return templ_7745c5c3_CtxErr
+		}
+		templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+		if !templ_7745c5c3_IsBuffer {
+			defer func() {
+				templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+				if templ_7745c5c3_Err == nil {
+					templ_7745c5c3_Err = templ_7745c5c3_BufErr
+				}
+			}()
+		}
+		ctx = templ.InitializeContext(ctx)
+		templ_7745c5c3_Var10 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var10 == nil {
+			templ_7745c5c3_Var10 = templ.NopComponent
+		}
+		ctx = templ.ClearChildren(ctx)
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 20, "<svg class=\"btn-ico\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><circle cx=\"7.5\" cy=\"15.5\" r=\"4.5\"></circle> <path d=\"M10.7 12.3 21 2\"></path> <path d=\"m16 7 3 3\"></path> <path d=\"m18 5 3 3\"></path></svg>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -233,12 +296,12 @@ func RegisterPage(d AuthData) templ.Component {
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var10 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var10 == nil {
-			templ_7745c5c3_Var10 = templ.NopComponent
+		templ_7745c5c3_Var11 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var11 == nil {
+			templ_7745c5c3_Var11 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Var11 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+		templ_7745c5c3_Var12 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 			templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 			templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
 			if !templ_7745c5c3_IsBuffer {
@@ -250,49 +313,49 @@ func RegisterPage(d AuthData) templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 16, "<div class=\"auth\"><div class=\"auth-card card\"><p class=\"eyebrow\">Get started</p><h1>Create account</h1><p class=\"sub\">Spin up a free project — 10,000 requests every month.</p>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 21, "<div class=\"auth\"><div class=\"auth-card card\"><p class=\"eyebrow\">Get started</p><h1>Create account</h1><p class=\"sub\">Spin up a free project — 10,000 requests every month.</p>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			if d.Error != "" {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 17, "<div class=\"flash error\" role=\"alert\"><span class=\"ttl\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 22, "<div class=\"flash error\" role=\"alert\"><span class=\"ttl\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				var templ_7745c5c3_Var12 string
-				templ_7745c5c3_Var12, templ_7745c5c3_Err = templ.JoinStringErrs(d.Error)
+				var templ_7745c5c3_Var13 string
+				templ_7745c5c3_Var13, templ_7745c5c3_Err = templ.JoinStringErrs(d.Error)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/views/auth.templ`, Line: 103, Col: 70}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/views/auth.templ`, Line: 170, Col: 70}
 				}
-				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var12))
+				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var13))
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 18, "</span></div>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 23, "</span></div>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 19, "<form method=\"post\" action=\"/register\"><div class=\"field\"><label for=\"email\">Email</label> <input class=\"input\" id=\"email\" name=\"email\" type=\"email\" autocomplete=\"email\" required value=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 24, "<form method=\"post\" action=\"/register\"><div class=\"field\"><label for=\"email\">Email</label> <input class=\"input\" id=\"email\" name=\"email\" type=\"email\" autocomplete=\"email\" required value=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var13 string
-			templ_7745c5c3_Var13, templ_7745c5c3_Err = templ.ResolveAttributeValue(d.Email)
+			var templ_7745c5c3_Var14 string
+			templ_7745c5c3_Var14, templ_7745c5c3_Err = templ.ResolveAttributeValue(d.Email)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/views/auth.templ`, Line: 108, Col: 109}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/views/auth.templ`, Line: 175, Col: 109}
 			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var13)
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var14)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 20, "\" placeholder=\"you@example.com\"></div><div class=\"field\"><label for=\"password\">Password</label> <input class=\"input\" id=\"password\" name=\"password\" type=\"password\" autocomplete=\"new-password\" required minlength=\"8\" placeholder=\"At least 8 characters\"></div><button class=\"btn btn-primary btn-block\" type=\"submit\">Create account</button></form><p class=\"auth-alt\">Already have an account? <a href=\"/login\">Sign in</a></p></div></div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 25, "\" placeholder=\"you@example.com\"></div><div class=\"field\"><label for=\"password\">Password</label> <input class=\"input\" id=\"password\" name=\"password\" type=\"password\" autocomplete=\"new-password\" required minlength=\"8\" placeholder=\"At least 8 characters\"></div><button class=\"btn btn-primary btn-block\" type=\"submit\">Create account</button></form><p class=\"auth-alt\">Already have an account? <a href=\"/login\">Sign in</a></p></div></div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = Layout("Create account", "").Render(templ.WithChildren(ctx, templ_7745c5c3_Var11), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = Layout("Create account", "").Render(templ.WithChildren(ctx, templ_7745c5c3_Var12), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

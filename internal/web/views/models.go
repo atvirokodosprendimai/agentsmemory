@@ -360,10 +360,47 @@ type TOTPChallengeData struct {
 }
 
 // AccountData backs the account/security page. It holds the signed-in identity
-// and the two-factor card's state; the card is the page's only interactive part.
+// and the two interactive cards: two-factor (TOTP) and passkeys.
 type AccountData struct {
 	UserEmail string
 	TwoFactor TwoFactorVM
+	Passkeys  PasskeysVM
+}
+
+// PasskeyVM is one registered passkey as shown on the account page — metadata
+// only. ID is our row id (the delete handle), never the WebAuthn credential id.
+type PasskeyVM struct {
+	ID       string
+	Name     string
+	Added    string // YYYY-MM-DD
+	LastUsed string // YYYY-MM-DD, or "" when never used to sign in
+}
+
+// PasskeysVM drives the passkeys card (a datastar morph target, id "passkeys").
+// It lists the user's registered passkeys and carries an optional inline error.
+// It is deliberately its own view type (not the domain's CredentialInfo) so the
+// views package stays free of the passkey/webauthn dependency.
+type PasskeysVM struct {
+	Passkeys []PasskeyVM
+	Error    string
+}
+
+// passkeyCountLabel renders the "On" badge count, e.g. "1 passkey" / "3 passkeys".
+func passkeyCountLabel(d PasskeysVM) string {
+	if len(d.Passkeys) == 1 {
+		return "1 passkey"
+	}
+	return strconv.Itoa(len(d.Passkeys)) + " passkeys"
+}
+
+// passkeyMeta renders a passkey's provenance line: when it was added and, if ever
+// used, when it was last used to sign in.
+func passkeyMeta(p PasskeyVM) string {
+	meta := "Added " + p.Added
+	if p.LastUsed != "" {
+		return meta + " · last used " + p.LastUsed
+	}
+	return meta + " · never used"
 }
 
 // TwoFactorVM drives the two-factor card, which is a single datastar morph target

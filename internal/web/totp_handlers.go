@@ -93,6 +93,7 @@ func (s *Server) getAccount(w http.ResponseWriter, r *http.Request) {
 	s.render(w, r, views.AccountPage(views.AccountData{
 		UserEmail: u.Email,
 		TwoFactor: views.TwoFactorVM{Enabled: u.TOTPEnabled},
+		Passkeys:  s.passkeyCardVM(r, u.ID),
 	}))
 }
 
