@@ -206,11 +206,11 @@ func run(ctx context.Context, cfg config.Config) error {
 		server.WithStateLess(true),
 	)
 
-	// Billing (Stripe hosted checkout + webhook). Always constructed so the
-	// dashboard and webhook wiring stay simple; it is inert until Stripe env is
-	// set (billingSrv.Enabled() gates the upgrade UI). It flips teams.plan_id, so
-	// it reuses tenants as its PlanStore.
-	billingSrv := billing.NewService(stripeBillingConfig(), tenants, billing.NewRepo(svc.gdb))
+	// Billing (hosted checkout + webhook; Stripe or Polar per BILLING_PROVIDER).
+	// Always constructed so the dashboard and webhook wiring stay simple; it is inert
+	// until the active provider's env is set (billingSrv.Enabled() gates the upgrade
+	// UI). It flips teams.plan_id, so it reuses tenants as its PlanStore.
+	billingSrv := billing.NewService(billingConfig(), tenants, billing.NewRepo(svc.gdb))
 
 	// Per-workspace data export (BDAR right of access): builds a scoped SQLite
 	// archive of a tenant's data from the same source-of-truth database.
@@ -253,26 +253,30 @@ func run(ctx context.Context, cfg config.Config) error {
 	r.Get("/authorize", authSrv.Authorize)
 	r.Post("/token", authSrv.Token)
 
-	// Stripe webhook: PUBLIC and unauthenticated by design — Stripe calls it
-	// server-to-server and the Stripe-Signature header (verified inside
-	// HandleWebhook) IS the authentication. It must see the RAW request body
-	// because the signature is computed over the exact bytes, so it reads the body
-	// itself rather than relying on any body-parsing middleware. A non-nil error is
-	// returned as 400 so Stripe retries (bad signature or a transient processing
-	// failure); a verified-but-unhandled event already returned nil → 200.
-	r.Post("/webhooks/stripe", func(w http.ResponseWriter, req *http.Request) {
+	// Payment webhook: PUBLIC and unauthenticated by design — the provider calls it
+	// server-to-server and the signature (verified inside HandleWebhook) IS the
+	// authentication. It must see the RAW request body because the signature is
+	// computed over the exact bytes, so it reads the body itself rather than relying
+	// on any body-parsing middleware. Both provider paths are registered but only the
+	// provider selected by BILLING_PROVIDER verifies, so the inactive path simply
+	// rejects. A non-nil error is returned as 400 so the provider retries (bad
+	// signature or a transient processing failure); a verified-but-unhandled event
+	// already returned nil → 200.
+	webhookHandler := func(w http.ResponseWriter, req *http.Request) {
 		payload, err := io.ReadAll(http.MaxBytesReader(w, req.Body, 1<<20))
 		if err != nil {
 			http.Error(w, "read error", http.StatusBadRequest)
 			return
 		}
-		if err := billingSrv.HandleWebhook(req.Context(), payload, req.Header.Get("Stripe-Signature")); err != nil {
-			log.Printf("stripe webhook: %v", err)
+		if err := billingSrv.HandleWebhook(req.Context(), payload, req.Header); err != nil {
+			log.Printf("billing webhook: %v", err)
 			http.Error(w, "webhook error", http.StatusBadRequest)
 			return
 		}
 		w.WriteHeader(http.StatusOK)
-	})
+	}
+	r.Post("/webhooks/stripe", webhookHandler)
+	r.Post("/webhooks/polar", webhookHandler)
 
 	// MCP endpoint, fronted by the OAuth gate: it 401-challenges unauthenticated
 	// requests (so the connector starts OAuth) and lets resolved bearers (OAuth
@@ -364,32 +368,59 @@ func sessionKey() []byte {
 	return buf
 }
 
-// stripeBillingConfig reads the Stripe wiring from the environment. Billing is
-// optional: with STRIPE_SECRET_KEY unset the returned config is inert and the
-// dashboard shows no upgrade button. Stripe Price ids are environment-specific
-// (test vs live), so they are configured here rather than seeded into the plan
-// catalog. Empty price entries are dropped so a half-configured environment
-// treats that plan as "not sellable" instead of priced "".
-func stripeBillingConfig() billing.Config {
+// billingConfig reads the billing wiring from the environment. Billing is optional
+// and single-provider per deployment: BILLING_PROVIDER selects "stripe" (the
+// back-compatible default) or "polar", and only that provider's credentials need to
+// be set. Price/product ids are environment-specific (test vs live) and differ per
+// provider — Stripe price ids vs Polar product ids — so they are configured here
+// rather than seeded into the plan catalog. Empty price entries are dropped so a
+// half-configured environment treats that plan as "not sellable" instead of priced
+// "".
+func billingConfig() billing.Config {
+	provider := os.Getenv("BILLING_PROVIDER")
+	if provider == "" {
+		provider = billing.ProviderStripe
+	}
 	cfg := billing.Config{
-		SecretKey:     os.Getenv("STRIPE_SECRET_KEY"),
-		WebhookSecret: os.Getenv("STRIPE_WEBHOOK_SECRET"),
-		PriceByPlanCode: map[string]string{
+		Provider:            provider,
+		StripeSecretKey:     os.Getenv("STRIPE_SECRET_KEY"),
+		StripeWebhookSecret: os.Getenv("STRIPE_WEBHOOK_SECRET"),
+		PolarAccessToken:    os.Getenv("POLAR_ACCESS_TOKEN"),
+		PolarWebhookSecret:  os.Getenv("POLAR_WEBHOOK_SECRET"),
+		PolarServer:         os.Getenv("POLAR_SERVER"),
+	}
+	// PriceByPlanCode carries the *active* provider's ids, keyed by our sellable plan
+	// codes: Stripe price ids or Polar product ids.
+	switch provider {
+	case billing.ProviderPolar:
+		cfg.PriceByPlanCode = map[string]string{
+			"pro_monthly": os.Getenv("POLAR_PRODUCT_PRO_MONTHLY"),
+			"pro_annual":  os.Getenv("POLAR_PRODUCT_PRO_ANNUAL"),
+		}
+	default:
+		cfg.PriceByPlanCode = map[string]string{
 			"pro_monthly": os.Getenv("STRIPE_PRICE_PRO_MONTHLY"),
 			"pro_annual":  os.Getenv("STRIPE_PRICE_PRO_ANNUAL"),
-		},
+		}
 	}
 	for code, id := range cfg.PriceByPlanCode {
 		if id == "" {
 			delete(cfg.PriceByPlanCode, code)
 		}
 	}
-	if cfg.SecretKey == "" {
-		log.Printf("billing disabled: STRIPE_SECRET_KEY unset (no upgrade-to-Pro button)")
-	} else if cfg.WebhookSecret == "" {
+
+	// Warn on the two ways billing silently won't work, using the active provider's
+	// credentials.
+	secret, webhookSecret := cfg.StripeSecretKey, cfg.StripeWebhookSecret
+	if provider == billing.ProviderPolar {
+		secret, webhookSecret = cfg.PolarAccessToken, cfg.PolarWebhookSecret
+	}
+	if secret == "" {
+		log.Printf("billing disabled: %s credentials unset (no upgrade-to-Pro button)", provider)
+	} else if webhookSecret == "" {
 		// Checkout can start, but the webhook fails closed without a secret — so a
 		// completed payment would never flip the plan. Surface the misconfiguration.
-		log.Printf("warning: STRIPE_WEBHOOK_SECRET unset; the Stripe webhook will reject all events and upgrades will not take effect")
+		log.Printf("warning: %s webhook secret unset; webhooks will reject all events and upgrades will not take effect", provider)
 	}
 	return cfg
 }
