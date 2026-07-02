@@ -20,6 +20,9 @@
   --danger:    #d6573f;
   --ok:        #86b06b;
   --radius:    14px;
+  --card-pad:  1.6rem;   /* one canonical inset for content cards — every .card variant inherits this
+                            unless it deliberately overrides (compact rows, centered empty state).
+                            Shrinks on narrow phones via a :root override in the mobile media query. */
   --maxw:      72rem;
   --shadow:    0 1px 0 rgba(255,255,255,.03) inset, 0 18px 40px -24px rgba(0,0,0,.8);
 }
@@ -90,6 +93,7 @@ h1, h2, h3 { font-family: "Fraunces", Georgia, serif; font-weight: 600; letter-s
   border: 1px solid var(--line);
   border-radius: var(--radius);
   box-shadow: var(--shadow);
+  padding: var(--card-pad);
 }
 
 /* ---- forms ---- */
@@ -254,7 +258,7 @@ footer { color: var(--faint); font-size: .8rem; padding: 2rem 0 3rem; border-top
 .mono { font-family: "IBM Plex Mono", monospace; }
 
 /* editor */
-.editor { padding: 1.4rem; margin-bottom: 2rem; }
+.editor { margin-bottom: 2rem; }
 .editor .eyebrow { margin-bottom: 1rem; }
 .field label .opt { font-weight: 400; color: var(--faint); text-transform: none; letter-spacing: 0; font-size: .76rem; margin-left: .35rem; }
 .textarea {
@@ -310,7 +314,7 @@ footer { color: var(--faint); font-size: .8rem; padding: 2rem 0 3rem; border-top
 .cmd-hint b { color: var(--brass); }
 
 /* ---- share a wing (cross-workspace) ---- */
-.share-card { margin-top: 1.4rem; padding: 1.5rem 1.6rem; }
+.share-card { margin-top: 1.4rem; }
 .share-card h2 { font-size: 1.4rem; margin: 0 0 .5rem; }
 .share-lede { color: var(--muted); margin: 0 0 1.2rem; max-width: 64ch; font-size: .95rem; }
 .share-lede b { color: var(--brass); }
@@ -342,7 +346,7 @@ select.input option { color: var(--bone); background: var(--ink-2); }
 .share-req-actions { display: flex; gap: .55rem; flex-shrink: 0; }
 
 /* ---- merge wings (background job) ---- */
-.merge-card { margin-top: 1.4rem; padding: 1.5rem 1.6rem; }
+.merge-card { margin-top: 1.4rem; }
 .merge-card h2 { font-size: 1.4rem; margin: 0 0 .5rem; }
 .merge-lede { color: var(--muted); margin: 0 0 1.2rem; max-width: 64ch; font-size: .95rem; }
 .merge-lede .mono { color: var(--bone); }
@@ -378,6 +382,10 @@ select.input option { color: var(--bone); background: var(--ink-2); }
 .badge.running { color: var(--ember); border-color: color-mix(in srgb, var(--ember) 45%, var(--line-2)); }
 
 @media (max-width: 540px) {
+  /* Tighten the shared card inset on phones so 1.6rem doesn't crowd a ~360px
+     viewport. Overriding the token (not .card padding) leaves cards with a
+     deliberate inset — .project, .auth-card, .empty, .skill — untouched. */
+  :root { --card-pad: 1.25rem; }
   .topbar .wrap { min-height: 56px; }
   /* Drop the email on small screens so the brand + sign-out never overflow. */
   .user .email { display: none; }
@@ -675,7 +683,7 @@ select.input option { color: var(--bone); background: var(--ink-2); }
 .lp-footer-links a:hover { color: var(--ember); text-decoration: none; }
 
 /* ---- upgrade-to-Pro card (project page) ---- */
-.upgrade-card { padding: 1.6rem; margin-bottom: 1.6rem; border-color: color-mix(in srgb, var(--ember) 32%, var(--line)); }
+.upgrade-card { margin-bottom: 1.6rem; border-color: color-mix(in srgb, var(--ember) 32%, var(--line)); }
 .upgrade-lede { color: var(--muted); margin: 0 0 1.2rem; max-width: 52ch; line-height: 1.55; }
 /* segmented monthly/annual control */
 .seg { display: inline-flex; gap: .25rem; padding: .25rem; border: 1px solid var(--line-2); border-radius: 999px; background: rgba(0,0,0,.22); }
@@ -709,7 +717,7 @@ select.input option { color: var(--bone); background: var(--ink-2); }
 /* ---- manage-plan card (project page, active paid plan) ---- */
 /* A settled/active counterpart to the upgrade CTA: brass accent (not ember urgency)
    and a live status dot signal "your plan is running" rather than "buy now". */
-.manage-card { padding: 1.6rem; margin-bottom: 1.6rem; border-color: color-mix(in srgb, var(--brass) 34%, var(--line)); }
+.manage-card { margin-bottom: 1.6rem; border-color: color-mix(in srgb, var(--brass) 34%, var(--line)); }
 .manage-status { display: inline-flex; align-items: center; gap: .5rem; margin: 0 0 1rem; font-size: .92rem; font-weight: 600; color: var(--brass); }
 .manage-status .dot { width: .5rem; height: .5rem; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 24%, transparent); }
 .manage-lede { color: var(--muted); margin: 0 0 1.3rem; max-width: 52ch; line-height: 1.55; }
@@ -743,7 +751,7 @@ select.input option { color: var(--bone); background: var(--ink-2); }
 .btn-danger[disabled], .btn-danger:disabled { opacity: .5; cursor: not-allowed; }
 
 /* ---- two-factor card (account page) ---- */
-.tfa { padding: 1.8rem; max-width: 42rem; }
+.tfa { max-width: 42rem; }
 .tfa-head { display: flex; gap: 1rem; align-items: flex-start; justify-content: space-between; margin-bottom: 1.4rem; }
 .tfa-head h2 { font-size: 1.4rem; margin: .1rem 0 0; }
 .tfa-lede { color: var(--muted); margin: .55rem 0 0; max-width: 48ch; line-height: 1.55; font-size: .95rem; }
