@@ -186,6 +186,13 @@ func (p *polarProvider) parseWebhook(payload []byte, headers http.Header) (provi
 // and a match against any is a pass. The timestamp is checked within a tolerance so
 // a captured payload cannot be replayed indefinitely. Comparison is constant-time.
 func verifyStandardWebhook(secret string, headers http.Header, payload []byte) error {
+	// Fail closed on an unconfigured secret: an empty secret decodes to an empty HMAC
+	// key, which an attacker who knows the payload shape could forge. The live Polar
+	// path also guards this before calling here; repeating it makes the verifier safe
+	// for any caller (defense in depth).
+	if secret == "" {
+		return fmt.Errorf("webhook secret not configured")
+	}
 	msgID := headers.Get("webhook-id")
 	tsStr := headers.Get("webhook-timestamp")
 	sigHeader := headers.Get("webhook-signature")
@@ -203,16 +210,21 @@ func verifyStandardWebhook(secret string, headers http.Header, payload []byte) e
 		return fmt.Errorf("webhook timestamp outside tolerance")
 	}
 
-	mac := hmac.New(sha256.New, standardWebhookKey(secret))
+	key, err := standardWebhookKey(secret)
+	if err != nil {
+		return err
+	}
+	mac := hmac.New(sha256.New, key)
 	mac.Write([]byte(msgID + "." + tsStr + "."))
 	mac.Write(payload)
 	expected := base64.StdEncoding.EncodeToString(mac.Sum(nil))
 
 	// The header may list multiple signatures (e.g. during a secret rotation); accept
-	// if any versioned entry matches. Each entry is "<version>,<base64-signature>".
+	// if any entry matches. Each entry is "<version>,<base64-signature>"; only the
+	// "v1" symmetric-HMAC scheme is valid here, so any other version label is skipped.
 	for _, entry := range strings.Fields(sigHeader) {
-		_, sig, found := strings.Cut(entry, ",")
-		if !found {
+		version, sig, found := strings.Cut(entry, ",")
+		if !found || version != "v1" {
 			continue
 		}
 		if hmac.Equal([]byte(sig), []byte(expected)) {
@@ -223,13 +235,16 @@ func verifyStandardWebhook(secret string, headers http.Header, payload []byte) e
 }
 
 // standardWebhookKey derives the HMAC key bytes from the configured secret. The
-// spec's secret is "whsec_" + base64, so we strip the optional prefix and decode;
-// if a user set a non-base64 secret by hand, we fall back to its raw bytes rather
-// than fail verification for a legitimately-configured endpoint.
-func standardWebhookKey(secret string) []byte {
+// spec's secret is base64, optionally carrying a "whsec_" prefix, so we strip an
+// optional prefix and base64-decode. A secret that is not valid base64 is a
+// configuration error surfaced to the caller — we deliberately do NOT fall back to
+// raw bytes, which would verify against different key material than the provider
+// signs with and silently mask the misconfiguration.
+func standardWebhookKey(secret string) ([]byte, error) {
 	s := strings.TrimPrefix(secret, "whsec_")
-	if b, err := base64.StdEncoding.DecodeString(s); err == nil {
-		return b
+	key, err := base64.StdEncoding.DecodeString(s)
+	if err != nil {
+		return nil, fmt.Errorf("webhook secret is not valid base64: %w", err)
 	}
-	return []byte(secret)
+	return key, nil
 }

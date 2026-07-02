@@ -208,6 +208,12 @@ func (s *Service) applyActivated(ctx context.Context, evt providerEvent) error {
 // ends. The subscription id is the stable key, so we look up which workspace it
 // belongs to; an unknown id (we never recorded it) is a no-op.
 func (s *Service) applyCanceled(ctx context.Context, evt providerEvent) error {
+	// A cancellation with no subscription id has no stable key to attribute it. Never
+	// query on the empty string: the subscriptions table's pre-provider rows default
+	// stripe_subscription_id to '' and would match, downgrading the wrong workspace.
+	if evt.subscriptionID == "" {
+		return nil
+	}
 	existing, err := s.subs.ByStripeSubID(ctx, evt.subscriptionID)
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil // nothing of ours to downgrade

@@ -307,6 +307,29 @@ func TestHandleWebhook_StaleCompletedAfterCancel_NoResurrect(t *testing.T) {
 	}
 }
 
+func TestApplyCanceled_EmptySubID_NoOp(t *testing.T) {
+	svc, _, tenants, gdb, teamID := newTestEnv(t)
+	// Put the team on Pro with a recorded subscription first.
+	want := planID(t, tenants, "pro_monthly")
+	up := eventPayload("checkout.session.completed", map[string]any{
+		"client_reference_id": teamID,
+		"metadata":            map[string]string{"plan_code": "pro_monthly"},
+		"customer":            "cus_abc",
+		"subscription":        "sub_abc",
+	})
+	if err := svc.HandleWebhook(context.Background(), up, signedHeader(up, testWebhookSecret)); err != nil {
+		t.Fatalf("upgrade: %v", err)
+	}
+	// A cancellation carrying no subscription id must be a no-op — never matching a
+	// workspace by the empty-string key (which the pre-provider rows default to).
+	if err := svc.applyCanceled(context.Background(), providerEvent{kind: eventCanceled}); err != nil {
+		t.Fatalf("applyCanceled empty id: %v", err)
+	}
+	if got := teamPlanID(t, gdb, teamID); got != want {
+		t.Fatalf("empty-id cancel changed plan: %q", got)
+	}
+}
+
 func TestHandleWebhook_UnknownEvent_NoOp(t *testing.T) {
 	svc, _, _, gdb, teamID := newTestEnv(t)
 	payload := eventPayload("invoice.paid", map[string]any{"id": "in_1"})

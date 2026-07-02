@@ -20,15 +20,25 @@ var polarTestSecret = "whsec_" + base64.StdEncoding.EncodeToString([]byte("polar
 // same key derivation the verifier uses — so the test proves the round trip, not a
 // re-implementation.
 func polarSignedHeaders(secret, msgID string, ts int64, payload []byte) http.Header {
-	mac := hmac.New(sha256.New, standardWebhookKey(secret))
-	mac.Write([]byte(msgID + "." + strconv.FormatInt(ts, 10) + "."))
-	mac.Write(payload)
-	sig := base64.StdEncoding.EncodeToString(mac.Sum(nil))
+	sig := polarSign(secret, msgID, ts, payload)
 	h := http.Header{}
 	h.Set("webhook-id", msgID)
 	h.Set("webhook-timestamp", strconv.FormatInt(ts, 10))
 	h.Set("webhook-signature", "v1,"+sig)
 	return h
+}
+
+// polarSign computes the base64 Standard-Webhooks signature for a payload, reusing
+// the production key derivation so tests exercise the real path.
+func polarSign(secret, msgID string, ts int64, payload []byte) string {
+	key, err := standardWebhookKey(secret)
+	if err != nil {
+		panic(err) // test secrets are always valid base64
+	}
+	mac := hmac.New(sha256.New, key)
+	mac.Write([]byte(msgID + "." + strconv.FormatInt(ts, 10) + "."))
+	mac.Write(payload)
+	return base64.StdEncoding.EncodeToString(mac.Sum(nil))
 }
 
 func TestVerifyStandardWebhook_AcceptsValidRejectsTampered(t *testing.T) {
@@ -46,6 +56,29 @@ func TestVerifyStandardWebhook_AcceptsValidRejectsTampered(t *testing.T) {
 	// A different secret must not verify.
 	if err := verifyStandardWebhook("whsec_"+base64.StdEncoding.EncodeToString([]byte("other-key")), headers, payload); err == nil {
 		t.Fatal("wrong secret accepted")
+	}
+}
+
+func TestVerifyStandardWebhook_RejectsEmptySecretBadBase64AndBadVersion(t *testing.T) {
+	payload := []byte(`{"ok":true}`)
+	now := time.Now().Unix()
+	valid := polarSignedHeaders(polarTestSecret, "m", now, payload)
+
+	// Empty secret must fail closed inside the verifier itself (defense in depth).
+	if err := verifyStandardWebhook("", valid, payload); err == nil {
+		t.Fatal("empty secret accepted")
+	}
+	// A non-base64 secret is a configuration error, not a silent raw-bytes fallback.
+	if err := verifyStandardWebhook("whsec_not*valid*base64", valid, payload); err == nil {
+		t.Fatal("invalid-base64 secret accepted")
+	}
+	// A correct HMAC carried under a non-"v1" version label must not be accepted.
+	h := http.Header{}
+	h.Set("webhook-id", "m")
+	h.Set("webhook-timestamp", strconv.FormatInt(now, 10))
+	h.Set("webhook-signature", "v2,"+polarSign(polarTestSecret, "m", now, payload))
+	if err := verifyStandardWebhook(polarTestSecret, h, payload); err == nil {
+		t.Fatal("non-v1 version label accepted")
 	}
 }
 
