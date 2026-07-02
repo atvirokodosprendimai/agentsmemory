@@ -92,6 +92,10 @@ func (s *Server) oauthCallback(w http.ResponseWriter, r *http.Request) {
 
 // finishOAuth upserts the local user for the provider's email and opens a
 // session. An email-less provider account cannot be linked, so it is rejected.
+// If the linked account has 2FA enabled, the social login is treated exactly
+// like a password login: no session is opened yet — the user is sent to the
+// TOTP step first. A verified provider identity is only the first factor; the
+// second factor a user opted into applies however they arrive.
 func (s *Server) finishOAuth(w http.ResponseWriter, r *http.Request, gu goth.User) {
 	email := gu.Email
 	// GitHub's OAuth /user endpoint (which goth reads) returns the account's
@@ -118,6 +122,16 @@ func (s *Server) finishOAuth(w http.ResponseWriter, r *http.Request, gu goth.Use
 	u, err := s.tenants.UpsertOAuthUser(r.Context(), email, name)
 	if err != nil {
 		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		return
+	}
+	// Same second-factor gate as the password path (see postLogin): withhold the
+	// real session and route through /login/totp when the account has 2FA on.
+	if u.TOTPEnabled {
+		if err := s.setPending2FA(w, r, u.ID); err != nil {
+			http.Redirect(w, r, "/login", http.StatusSeeOther)
+			return
+		}
+		http.Redirect(w, r, "/login/totp", http.StatusSeeOther)
 		return
 	}
 	_ = s.setSessionUser(w, r, u.ID)
