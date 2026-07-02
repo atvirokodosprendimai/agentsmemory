@@ -116,47 +116,49 @@ type Installer struct {
 	runner         commandRunner // how external commands execute (exec / dry / fake)
 }
 
+// resolveInstallTarget picks the install target from the mode flags and reports
+// whether it was pinned on the command line. Precedence is --sandbox, then
+// --claude-dir, then an explicit --global, then the bare default (global
+// ~/.claude). explicit is true whenever the user named the target on the command
+// line; when it is false, run() offers the interactive mode prompt so a bare
+// `curl|bash` install isn't silently forced global.
+//
+// --global is the flag form of the global choice: it pins ~/.claude and marks the
+// target explicit, so `install --global --token <t>` is fully non-interactive.
+// Because --global names the same target the bare default and the prompt would,
+// combining it with --sandbox or --claude-dir is ambiguous and rejected rather
+// than silently resolved. home is passed in (not read here) so the helper is pure
+// and testable.
+func resolveInstallTarget(global bool, sandbox, claudeDir, home string) (targetDir, sandboxName string, explicit bool, err error) {
+	if global && (sandbox != "" || claudeDir != "") {
+		return "", "", false, fmt.Errorf("--global cannot be combined with --sandbox or --claude-dir")
+	}
+	switch {
+	case sandbox != "":
+		if err := validSandboxName(sandbox); err != nil {
+			return "", "", false, err
+		}
+		return sandboxDir(sandbox), sandbox, true, nil
+	case claudeDir != "":
+		return claudeDir, "", true, nil
+	case global:
+		return filepath.Join(home, ".claude"), "", true, nil
+	default:
+		return filepath.Join(home, ".claude"), "", false, nil
+	}
+}
+
 // newInstaller builds an Installer from parsed CLI flags. It resolves the target
 // config dir (isolated sandbox vs global ~/.claude) and the Claude CLI to drive,
 // selecting a dry-run runner when --dry-run is set.
 func newInstaller(c *cli.Command, out io.Writer, in io.Reader) (*Installer, error) {
-	// Target config dir precedence: --sandbox wins, then --claude-dir, then an
-	// explicit --global, then the global ~/.claude default. explicitTarget records
-	// whether the user pinned the target on the command line; when they didn't,
-	// run() offers the interactive mode prompt so a bare `curl|bash` install isn't
-	// silently forced global. --global is the flag form of that global choice: it
-	// pins ~/.claude and skips the prompt, so `install --global --token <t>` is
-	// fully non-interactive.
-	//
-	// --global names the same target as the bare default and the mode prompt, so it
-	// must not be mixed with the other two target selectors — that would be an
-	// ambiguous request, and we reject it rather than silently pick a winner.
-	global := c.Bool("global")
-	sandbox := c.String("sandbox")
-	claudeDir := c.String("claude-dir")
-	if global && (sandbox != "" || claudeDir != "") {
-		return nil, fmt.Errorf("--global cannot be combined with --sandbox or --claude-dir")
-	}
-
-	targetDir := ""
-	sandboxName := ""
-	explicitTarget := false
-	switch {
-	case sandbox != "":
-		if err := validSandboxName(sandbox); err != nil {
-			return nil, err
-		}
-		sandboxName = sandbox
-		targetDir = sandboxDir(sandbox)
-		explicitTarget = true
-	case claudeDir != "":
-		targetDir = claudeDir
-		explicitTarget = true
-	case global:
-		targetDir = filepath.Join(homeDir(), ".claude")
-		explicitTarget = true
-	default:
-		targetDir = filepath.Join(homeDir(), ".claude")
+	// Resolve the install target (and whether it was pinned on the command line)
+	// from the mode flags. Kept as a pure helper so the precedence and the
+	// mutually-exclusive-flags rule are testable without CLI plumbing.
+	targetDir, sandboxName, explicitTarget, err := resolveInstallTarget(
+		c.Bool("global"), c.String("sandbox"), c.String("claude-dir"), homeDir())
+	if err != nil {
+		return nil, err
 	}
 
 	dryRun := c.Bool("dry-run")
