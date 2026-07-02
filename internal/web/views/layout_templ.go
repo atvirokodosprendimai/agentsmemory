@@ -59,7 +59,7 @@ func Layout(title string, userEmail string) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "\"><script type=\"module\" src=\"https://cdn.jsdelivr.net/gh/starfederation/datastar@v1.0.2/bundles/datastar.js\"></script></head><body><header class=\"topbar\"><div class=\"wrap\"><a class=\"brand\" href=\"/\">agents<b>memory</b><span class=\"dot\">.</span></a> ")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "\"><script type=\"module\" src=\"https://cdn.jsdelivr.net/gh/starfederation/datastar@v1.0.2/bundles/datastar.js\"></script></head><body><header class=\"topbar\"><div class=\"wrap\"><a class=\"brand\" href=\"/\" aria-label=\"AI Agent Memory — home\">ai<b>agent</b>memory<span class=\"dot\">.</span></a> ")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
