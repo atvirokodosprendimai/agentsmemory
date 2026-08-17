@@ -1,0 +1,19 @@
+CHANGELOG.md
+  s_d9416ccbb63136::t_1d0b22e2fbbe1c 183
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "d97e54a33a7f8c4ae965e0facfc4f41758f690f5",
+  "prompts": {},
+  "sessions": {
+    "s_d9416ccbb63136": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a00fd8-930b-7a65-a4b3-208a107dcf7c",
+        "model": "glm-5.3"
+      },
+      "human_author": "Marty <saint@ghost.lt>"
+    }
+  }
+}
