@@ -1,0 +1,28 @@
+README.md
+  s_7407fb06f0cc47::t_aadfe4d3b0367b 494-529
+.gitignore
+  s_7407fb06f0cc47::t_70b3617af0cf9f 14-17
+.github/workflows/deploy.yml
+  s_7407fb06f0cc47::t_5bc02fb42093b7 1-54,56-83
+  s_7407fb06f0cc47::t_4c6e6ea7cf8b4c 55
+.env.docker.example
+  s_7407fb06f0cc47::t_b8fc78734b34c9 1-2,4-10,61-73
+docker-compose.prod.yml
+  s_7407fb06f0cc47::t_92760cfc86d1de 1-35
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "08ab68235260f5bcc493f651014371db64df6daf",
+  "prompts": {},
+  "sessions": {
+    "s_7407fb06f0cc47": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a00ec7-5d2e-7d80-9b73-a8d8a770498c",
+        "model": "auto"
+      },
+      "human_author": null
+    }
+  }
+}
