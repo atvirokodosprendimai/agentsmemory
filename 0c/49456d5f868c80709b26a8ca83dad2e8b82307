@@ -1,0 +1,19 @@
+CHANGELOG.md
+  s_7407fb06f0cc47::t_2b158908c30765 176-178
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "0c49456d5f868c80709b26a8ca83dad2e8b82307",
+  "prompts": {},
+  "sessions": {
+    "s_7407fb06f0cc47": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a00ec7-5d2e-7d80-9b73-a8d8a770498c",
+        "model": "auto"
+      },
+      "human_author": "Marty <saint@ghost.lt>"
+    }
+  }
+}
