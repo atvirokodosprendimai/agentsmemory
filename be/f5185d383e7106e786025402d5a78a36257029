@@ -1,0 +1,23 @@
+.github/workflows/deploy.yml
+  s_7407fb06f0cc47::t_caa1b81b9c3023 18-21,72-73,84-130
+CHANGELOG.md
+  s_7407fb06f0cc47::t_a3ade780f913c6 182
+README.md
+  s_7407fb06f0cc47::t_00efdd3b4cdedd 527-531
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "bef5185d383e7106e786025402d5a78a36257029",
+  "prompts": {},
+  "sessions": {
+    "s_7407fb06f0cc47": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a00ec7-5d2e-7d80-9b73-a8d8a770498c",
+        "model": "auto"
+      },
+      "human_author": "Marty <saint@ghost.lt>"
+    }
+  }
+}
