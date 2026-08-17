@@ -1,0 +1,19 @@
+AGENTS.md
+  s_eb53005568b877::t_8f18f644ced906 30-32,34-46,51-53,55-59
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "70f09330641ed4e427aa3cee991f6b2cd92e8a57",
+  "prompts": {},
+  "sessions": {
+    "s_eb53005568b877": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a01058-1c04-75e2-9e6a-c59adc2bacc6",
+        "model": "k3-256k"
+      },
+      "human_author": "Marty <saint@ghost.lt>"
+    }
+  }
+}
