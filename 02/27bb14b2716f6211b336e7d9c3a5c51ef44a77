@@ -1,0 +1,44 @@
+.github/FUNDING.yml
+  s_7407fb06f0cc47::t_16943ef117928c 1-3
+internal/billing/provider.go
+  s_7407fb06f0cc47::t_d6e698e49457a6 9-14,19-20,25-26,76-77,85-87
+.env.example
+  s_7407fb06f0cc47::t_ef98216afdd4d5 46,48-49,52,58-65,68-70
+  s_7407fb06f0cc47::t_b11fabd41b30a7 66-67
+internal/web/views/landing_templ.go
+  s_7407fb06f0cc47::t_366cf61760642a 2017
+  s_7407fb06f0cc47::t_49820fb208e52e 2010-2016,2018-2023
+internal/billing/opencollective.go
+  s_7407fb06f0cc47::t_c954115dcecb67 1-79
+README.md
+  s_7407fb06f0cc47::t_0fb3c85eb160d9 3-4,959
+  s_7407fb06f0cc47::t_86e24cd8ce7641 928-938
+internal/billing/billing.go
+  s_7407fb06f0cc47::t_8e1895c8548b15 12-21,38-41,43-44,50-54,87-88,156-163,169,206-207
+internal/web/views/models.go
+  s_7407fb06f0cc47::t_02221de305e581 504-507
+cmd/server/main.go
+  s_7407fb06f0cc47::t_24778fe4a704ab 275-280,315-318,560-565,572-575,578,580,582-583,597-615
+internal/web/views/landing.templ
+  s_7407fb06f0cc47::t_3a6b228087297f 896
+internal/billing/opencollective_test.go
+  s_7407fb06f0cc47::t_71c63a0c776d88 1-117
+.pi/fabric/mcp-cache.json
+  s_7407fb06f0cc47::t_2b894a58fac3d1 1-7651
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "0227bb14b2716f6211b336e7d9c3a5c51ef44a77",
+  "prompts": {},
+  "sessions": {
+    "s_7407fb06f0cc47": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a00ec7-5d2e-7d80-9b73-a8d8a770498c",
+        "model": "auto"
+      },
+      "human_author": "Marty <saint@ghost.lt>"
+    }
+  }
+}
