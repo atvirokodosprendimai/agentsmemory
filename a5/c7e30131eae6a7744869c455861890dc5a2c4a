@@ -1,0 +1,19 @@
+.github/workflows/deploy.yml
+  s_d9416ccbb63136::t_ff80e977989b3b 6-11,53-56,59-71,73
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "a5c7e30131eae6a7744869c455861890dc5a2c4a",
+  "prompts": {},
+  "sessions": {
+    "s_d9416ccbb63136": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a00fd8-930b-7a65-a4b3-208a107dcf7c",
+        "model": "glm-5.3"
+      },
+      "human_author": "Marty <saint@ghost.lt>"
+    }
+  }
+}
