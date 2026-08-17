@@ -1,0 +1,76 @@
+.github/workflows/deploy.yml
+  s_7407fb06f0cc47::t_5bc02fb42093b7 1-54,56-83
+  s_7407fb06f0cc47::t_4c6e6ea7cf8b4c 55
+graphify-out/cache/ast/v0.9.31/5d03eb8706b8699d9e06fa34ac095cc1f839842c5a2dd6c1bfc899716f245765.json
+  s_7407fb06f0cc47::t_2a1161006e4196 1
+.gitignore
+  s_7407fb06f0cc47::t_e92f67fcb20fb5 14
+.env.docker.example
+  s_7407fb06f0cc47::t_b8fc78734b34c9 1-2,4-10,61-73
+graphify-out/manifest.json
+  s_7407fb06f0cc47::t_2a1161006e4196 1-1267
+graphify-out/cache/stat-index.json
+  s_7407fb06f0cc47::t_2a1161006e4196 1
+docker-compose.prod.yml
+  s_7407fb06f0cc47::t_92760cfc86d1de 1-35
+README.md
+  s_7407fb06f0cc47::t_aadfe4d3b0367b 494-529
+graphify-out/.graphify_labels.json
+  s_7407fb06f0cc47::t_ee38c241e0816c 1-21
+graphify-out/.graphify_labels.json.sig
+  s_7407fb06f0cc47::t_efaef02e71c4d6 1
+graphify-out/.graphify_root
+  s_7407fb06f0cc47::t_6c98af6c891795 1
+graphify-out/2026-08-17/.graphify_labels.json
+  s_7407fb06f0cc47::t_514743141782d5 1-18
+graphify-out/2026-08-17/GRAPH_REPORT.md
+  s_7407fb06f0cc47::t_98c02e9d8a226f 1-141
+graphify-out/2026-08-17/graph.json
+  s_7407fb06f0cc47::t_1590d45ffbc90d 1-7599
+graphify-out/2026-08-17/manifest.json
+  s_7407fb06f0cc47::t_2fb7bcaee09a6c 1-1267
+graphify-out/GRAPH_REPORT.md
+  s_7407fb06f0cc47::t_65cd6d71dd20c5 1-152
+graphify-out/cache/ast/v0.9.31/000761267695d12e9b71e5e52748ae2e4010cbd351f70291aac4a6ad2820f54c.json
+  s_7407fb06f0cc47::t_68a0a461ab4e02 1
+graphify-out/cache/ast/v0.9.31/162df84fd325a2b1ead24df06ad7d1ba46ad85a6f1c0182eb431ad6a7bd0aed1.json
+  s_7407fb06f0cc47::t_531514bfc7837c 1
+graphify-out/cache/ast/v0.9.31/1de0628d5f06aa1f1d0e51e021c93e72fc56e2a51884ac32bc2ad37845b7adc6.json
+  s_7407fb06f0cc47::t_7faa744e376fc0 1
+graphify-out/cache/ast/v0.9.31/257cf6480008bbb85a24c07bc72ce5216ad8ffe55e6184024b4065533627481d.json
+  s_7407fb06f0cc47::t_ace5c4fbe3e897 1
+graphify-out/cache/ast/v0.9.31/258cec3f98bd38ce561717091614fc8ffa75749cc43ee7603ed32a167d066dc6.json
+  s_7407fb06f0cc47::t_4a28f5a84651d7 1
+graphify-out/cache/ast/v0.9.31/259fa40ae1e5df8d82f71abb2d5b1e85e85c589c124804b8e5d7d3de72534068.json
+  s_7407fb06f0cc47::t_282b05aea79333 1
+graphify-out/cache/ast/v0.9.31/4435e72d7ba434cab19deaa1c8ff33e1dcba67d16197ae058a210f0b0817a417.json
+  s_7407fb06f0cc47::t_3e2fdad0e9634c 1
+graphify-out/cache/ast/v0.9.31/63dfe82c207917d5682ae4f9732601e9c39aee1609dfe722f354d62bc34f4d4f.json
+  s_7407fb06f0cc47::t_735980afa72e3c 1
+graphify-out/cache/ast/v0.9.31/7383c58f3734ba27672630b08f9f7cd93a435512204441b4a220f6f54a27d86d.json
+  s_7407fb06f0cc47::t_49052c1bbe3702 1
+graphify-out/cache/ast/v0.9.31/83a49bf508e7939457b34f4af496cb7dc7a5dd0746ac7a23cb3be30b91e119c4.json
+  s_7407fb06f0cc47::t_6f9ced102c87cb 1
+graphify-out/cache/ast/v0.9.31/d8f3b47fa982937ac600b3b5730d4cf5b14f3ae7ad42773e45bc6882da799b62.json
+  s_7407fb06f0cc47::t_192b7a6fbb3000 1
+graphify-out/graph.html
+  s_7407fb06f0cc47::t_fc4ff643aa4429 1-320
+graphify-out/graph.json
+  s_7407fb06f0cc47::t_b8e12dd705450b 1-7977
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "b892548dd0bfbe056f57393958c54dccf5fc9e59",
+  "prompts": {},
+  "sessions": {
+    "s_7407fb06f0cc47": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a00ec7-5d2e-7d80-9b73-a8d8a770498c",
+        "model": "auto"
+      },
+      "human_author": "Marty <saint@ghost.lt>"
+    }
+  }
+}
