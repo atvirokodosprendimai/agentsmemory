@@ -1,0 +1,22 @@
+internal/web/views/models.go
+  s_7407fb06f0cc47::t_dbb9321041ae39 579,674-678
+  s_7407fb06f0cc47::t_e37c5c2a4b1283 673
+internal/web/billing.go
+  s_7407fb06f0cc47::t_d747900da6680e 16-17,22-29,66-68,72,76-82,90,94-95
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "c326817821a81b28104b61c36397a9244a113593",
+  "prompts": {},
+  "sessions": {
+    "s_7407fb06f0cc47": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a00ec7-5d2e-7d80-9b73-a8d8a770498c",
+        "model": "auto"
+      },
+      "human_author": "Marty <saint@ghost.lt>"
+    }
+  }
+}
