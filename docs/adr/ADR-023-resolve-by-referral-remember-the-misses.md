@@ -5,7 +5,7 @@
 **Owner:** unassigned
 **Spec:** None — no spec stage
 **Layer:** Thinking protocol — the control loop an agent runs against the palace, and its token budget. What a memory *is* and where it can be seen from is the storage protocol, ADR-022. Kept apart because this one is a tool surface and an agent behaviour where that one is a migration, and they should be acceptable and reversible independently.
-**Cross-references:** ADR-022 (**hard dependency** — referrals are worthless without real hierarchy), ADR-001 (recall answers or abstains — the abstain decision this ADR needs and does not duplicate; note its T3 block, addressed below), ADR-019 (the agent sees a quarter of the memory — the payload budget this ADR spends differently), ADR-013 (a page of memories, not chunks)
+**Cross-references:** ADR-022 (**hard dependency** — it supplies both the address a referral names and the gloss a referral carries, and referrals are worthless without its adjacency fix), ADR-001 (recall answers or abstains — the abstain decision this ADR needs and does not duplicate; note its T3 block, addressed below), ADR-019 (the agent sees a quarter of the memory — the payload budget this ADR spends differently), ADR-013 (a page of memories, not chunks)
 **Invalidates:** none — checked (grepped ADR-001..022 for `snippet`, `limit`, `abstain`, `recall_stats`, `search_events`: ADR-019 and ADR-013 decide what a *page* contains and neither decides how many round trips produce one; ADR-001 decides whether to answer, not how to reach the candidates).
 **Served-path change:** `am_search` gains a referral mode that returns tens of tokens of *where to look next* instead of ~500 tokens of content, and a query that found nothing is remembered with its reason instead of being re-run blind by the next session.
 
@@ -16,6 +16,8 @@ Recall today is a single shot. `DefaultSearchLimit` = 5 hits at `DefaultSnippetC
 **DNS solves exactly this problem and solves it by not answering.** A resolver asking the root for `www.example.com` does not get an address; it gets a **referral** — *ask the `.com` servers* — and the referral is tiny. It descends: root, TLD, authoritative, each step cheap, each step narrowing, and only the last one carries the answer. The expensive payload is paid once, at the end, after the search space has already collapsed.
 
 That is the shape this ADR adopts, and it is the natural complement to ADR-022. ADR-022 borrows from BGP: **who can reach what, under what policy.** But BGP routes to a *known destination*, and recall has none — the packet carries an address while a query carries meaning, and *which wing holds the answer* is the problem rather than the input. DNS is the missing half: the name-to-location resolution that produces the destination BGP then reaches. The two frames fit together because in the real stack they are two different layers doing two different jobs.
+
+**With ADR-022's subject addressing the analogy stops being an analogy.** A DNS name and a NATS subject are both dot-separated hierarchical tokens, and in both a referral is *here is a prefix, ask closer to the leaf*. One difference, stated so nobody trips on it: DNS resolves **right to left** — the root is the rightmost, implicit dot — while a subject reads **left to right**. Opposite direction, identical mechanism. That correspondence is what lets this ADR specify a resolution protocol without specifying an address format: ADR-022 owns the names, this one owns the walk.
 
 **The second thing DNS has that we lack is a first-class negative answer.** `NXDOMAIN` means *this name does not exist* — not "here are the five nearest names". And RFC 2308 makes it cacheable: a resolver remembers the absence, with a TTL, so the next query for a name nobody has does not re-walk the tree.
 
@@ -30,14 +32,24 @@ That is the shape this ADR adopts, and it is the natural complement to ADR-022. 
 - **`am_recall_stats`** — stays exactly as it is. It is the report; this ADR adds a consumer of the same data, it does not change the reporting.
 - **ADR-001's calibration and abstain verdict** — reused verbatim, not re-derived. See the block below.
 - **`buildGraph`'s room→wings fold** — the referral substrate. Usable **only after ADR-022**: today it folds into an adjacency where `diary` spans 11 of 11 wings.
+- **ADR-022's subject grammar and registry** — the referral's *address* and its *gloss*, both supplied whole. This ADR invents no naming scheme of its own: a referral is a subject prefix, descent is token concatenation, and the one-line description comes from the same `Taxonomy` the write tools read. Reusing it rather than defining a parallel referral identifier is the point — two vocabularies for one namespace is the mistake ADR-010's audit names.
 - **`snippet_chars` / `limit`** — the existing payload dials. A referral mode is a new *shape* of response, not a new budget mechanism.
 - **`Dynamics.AccessCount`** — how often an edge was used. Notably *not* whether using it helped; see Risks.
 
 ## Decision
 
-**1. A resolve step returns referrals, not content.** A referral is `(wing, room, entity, count, distance)` — tens of tokens. Three referrals cost roughly 60 tokens against ~500 for a full page.
+**1. A resolve step returns referrals, not content.** A referral is **a subject prefix, its registry gloss, and a count** — tens of tokens:
 
-**2. The caller picks one to three and descends.** Breadth three, **depth capped at three**. This is a beam the agent steers, not a recursion the server runs: the model chooses which referrals to follow, because the model is the only party that knows what it is actually looking for.
+```
+project.forumchat.migrations.>   schema changes and their ordering   (118)
+project.forumchat.web.>          the HTTP surface and its templates  (535)
+```
+
+Three referrals cost roughly 60–90 tokens against ~500 for a full page.
+
+**The gloss is not decoration, and it is why ADR-022's registry matters here.** A bare prefix makes the agent guess what `migrations` holds; a glossed one makes the descent **decidable without a second round trip**. On an ADR judged by total tokens including turn overhead, one avoided round trip is worth more than every byte the gloss costs.
+
+**2. The caller picks one to three and descends by appending a token.** Breadth three, **depth capped at three**. Descent is literally subject concatenation — `project.forumchat` + `.migrations` — so the referral protocol needs no addressing scheme of its own; ADR-022's is the whole mechanism. This is a beam the agent steers, not a recursion the server runs: the model chooses which referrals to follow, because the model is the only party that knows what it is actually looking for.
 
 **3. The final descent returns drawers as today.** The expensive payload is paid once, after the space has collapsed. Nothing about the page format changes — ADR-013 and ADR-019 continue to decide what a page contains.
 
@@ -95,7 +107,7 @@ A steered descent costs fewer tokens than repeated blind pages, and the agent co
 
 ## Out of Scope
 
-- **Scope, communities, adjacency** — ADR-022.
+- **Subject addressing, scope, the token registry, adjacency** — all ADR-022. (Its first draft also proposed community tags; subjects retract them, so nothing here depends on that idea.)
 - **The abstain calibration** — ADR-001.
 - **KG resolution.** `am_kg_query` is an exact entity lookup and `am_search` has no KG access, so a fact cannot be found without already knowing its entity name. That is a real gap and a feature rather than a protocol change (deferred: BACKLOG).
 - **Automatic outcome attribution** (deferred: BACKLOG) — see Alternatives.
