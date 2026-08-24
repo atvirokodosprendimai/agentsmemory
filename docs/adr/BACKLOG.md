@@ -874,3 +874,45 @@ Two smaller ones from the same review:
   is empty and names a near neighbour — and it does not put the fact on the page. The open question
   is whether a scoped search that finds nothing should widen automatically, which is a product
   decision about whether scoping is a filter or a preference, and nobody has taken it.
+
+## From ADR-022 (a memory carries its own scope)
+
+- **AS_PATH / provenance chains on a memory.** BGP prevents loops by carrying the path a route
+  travelled and dropping anything that already contains you. The palace has the same latent problem
+  — wing A's memory points at wing B, B's points back at A — and answers it today with `maxHops`,
+  which is a TTL rather than path knowledge. Deferred because the loop is not currently observed:
+  `am_traverse` saturates before it can cycle, and fixing adjacency (ADR-022 item 2) may make the
+  question real for the first time. Revisit after the fan-out measurement.
+- **A uniform verb set over every memory object** — the strong reading of "everything is a file",
+  where `am_*`'s forty tools collapse into read/write/list over a path. ADR-022 takes the useful
+  half (one namespace) and declines the other, because a model discovers capability by reading the
+  tool list: the tool list is an agent's `ls`, and three generic verbs would hide what forty named
+  tools advertise. Re-tagged `(permanent: the tool list is the discovery surface)` unless someone
+  produces evidence that agents find a path-addressed API more usable, not merely smaller.
+- **Whether the KG adopts the same scope field.** Graph facts are workspace-wide today with no
+  import policy at all — every project's facts returned to every other project. ADR-022 names this
+  as its counter-example and does not fix it; issue #23 tracks the query-side half. The storage-side
+  question — should a fact be scoped the way a drawer now is — is untaken.
+- **Auto-widening a scoped search that finds nothing.** ADR-019's backlog entry asks whether scoping
+  is a filter or a preference and records that nobody has taken the decision. ADR-022 does not take
+  it either, but it changes the ground: with scope as a property of the record rather than an
+  argument of the call, "widen" stops meaning "pass a different wing" and starts meaning "ignore a
+  declared boundary", which is a harder thing to justify. Revisit with that framing.
+
+## From ADR-023 (resolve by referral, remember the misses)
+
+- **Automatic outcome attribution — inferring whether a recalled memory actually helped.** ADR-023
+  ships authored valence and explicitly declines to derive it from `Dynamics.AccessCount`, because
+  frequently-retrieved and useful diverge hardest exactly where it matters (a memory retrieved
+  constantly because it keeps almost answering), and credit assignment is where recommender systems
+  get gamed. Deferred rather than permanent: a session-outcome signal that is honest — not a click
+  proxy — would be worth having, and ADR-018's session-scoped recall is the natural place to hang it.
+- **Referral resolution over the knowledge graph.** `am_kg_query` is an exact entity lookup
+  (`normalizeEntityID`, then equality on subject/object) and `am_search` has no KG access, so a fact
+  cannot be found unless its entity name is already known. ADR-023's referral shape would fit the KG
+  well, but the missing piece there is search itself, which is a feature rather than a protocol
+  change. Sequence it after #23.
+- **A negative cache shared across wings.** ADR-023 scopes cached misses the way recall is scoped.
+  Whether "nobody in this workspace has ever found an answer to this" is worth knowing across
+  projects is a separate question, and it collides with ADR-022's whole argument that reach is the
+  disease — so it needs the same kind of measurement, not an intuition.
