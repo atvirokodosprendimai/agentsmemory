@@ -234,14 +234,14 @@ name-first one-line summary, a blank line, then the reason.
 **Aim for about 70 words of why, and run longer when the reason is longer.** A
 comment that takes a paragraph because the decision behind it took a paragraph is
 correct, not verbose. This is a change of level rather than a description of the
-tree: measured 2026-08-26, the median doc comment on the 560 exported
-declarations in non-test, non-generated files was 30 words, and 96 of them were
+tree: measured 2026-08-26 over the 560 exported functions and methods in
+non-test, non-generated files, the median doc comment was 30 words and 96 were
 already at 70 or above.
 
 **Name the decision record.** Where the code implements a position an ADR took,
 cite it inline — `Region`'s comment says "ADR-019 refuses to put generated prose
 on the read path" — and a reader who does not know the corpus exists still gets
-from the function to the reasoning. Only 8 of those 560 declarations did this. All
+from the function to the reasoning. Only 8 of those 560 did this. All
 23 ADR ids cited anywhere in Go source resolved to a file in `docs/adr/` on
 2026-08-26, and that is the standard: a citation that does not resolve is worse
 than no citation, because it reads as provenance.
