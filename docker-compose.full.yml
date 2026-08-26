@@ -73,6 +73,15 @@ services:
       # cross-encoder is on a GPU — and keep RERANK_TIMEOUT above pool x per-doc
       # cost, or every search degrades.
       #
+      # MEASURED AT THE SHIPPED DEFAULT, 2026-08-26, on an idle CPU cross-encoder:
+      # 12 real recalls at pool 10 took a mean of 4.3s (min 3.3s, max 5.5s), none
+      # of them past the 10s budget below. So this default fits, with about 2.3x
+      # headroom on this hardware.
+      #
+      # Scaling to pool 20 costs 2.7x the time for 2x the documents — superlinear,
+      # so a per-doc model UNDERSTATES the cost of raising the pool. That is why
+      # the sentence below is wrong in shape and not only unenforced.
+      #
       # That per-doc cost now has a number, and it is worse than the sentence
       # above implies. On a CPU cross-encoder, 60 traced rerank calls at pool 20
       # took a mean of 11.4s (min 7.3s, max 18.2s) — 44 of the 60 ran longer than
