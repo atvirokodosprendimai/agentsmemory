@@ -207,6 +207,64 @@ The same principle covers the gates already in the tree: `internal/doclint`
 Prose belongs where a human reads it and nowhere else. Anything that must stay
 true gets a command whose exit code says so.
 
+---
+
+## Doc comments — written for a reader who has no memory
+
+The palace does not travel with the file. An agent on a harness where the `am_*`
+tools are not connected, a contributor reading the code on GitHub, and a reviewer
+three months from now all arrive with the same context: none. The doc comment is
+the only thing shipped alongside the declaration, so it carries the WHY — not the
+signature restated in English.
+
+**The shape**, and `internal/palace/regions.go` is the exemplar to copy: a
+name-first one-line summary, a blank line, then the reason.
+
+```go
+// SnippetRegions returns every part of a memory that matched, verbatim,
+// position-ordered and non-overlapping, within maxChars total.
+//
+// It exists because the single-window chooser cannot do better. Its score
+// SATURATES — a window ranks by how many distinct query terms fall inside, so
+// once a window holds the terms every other window holding them ties — and ties
+// resolve to the earliest position. Measured 2026-08-21 across nine real
+// queries: …
+```
+
+**Aim for about 70 words of why, and run longer when the reason is longer.** A
+comment that takes a paragraph because the decision behind it took a paragraph is
+correct, not verbose. This is a change of level rather than a description of the
+tree: measured 2026-08-26, the median doc comment on the 560 exported
+declarations in non-test, non-generated files was 30 words, and 96 of them were
+already at 70 or above.
+
+**Name the decision record.** Where the code implements a position an ADR took,
+cite it inline — `Region`'s comment says "ADR-019 refuses to put generated prose
+on the read path" — and a reader who does not know the corpus exists still gets
+from the function to the reasoning. Only 8 of those 560 declarations did this. All
+23 ADR ids cited anywhere in Go source resolved to a file in `docs/adr/` on
+2026-08-26, and that is the standard: a citation that does not resolve is worse
+than no citation, because it reads as provenance.
+
+**What earns the words**, in rough order: the failure the code prevents, with the
+incident where there was one; the decision it implements and where that decision
+is written down; the measurement behind a constant; what was tried and rejected.
+What does not: the signature in prose, and padding to reach a number.
+
+This binds code you write or touch. An existing comment is upgraded when you are
+already editing that declaration — surgical changes still rule, and a
+comments-only sweep of adjacent code is not this.
+
+**REVIEW CHECKS THIS, because nothing else does.** There is deliberately no gate:
+a word-count check measures padding rather than reason, and `internal/doclint`'s
+own comment records why a noisy gate does not survive. That decision puts the
+whole weight on review. So a review of a change that adds or edits an exported
+declaration reports, by name, every one whose comment states only what the code
+does — and every `ADR-NNN` cited that does not resolve under `docs/adr/`. Raise it
+at the altitude of the other findings, not as a footnote: a feature merged with a
+one-line comment is a feature whose reasoning exists only in the session that
+wrote it, and that session is gone.
+
 ## Exception — read-only review
 
 The gate above exists to protect WORK: an agent changing this repo without
