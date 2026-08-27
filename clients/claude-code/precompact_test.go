@@ -68,7 +68,19 @@ func TestF6AHookIsSilentInTheCommonCase(t *testing.T) {
 	// A stub on PATH that records the fact it was called and returns one hit.
 	stubDir := t.TempDir()
 	marker := filepath.Join(stubDir, "was-called")
-	stub := "#!/usr/bin/env bash\ntouch " + marker + "\necho '{\"count\":1,\"hits\":[{\"id\":\"x\"}]}'\n"
+	// ⚠ THE STUB ASSERTS THE INVOCATION, not just its own existence. The flags that
+	// keep this hook useful — room=decisions, and a distance floor — are arguments,
+	// not branches, so no assertion on the hook's OUTPUT can see them: a stub that
+	// ignores its arguments returns a hit either way and the mutant survives.
+	// Measured 2026-08-28: without the scope the top three hits for a real mid-work
+	// query were this session's own transcript chunks, so dropping these flags makes
+	// the hook actively harmful rather than merely quiet.
+	stub := "#!/usr/bin/env bash\n" +
+		"touch " + marker + "\n" +
+		"case \"$*\" in\n" +
+		"  *room=decisions*max_distance*) echo '{\"count\":1,\"hits\":[{\"id\":\"x\"}]}' ;;\n" +
+		"  *) echo '{\"count\":0,\"hits\":[]}' ;;\n" +
+		"esac\n"
 	if err := os.WriteFile(filepath.Join(stubDir, "aiagentmemory"), []byte(stub), 0o755); err != nil {
 		t.Fatalf("stub: %v", err)
 	}
