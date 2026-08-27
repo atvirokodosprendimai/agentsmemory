@@ -1,6 +1,6 @@
 # Spec: Make recall happen without depending on the agent remembering
 
-> **Date:** 2026-08-27 · **Status:** Draft
+> **Date:** 2026-08-27 · **Status:** Ready-for-ADR
 > **Owner:** Zy · **Becomes:** ADR-NNN (allocate at merge)
 > **Gate:** Status may become Ready-for-ADR only after `spec-verify --spec docs/specs/2026-08-27-recall-before-asserting.md` exits 0.
 > **Cross-references:** ADR-017 (a subagent is a session — its investigation is the prior art this spec must not reinvent), ADR-036 (the recall that answers — the memory this session failed to ask for), `internal/mcpserver/server.go:serverInstructions`, `clients/claude-code/hooks/`
