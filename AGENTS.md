@@ -247,6 +247,18 @@ and a reference to nothing. `TestDoctorCorpusIsReachable` covers the rung
 `TestEveryFlagIsRead` cannot see: a flag that is declared, documented and read
 inside a block nothing can reach.
 
+**A CITATION IS A POINTER, AND A POINTER TO NOTHING READS AS PROVENANCE.** A doc
+comment naming ADR-031 is the only route from that code to the reasoning behind it,
+and it is worth exactly what the record it names is worth. Nothing checked them:
+`adr-lint` reads record-to-record cross-references and never opens Go source, `go
+vet` does not know what a record is, and a rename passes every test in the tree.
+`TestEveryCitedADRResolves` walks the same view of the tree the other hygiene checks
+read and fails naming file, line and number. It judges resolution and nothing else —
+comment length and presence were measured and rejected in ADR-037's Alternatives.
+Its falsifiability is a subtest rather than a sibling, because with 287 citations and
+zero unresolved the corpus cannot exercise the branch that reports one, and the
+acceptance fence runs one test name.
+
 The same principle covers the gates already in the tree: `internal/doclint`
 (a doc comment must document the declaration it sits on), `TestEveryDeclaredArmIsRegistered`
 (an eval arm that no code path registers appears in no table, silently), and

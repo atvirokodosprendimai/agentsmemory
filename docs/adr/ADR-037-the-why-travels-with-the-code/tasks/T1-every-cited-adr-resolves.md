@@ -82,4 +82,13 @@ before a gate ships red on day one.
 
 ## Mutation Log
 
+- 2026-08-27 · 475aad0* · mutant killed · exit 1 · `internal/repohygiene/citation_test.go` · the resolve check itself: with it gone an unresolved citation is reported by nothing · acceptance-sha256:1a4b36c8fa76aec3f5162585f204ee13596f142d1b00c0eb8bdd534d076309c6
+
 ## Verification Log
+- 2026-08-27 · 475aad0 · exit 1 · `docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'go vet ./internal/repohygiene/ && go test ./internal/repohygiene/ -run "TestEveryCitedADRResolves" -count=1 -v 2>&1 | tee /tmp/acc.out; grep -q "=== RUN   TestEveryCitedADRResolves" /tmp/acc.out && ! grep -qE "^(--- )?FAIL" /tmp/acc.out'` · acceptance-sha256:1a4b36c8fa76aec3f5162585f204ee13596f142d1b00c0eb8bdd534d076309c6
+  ```
+  testing: warning: no tests to run
+  PASS
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/repohygiene	0.002s [no tests to run]
+  ```
+- 2026-08-27 · 475aad0* · exit 0 · `docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'go vet ./internal/repohygiene/ && go test ./internal/repohygiene/ -run "TestEveryCitedADRResolves" -count=1 -v 2>&1 | tee /tmp/acc.out; grep -q "=== RUN   TestEveryCitedADRResolves" /tmp/acc.out && ! grep -qE "^(--- )?FAIL" /tmp/acc.out'` · acceptance-sha256:1a4b36c8fa76aec3f5162585f204ee13596f142d1b00c0eb8bdd534d076309c6
