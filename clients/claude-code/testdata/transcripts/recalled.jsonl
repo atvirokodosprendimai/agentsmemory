@@ -1,0 +1,3 @@
+{"type": "assistant", "sessionId": "sess-fixture", "isSidechain": false, "message": {"content": [{"type": "tool_use", "name": "mcp__agentsmemory__am_search", "input": {}}]}}
+{"type": "assistant", "sessionId": "sess-fixture", "isSidechain": false, "message": {"content": [{"type": "text", "text": "Root cause: `repo.Get` returns `gorm.ErrRecordNotFound`, eval checks `palace.ErrNotFound` \u2014 loud path never fires."}]}}
+{"type": "assistant", "sessionId": "sess-fixture", "isSidechain": false, "message": {"content": [{"type": "text", "text": "`Stop` is not session end \u2014 that's my sloppy wording, twice."}]}}

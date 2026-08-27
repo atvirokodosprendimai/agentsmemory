@@ -147,6 +147,9 @@ HOOK_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 # shellcheck disable=SC1091
 . "$HOOK_DIR/agentsmemory-stats.sh"
 agentsmemory_stats_query
+# ADR-041 T1: TRANSCRIPT is set by agentsmemory_stats_query above, so this must
+# follow it. Silent and non-fatal; it records counts and says nothing.
+agentsmemory_recall_observe
 agentsmemory_stats_fetch
 if [ -n "${STATS:-}" ]; then
   # The server marks grouped write-me suggestions with a stable "  write: "

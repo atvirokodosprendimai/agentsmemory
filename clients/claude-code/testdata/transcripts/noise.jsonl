@@ -1,0 +1,2 @@
+{"type": "assistant", "sessionId": "sess-fixture", "isSidechain": false, "message": {"content": [{"type": "text", "text": "Absolute values are noise; the gap is large enough to survive that."}]}}
+{"type": "assistant", "sessionId": "sess-fixture", "isSidechain": false, "message": {"content": [{"type": "text", "text": "I do not think we should ship tonight."}]}}

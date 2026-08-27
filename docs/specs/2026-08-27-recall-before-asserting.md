@@ -67,7 +67,7 @@ little each depends on the agent choosing to comply (F-13) — ADR-017's own ord
 
 ## Scenarios
 
-### UC1-S1 [happy] A transcript containing an unrecalled no-change assertion is counted as one miss [@spec] → `clients/claude-code/recallrate_spec_test.go::TestF2TheCountableUnitIsANoChangeAssertion`
+### UC1-S1 [happy] A transcript containing an unrecalled no-change assertion is counted as one miss [@implemented] → `clients/claude-code/recallrate_spec_test.go::TestF2TheCountableUnitIsANoChangeAssertion`
 
 ```gherkin
 Given a session transcript in which the agent wrote that a behaviour "still" works a certain way
@@ -76,7 +76,7 @@ When the instrument scans it
 Then it records one no-change assertion and zero preceded-by-recall
 ```
 
-### UC1-S2 [failure] A transcript the instrument cannot read reports nothing rather than a clean rate [@spec] → `clients/claude-code/recallrate_spec_test.go::TestF5AnUnreadableTranscriptRecordsNothing`
+### UC1-S2 [failure] A transcript the instrument cannot read reports nothing rather than a clean rate [@implemented] → `clients/claude-code/recallrate_spec_test.go::TestF5AnUnreadableTranscriptRecordsNothing`
 
 ```gherkin
 Given a session whose transcript path is missing or unreadable
@@ -85,7 +85,7 @@ Then it records no observation at all
 And it does not report a rate, because an unread transcript is not a compliant session
 ```
 
-### UC1-S3 [failure] A classifier that matches nothing is reported as broken, not as perfect [@spec] → `clients/claude-code/recallrate_spec_test.go::TestF4AClassifierThatMatchesNothingFailsLoudly`
+### UC1-S3 [failure] A classifier that matches nothing is reported as broken, not as perfect [@implemented] → `clients/claude-code/recallrate_spec_test.go::TestF4AClassifierThatMatchesNothingFailsLoudly`
 
 ```gherkin
 Given a fixture corpus of transcripts known to contain no-change assertions
@@ -134,11 +134,11 @@ And it is not described as directionally correct
 
 | ID | Assertion (invariant / behavior) | Test (`path::name`) | Tag | Cmd (optional) |
 |----|----------------------------------|---------------------|-----|----------------|
-| F-1 | The recall rate is counted from session transcripts, never from an agent's self-report. | `clients/claude-code/recallrate_spec_test.go::TestF1RecallRateIsCountedFromTranscripts` | @spec | |
-| F-2 | The countable unit is a **no-change assertion**: a claim that something still behaves a given way, or does not do something, or has not been decided. | `clients/claude-code/recallrate_spec_test.go::TestF2TheCountableUnitIsANoChangeAssertion` | @spec | |
+| F-1 | The recall rate is counted from session transcripts, never from an agent's self-report. | `clients/claude-code/recallrate_spec_test.go::TestF1RecallRateIsCountedFromTranscripts` | @implemented | |
+| F-2 | The countable unit is a **no-change assertion**: a claim that something still behaves a given way, or does not do something, or has not been decided. | `clients/claude-code/recallrate_spec_test.go::TestF2TheCountableUnitIsANoChangeAssertion` | @implemented | |
 | F-3 | No mechanism intended to raise the rate ships before a baseline has been recorded. | `clients/claude-code/recallrate_spec_test.go::TestF3NoMechanismShipsBeforeABaseline` | @spec | |
-| F-4 | A classifier that matches zero assertions over a fixture corpus containing them fails, rather than reporting a perfect rate. | `clients/claude-code/recallrate_spec_test.go::TestF4AClassifierThatMatchesNothingFailsLoudly` | @spec | |
-| F-5 | An unreadable or absent transcript records no observation, and never fails the session. | `clients/claude-code/recallrate_spec_test.go::TestF5AnUnreadableTranscriptRecordsNothing` | @spec | |
+| F-4 | A classifier that matches zero assertions over a fixture corpus containing them fails, rather than reporting a perfect rate. | `clients/claude-code/recallrate_spec_test.go::TestF4AClassifierThatMatchesNothingFailsLoudly` | @implemented | |
+| F-5 | An unreadable or absent transcript records no observation, and never fails the session. | `clients/claude-code/recallrate_spec_test.go::TestF5AnUnreadableTranscriptRecordsNothing` | @implemented | |
 | F-6 | A hook adds no output in the common case; it speaks only when it has something the session would otherwise get wrong. | `clients/claude-code/recallrate_spec_test.go::TestF6AHookIsSilentInTheCommonCase` | @spec | |
 | F-7 | `serverInstructions` stays within its measured ceiling; any cue replaces text rather than adding to it. | `internal/mcpserver/instructions_test.go::TestInstructionsStayShort` | @spec | |
 | F-8 | Adding a paragraph to a document the agent already receives in full is not a mechanism under this spec. | `clients/claude-code/recallrate_spec_test.go::TestF8AddedProtocolTextIsNotAMechanism` | @spec | |
@@ -148,9 +148,9 @@ And it is not described as directionally correct
 | F-12 | Each candidate mechanism declares which failure it addresses; a mechanism that cannot name one is not a candidate. | `clients/claude-code/recallrate_spec_test.go::TestF12EachMechanismNamesTheFailureItAddresses` | @spec | |
 | F-13 | Candidate mechanisms are ordered by how little they depend on the agent choosing to comply, and the ordering is recorded before any of them ships. | `clients/claude-code/recallrate_spec_test.go::TestF13MechanismsAreOrderedByComplianceDependence` | @spec | |
 | F-14 | The `am_*` tools are registered so that no schema lookup is required before the first call. | `internal/mcpserver/recallcue_spec_test.go::TestF14NoSchemaLookupBeforeTheFirstCall` | @spec | |
-| F-15 | An observation records COUNTS and identifiers only. No transcript text leaves the machine that produced it. | `clients/claude-code/recallrate_spec_test.go::TestF15AnObservationCarriesCountsNotContent` | @spec | |
-| F-16 | Every observation carries the version of the classifier that produced it, and rates from different classifier versions are never compared. | `clients/claude-code/recallrate_spec_test.go::TestF16AnObservationCarriesItsClassifierVersion` | @spec | |
-| F-17 | A miss is representable. The store records sessions in which NO recall preceded an assertion, not only sessions in which one did. | `clients/claude-code/recallrate_spec_test.go::TestF17AMissIsRepresentable` | @spec | |
+| F-15 | An observation records COUNTS and identifiers only. No transcript text leaves the machine that produced it. | `clients/claude-code/recallrate_spec_test.go::TestF15AnObservationCarriesCountsNotContent` | @implemented | |
+| F-16 | Every observation carries the version of the classifier that produced it, and rates from different classifier versions are never compared. | `clients/claude-code/recallrate_spec_test.go::TestF16AnObservationCarriesItsClassifierVersion` | @implemented | |
+| F-17 | A miss is representable. The store records sessions in which NO recall preceded an assertion, not only sessions in which one did. | `clients/claude-code/recallrate_spec_test.go::TestF17AMissIsRepresentable` | @implemented | |
 
 ## Domain
 

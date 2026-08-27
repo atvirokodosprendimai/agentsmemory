@@ -1,6 +1,6 @@
 # ADR-041: Make recall happen without depending on the agent remembering
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-08-27
 **Owner:** Zy
 **Spec:** docs/specs/2026-08-27-recall-before-asserting.md

@@ -62,6 +62,7 @@ func main() {
 			runCommand(),
 			wrapCommand(),
 			mcpCommand(),
+			recallObserveCommand(),
 		},
 	}
 	if err := cmd.Run(context.Background(), os.Args); err != nil {

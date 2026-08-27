@@ -55,3 +55,17 @@ agentsmemory_stats_fetch() {
     STATS="$(curl -fsS -m 3 "$STATS_URL" 2>/dev/null || true)"
   fi
 }
+
+# agentsmemory_recall_observe — ADR-041 T1. Records how many no-change assertions
+# this session made and how many followed a recall.
+#
+# Silent and non-fatal by construction: no binary, no transcript, or a failed run
+# each exit 0 without a word. A hook that reports on bookkeeping at the cost of a
+# session has its priorities backwards, and this one has nothing to say in the
+# common case.
+agentsmemory_recall_observe() {
+  [ "${AGENTSMEMORY_RECALL_RATE:-on}" != "off" ] || return 0
+  command -v aiagentmemory >/dev/null 2>&1 || return 0
+  [ -n "${TRANSCRIPT:-}" ] && [ -f "$TRANSCRIPT" ] || return 0
+  aiagentmemory recall-observe --transcript "$TRANSCRIPT" >/dev/null 2>&1 || true
+}

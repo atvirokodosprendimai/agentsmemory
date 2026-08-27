@@ -41,11 +41,27 @@ test green and the instrument dead, which is why the Tests table carries a check
 ## Acceptance
 
 ```bash
-docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'go vet ./clients/claude-code/ && go test ./clients/claude-code/ -run "TestF1|TestF2|TestF4|TestF5|TestF15|TestF16|TestF17|TestTheInstrumentIsCalledByTheHook" -count=1 -v 2>&1 | tee /tmp/acc.out; ! grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/acc.out'
+docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'go vet ./clients/claude-code/ && go test ./clients/claude-code/ -run "^(TestF1RecallRateIsCountedFromTranscripts|TestF2TheCountableUnitIsANoChangeAssertion|TestF4AClassifierThatMatchesNothingFailsLoudly|TestF5AnUnreadableTranscriptRecordsNothing|TestF15AnObservationCarriesCountsNotContent|TestF16AnObservationCarriesItsClassifierVersion|TestF17AMissIsRepresentable|TestTheInstrumentIsCalledByTheHook)$" -count=1 -v 2>&1 | tee /tmp/acc.out; ! grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/acc.out'
 ```
 
 Red before the work: the seven named tests fail by design on this branch, and the eighth does not
 exist.
+
+⚠ FULL TEST NAMES, ANCHORED — and it took two wrong fences to get here, both recorded because
+each is a named failure in this repository's own lessons.
+
+Draft 1 used bare prefixes (`TestF1|TestF2|…`). `-run` takes a REGEX, so `TestF1` also matched
+`TestF10`, `TestF12` and `TestF13` — three bindings owned by T2-T6 that are red BY DESIGN. The
+fence failed T1 for work T1 was never asked to do.
+
+Draft 2 anchored the prefixes (`^(TestF1|…)$`) and made it far worse in the opposite direction:
+no test is NAMED `TestF1`, so the pattern selected **one test out of eight** and exited 0. That
+is the filter-that-matches-nothing, and it is worse than the first because it PASSES. Measured:
+the classifier was replaced with `return false` under that fence and the mutant SURVIVED —
+a gate that could not fail, guarding the instrument built to detect gates that cannot fail.
+
+The rule both drafts violate: a fence must name exactly the subjects that carry the verdict, and
+you check that by counting what it selects. Eight names, eight `=== RUN` lines.
 
 ## Tests
 
@@ -71,6 +87,14 @@ exist.
 
 ## Mutation Log
 
+- 2026-08-27 · 296d537* · mutant survived · exit 0 · `clients/claude-code/recallrate.go` · the classifier itself: with it gone every transcript reports zero assertions and a perfect rate · acceptance-sha256:d473f551c8108bb776d106367899568f2a04991dd910057d63e57a4559710fda
+  ```
+  the fence passed with the mechanism broken
+  ```
+- 2026-08-27 · 296d537* · mutant killed · exit 1 · `clients/claude-code/recallrate.go` · the classifier itself: with it gone every transcript reports zero assertions and a perfect rate · acceptance-sha256:40e8032187db8d66ff35a18ea02e928d8ddb30c37e5a9d7e84404bc98cc04c7a
+- 2026-08-27 · 296d537* · mutant killed · exit 1 · `clients/claude-code/recallrate.go` · the subject half: shape alone matched 154 sentences against 57, and the noise fixture proves it · acceptance-sha256:40e8032187db8d66ff35a18ea02e928d8ddb30c37e5a9d7e84404bc98cc04c7a
+- 2026-08-27 · 296d537* · mutant killed · exit 1 · `clients/claude-code/hooks/agentsmemory-stop-hook.sh` · rung 2: the instrument is a function nothing runs if the Stop hook does not call it · acceptance-sha256:40e8032187db8d66ff35a18ea02e928d8ddb30c37e5a9d7e84404bc98cc04c7a
+
 ## Invariants
 
 - Counts and identifiers only. No transcript text is written anywhere.\n- A session with no recall produces a ROW, never a silence.\n- Every row carries the classifier version.\n- The instrument never fails a session, whatever the transcript looks like.
@@ -88,3 +112,36 @@ Stop if the classifier cannot distinguish a no-change assertion from an ordinary
 - The baseline run (that is T2)\n- Any mechanism intended to move the rate (T3-T6)\n- Reading the store from `doctor` (deferred: `docs/adr/BACKLOG.md`)
 
 ## Verification Log
+- 2026-08-27 · 296d537* · exit 1 · `docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'go vet ./clients/claude-code/ && go test ./clients/claude-code/ -run "^(TestF1RecallRateIsCountedFromTranscripts|TestF2TheCountableUnitIsANoChangeAssertion|TestF4AClassifierThatMatchesNothingFailsLoudly|TestF5AnUnreadableTranscriptRecordsNothing|TestF15AnObservationCarriesCountsNotContent|TestF16AnObservationCarriesItsClassifierVersion|TestF17AMissIsRepresentable|TestTheInstrumentIsCalledByTheHook)$" -count=1 -v 2>&1 | tee /tmp/acc.out; ! grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/acc.out'` · acceptance-sha256:6b6f21ebea2f799fde85a997a4ec08a0adfed8e1a12aabeb4646a116b7ea3d45
+  ```
+  --- FAIL: TestF15AnObservationCarriesCountsNotContent (0.00s)
+  === RUN   TestF16AnObservationCarriesItsClassifierVersion
+      recallrate_spec_test.go:89: not built yet — F-16: rates from different classifier versions are never compared. Without this, tightening the regex reads as a behaviour change
+  --- FAIL: TestF16AnObservationCarriesItsClassifierVersion (0.00s)
+  === RUN   TestF17AMissIsRepresentable
+      recallrate_spec_test.go:94: not built yet — F-17: the store records sessions where NO recall preceded an assertion. This is why search_events cannot hold it — its rows are searches, and the absence of one is the whole measurement
+  --- FAIL: TestF17AMissIsRepresentable (0.00s)
+  FAIL
+  FAIL	github.com/atvirokodosprendimai/agentsmemory/clients/claude-code	0.012s
+  FAIL
+  ```
+- 2026-08-27 · 296d537* · exit 1 · `docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'go vet ./clients/claude-code/ && go test ./clients/claude-code/ -run "^(TestF1RecallRateIsCountedFromTranscripts|TestF2TheCountableUnitIsANoChangeAssertion|TestF4AClassifierThatMatchesNothingFailsLoudly|TestF5AnUnreadableTranscriptRecordsNothing|TestF15AnObservationCarriesCountsNotContent|TestF16AnObservationCarriesItsClassifierVersion|TestF17AMissIsRepresentable|TestTheInstrumentIsCalledByTheHook)$" -count=1 -v 2>&1 | tee /tmp/acc.out; ! grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/acc.out'` · acceptance-sha256:6b6f21ebea2f799fde85a997a4ec08a0adfed8e1a12aabeb4646a116b7ea3d45
+  ```
+  --- FAIL: TestF10EveryResultIsRecordedEitherWay (0.00s)
+  === RUN   TestF12EachMechanismNamesTheFailureItAddresses
+      recallrate_spec_test.go:206: not built yet — F-12 (T3-T5): a mechanism that cannot name the distinct failure it addresses is not a candidate
+  --- FAIL: TestF12EachMechanismNamesTheFailureItAddresses (0.00s)
+  === RUN   TestF13MechanismsAreOrderedByComplianceDependence
+      recallrate_spec_test.go:211: not built yet — F-13 (T3): the ordering is recorded BEFORE any of them ships
+  --- FAIL: TestF13MechanismsAreOrderedByComplianceDependence (0.00s)
+  FAIL
+  FAIL	github.com/atvirokodosprendimai/agentsmemory/clients/claude-code	0.015s
+  FAIL
+  ```
+- 2026-08-27 · 296d537* · exit 2 · `docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'go vet ./clients/claude-code/ && go test ./clients/claude-code/ -run "^(TestF1RecallRateIsCountedFromTranscripts|TestF2TheCountableUnitIsANoChangeAssertion|TestF4AClassifierThatMatchesNothingFailsLoudly|TestF5AnUnreadableTranscriptRecordsNothing|TestF15AnObservationCarriesCountsNotContent|TestF16AnObservationCarriesItsClassifierVersion|TestF17AMissIsRepresentable|TestTheInstrumentIsCalledByTheHook)$" -count=1 -v 2>&1 | tee /tmp/acc.out; ! grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/acc.out'` · acceptance-sha256:7059cf29be4717644d65938d5d22559ac390875f660028095d275d4a306cf323
+  ```
+  bash: -c: line 0: syntax error near unexpected token `('
+  bash: -c: line 0: `docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'go vet ./clients/claude-code/ && go test ./clients/claude-code/ -run "^(TestF1RecallRateIsCountedFromTranscripts|TestF2TheCountableUnitIsANoChangeAssertion|TestF4AClassifierThatMatchesNothingFailsLoudly|TestF5AnUnreadableTranscriptRecordsNothing|TestF15AnObservationCarriesCountsNotContent|TestF16AnObservationCarriesItsClassifierVersion|TestF17AMissIsRepresentable|TestTheInstrumentIsCalledByTheHook)$" -count=1 -v 2>&1 | tee /tmp/acc.out; ! grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/acc.out''
+  ```
+- 2026-08-27 · 296d537* · exit 0 · `docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'go vet ./clients/claude-code/ && go test ./clients/claude-code/ -run "^(TestF1RecallRateIsCountedFromTranscripts|TestF2TheCountableUnitIsANoChangeAssertion|TestF4AClassifierThatMatchesNothingFailsLoudly|TestF5AnUnreadableTranscriptRecordsNothing|TestF15AnObservationCarriesCountsNotContent|TestF16AnObservationCarriesItsClassifierVersion|TestF17AMissIsRepresentable|TestTheInstrumentIsCalledByTheHook)$" -count=1 -v 2>&1 | tee /tmp/acc.out; ! grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/acc.out'` · acceptance-sha256:d473f551c8108bb776d106367899568f2a04991dd910057d63e57a4559710fda
+- 2026-08-27 · 296d537* · exit 0 · `docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'go vet ./clients/claude-code/ && go test ./clients/claude-code/ -run "^(TestF1RecallRateIsCountedFromTranscripts|TestF2TheCountableUnitIsANoChangeAssertion|TestF4AClassifierThatMatchesNothingFailsLoudly|TestF5AnUnreadableTranscriptRecordsNothing|TestF15AnObservationCarriesCountsNotContent|TestF16AnObservationCarriesItsClassifierVersion|TestF17AMissIsRepresentable|TestTheInstrumentIsCalledByTheHook)$" -count=1 -v 2>&1 | tee /tmp/acc.out; ! grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/acc.out'` · acceptance-sha256:40e8032187db8d66ff35a18ea02e928d8ddb30c37e5a9d7e84404bc98cc04c7a
