@@ -47,6 +47,36 @@ falls (F-10).
 | `TestPreToolUseCueFiresOncePerSubsystem` | `clients/claude-code/pretooluse_test.go` | a second grep in the same subsystem is silent | — |
 | `TestPreToolUseHookIsRegistered` | `clients/claude-code/installer_test.go` | the installer writes the event | — |
 
+## STOPPED on query quality, not on frequency — 2026-08-28
+
+T5's Stop Condition tested the wrong thing, and measuring it properly is what showed that.
+
+**Frequency passes.** Keyed on the search SUBJECT rather than the path, the cue fires on 3.4% of
+assistant turns — 529 times across a 15,414-turn session, roughly one every 29 turns. The Stop
+Condition asks whether it fires on *most* turns. It does not.
+
+**Relevance fails, and that is disqualifying.** The query available at PreToolUse time is a grep
+pattern — a bare identifier. Measured against the live palace, 2026-08-28:
+
+| query kind | top-hit distance |
+|---|---|
+| a real question (canary) | 0.317 – 0.444 |
+| the 25 bare identifiers a cue would fire on | 0.408 – 0.567, median **0.486** |
+| **canary-grade (< 0.42)** | **0 of 25** |
+
+`am_search` is semantic: it returns top-k for any input, so "has a hit" is vacuous — the first
+attempt at this measurement reported a 100% hit rate, which is true and means nothing. **A bare
+symbol is not a question**, and the palace's answer to a non-question is a nearest neighbour with no
+relevance to it. A cue firing 529 times a session with an unrelated memory each time is worse than
+silence: it is noise wearing the shape of signal, and it teaches an agent to ignore the mechanism.
+
+**Not fixable by tightening the bound**, because the bound controls how OFTEN it fires, and the
+defect is in WHAT it can ask. Nothing at PreToolUse time knows the question the agent is about to
+answer — only the symbol it is looking up.
+
+**Recorded, not reordered.** T5 is blocked; F-12's binding stays red. The ordering is fixed by F-13
+so a stopped mechanism cannot be quietly replaced by whichever one is left.
+
 ## Reachability
 
 | Rung | How this task shows it |

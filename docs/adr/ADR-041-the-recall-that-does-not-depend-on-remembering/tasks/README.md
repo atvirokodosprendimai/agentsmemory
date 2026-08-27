@@ -45,7 +45,7 @@ work.
 | T2 | Record the baseline rate before anything tries to move it | done | F-3 | `go test ./clients/claude-code/ -run "^(TestF3NoMechanismShipsBeforeABaseline\|TestTheBaselineRefusesAnUndersizedSample)$" -count=1 -v` |
 | T3 | Register the tools so the first call needs no lookup | blocked | F-9, F-10, F-12, F-13, F-14, UC3-S1, UC3-S2 | `go test ./internal/mcpserver/ -run "TestF14" -count=1 -v && go test -tags contractaxis ./internal/mcptest` |
 | T4 | Perform the recall at compaction and inject the result | done | F-6 | `apk add --no-cache bash git >/dev/null && go test ./clients/claude-code/ -run "^(TestF6AHookIsSilentInTheCommonCase\|TestPreCompactHookIsRegistered)$" -count=1 -v` |
-| T5 | Cue at the moment a source search would form the belief | pending | F-12 | `go test ./clients/claude-code/ -run "TestPreToolUseCueFiresOncePerSubsystem\|TestPreToolUseHookIsRegistered" -count=1 -v` |
+| T5 | Cue at the moment a source search would form the belief | blocked | F-12 | `go test ./clients/claude-code/ -run "TestPreToolUseCueFiresOncePerSubsystem\|TestPreToolUseHookIsRegistered" -count=1 -v` |
 | T6 | Replace the imperative in the handshake with the cue | pending | F-7, F-8, F-11, UC2-S1, UC2-S2 | `go test ./internal/mcpserver/ -run "TestF11\|TestInstructionsStayShort" -count=1 -v && go test -tags contractaxis ./internal/mcptest` |
 
 Status: `pending` | `running` | `blocked` | `done` | `failed`.

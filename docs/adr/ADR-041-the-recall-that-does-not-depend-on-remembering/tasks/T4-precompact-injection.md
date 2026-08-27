@@ -80,6 +80,37 @@ ignores it, a hosted one rejects it loudly, and both outcomes are correct.
 server is a client-side gate with nothing behind it — the server accepts any value. Fixing it there
 would remove the placeholder. Out of scope here; recorded rather than worked around silently.
 
+## A second shipped defect: it was injecting this session's own transcript — 2026-08-28
+
+Found while measuring T5, by asking the question T5 forced: not "does the recall return something"
+but "is what it returns relevant". Applied to T4's own query it fails the same way.
+
+T4 builds its query from the branch name and changed filenames. Measured against the live palace:
+
+| | top-hit distance | what came back |
+|---|---|---|
+| T4's real mid-work query, unscoped | 0.460 – 0.516 | **this session's own transcript chunks** |
+| the same query, `room=decisions` | 0.501 – 0.560 | real decisions, all in the weak band |
+| the same query, floor at 0.42 | — | **nothing; the hook stays silent** |
+
+Injecting the session's own recent transcript into a freshly compacted context is worse than
+useless: it restores exactly what compaction removed. The hook was shipped, marked done, and had
+three killed mutants — none of which could see this, because they all asked whether it *spoke*, not
+whether what it said was worth reading.
+
+**Fixed:** `room=decisions` and `max_distance=0.42`, both measured rather than chosen. The floor is
+a trade, not a boundary — the two classes overlap around 0.41–0.44 — set to exclude all 25 measured
+bare-identifier queries while keeping question-grade hits. On a weak query the hook now returns
+nothing and stays quiet, which is F-6 working.
+
+**The mutant needed the stub to assert the invocation.** These flags are arguments, not branches, so
+no assertion on the hook's output can see them: a stub that ignores its arguments returns a hit
+either way and the mutant survives. The stub now refuses to answer unless both are passed.
+
+**Consequence to expect, and it is honest rather than disappointing:** T4 will now be silent far more
+often. Its measured delta may be near zero. That is the outcome F-10 exists to record, and it is
+better than a mechanism that appears to work by injecting noise.
+
 ## Reachability
 
 | Rung | How this task shows it |
@@ -127,6 +158,7 @@ would remove the placeholder. Out of scope here; recorded rather than worked aro
   ```
   the fence passed with the mechanism broken
   ```
+- 2026-08-28 · 0159db0 · mutant killed · exit 1 · `clients/claude-code/hooks/agentsmemory-precompact-hook.sh` · the relevance floor: without it the hook injects the nearest neighbour, measured as this session own transcript · acceptance-sha256:1ca9f7ca6761a677b0e7390dc80ac05c8471a18eeab4ce7fbf66f584663846fc
 
 ## Invariants
 
@@ -155,3 +187,4 @@ Stop if `PreCompact` does not fire, or fires without a usable payload, on the in
 - 2026-08-28 · human-observed · mechanism shipped; delta not yet measurable — needs a measurement window of real compactions against the 27.6% baseline (F-10)
 - 2026-08-28 · 36b67e4 · exit 0 · `docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'apk add --no-cache bash git >/dev/null && go test ./clients/claude-code/ -run "^(TestF6AHookIsSilentInTheCommonCase|TestPreCompactHookIsRegistered)$" -count=1 -v 2>&1 | tee /tmp/acc.out; ! grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/acc.out'` · acceptance-sha256:1ca9f7ca6761a677b0e7390dc80ac05c8471a18eeab4ce7fbf66f584663846fc
 - 2026-08-28 · 019c963 · exit 0 · `docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'apk add --no-cache bash git >/dev/null && go test ./clients/claude-code/ -run "^(TestF6AHookIsSilentInTheCommonCase|TestPreCompactHookIsRegistered)$" -count=1 -v 2>&1 | tee /tmp/acc.out; ! grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/acc.out'` · acceptance-sha256:1ca9f7ca6761a677b0e7390dc80ac05c8471a18eeab4ce7fbf66f584663846fc
+- 2026-08-28 · 0159db0* · exit 0 · `docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'apk add --no-cache bash git >/dev/null && go test ./clients/claude-code/ -run "^(TestF6AHookIsSilentInTheCommonCase|TestPreCompactHookIsRegistered)$" -count=1 -v 2>&1 | tee /tmp/acc.out; ! grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/acc.out'` · acceptance-sha256:1ca9f7ca6761a677b0e7390dc80ac05c8471a18eeab4ce7fbf66f584663846fc
