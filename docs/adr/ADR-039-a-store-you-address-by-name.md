@@ -299,9 +299,9 @@ Called live on the hosted palace (workspace `atvirokodosprendimai-498ccd`) it re
 `resolution: "matched"`: the entry edges were hand-authored at 08:28–08:29Z on 2026-08-27, roughly
 six hours before that review was submitted at 14:59Z. The automated backfill is still filed in
 `BACKLOG.md` and still has not run — every entry point that exists was authored by hand, this wing's
-and others': `wing_wgmesh` and `wing_forumchat` both resolve `matched` too, checked here rather than
-recalled. ⚠ That correction is this record's own lesson landing on it: an earlier draft of this
-paragraph said "no other wing has one", taken from a memory written before those wings were done.
+and **four others**, each of which resolves `matched`, checked here rather than recalled. ⚠ That
+correction is this record's own lesson landing on it: an earlier draft of this paragraph said "no
+other wing has one", taken from a memory written before those other wings were authored.
 ⚠ **Instance named deliberately, not to settle it by assertion:** this record already carries one
 unreconciled local-versus-hosted disagreement in Risks, so a second measurement gets its endpoint
 attached rather than a verdict.
