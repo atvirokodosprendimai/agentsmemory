@@ -54,6 +54,32 @@ falls (F-10).
 | `TestF6AHookIsSilentInTheCommonCase` | `clients/claude-code/precompact_test.go` | no output when there is nothing to say | F-6 |
 | `TestPreCompactHookIsRegistered` | `clients/claude-code/precompact_test.go` | the installer writes the event into settings.json | — |
 
+## A shipped defect, found by accident — 2026-08-28
+
+The first version of this hook wrote `HITS="$(aiagentmemory mcp search ... 2>/dev/null || true)"`
+and then `[ -n "$HITS" ] || exit 0`. That makes **every failure identical to a clean empty recall**.
+
+`aiagentmemory mcp` demands a workspace token, and a `--local` install has none — it is the
+configuration this repository develops on. So on that install the hook could **never** have spoken,
+and it would have looked exactly like the deliberate silence F-6 asks for. Every gate here passed:
+the acceptance fence, three killed mutants, the registration check. None of them could see it,
+because they all asked whether the hook was quiet and it was quiet.
+
+**It was found by coincidence.** T5's fire-rate measurement used the same call to ask the palace
+about 25 symbols and reported a tidy `0 of 25`. Checking that zero against a canary — a query whose
+answer is certainly present — returned the same error 25 swallowed. The measurement was invalid and
+the hook was broken, one cause.
+
+**Fixed:** stderr and the exit code are captured and branched on, never emptiness. A recall that
+could not RUN prints one line saying so. That is not "reporting all good" — it is reporting a fault,
+which is the one thing a deliberately-quiet hook should still speak about. A token is passed from
+`AGENTSMEMORY_LOCAL_TOKEN`/`AGENTSMEMORY_TOKEN` with a placeholder fallback: a `--local` server
+ignores it, a hosted one rejects it loudly, and both outcomes are correct.
+
+**Left for the owner:** `aiagentmemory mcp` refusing to run without a token against a `--local`
+server is a client-side gate with nothing behind it — the server accepts any value. Fixing it there
+would remove the placeholder. Out of scope here; recorded rather than worked around silently.
+
 ## Reachability
 
 | Rung | How this task shows it |
@@ -96,6 +122,7 @@ falls (F-10).
   the fence passed with the mechanism broken
   ```
 - 2026-08-28 · 0a7005d · mutant killed · exit 1 · `clients/claude-code/hooks/agentsmemory-precompact-hook.sh` · the off-switch must short-circuit before the search · acceptance-sha256:1ca9f7ca6761a677b0e7390dc80ac05c8471a18eeab4ce7fbf66f584663846fc
+- 2026-08-28 · 36b67e4* · mutant killed · exit 1 · `clients/claude-code/hooks/agentsmemory-precompact-hook.sh` · the failure diagnostic: without it a broken recall is indistinguishable from an empty one, which is how this defect hid · acceptance-sha256:1ca9f7ca6761a677b0e7390dc80ac05c8471a18eeab4ce7fbf66f584663846fc
 
 ## Invariants
 
@@ -122,3 +149,4 @@ Stop if `PreCompact` does not fire, or fires without a usable payload, on the in
 - 2026-08-28 · 5a91bcc* · exit 0 · `docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'apk add --no-cache bash git >/dev/null && go test ./clients/claude-code/ -run "^(TestF6AHookIsSilentInTheCommonCase|TestPreCompactHookIsRegistered)$" -count=1 -v 2>&1 | tee /tmp/acc.out; ! grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/acc.out'` · acceptance-sha256:1ca9f7ca6761a677b0e7390dc80ac05c8471a18eeab4ce7fbf66f584663846fc
 - 2026-08-28 · 0a7005d* · exit 0 · `docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'apk add --no-cache bash git >/dev/null && go test ./clients/claude-code/ -run "^(TestF6AHookIsSilentInTheCommonCase|TestPreCompactHookIsRegistered)$" -count=1 -v 2>&1 | tee /tmp/acc.out; ! grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/acc.out'` · acceptance-sha256:1ca9f7ca6761a677b0e7390dc80ac05c8471a18eeab4ce7fbf66f584663846fc
 - 2026-08-28 · human-observed · mechanism shipped; delta not yet measurable — needs a measurement window of real compactions against the 27.6% baseline (F-10)
+- 2026-08-28 · 36b67e4 · exit 0 · `docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'apk add --no-cache bash git >/dev/null && go test ./clients/claude-code/ -run "^(TestF6AHookIsSilentInTheCommonCase|TestPreCompactHookIsRegistered)$" -count=1 -v 2>&1 | tee /tmp/acc.out; ! grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/acc.out'` · acceptance-sha256:1ca9f7ca6761a677b0e7390dc80ac05c8471a18eeab4ce7fbf66f584663846fc
