@@ -45,7 +45,7 @@ import "embed"
 // system, so that one extension both re-registers the remote agentsmemory tools
 // natively and fires the end-of-turn memory checkpoint.
 //
-//go:embed commands/M.md commands/am.md commands/load-skill.md hooks/agentsmemory-stop-hook.sh hooks/agentsmemory-verify-hook.sh hooks/agentsmemory-session-end-hook.sh hooks/agentsmemory-stats.sh hooks/agentsmemory-subagent-start-hook.sh agents/*.md agents/*.toml bootstrap.md extensions/agentsmemory.ts
+//go:embed commands/M.md commands/am.md commands/load-skill.md hooks/agentsmemory-stop-hook.sh hooks/agentsmemory-verify-hook.sh hooks/agentsmemory-session-end-hook.sh hooks/agentsmemory-stats.sh hooks/agentsmemory-subagent-start-hook.sh hooks/agentsmemory-precompact-hook.sh agents/*.md agents/*.toml bootstrap.md extensions/agentsmemory.ts
 var assets embed.FS
 
 // commandAssets are the slash-command files the kit installs, in the order they

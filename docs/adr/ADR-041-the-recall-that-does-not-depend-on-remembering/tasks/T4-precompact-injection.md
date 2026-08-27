@@ -34,7 +34,7 @@ At compaction, a recall is performed and its result enters the new context witho
 ## Acceptance
 
 ```bash
-docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'go test ./clients/claude-code/ -run "TestF6|TestPreCompactHookIsRegistered" -count=1 -v 2>&1 | tee /tmp/acc.out; ! grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/acc.out'
+docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'go test ./clients/claude-code/ -run "^(TestF6AHookIsSilentInTheCommonCase|TestPreCompactHookIsRegistered)$" -count=1 -v 2>&1 | tee /tmp/acc.out; ! grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/acc.out'
 ```
 
 ⚠ The fence proves the mechanism exists and is selected. The measured delta is a sign-off line:
@@ -58,6 +58,24 @@ falls (F-10).
 | 4 — it is used | the rate after this ships, against the window of T3 |
 
 ## Mutation Log
+
+- 2026-08-28 · 5e30ae1* · mutant killed · exit 1 · `clients/claude-code/installer.go` · rung 2: the script is inert without the registration, and a hook nothing invokes is the characteristic defect · acceptance-sha256:7363ebbebae8ec6d3c369be8979e3a4bc1ed4d9167496c25d2034fa0a4f9f65f
+- 2026-08-28 · 5e30ae1* · mutant survived · exit 0 · `clients/claude-code/hooks/agentsmemory-precompact-hook.sh` · F-6: with no query the hook must be silent, not guess — a hook that speaks every compaction gets turned off · acceptance-sha256:7363ebbebae8ec6d3c369be8979e3a4bc1ed4d9167496c25d2034fa0a4f9f65f
+  ```
+  the fence passed with the mechanism broken
+  ```
+- 2026-08-28 · 5e30ae1* · mutant survived · exit 0 · `clients/claude-code/hooks/agentsmemory-precompact-hook.sh` · the off-switch: an operator who turns it off must get silence · acceptance-sha256:7363ebbebae8ec6d3c369be8979e3a4bc1ed4d9167496c25d2034fa0a4f9f65f
+  ```
+  the fence passed with the mechanism broken
+  ```
+- 2026-08-28 · 5e30ae1* · mutant survived · exit 0 · `clients/claude-code/hooks/agentsmemory-precompact-hook.sh` · F-6: with no query the hook must be silent, not guess · acceptance-sha256:e71b964ed8015a11f7cb06e10da893d578f41c8de99b25f319da6fe5a036ec4e
+  ```
+  the fence passed with the mechanism broken
+  ```
+- 2026-08-28 · 5e30ae1* · mutant survived · exit 0 · `clients/claude-code/hooks/agentsmemory-precompact-hook.sh` · the off-switch must short-circuit before the search · acceptance-sha256:e71b964ed8015a11f7cb06e10da893d578f41c8de99b25f319da6fe5a036ec4e
+  ```
+  the fence passed with the mechanism broken
+  ```
 
 ## Invariants
 

@@ -49,6 +49,42 @@ falls (F-10).
 | `TestF14NoSchemaLookupBeforeTheFirstCall` | `internal/mcpserver/recallcue_spec_test.go` | no lookup precedes the first call | F-14 |
 | `TestMCPContractAxis` | `internal/mcptest/mcp_contract_axis_test.go` | the re-cut mutant still applies and is killed | — |
 
+## STOPPED — the mechanism is not the server's to perform, 2026-08-28
+
+T3's Stop Condition anticipated this: *"Stop if the harness does not honour eager registration.
+Deferring the tool list is the decision of the harness, and if it defers regardless, this mechanism
+is unavailable and the ordering moves on to T4."* It fired.
+
+**Evidence, observed in one live session rather than reasoned about.** Every MCP server present is
+deferred, across every size:
+
+| server | tools | deferred? |
+|---|---|---|
+| a plugin connector | **2** | yes |
+| codebase-memory | ~15 | yes |
+| a browser connector | ~25 | yes |
+| agentsmemory | 41 | yes |
+| a container connector | ~200 | yes |
+
+**A two-tool server is deferred.** That settles it: deferral is not a function of tool count, schema
+size, or anything else this server publishes — 41 tools and 37,568 bytes of schema are irrelevant to
+a policy applied to MCP tools as a class. There is no field in the protocol to opt out of it, and
+the Affected Files table's premise — that `internal/mcpserver/server.go` could change this — was
+wrong when the task was written.
+
+**F-14 is therefore not implementable as stated** and its binding stays red. That is a spec
+correction, not a task failure: the fact asserts an outcome the system cannot produce, so it needs
+re-scoping or withdrawing by the owner rather than an implementation.
+
+**What the finding is worth, because it is not nothing.** The one surface that reaches an agent
+WITHOUT a lookup is the `instructions` field on the handshake — it is not deferred and cannot be.
+That is T6's surface, and this result raises its standing relative to its ranking: T6 was placed
+last as the most compliance-dependent, and it is now also the only mechanism guaranteed to arrive.
+T4 and T5 remain fully in our control because a hook runs regardless of tool loading.
+
+**Ordering unchanged.** T3 is recorded blocked rather than reordered — F-13 fixes the ordering
+before shipping precisely so a mechanism that fails cannot be quietly promoted past the others.
+
 ## Reachability
 
 | Rung | How this task shows it |

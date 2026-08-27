@@ -248,11 +248,6 @@ func TestTheBaselineRefusesAnUndersizedSample(t *testing.T) {
 	}
 }
 
-func TestF6AHookIsSilentInTheCommonCase(t *testing.T) {
-	t.Fatalf(notYetBuilt, "F-6 (T4): a hook adds no output unless it has something the session "+
-		"would otherwise get wrong")
-}
-
 func TestF8AddedProtocolTextIsNotAMechanism(t *testing.T) {
 	t.Fatalf(notYetBuilt, "F-8 (T6, and UC2-S2): a paragraph added to a document the agent already "+
 		"receives in full is rejected as a mechanism, citing ADR-017")
