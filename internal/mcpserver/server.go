@@ -104,14 +104,103 @@ func (r *registrar) addWrite(tool mcp.Tool, handler server.ToolHandlerFunc) {
 	r.catalog = append(r.catalog, CatalogEntry{Name: tool.Name, Description: tool.Description, Write: true})
 }
 
+// writeSemantics is what a client cannot derive from "does this tool write".
+//
+// readOnlyHint falls out of which registrar method was used, and destructive and
+// idempotent do not: both are properties of what the handler DOES, and MCP defines
+// them only for tools that write. So they are declared, with the reason, and
+// TestWriteToolSemanticsCoversEveryWriteTool derives its universe from the
+// registrar rather than from this literal — a write tool added tomorrow joins the
+// check on the same commit instead of quietly defaulting.
+type writeSemantics struct {
+	idempotent  bool
+	destructive bool
+	why         string
+}
+
+// writeToolSemantics declares those two hints per write tool, keyed by short name.
+//
+// ⚠ THE DEFAULT IS THE REASON THIS EXISTS. MCP specifies destructiveHint as TRUE
+// when absent, so every write tool here has been advertising itself as possibly
+// destructive by omission — including am_add_drawer, which only ever adds. A client
+// building a confirmation prompt from the hints would have prompted on all of them,
+// which is the same as prompting on none.
+var writeToolSemantics = map[string]writeSemantics{
+	"add_drawer": {idempotent: true, destructive: false,
+		why: "re-filing the same source matches the row already holding each content key and " +
+			"updates it in place (ADR-038 T3), which is what its own description promises"},
+	"update_drawer": {idempotent: false, destructive: false,
+		why: "a content change SUPERSEDES: it mints a new record and ends the old one, so two " +
+			"identical calls leave two corrections. Nothing is destroyed — the ended record " +
+			"stays readable by id"},
+	"invalidate_drawer": {idempotent: true, destructive: false,
+		why: "InvalidateDrawer skips a chunk whose valid_to is already set, so a second call is " +
+			"a no-op. It ends a record rather than erasing it; erasure left the agent surface " +
+			"in ADR-038 T4"},
+	"mark_anchors": {idempotent: true, destructive: false,
+		why: "status by path — the same arguments leave the same state"},
+	"diary_write": {idempotent: false, destructive: false,
+		why: "APPEND-ONLY BY DESIGN, and this is the one entry worth reading twice: two " +
+			"identical reflections are two entries, which is exactly what the diary exemption " +
+			"in contentKeyOf exists to guarantee. Advertising it as idempotent would invite a " +
+			"client to collapse the retry that the store deliberately keeps"},
+	"mine": {idempotent: true, destructive: false,
+		why: "chunks and files under a named source, on the same dedupe path as add_drawer"},
+	"create_tunnel": {idempotent: true, destructive: false,
+		why: "the same endpoints and label resolve to the same tunnel"},
+	"kg_add": {idempotent: true, destructive: false,
+		why: "kgAddOn returns the existing triple id when the fact is already current, rather " +
+			"than inserting a second row"},
+	"kg_invalidate": {idempotent: true, destructive: false,
+		why: "it REFUSES when no CURRENT fact matches (#73), so a repeat ends nothing twice. " +
+			"The fact is kept and queryable as-of an earlier time"},
+	"kg_supersede": {idempotent: true, destructive: false,
+		why: "after the first call the old value is no longer current, so the second refuses " +
+			"with ErrFactNotFound rather than ending a second row"},
+	"recompute_graph": {idempotent: true, destructive: false,
+		why: "derived edges recomputed from the corpus: the same corpus yields the same graph"},
+	"reconnect": {idempotent: true, destructive: false,
+		why: "re-derives edges for drawers that have none; a drawer that already has one is " +
+			"left alone"},
+	"update_skill": {idempotent: false, destructive: false,
+		why: "every call bumps the skill's version, which is observable to the next am_load_skill " +
+			"— so a repeat is not without effect even when the body is byte-identical"},
+	"merge_wing": {idempotent: false, destructive: true,
+		why: "THE ONE DESTRUCTIVE TOOL LEFT ON THE AGENT SURFACE. It relabels a whole wing " +
+			"(ADR-015), the source wing ceases to exist under its old name, and calling it again " +
+			"with the old name finds nothing to move. Deliberately kept when the four delete " +
+			"verbs were removed, so the hint is the only warning a client gets"},
+}
+
 // classifyTool makes the execution policy visible on the wire at the same
 // chokepoint that enforces it. MCP clients can therefore fail closed from the
 // live tools/list response instead of maintaining a second read/write list that
 // drifts from the handlers actually registered here.
+//
+// It stamps all four hints, because a hint a client can branch on beats a sentence
+// it has to parse — and three of the four were left unset while the prose carried
+// the same claims. openWorldHint is false for every tool: MCP's own definition uses
+// memory access as its example of a CLOSED domain, and nothing here reaches outside
+// the caller's own workspace.
+//
+// An undeclared write tool is left with nil idempotent/destructive rather than
+// given a guess. nil is honestly "not stated"; a guess is a wrong answer a client
+// would act on, and TestWriteToolSemanticsCoversEveryWriteTool fails the build
+// before it ships.
 func classifyTool(tool mcp.Tool, write bool) mcp.Tool {
 	tool.Annotations.ReadOnlyHint = mcp.ToBoolPtr(!write)
+	tool.Annotations.OpenWorldHint = mcp.ToBoolPtr(false)
 	if !write {
+		// Both are defined by MCP only for a tool that writes. A read tool is
+		// trivially neither, and saying so costs nothing and stops a client
+		// treating "absent" as destructiveHint's default of true.
 		tool.Annotations.DestructiveHint = mcp.ToBoolPtr(false)
+		tool.Annotations.IdempotentHint = mcp.ToBoolPtr(true)
+		return tool
+	}
+	if s, ok := writeToolSemantics[strings.TrimPrefix(tool.Name, mcpprotocol.ToolPrefix)]; ok {
+		tool.Annotations.IdempotentHint = mcp.ToBoolPtr(s.idempotent)
+		tool.Annotations.DestructiveHint = mcp.ToBoolPtr(s.destructive)
 	}
 	return tool
 }
