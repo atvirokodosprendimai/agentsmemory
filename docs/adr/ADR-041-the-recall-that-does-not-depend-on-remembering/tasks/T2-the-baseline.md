@@ -13,8 +13,14 @@ enough real sessions. That is what the sign-off line is for.
 
 ## Goal
 
-A recorded number, with the sample size and window it was taken over, that later tasks are measured
-against.
+A recorded number, with the sample size, window AND CLASSIFIER PRECISION it was taken under, that
+later tasks are measured against.
+
+⚠ **Precision is not optional here, and T1's held-out run is why.** Measured 2026-08-27 over 46
+transcripts: the classifier runs at roughly 50% precision, so half the denominator is not the
+class. A bare rate would be quoted as though it meant one thing while meaning another. Report
+the rate, the sample size, the window, the classifier version and the precision it was judged
+at — or report nothing.
 
 ## Affected Files
 

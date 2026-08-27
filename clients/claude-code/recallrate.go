@@ -27,7 +27,7 @@ import (
 // ⚠ BUMP IT WHENEVER assertionShape OR assertionSubject CHANGES. Rates taken under
 // different versions are not comparable, and without this stamp tightening the
 // regex reads as a behaviour change in the thing being measured (spec F-16).
-const classifierVersion = "v1"
+const classifierVersion = "v2"
 
 // assertionShape matches the sentence form: a claim that nothing changed.
 var assertionShape = regexp.MustCompile(
@@ -71,12 +71,59 @@ var sentenceSplit = regexp.MustCompile(`(?:[.!?]\s+|\n)`)
 //
 // Exported for the fixture check below: a corpus that CONTAINS assertions must
 // produce matches, and that check needs to see the same decision the scan makes.
+//
+// ⚠ v2 ADDED TWO REJECTIONS, and they came from reading real matches rather than
+// from imagining failure modes. Measured 2026-08-27 over 46 local transcripts the
+// classifier was not tuned on: v1 matched 240 sentences, and hand-judging a random
+// sample of 25 found 12 genuine and 13 noise — 48% precision, which is a coin
+// flip. Two noise sources were systematic and cheap to remove; the third
+// (assertions about OTHER systems' APIs) is real, needs a lexicon rather than a
+// rule, and is left in with its cost recorded here rather than papered over.
 func IsNoChangeAssertion(sentence string) bool {
 	s := strings.TrimSpace(sentence)
 	if len(s) < 30 || len(s) > 400 {
 		return false
 	}
-	return assertionShape.MatchString(s) && assertionSubject.MatchString(s)
+	// A markdown table row is cells, not a sentence. The shape words land in them
+	// constantly — error columns, comparison tables — and none of it is a claim
+	// the writer is making in their own voice.
+	if strings.HasPrefix(s, "|") {
+		return false
+	}
+	if !assertionSubject.MatchString(s) {
+		return false
+	}
+	// QUOTING A CLAIM IS NOT MAKING ONE. `is not recognized as an internal or
+	// external command` is an error message being pasted, and "File count alone
+	// does not create an ADR" quoted from a document is that document's assertion,
+	// not this session's. Both matched v1. So the shape must appear OUTSIDE the
+	// backticked spans.
+	return assertionShape.MatchString(stripQuoted(s))
+}
+
+// stripQuoted removes backticked spans so a shape word inside one does not count.
+//
+// It also drops the sentence's own quoted-string content, which is where pasted
+// error text lives. Unbalanced backticks leave the tail intact rather than eating
+// it — a truncated snippet should not silently swallow a real assertion after it.
+func stripQuoted(s string) string {
+	var b strings.Builder
+	in := false
+	for _, r := range s {
+		if r == '`' {
+			in = !in
+			continue
+		}
+		if !in {
+			b.WriteRune(r)
+		}
+	}
+	if in {
+		// Unbalanced: the "quoted" tail was never closed, so treat the whole
+		// sentence as unquoted rather than discarding half of it.
+		return s
+	}
+	return b.String()
 }
 
 // recallTranscriptLine is the subset of a transcript record this reads.

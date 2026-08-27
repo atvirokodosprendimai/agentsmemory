@@ -1,0 +1,2 @@
+{"type": "assistant", "sessionId": "sess-noise2", "isSidechain": false, "message": {"content": [{"type": "text", "text": "`_evaluate_partial`: `if p is not None and p < floor` \u2014 unmeasured passes in the eval path"}]}}
+{"type": "assistant", "sessionId": "sess-noise2", "isSidechain": false, "message": {"content": [{"type": "text", "text": "| `runs-on: [self-hosted, linux]` size 8x runner attached to repo | gates and e2e queue forever (never run) |"}]}}

@@ -76,6 +76,38 @@ you check that by counting what it selects. Eight names, eight `=== RUN` lines.
 | `TestF17AMissIsRepresentable` | same | a session with zero recalls is a row, not an absence | F-17 |
 | `TestTheInstrumentIsCalledByTheHook` | `clients/claude-code/recallrate_reach_test.go` | the embedded hook script invokes the instrument | — |
 
+## Held-out evaluation, 2026-08-27
+
+Run against 46 local transcripts the classifier was NOT tuned on. Numbers, and what they do and
+do not support:
+
+| | v1 | v2 |
+|---|---|---|
+| matches | 240 | 220 |
+| precision (hand-judged sample) | 12/25 = **48%** | — |
+| sentences v2 removed | — | 20, **all 20 noise, 0 genuine** |
+
+⚠ **THE FIRST HELD-OUT SET WAS INADEQUATE AND SAID SO.** The four other transcripts in this repo
+returned **zero** assertions — and they are 40-83 lines each, ~3,000 characters of assistant prose
+in total. That is a true zero from an empty corpus, not a clean rate, and reporting it as one would
+be the exact false all-clear F-4 exists to catch. The corpus was widened rather than the number
+quoted.
+
+⚠ **NO MEASURABLE PRECISION IMPROVEMENT, AND THE APPARENT ONE WAS SAMPLING NOISE.** A second
+25-sentence sample under v2 judged 15/20 = 75%, which reads like a large gain and is not one: it is
+a different random draw. v2 removes 20 of 240 matches, which bounds any real improvement to roughly
+48% → 52%. The rejections were therefore judged COMPLETELY rather than sampled — all 20, every one
+noise — which is what justifies the change. The precision number does not.
+
+**What remains, and it is not fixable with another rule.** The surviving noise is assertions about
+OTHER systems (a third-party API, a model name, a shell semantic) and observations of live state
+(a service is not listening). Both are shape-correct and out of class, and telling them apart needs
+a lexicon or a different unit, not a regex. Recorded rather than papered over.
+
+**Consequence for T2, which changes that task:** a bare rate is not reportable. At ~50% precision
+half the denominator is not the class, so the baseline must carry its precision and sample size or
+it will be quoted as if it meant one thing when it means another.
+
 ## Reachability
 
 | Rung | How this task shows it |
@@ -94,6 +126,16 @@ you check that by counting what it selects. Eight names, eight `=== RUN` lines.
 - 2026-08-27 · 296d537* · mutant killed · exit 1 · `clients/claude-code/recallrate.go` · the classifier itself: with it gone every transcript reports zero assertions and a perfect rate · acceptance-sha256:40e8032187db8d66ff35a18ea02e928d8ddb30c37e5a9d7e84404bc98cc04c7a
 - 2026-08-27 · 296d537* · mutant killed · exit 1 · `clients/claude-code/recallrate.go` · the subject half: shape alone matched 154 sentences against 57, and the noise fixture proves it · acceptance-sha256:40e8032187db8d66ff35a18ea02e928d8ddb30c37e5a9d7e84404bc98cc04c7a
 - 2026-08-27 · 296d537* · mutant killed · exit 1 · `clients/claude-code/hooks/agentsmemory-stop-hook.sh` · rung 2: the instrument is a function nothing runs if the Stop hook does not call it · acceptance-sha256:40e8032187db8d66ff35a18ea02e928d8ddb30c37e5a9d7e84404bc98cc04c7a
+- 2026-08-27 · f369f4e* · mutant survived · exit 0 · `clients/claude-code/recallrate.go` · v2 table-row rejection: 8 of the 20 real noise matches were markdown table cells · acceptance-sha256:40e8032187db8d66ff35a18ea02e928d8ddb30c37e5a9d7e84404bc98cc04c7a
+  ```
+  the fence passed with the mechanism broken
+  ```
+- 2026-08-27 · f369f4e* · mutant killed · exit 1 · `clients/claude-code/recallrate.go` · v2 quoted-span rejection: quoting an error string is not asserting it · acceptance-sha256:40e8032187db8d66ff35a18ea02e928d8ddb30c37e5a9d7e84404bc98cc04c7a
+- 2026-08-27 · f369f4e* · mutant survived · exit 0 · `clients/claude-code/recallrate.go` · v2 table-row rejection: 8 of the 20 real noise matches were markdown table cells · acceptance-sha256:40e8032187db8d66ff35a18ea02e928d8ddb30c37e5a9d7e84404bc98cc04c7a
+  ```
+  the fence passed with the mechanism broken
+  ```
+- 2026-08-27 · f369f4e* · mutant killed · exit 1 · `clients/claude-code/recallrate.go` · v2 table-row rejection: 8 of the 20 real noise matches were markdown table cells · acceptance-sha256:40e8032187db8d66ff35a18ea02e928d8ddb30c37e5a9d7e84404bc98cc04c7a
 
 ## Invariants
 
@@ -145,3 +187,5 @@ Stop if the classifier cannot distinguish a no-change assertion from an ordinary
   ```
 - 2026-08-27 · 296d537* · exit 0 · `docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'go vet ./clients/claude-code/ && go test ./clients/claude-code/ -run "^(TestF1RecallRateIsCountedFromTranscripts|TestF2TheCountableUnitIsANoChangeAssertion|TestF4AClassifierThatMatchesNothingFailsLoudly|TestF5AnUnreadableTranscriptRecordsNothing|TestF15AnObservationCarriesCountsNotContent|TestF16AnObservationCarriesItsClassifierVersion|TestF17AMissIsRepresentable|TestTheInstrumentIsCalledByTheHook)$" -count=1 -v 2>&1 | tee /tmp/acc.out; ! grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/acc.out'` · acceptance-sha256:d473f551c8108bb776d106367899568f2a04991dd910057d63e57a4559710fda
 - 2026-08-27 · 296d537* · exit 0 · `docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'go vet ./clients/claude-code/ && go test ./clients/claude-code/ -run "^(TestF1RecallRateIsCountedFromTranscripts|TestF2TheCountableUnitIsANoChangeAssertion|TestF4AClassifierThatMatchesNothingFailsLoudly|TestF5AnUnreadableTranscriptRecordsNothing|TestF15AnObservationCarriesCountsNotContent|TestF16AnObservationCarriesItsClassifierVersion|TestF17AMissIsRepresentable|TestTheInstrumentIsCalledByTheHook)$" -count=1 -v 2>&1 | tee /tmp/acc.out; ! grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/acc.out'` · acceptance-sha256:40e8032187db8d66ff35a18ea02e928d8ddb30c37e5a9d7e84404bc98cc04c7a
+- 2026-08-27 · f369f4e* · exit 0 · `docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'go vet ./clients/claude-code/ && go test ./clients/claude-code/ -run "^(TestF1RecallRateIsCountedFromTranscripts|TestF2TheCountableUnitIsANoChangeAssertion|TestF4AClassifierThatMatchesNothingFailsLoudly|TestF5AnUnreadableTranscriptRecordsNothing|TestF15AnObservationCarriesCountsNotContent|TestF16AnObservationCarriesItsClassifierVersion|TestF17AMissIsRepresentable|TestTheInstrumentIsCalledByTheHook)$" -count=1 -v 2>&1 | tee /tmp/acc.out; ! grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/acc.out'` · acceptance-sha256:40e8032187db8d66ff35a18ea02e928d8ddb30c37e5a9d7e84404bc98cc04c7a
+- 2026-08-27 · f369f4e* · exit 0 · `docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'go vet ./clients/claude-code/ && go test ./clients/claude-code/ -run "^(TestF1RecallRateIsCountedFromTranscripts|TestF2TheCountableUnitIsANoChangeAssertion|TestF4AClassifierThatMatchesNothingFailsLoudly|TestF5AnUnreadableTranscriptRecordsNothing|TestF15AnObservationCarriesCountsNotContent|TestF16AnObservationCarriesItsClassifierVersion|TestF17AMissIsRepresentable|TestTheInstrumentIsCalledByTheHook)$" -count=1 -v 2>&1 | tee /tmp/acc.out; ! grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/acc.out'` · acceptance-sha256:40e8032187db8d66ff35a18ea02e928d8ddb30c37e5a9d7e84404bc98cc04c7a

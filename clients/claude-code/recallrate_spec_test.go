@@ -71,6 +71,16 @@ func TestF2TheCountableUnitIsANoChangeAssertion(t *testing.T) {
 			noise.Assertions)
 	}
 
+	// v2's two rejections, driven by real text that v1 counted. Judged complete
+	// rather than sampled: all 20 sentences v2 removed from a 46-transcript corpus
+	// were noise, and none were genuine.
+	quoted, _ := Observe(filepath.Join(fixtures, "quoted.jsonl"))
+	if quoted.Assertions != 0 {
+		t.Errorf("quoted fixture matched %d, want 0 — a markdown table row is cells rather than "+
+			"a sentence, and a shape word inside backticks is an error string being pasted. "+
+			"Quoting a claim is not making one.", quoted.Assertions)
+	}
+
 	// A subagent transcript counts. Dropping isSidechain the way mineclaude does
 	// would exclude the population most likely to skip a recall.
 	sub, _ := Observe(filepath.Join(fixtures, "subagent.jsonl"))
