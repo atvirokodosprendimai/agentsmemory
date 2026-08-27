@@ -41,7 +41,30 @@ QUERY="$(printf '%s %s' "${BRANCH:-}" "${FILES:-}" | tr -s ' ' | sed 's/^ *//;s/
 [ -n "$QUERY" ] || exit 0
 [ "${#QUERY}" -ge 8 ] || exit 0
 
-HITS="$(aiagentmemory mcp search "$QUERY" -a limit=3 -a snippet_chars=300 2>/dev/null || true)"
+# ⚠ A HOOK THAT CANNOT ASK MUST NOT LOOK LIKE A HOOK WITH NOTHING TO SAY. The
+# first version wrote `2>/dev/null || true`, which made every failure — a missing
+# token, an unreachable server, a renamed flag — identical to a clean empty recall.
+# It was found by accident: the same call, used to MEASURE something else, returned
+# 25 clean zeroes that were 25 swallowed errors. On a --local install this hook
+# could never have spoken, and would have looked like F-6 working the whole time.
+#
+# `mcp` demands a workspace token even against a --local server, which has none and
+# accepts any value. So pass the operator's token when there is one, and a
+# placeholder when there is not — the local server ignores it, and a hosted one
+# rejects it loudly, which is the correct outcome in both cases.
+ERRFILE="$(mktemp 2>/dev/null || echo /tmp/agentsmemory-precompact.err)"
+HITS="$(aiagentmemory mcp search "$QUERY" -a limit=3 -a snippet_chars=300 \
+  --token "${AGENTSMEMORY_LOCAL_TOKEN:-${AGENTSMEMORY_TOKEN:-local}}" 2>"$ERRFILE")"
+RC=$?
+if [ "$RC" -ne 0 ]; then
+  # This is not "reporting all good" — it is reporting a fault, which is the one
+  # thing F-6 asks a hook to speak about.
+  printf 'agentsmemory: the PreCompact recall could not run, so this session starts without one: %s\n' \
+    "$(head -n1 "$ERRFILE" 2>/dev/null)"
+  rm -f "$ERRFILE"
+  exit 0
+fi
+rm -f "$ERRFILE"
 [ -n "$HITS" ] || exit 0
 
 # count is the server's own field; no hits means nothing worth a line.

@@ -131,6 +131,45 @@ func TestF6AHookIsSilentInTheCommonCase(t *testing.T) {
 		t.Errorf("the hook had a hit and said nothing: %q", out)
 	}
 
+	// ⚠ A FAILING RECALL IS NOT SILENCE. The stub exits non-zero; the hook must say
+	// so. Without this the hook is silent whether the palace had nothing or the call
+	// never worked, and on a --local install — where `mcp` demands a token that does
+	// not exist — it would have been permanently the second while looking like the
+	// first. That is how this was found: 25 measurement queries returned clean
+	// zeroes that were 25 swallowed errors.
+	broken := place(t)
+	brokenBin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(brokenBin, "aiagentmemory"),
+		[]byte("#!/usr/bin/env bash\necho 'no workspace token found' >&2\nexit 1\n"), 0o755); err != nil {
+		t.Fatalf("stub: %v", err)
+	}
+	for _, args := range [][]string{{"init"}, {"config", "user.email", "t@example.test"},
+		{"config", "user.name", "t"}, {"commit", "--allow-empty", "-m", "base"}} {
+		c := exec.Command("git", args...)
+		c.Dir = broken
+		if out, err := c.CombinedOutput(); err != nil {
+			t.Skipf("git unavailable: %v: %s", err, out)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(broken, "recallrate.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	stage := exec.Command("git", "add", "-A")
+	stage.Dir = broken
+	_, _ = stage.CombinedOutput()
+	cmd := exec.Command("bash", filepath.Join(broken, "precompact.sh"))
+	cmd.Dir = broken
+	cmd.Stdin = strings.NewReader(`{"hook_event_name":"PreCompact"}`)
+	cmd.Env = append(os.Environ(), "PATH="+brokenBin+":"+os.Getenv("PATH"), "CLAUDE_PROJECT_DIR="+broken)
+	bout, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("the hook failed the session on a failed recall (%v) — it must never do that", err)
+	}
+	if !strings.Contains(string(bout), "could not run") {
+		t.Errorf("a failed recall produced %q — silence here is indistinguishable from having "+
+			"nothing to say, which is how a hook that can never speak looks healthy", string(bout))
+	}
+
 	// ⚠ THE OFF-SWITCH IS TESTED HERE, IN THE LIVE TREE, and the placement is the
 	// point. Run in an empty directory it passes whatever the switch does, because
 	// the empty-query guard produces the silence — which is exactly how its first
