@@ -154,30 +154,32 @@ is there. It is the discipline that keeps this tier from becoming a second corpu
 
 ## Alternatives Considered
 
-- **A stable opaque id plus a name→id pointer.** ⚠ **This alternative did not exist when the record
-  was first written — ADR-038 created it hours later, and it is the strongest one on this list.**
-  Since a drawer's id is now minted once and never recomputed, a name could simply point at it:
+- **A stable opaque id plus a name→id pointer.** REJECTED on three counts, below. ⚠ **This
+  alternative did not exist when the record was first written — ADR-038 created it hours later, and
+  it is the strongest one on this list.** Since a drawer's id is now minted once and never
+  recomputed, a name could simply point at it:
   `am_kg_add(subject: "root", predicate: "points_at", object: <64-hex>)`. A 64-hex id is 64 runes,
   comfortably inside `MaxKGValueLen = 128`, so this needs **no new table and no new tool** — a real
   advantage this proposal does not have, and the reason it deserves arguing rather than listing.
 
-  REJECTED, on three counts:
-  1. **The resolve step inherits the exact failure this record exists to delete.** `am_kg_query`
-     fails open: a mistyped or absent name returns `count: 0` with no error, indistinguishable from a
-     graph that holds nothing. So `read("root")` becomes *resolve-then-fetch*, where the resolve can
-     silently answer "nothing" and the caller cannot tell. Property 2 below — read fails **closed** —
-     is not a nicety; it is the difference between an entry point and a trap, and a pointer cannot
-     have it while the graph fails open.
-  2. **It leaves the payload problem untouched.** The thing at the end of the pointer is still a
-     drawer: chunked at `ChunkSize`, refused for in-place update above `MaxEmbedRunes = 4000`, and
-     **embedded into the ranked pool**. So "DO NOT GROW THIS DRAWER" survives, and session-start
-     content keeps competing with real memories for top-1 — the ADR-003 cost this record protects
-     against. Naming the address does not un-rank the content.
-  3. **It creates a second thing to keep true.** The pointer and the row are now two records of one
-     address. Under ADR-038 a re-file **ends** the old row rather than overwriting it, so a pointer
-     can come to name an ended row while still resolving — and that is measured, not hypothetical:
-     ADR-038 shipped `doctor --corpus` because 16 facts already named a drawer that no longer
-     existed, and it reports "points at an ENDED row" as a distinct third state for this reason.
+  **(1) The resolve step inherits the exact failure this record exists to delete.** `am_kg_query`
+  fails open: a mistyped or absent name returns `count: 0` with no error, indistinguishable from a
+  graph that holds nothing. So `read("root")` becomes *resolve-then-fetch*, where the resolve can
+  silently answer "nothing" and the caller cannot tell. Property 2 above — read fails **closed** — is
+  not a nicety; it is the difference between an entry point and a trap, and a pointer cannot have it
+  while the graph fails open.
+
+  **(2) It leaves the payload problem untouched.** The thing at the end of the pointer is still a
+  drawer: chunked at `ChunkSize`, refused for in-place update above `MaxEmbedRunes = 4000`, and
+  **embedded into the ranked pool**. So "DO NOT GROW THIS DRAWER" survives, and session-start content
+  keeps competing with real memories for top-1 — the ADR-003 cost this record protects against.
+  Naming the address does not un-rank the content.
+
+  **(3) It creates a second thing to keep true.** The pointer and the row are now two records of one
+  address. Under ADR-038 a re-file **ends** the old row rather than overwriting it, so a pointer can
+  come to name an ended row while still resolving — and that is measured, not hypothetical: ADR-038
+  shipped `doctor --corpus` because 16 facts already named a drawer that no longer existed, and it
+  reports "points at an ENDED row" as a distinct third state for this reason.
 
   ★ **The honest summary: this alternative fixes the *address*, and this record is about the
   *address and the payload together*.** If only the address were broken, this would win on cost.
@@ -245,33 +247,12 @@ last-N can be added later without an API change, because `history` is paged from
 
 ## Out of Scope
 
-- **Search over KV** (permanent: it is the known-address tier, and giving it recall would put the
-  ephemera back in the ranked pool this record exists to keep it out of).
-- **Relations** (permanent: `id|id|how` is the graph's job and the graph does it well; a second
-  edge store would be two answers to one question).
-- **`kg_supersede`** (permanent: **shipped, and this entry is what it looked like before it did**).
-  ⚠ The first draft called this "a real, separate gap … ADR-010 (Proposed) already covers the
-  principle. Filed to `wing_agentmemories`/`inbox`." All three clauses have since gone false:
-  `am_kg_supersede` **landed in ADR-038 T4** — `KGSupersede` at `internal/palace/supersede.go:205`,
-  registered at `internal/mcpserver/kg.go:126`, in one transaction with `reason` required — and
-  ADR-010 is **CLOSED**, absorbed by ADR-038. The inbox item is stale and its atomic-verb half is
-  closed; only the boundary-overlap half survives, in issue #47.
-- **Per-tool guidance for `am_kv_store`'s commands** (deferred: **ADR-040, PR #77** — "the schema
-  carries the pairing"). Review proposed MCP's `instructions` field as the home for the key grammar.
-  That question is already being decided one record over, and ADR-040 answers it in a way that
-  constrains this one: **there is no per-tool `instructions` field** in mcp-go v0.55.1 (it lists and
-  rejects exactly that), and lengthening the *server-level* one is rejected there at 1,143 bytes of a
-  tested budget (`TestInstructionsStayShort`, `instructions_test.go:151` — ADR-040 cites `:153`;
-  re-checked against `main` here), defended by ADR-017's measurement. ⚠ ADR-040 also flags the "clients do not truncate it" premise as unverified — its
-  risk table requires any truncation figure to "name the client and the version it was measured on,
-  or it is folklore wearing a number". **So this record should not adopt the suggestion
-  independently; the two must be read together.**
-- **ADR-027's remaining open question** (deferred: ADR-038's own recorded follow-up) — a reference
-  pointing at a non-parent chunk that a re-chunk deletes. It is *upstream* of this record's ADR-027
-  qualification above: both concern where ADR-027's authority ends now that ids are opaque, and they
-  are worth resolving in one pass rather than two.
-- **Deploying `am_bootstrap`/`am_entry_point`** (permanent: already built, merged and deployed —
-  the hosted catalogue serves both, verified 2026-08-27).
+- **Search over KV** — giving this tier recall would put the ephemera back in the ranked pool the record exists to keep out of it (permanent: it is the known-address tier by construction)
+- **Relations** — `id|id|how` is the graph's job and the graph does it well; a second edge store would be two answers to one question (permanent: the graph owns relations)
+- **`kg_supersede`** — ⚠ this entry is what the gap looked like before it was closed, and it is kept rather than deleted because the next reader will check it. The first draft called it "a real, separate gap … ADR-010 (Proposed) already covers the principle. Filed to `wing_agentmemories`/`inbox`." All three clauses have since gone false: `am_kg_supersede` landed in ADR-038 T4 — `KGSupersede` at `internal/palace/supersede.go:205`, registered at `internal/mcpserver/kg.go:126`, in one transaction with `reason` required — and ADR-010 is CLOSED, absorbed by ADR-038. The inbox item is stale and its atomic-verb half is closed; only the boundary-overlap half survives, in issue #47 (permanent: shipped in ADR-038 T4, and not this record's work)
+- **Per-tool guidance for `am_kv_store`'s five commands** — review proposed MCP's `instructions` field as the home for the key grammar, and that question is already being decided one record over. ADR-040 answers it in a way that constrains this one: there is **no per-tool `instructions` field** in mcp-go v0.55.1, which ADR-040 lists and rejects explicitly, and lengthening the *server-level* one is rejected there at 1,143 bytes of a tested budget — `TestInstructionsStayShort`, `instructions_test.go:151`, where ADR-040 itself cites `:153`; re-checked against `main` here — defended by ADR-017's measurement. ⚠ ADR-040 also flags the "clients do not truncate it" premise as unverified, its risk table requiring any truncation figure to "name the client and the version it was measured on, or it is folklore wearing a number". So this record must not adopt the suggestion independently; the two are read together (deferred: `docs/adr/BACKLOG.md` — ADR-040 on PR #77, "the schema carries the pairing", owns this question; the pointer names the backlog rather than that record because ADR-040 is not on `main` yet and a pointer into another branch resolves to nothing)
+- **ADR-027's remaining open question** — a reference pointing at a non-parent chunk that a re-chunk deletes. It is *upstream* of this record's ADR-027 qualification above: both concern where ADR-027's authority ends now that ids are opaque, and they are worth resolving in one pass rather than two (deferred: `docs/adr/BACKLOG.md` — it is ADR-038's own recorded follow-up, and this branch predates that record, so the backlog is the destination that resolves from here)
+- **Deploying `am_bootstrap`/`am_entry_point`** — the hosted catalogue serves both, verified 2026-08-27 (permanent: already built, merged and deployed)
 
 ## Risks
 
