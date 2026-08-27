@@ -108,6 +108,37 @@ a lexicon or a different unit, not a regex. Recorded rather than papered over.
 half the denominator is not the class, so the baseline must carry its precision and sample size or
 it will be quoted as if it meant one thing when it means another.
 
+## v3 was built, measured, and REJECTED — 2026-08-28
+
+F-2 was narrowed in the spec to require the subject to RESOLVE in the working tree — a
+declaration-anchored rule, which `wing_craft` prefers over a prose one. The first implementation of
+that rule was a symbol index over file basenames and Go top-level declarations. It was measured
+before shipping, and it failed.
+
+| | v2 | v3 (symbol index) |
+|---|---|---|
+| matches on one rich transcript | 96 | 24 (25% kept) |
+| judged precision of what it KEEPS | — | 10/15 ≈ 67% |
+| judged precision of what it DISCARDS | — | ~10 of 15 sampled were GENUINE |
+
+**It discarded roughly two-thirds of the true class, including the single most canonical instance in
+the corpus:** *"`am_kg_query` does not fail open."* That is the sentence this record exists because
+of, and the index could not see it — `am_kg_query` is an MCP tool name assembled as
+`ToolPrefix + "kg_query"`, so it appears in no filename and no Go declaration.
+
+**The lesson, and it is not "the narrowing was wrong".** A declaration anchor is only as good as the
+set of declarations it can see, and the surface agents actually assert about — tool names, wire
+fields, predicates, room names — is *constructed at runtime* rather than declared in source. An
+index built by walking files is blind to exactly the vocabulary that matters here.
+
+⚠ **Precision improved while the instrument got worse.** 48% → 67% reads like progress and is the
+opposite: recall collapsed, and a rate over a quarter of the class measures something else. Judging
+what a filter KEEPS cannot detect this. Only judging what it DISCARDS can, which is the same
+complete-judgement method that justified v2 and is now the rule for any future narrowing.
+
+**Left at v2.** F-2's narrowing stands as the decision; this implementation of it does not, and the
+next attempt needs a resolver that can see the constructed surface — not another walk of the tree.
+
 ## Reachability
 
 | Rung | How this task shows it |
@@ -189,3 +220,4 @@ Stop if the classifier cannot distinguish a no-change assertion from an ordinary
 - 2026-08-27 · 296d537* · exit 0 · `docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'go vet ./clients/claude-code/ && go test ./clients/claude-code/ -run "^(TestF1RecallRateIsCountedFromTranscripts|TestF2TheCountableUnitIsANoChangeAssertion|TestF4AClassifierThatMatchesNothingFailsLoudly|TestF5AnUnreadableTranscriptRecordsNothing|TestF15AnObservationCarriesCountsNotContent|TestF16AnObservationCarriesItsClassifierVersion|TestF17AMissIsRepresentable|TestTheInstrumentIsCalledByTheHook)$" -count=1 -v 2>&1 | tee /tmp/acc.out; ! grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/acc.out'` · acceptance-sha256:40e8032187db8d66ff35a18ea02e928d8ddb30c37e5a9d7e84404bc98cc04c7a
 - 2026-08-27 · f369f4e* · exit 0 · `docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'go vet ./clients/claude-code/ && go test ./clients/claude-code/ -run "^(TestF1RecallRateIsCountedFromTranscripts|TestF2TheCountableUnitIsANoChangeAssertion|TestF4AClassifierThatMatchesNothingFailsLoudly|TestF5AnUnreadableTranscriptRecordsNothing|TestF15AnObservationCarriesCountsNotContent|TestF16AnObservationCarriesItsClassifierVersion|TestF17AMissIsRepresentable|TestTheInstrumentIsCalledByTheHook)$" -count=1 -v 2>&1 | tee /tmp/acc.out; ! grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/acc.out'` · acceptance-sha256:40e8032187db8d66ff35a18ea02e928d8ddb30c37e5a9d7e84404bc98cc04c7a
 - 2026-08-27 · f369f4e* · exit 0 · `docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'go vet ./clients/claude-code/ && go test ./clients/claude-code/ -run "^(TestF1RecallRateIsCountedFromTranscripts|TestF2TheCountableUnitIsANoChangeAssertion|TestF4AClassifierThatMatchesNothingFailsLoudly|TestF5AnUnreadableTranscriptRecordsNothing|TestF15AnObservationCarriesCountsNotContent|TestF16AnObservationCarriesItsClassifierVersion|TestF17AMissIsRepresentable|TestTheInstrumentIsCalledByTheHook)$" -count=1 -v 2>&1 | tee /tmp/acc.out; ! grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/acc.out'` · acceptance-sha256:40e8032187db8d66ff35a18ea02e928d8ddb30c37e5a9d7e84404bc98cc04c7a
+- 2026-08-28 · 2efb5bc* · exit 0 · `docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'go vet ./clients/claude-code/ && go test ./clients/claude-code/ -run "^(TestF1RecallRateIsCountedFromTranscripts|TestF2TheCountableUnitIsANoChangeAssertion|TestF4AClassifierThatMatchesNothingFailsLoudly|TestF5AnUnreadableTranscriptRecordsNothing|TestF15AnObservationCarriesCountsNotContent|TestF16AnObservationCarriesItsClassifierVersion|TestF17AMissIsRepresentable|TestTheInstrumentIsCalledByTheHook)$" -count=1 -v 2>&1 | tee /tmp/acc.out; ! grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/acc.out'` · acceptance-sha256:40e8032187db8d66ff35a18ea02e928d8ddb30c37e5a9d7e84404bc98cc04c7a
