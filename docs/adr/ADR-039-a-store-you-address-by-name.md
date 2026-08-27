@@ -5,7 +5,7 @@
 **Owner:** M
 **Spec:** None — no spec stage. Grounded in the declarations at `internal/palace/chunk.go:56` (`MaxEmbedRunes`), `:140` (`DrawerID`), `internal/palace/contentkey.go:297` (`mintOrReuse`), `internal/palace/kg.go:35` (`MaxKGValueLen`), `internal/mcpserver/drawers.go:56` (`wholeMemoryBudget`), `db/migrations/00001_init.sql:61` (`skills`), `db/migrations/00010_kg.sql:22` (`kg_triples`), plus a serialisation measurement recorded inline. ⚠ Line numbers are as of `main` at `5760bca`, re-checked 2026-08-27 after review; this record was first written against `7e8870a`, and three of its citations had already moved.
 **Cross-references:** ADR-027 (a maintained document is a set of records — **qualified here, see Invalidates**), ADR-036 (the bootstrap surface this complements), ADR-038 (opaque ids — **it landed under this record and rewrote its Context; see below**), ADR-040 (the schema carries the pairing — where per-tool guidance is being decided, PR #77), ADR-003 (retire the closet prior — the ranking cost this protects), ADR-010 (supersede, do not overwrite — **CLOSED, absorbed in full by ADR-038**), ADR-013 (a page of memories, not chunks), ADR-016 (a memory an agent files must be navigable), `internal/mcpserver/catalog_test.go:429` (`TestEveryCatalogToolIsNamedInTheReadme`)
-**Numbering:** next free after ADR-038, which **merged 2026-08-27** (PR #72 at 08:09:36Z, execution PR #76 at 13:54:56Z) and is now head on `main`. Union-checked across every open PR head 2026-08-27: only ADR-039 (PR #75) and ADR-040 (PR #77) are claimed, no collision. ⚠ **Allocate at merge** — a per-branch check is blind to cross-branch collisions, the rule this repo recorded after its ADR-number collision. Same for the migration: **`00033` is head on `main`** (ADR-038 took `00030`–`00033`), so the next free is **`00034`**.
+**Numbering:** next free after ADR-038, whose status line reads **Accepted** and which **merged 2026-08-27** (PR #72 at 08:09:36Z, execution PR #76 at 13:54:56Z). This branch now carries `main`, so ADR-038 is present in-tree and its citations resolve from here. Union-checked across every open PR head 2026-08-27: only ADR-039 (PR #75) and ADR-040 (PR #77) are claimed, no collision. ⚠ **Allocate at merge** — a per-branch check is blind to cross-branch collisions, the rule this repo recorded after its ADR-number collision. Same for the migration: **`00033` is head on `main`** (ADR-038 took `00030`–`00033`), so the next free is **`00034`**.
 **Invalidates:** none outright. ⚠ **QUALIFIES ADR-027 (Accepted)** for one class of document — see below. Checked by grepping ADR-001..038 on `main`, plus ADR-039/040 on their open branches, for `key/value`, `kv_`, `author-chosen`, `addressed by name`: no accepted ADR governs a name-addressed store. ADR-027 governs the adjacent question and its rule 3 phrase ("the spine stores how to traverse, never what is there") is adopted here verbatim rather than displaced.
 **Served-path change:** **Yes.** One new table, one new MCP tool. No existing tool signature, default, or ranking path changes.
 
@@ -18,8 +18,14 @@ walks a 64-hex drawer id through the KG. ADR-036 measured the client-side form a
 
 Three hops exist only to compensate for a defect, and the root drawer carries prose to paper over
 each: identify-by-content-prefix, because there is no address; three predicate sweeps, because
-corrections are incoming edges; and `⚠IF STEP 1 RETURNS ZERO EDGES IT FAILED — STOP`, because
-`am_kg_query` fails open.
+corrections are incoming edges; and `⚠IF STEP 1 RETURNS ZERO EDGES IT FAILED — STOP`.
+
+⚠ **That third hop is a WORKAROUND FOR A DEFECT THAT IS ALREADY FIXED, and this record originally
+said otherwise.** ADR-036 T2 gave the lookup `matched` / `known_term_no_facts` / `unknown_term`, so
+the prose warning survives in the root drawer as folklore rather than as a live compensation. The
+honest count is therefore **two** compensating hops, not three — and the palace itself was the source
+of the error: its `must.craft.traps` record still asserted the old fail-open behaviour while the
+`start-here` skill had the correction, and this record followed the wrong one.
 
 **The root cause is that every address in this system is derived, not chosen.**
 
@@ -58,16 +64,18 @@ chosen.** That is the gap.
 
 ## Decision
 
-Add **`am_kv_store`** — a team-scoped, versioned key/value store addressed by an author-chosen name.
+Add a team-scoped, versioned store addressed by an author-chosen name, as **five tools — one per
+operation**, not one tool with a `command` argument.
 
 ```jsonc
-am_kv_store({
-  command: "read" | "write" | "delete" | "list" | "history",
-  id:      "root",       // author-chosen key. NO wing param.
-  payload: "…",          // write, <= 36,000 runes
-  version:  3,           // read, optional -> latest
-  limit: 50, offset: 0   // list | history
-})
+// registrar.add — no role gate, available to every member
+am_kv_read({    id: "agentsmemory.root", version?: 7 })      // omit version -> latest
+am_kv_list({    id: "agentsmemory.must.", limit, offset })    // id is a PREFIX here
+am_kv_history({ id: "agentsmemory.root",  limit, offset })    // metadata only, never payloads
+
+// registrar.addWrite — role-gated, refused for a member key
+am_kv_write({   id: "agentsmemory.root", payload: "…", if_version?: 7 })
+am_kv_delete({  id: "agentsmemory.root" })
 ```
 
 ```sql
@@ -76,81 +84,141 @@ CREATE TABLE kv_entries (
     id         TEXT NOT NULL,
     version    INTEGER NOT NULL,
     payload    TEXT NOT NULL,
+    written_by TEXT NOT NULL,   -- which key wrote it; a version with no origin is unattributable
     written_at TEXT NOT NULL,
     PRIMARY KEY (team_id, id, version)
 );
 ```
 
-Five properties, each load-bearing:
+Eight properties, each load-bearing:
 
 1. **The key is chosen, not derived.** `root` survives every edit. This is the whole point.
-2. **`read` on a missing key is an ERROR.** Fails closed, unlike `am_kg_query`'s `count:0`-no-error.
-   This retires `⚠IF STEP 1 RETURNS ZERO EDGES` from prose an agent must remember into the protocol.
+2. **`am_kv_read` on a missing key is an ERROR**, not an empty success — a bootstrap that cannot
+   distinguish "absent" from "empty" builds a pointer to nowhere and reports success.
+   ⚠ **An earlier draft justified this by contrast with `am_kg_query`'s "`count:0` and no error". That
+   contrast is FALSE and is withdrawn:** ADR-036 T2 gave the lookup three resolutions — `matched`,
+   `known_term_no_facts`, `unknown_term` — rendered at `internal/mcpserver/kg.go:196`, and
+   `KGResolution`'s own doc (`internal/palace/kg.go:453-477`) records the old behaviour in the past
+   tense. The graph already fails closed. This property is therefore **consistency with an existing
+   guarantee, not a new one**, and the `⚠IF STEP 1 RETURNS ZERO EDGES` prose it claimed to retire was
+   already obsolete when this record was written.
 3. **No embedding, no chunking, no ranking.** `MaxEmbedRunes` does not apply, and this content never
    enters the ranked pool.
-4. **Keep all versions, paged.** `read` returns latest; `history` returns **metadata only**
-   (`version`, `written_at`, `runes`, `first_line`) plus `total_versions`, newest first. `delete`
-   takes every version of a key.
+4. **Keep all versions, paged.** `am_kv_read` returns latest; `am_kv_history` returns **metadata
+   only** (`version`, `written_at`, `written_by`, `bytes`, `first_line`) plus `total_versions`,
+   newest first.
 5. **Team-scoped; keys flat-dotted**, the same grammar as KG predicates, so one vocabulary. The tier
-   lives in the key, so `list` with prefix `must.` **is** the must tier — no KG hop, and nothing
-   points at a key for tier reasons.
-6. ⚠ **The first dotted segment is a namespace, and the server requires it.** Added 2026-08-27 in
-   response to review; see the argument below.
+   lives in the key, so `am_kv_list` with prefix `must.` **is** the must tier — no KG hop, and
+   nothing points at a key for tier reasons.
+6. **The first dotted segment is a namespace, and the server requires it** on `write` and `list`.
+7. ⚠ **The cap is 36,000 SERIALIZED BYTES, not runes**, refused at write time. Runes were the wrong
+   unit: the risk is that a response exceeds `wholeMemoryBudget` and spills to a file the agent never
+   sees, and that budget is in bytes. An escape-heavy or multibyte payload passes a rune cap and
+   fails the byte one, which would create a key that can be written and **never read** — precisely
+   the failure the cap exists to prevent. The 4.2%/7.3% overhead samples are English prose and are
+   **not** a worst-case bound; measuring the bound is a task, not a claim.
+8. ⚠ **`am_kv_write` takes an optional `if_version`** — write only if the current version is that
+   one, else refuse with the current version. Without it, two sessions editing one key silently
+   produce successive versions where the second overwrites the first's intent. See the ADR-027
+   section: this is the concurrency guarantee ADR-027 gets from per-part records.
 
-**Why the namespace is enforced rather than conventional.** A team is a workspace and a workspace
-holds many projects — this one holds 13 wings. Team scope with free-form keys therefore means two
-projects both reaching for `root` collide silently, and `list` with prefix `must.` returns another
+### ⚠ Why five tools rather than one with a `command` argument
+
+**This is the change the second review forced, and it is this record finishing an argument it had
+only half-made.** Alternatives below reject a positional dispatcher because *"a tool description is
+the strongest guidance surface — present at the moment of the call, in every client."* One tool
+carrying five behaviours is a milder version of the same defect: one description doing five jobs.
+
+But the decisive reason is authorization, and it is structural rather than stylistic.
+`internal/mcpserver/server.go` splits registration into `registrar.add` and `registrar.addWrite`, and
+**the caller's role is enforced only inside `addWrite`** — its own comment says the split "is not
+bookkeeping". A single mixed-mode tool cannot be registered correctly in that model:
+
+- registered with `add`, its `write` and `delete` paths **bypass the role guard entirely**, and
+  `TestEveryMutatingToolIsRegisteredAsAWrite` (`internal/mcpserver/writeauth_test.go:61`) fails the
+  build — correctly;
+- registered with `addWrite`, a read-only member loses `read`, `list` and `history`, which are the
+  three calls a bootstrap is made of.
+
+Static per-tool annotations do not help: the hint is per *tool*, and the mode here varies per
+*command*. **One operation per tool is the only shape this repo's authorization model can express.**
+
+★ **It also dissolves this record's dependency on ADR-040.** The earlier draft needed somewhere to
+put guidance for five commands and looked to the MCP `instructions` channel. Five tools each carry
+their own description at the moment of their own call, so the guidance has a home by construction.
+
+### ⚠ Why the namespace is enforced rather than conventional
+
+A team is a workspace and a workspace holds many projects. Team scope with free-form keys means two
+projects both reaching for `root` interfere, and `am_kv_list` with prefix `must.` returns another
 project's must tier as if it were yours. The first draft mitigated that with prose ("each project
 writes its key conventions in its own `AGENTS.md`") plus "`list` exposes it". **That is the mitigation
 shape this repo has already ruled against:** `AGENTS.md` states it plainly — *prose belongs where a
 human reads it and nowhere else; anything that must stay true gets a command whose exit code says
 so.* A convention nobody can fail is not a convention, it is a hope.
 
-So: `write` and `list` **require** a namespace segment, and `list` is scoped to one by default. This
-costs no wing param, no resolution ladder, and the flat-dotted grammar survives intact.
+⚠ **And the second review showed the failure is worse than a collision, which is why the mitigation
+had to be a gate.** With PK `(team_id, id, version)` and no writer column, a second project writing
+`root` does not conflict — it appends **version 2 of the same logical key**, and the first project's
+next read silently returns the other project's content. Nothing errors, and `history` as first
+specified exposed only version/time/size, so the row could not even be attributed afterwards. That
+is why property 4 now records `written_by`: a version whose origin is unrecoverable makes the
+interference undiagnosable as well as undetected.
 
-⚠ **This creates one tension with property 1, and it is named rather than hidden:** a namespace is
-prior knowledge, which is what property 1 promises a reader will not need. The resolution keeps
-property 2 doing the work — **an unqualified `read` is an error that names the namespaces holding
-that key**:
+So `am_kv_write` and `am_kv_list` **require** a namespace segment. This costs no wing param and no
+resolution ladder, and the flat-dotted grammar survives intact.
+
+⚠ **This creates one tension with property 1, named rather than hidden:** a namespace is prior
+knowledge, which is what property 1 promises a reader will not need. Property 2 does the work — **an
+unqualified read is an error that names the namespaces holding that key**:
 
 ```
-read id:"root"  -> ERROR: "root" exists in 2 namespaces: agentsmemory, forumchat
+am_kv_read({id:"root"})  ->  ERROR: "root" exists in 2 namespaces: acme, alpha
 ```
 
 That fails closed, costs one extra call only when the key is genuinely ambiguous, and **teaches the
-caller instead of guessing for them** — which is the same principle as property 2, applied one level
-up. A single-namespace team never sees it.
+caller instead of guessing for them**. A single-namespace team never sees it.
 
 Bootstrap end state:
 
 ```
-am_kv_store({command:"read", id:"agentsmemory.root"})   -> the blob, one literal of prior knowledge
-am_kv_store({command:"read", id:"root"})                -> ERROR naming the namespaces (see above)
-am_kv_store({command:"list", id:"agentsmemory.must."})  -> the must tier, this project's only
-am_kg_query({predicate:"retracts"})                     -> corrections; only the graph answers this
+am_kv_read({id:"acme.root"})     -> the blob, one literal of prior knowledge
+am_kv_read({id:"root"})          -> ERROR naming the namespaces (see above)
+am_kv_list({id:"acme.must."})    -> the must tier, this project's only
+am_kg_query({predicate:"retracts"})  -> corrections; still the one thing only the graph answers
 ```
 
 ## ⚠ How this qualifies ADR-027, stated rather than assumed
 
 ADR-027 (Accepted) decides: *"A document intended to be maintained is stored as a SET of
 single-chunk records linked from a spine, never as one long record."* The entrypoint root **is** a
-maintained document, and this ADR proposes storing it as one record of up to 36,000 runes. That is
+maintained document, and this ADR proposes storing it as one record of up to 36,000 bytes. That is
 a direct interaction and it is the reviewer's call, not one to make by implication.
 
-**The argument for qualifying it:** ADR-027's rationale and its falsifier are both *retrieval*-based
-— rule 1 splits by question, and the stated falsifier is *"ask each part's question and record the
-rank; if a part does not return at rank 1 for its own question, the split was by size wearing a
-question's clothes."* That test presupposes the document is retrieved by question. A `kv_entries`
-payload is **never retrieved** — no embedding, no ranking, no search path — so ADR-027's evidence
-does not reach it, and its mechanism (single-chunk parts, because `ChunkSize`/`MaxEmbedRunes` bound a
-drawer) solves a constraint that does not exist here.
+⚠ **The first draft argued this badly and the second review was right to reject the argument.** It
+claimed *"ADR-027's rationale and its falsifier are both retrieval-based"*, which is **false**.
+Retrieval is one of four consequences ADR-027 records (`ADR-027:153-168`); the others are unbounded
+growth, per-part editing with concurrent writers, and failure isolation. An argument that answers one
+of four and calls the record answered is not a qualification, it is an oversight — and this section
+was the part two reviewers had praised, which is precisely why it needed the cold read.
 
-**Proposed narrowing:** ADR-027 governs maintained documents **in the searchable corpus**. Documents
-addressed only by name are out of its scope and governed here.
+**Argued against all four, and the answer differs for each:**
+
+| ADR-027 consequence | Does it reach a name-addressed payload? |
+|---|---|
+| **Retrieval** — *"N vectors each matching one question sharply beats one vector averaging N topics"*, falsified by asking each part its own question and recording the rank | **No.** The test presupposes retrieval by question. A `kv_entries` payload is never embedded, ranked or searched, so neither the mechanism nor its falsifier reaches it. This is the one the first draft got right. |
+| **Failure isolation** — *"2N writes, none of them transactional. A half-woven document is silently half-reachable"* | **No — and it runs the other way.** That negative is a cost ADR-027 accepts for splitting. One key is **one atomic write**, so the orphan-half-document failure cannot occur. The KV tier is *better* on this axis, and the first draft never noticed it had an argument here. |
+| **Unbounded growth** — *"a maintained document stops having a ceiling"* | **Partly.** 36,000 bytes is a ceiling where ADR-027 offers none. Mitigated only by adopting rule 3 below: a spine that stores how to traverse never approaches the bound. ⚠ That is a discipline, not a mechanism, so it is listed as this record's High/High risk rather than claimed as solved. |
+| **Concurrent writers** — *"per-part edits stop rewriting the whole document, so two sessions touching different threads stop contending for one row"* | **YES. This one lands, and it is the real hit.** One key is one row, so two sessions editing different parts of the root contend exactly as ADR-027 describes. **Answered by mechanism, not by prose:** property 8's `if_version` makes a contended write a *refusal naming the current version* instead of a silent overwrite. ADR-027 avoids contention by partitioning; this record detects it by compare-and-swap. Different guarantee, comparable safety, and it is stated so a reviewer can reject the substitution. |
+
+**Proposed narrowing, unchanged in substance but now earned:** ADR-027 governs maintained documents
+**in the searchable corpus**. Documents addressed only by name are out of its scope and governed
+here — because retrieval does not reach them, failure isolation favours them, growth is bounded by
+rule 3, and concurrency is answered by `if_version` rather than ignored.
 
 **ADR-027 rule 3 is adopted verbatim, not displaced:** the spine stores how to traverse, never what
-is there. It is the discipline that keeps this tier from becoming a second corpus — see Risks.
+is there. It is the discipline that keeps this tier from becoming a second corpus — see Risks, where
+it is the mitigation for the one axis above that is answered by discipline alone.
 
 ## Alternatives Considered
 
@@ -162,14 +230,16 @@ is there. It is the discipline that keeps this tier from becoming a second corpu
   comfortably inside `MaxKGValueLen = 128`, so this needs **no new table and no new tool** — a real
   advantage this proposal does not have, and the reason it deserves arguing rather than listing.
 
-  **(1) The resolve step inherits the exact failure this record exists to delete.** `am_kg_query`
-  fails open: a mistyped or absent name returns `count: 0` with no error, indistinguishable from a
-  graph that holds nothing. So `read("root")` becomes *resolve-then-fetch*, where the resolve can
-  silently answer "nothing" and the caller cannot tell. Property 2 above — read fails **closed** — is
-  not a nicety; it is the difference between an entry point and a trap, and a pointer cannot have it
-  while the graph fails open.
+  **(1) WITHDRAWN — this argument was false and is kept visible rather than deleted.** It read: *"the
+  resolve step inherits the exact failure this record exists to delete — `am_kg_query` fails open, so
+  resolve-then-fetch can silently answer nothing."* The graph **does not fail open**: ADR-036 T2 gave
+  it `matched` / `known_term_no_facts` / `unknown_term` (`internal/palace/kg.go:453-477`, rendered at
+  `internal/mcpserver/kg.go:196`). A pointer resolve fails closed exactly as `am_kv_read` would. This
+  was the load-bearing leg of the rejection, it came from a stale memory rather than from source, and
+  **the alternative is stronger for its removal.**
 
-  **(2) It leaves the payload problem untouched.** The thing at the end of the pointer is still a
+  **(2) It leaves the payload problem untouched, and that is independent of addressing.** The thing at
+  the end of the pointer is still a
   drawer: chunked at `ChunkSize`, refused for in-place update above `MaxEmbedRunes = 4000`, and
   **embedded into the ranked pool**. So "DO NOT GROW THIS DRAWER" survives, and session-start content
   keeps competing with real memories for top-1 — the ADR-003 cost this record protects against.
@@ -184,8 +254,21 @@ is there. It is the discipline that keeps this tier from becoming a second corpu
   count is not a property of this palace. `doctor --corpus` reports "points at an ENDED row" as a
   distinct third state for this reason (`AGENTS.md:245`).
 
-  ★ **The honest summary: this alternative fixes the *address*, and this record is about the
-  *address and the payload together*.** If only the address were broken, this would win on cost.
+  **(4) Pointing at an ADR-027-compliant spine reintroduces the cost the record exists to remove.**
+  The review's strongest form of this alternative is `(team, wing, name) → drawer_id` aimed at a
+  spine, which keeps ADR-027 satisfied. But then the entry point is 1 + N calls again, and F-16
+  already measured what that costs in practice: a bootstrap-led session came to the *same* call count
+  as the hand protocol because the payload stayed scattered across records reachable only by
+  traversal. The pointer fixes which id you must know; it does not fix how many calls follow.
+
+  ★ **The honest summary, and it is narrower than the first draft claimed: this alternative fixes the
+  *address*, and this record is about the *address, the ranking and the call count together*.** It
+  needs no new table and no new tool, and **if addressing were the only broken thing it would win.**
+  ⚠ The review's challenge — that unembedded atomic blob semantics are asserted rather than
+  established independently of addressing — is answered by (2) and (4), which are both about what
+  sits at the end of the pointer and neither of which addressing changes. A reviewer who thinks the
+  ranked-pool cost and the 1+N call count are acceptable should prefer the pointer, and that is a
+  legitimate reading of the same evidence rather than a misreading.
 - **A positional `[cmd, payload, version]` dispatcher** (the original proposal). REJECTED. A tool
   description is the strongest guidance surface — present at the moment of the call, in every client
   — and an opaque dispatcher deletes it at the call every session makes first.
@@ -212,19 +295,25 @@ is there. It is the discipline that keeps this tier from becoming a second corpu
 ## Wiring & Contract Changes
 
 ⚠ **`None` would be false for this record.** It is record-only — no code and no migration ship in
-this PR — but what it decides *is* one new table and one new MCP tool, so the surfaces an
+this PR — but what it decides *is* one new table and **five** new MCP tools, so the surfaces an
 implementation must touch are named here rather than discovered later.
 
 | Surface | Change | Producer | Consumer(s) |
 |---------|--------|----------|-------------|
-| `kv_entries` (schema) | **add** — new table, PK `(team_id, id, version)` | `db/migrations/00034_kv_entries.sql` (allocate at merge) | `internal/palace` KV service + repo |
-| `am_kv_store(command, id, payload, version, limit, offset)` | **add** — one tool, five commands | `internal/mcpserver` | every agent at session start |
-| Tool registration | **add** — must go through `newTool` + `registrar.add`/`addWrite` | `internal/mcpserver/server.go` | ⚠ `mcp.NewTool`/`AddTool` compile fine and silently skip the `am_` prefix, the catalogue **and** the role gate — this repo's own recorded trap, and reachability is its signature defect |
-| Write-gate role | **add** — `write`/`delete` are write-gated, `read`/`list`/`history` are not | `internal/mcpserver` | member keys must be refused on the three writes |
-| README tool count + tool list | **change** — the new tool must be named | `README.md` | `TestEveryCatalogToolIsNamedInTheReadme` (`catalog_test.go:429`) and `TestCatalogSizeIsWhatTheReadmeClaims` both fail the build otherwise |
-| Key namespace validation | **add** — first dotted segment required on `write` and `list` (Decision property 6) | `internal/palace` | every caller; enforced server-side, not by convention |
-| `read` on a missing key | **add** — errors, and an *unqualified* key errors naming the namespaces that hold it | `internal/mcpserver` | the fail-closed property this record rests on |
-| Over-cap `write` | **add** — refused at 36,000 runes at **write** time | `internal/palace` | never at read time, where the spill is silent and unfixable |
+| `kv_entries` (schema) | **add** — new table, PK `(team_id, id, version)`, incl. `written_by` | `db/migrations/00034_kv_entries.sql` (allocate at merge) | `internal/palace` KV service + repo |
+| `am_kv_read(id, version?)` | **add** via `registrar.add` — no role gate | `internal/mcpserver` | every agent at session start |
+| `am_kv_list(id, limit, offset)` | **add** via `registrar.add` — `id` is a prefix | `internal/mcpserver` | tier enumeration |
+| `am_kv_history(id, limit, offset)` | **add** via `registrar.add` — metadata only, never payloads | `internal/mcpserver` | audit of who rewrote a key |
+| `am_kv_write(id, payload, if_version?)` | **add** via `registrar.addWrite` — role-gated | `internal/mcpserver` | refused for a member key |
+| `am_kv_delete(id)` | **add** via `registrar.addWrite` — role-gated, removes every version | `internal/mcpserver` | ⚠ see Follow-ups: ADR-038 T4's precedent argues this belongs on the OPERATOR surface, not the agent one |
+| Tool registration | **add** — all five must go through `newTool` + `registrar.add`/`addWrite` | `internal/mcpserver/server.go` | ⚠ `mcp.NewTool`/`AddTool` compile fine and silently skip the `am_` prefix, the catalogue **and** the role gate — this repo's own recorded trap, and reachability is its signature defect |
+| Write-gate correctness | **add** — the read/write split is per TOOL, which is why there are five | `internal/mcpserver/server.go` | `TestEveryMutatingToolIsRegisteredAsAWrite` (`writeauth_test.go:61`) fails the build if a mutating command hides inside a read tool |
+| README tool count + tool list | **change** — all five named; the count moves by five | `README.md` | `TestEveryCatalogToolIsNamedInTheReadme` (`catalog_test.go:429`) and `TestCatalogSizeIsWhatTheReadmeClaims` both fail the build otherwise |
+| Key namespace validation | **add** — first dotted segment required on `am_kv_write` and `am_kv_list` (property 6) | `internal/palace` | every caller; enforced server-side, not by convention |
+| `am_kv_read` on a missing key | **add** — errors, and an *unqualified* key errors naming the namespaces that hold it | `internal/mcpserver` | the fail-closed property this record rests on |
+| Byte-cap enforcement | **add** — refuse a write whose SERIALIZED form exceeds the cap (property 7) | `internal/palace` | the cap is bytes because `wholeMemoryBudget` is bytes |
+| `if_version` conflict result | **add** — refusal naming the current version, not a silent overwrite (property 8) | `internal/palace` | the ADR-027 concurrency answer |
+| `doctor` | **add** — the store needs an integrity check beside `--index`, `--schema`, `--corpus` | `cmd/server/doctor.go` | operators. ⚠ Still open below: an unseen store is an unmaintained one |
 | `doctor` | **add** — the store needs an integrity check beside `--index`, `--schema`, `--corpus` | `cmd/server/doctor.go` | operators. ⚠ Still open below: an unseen store is an unmaintained one |
 | Quota (`admit`) | **undecided** — whether a KV read counts | `internal/mcpserver` | see Follow-ups; a per-bootstrap read is a real per-session cost |
 
@@ -245,7 +334,7 @@ competing in the ranked pool. ADR-003 retired the closet prior for what it did t
 a whole class of ephemera out of that pool by construction rather than by discipline.
 
 **Costs:** one new table, one new tool, one more thing `doctor` should know about. Keep-all-versions
-on a hot key at 36,000 runes is unbounded — ~500 edits of the root is ~12MB for one key. Pruning to
+on a hot key at 36,000 bytes is unbounded — ~500 edits of the root is ~12MB for one key. Pruning to
 last-N can be added later without an API change, because `history` is paged from day one.
 
 ## Out of Scope
@@ -253,16 +342,17 @@ last-N can be added later without an API change, because `history` is paged from
 - **Search over KV** — giving this tier recall would put the ephemera back in the ranked pool the record exists to keep out of it (permanent: it is the known-address tier by construction)
 - **Relations** — `id|id|how` is the graph's job and the graph does it well; a second edge store would be two answers to one question (permanent: the graph owns relations)
 - **`kg_supersede`** — ⚠ this entry is what the gap looked like before it was closed, and it is kept rather than deleted because the next reader will check it. The first draft called it "a real, separate gap … ADR-010 (Proposed) already covers the principle. Filed to `wing_agentmemories`/`inbox`." All three clauses have since gone false: `am_kg_supersede` landed in ADR-038 T4 — `KGSupersede` at `internal/palace/supersede.go:205`, registered at `internal/mcpserver/kg.go:126`, in one transaction with `reason` required — and ADR-010 is CLOSED, absorbed by ADR-038. The inbox item is stale and its atomic-verb half is closed; only the boundary-overlap half survives, in issue #47 (permanent: shipped in ADR-038 T4, and not this record's work)
-- **Per-tool guidance for `am_kv_store`'s five commands** — review proposed MCP's `instructions` field as the home for the key grammar, and that question is already being decided one record over. ADR-040 answers it in a way that constrains this one: there is **no per-tool `instructions` field** in mcp-go v0.55.1, which ADR-040 lists and rejects explicitly, and lengthening the *server-level* one is rejected there at 1,143 bytes of a tested budget — `TestInstructionsStayShort`, `instructions_test.go:151`, where ADR-040 itself cites `:153`; re-checked against `main` here — defended by ADR-017's measurement. ⚠ ADR-040 also flags the "clients do not truncate it" premise as unverified, its risk table requiring any truncation figure to "name the client and the version it was measured on, or it is folklore wearing a number". So this record must not adopt the suggestion independently; the two are read together (deferred: `docs/adr/BACKLOG.md` — ADR-040 on PR #77, "the schema carries the pairing", owns this question; the pointer names the backlog rather than that record because ADR-040 is not on `main` yet and a pointer into another branch resolves to nothing)
-- **ADR-027's remaining open question** — a reference pointing at a non-parent chunk that a re-chunk deletes. It is *upstream* of this record's ADR-027 qualification above: both concern where ADR-027's authority ends now that ids are opaque, and they are worth resolving in one pass rather than two (deferred: `docs/adr/BACKLOG.md` — it is ADR-038's own recorded follow-up, and this branch predates that record, so the backlog is the destination that resolves from here)
+- **A shared guidance home for the KV commands** — ⚠ this was a dependency and **is now dissolved**, which is the clearest downstream effect of splitting the tool. The first review proposed MCP's `instructions` field as somewhere to put guidance for five commands sharing one description. With five tools there is no shared description to compensate for: each carries its own at the moment of its own call, which is this record's stated reason for rejecting a dispatcher in the first place. The related finding stands and belongs to its own record: ADR-040 establishes there is **no per-tool `instructions` field** in mcp-go v0.55.1 and rejects lengthening the server-level one at 1,143 bytes of a tested budget — `TestInstructionsStayShort`, `instructions_test.go:151`, where ADR-040 itself cites `:153` (permanent: five tools need no shared guidance channel)
+- **ADR-027's remaining open question** — a reference pointing at a non-parent chunk that a re-chunk deletes. It is *upstream* of this record's ADR-027 qualification above: both concern where ADR-027's authority ends now that ids are opaque, and the first review asked for them in one pass. ⚠ **Answered here only for the name-addressed half**: a `kv_entries` payload has no chunks, so re-chunking cannot strand a reference into one, and that half needs no new record. The drawer-side half — a KG fact naming a non-parent chunk id that a re-chunk removes — is untouched by this record and stays where ADR-038 filed it (deferred: `docs/adr/ADR-038-refer-by-the-id-and-end-instead-of-overwrite.md`)
 - **Deploying `am_bootstrap`/`am_entry_point`** — the hosted catalogue serves both, verified 2026-08-27 (permanent: already built, merged and deployed)
 
 ## Risks
 
 | Risk | Likelihood | Impact | Mitigation |
 |------|-----------|--------|------------|
-| **Content drifts in that should have been a memory** — 36,000 runes is a lot of room, and roots grow | High | High | ADR-027 rule 3, adopted verbatim: the spine stores how to traverse, never what is there. A gate is worth considering. This is the risk that would turn the tier into a second, unsearchable corpus. |
-| **A payload near the cap spills to a file on read** and never enters context | Low | High | Cap is 36,000 runes against `wholeMemoryBudget = 40_000` (`drawers.go:56`). Measured JSON overhead: **4.2%** on prose markdown, **7.3%** on dense drawer text, so 36,000 serialises to ~37.5–38.6KB. **Refuse an over-cap write at `write` time**, never at read time where it is silent and unfixable. |
+| **Content drifts in that should have been a memory** — 36,000 bytes is a lot of room, and roots grow | High | High | ADR-027 rule 3, adopted verbatim: the spine stores how to traverse, never what is there. ⚠ This is the ONE ADR-027 consequence answered by discipline rather than by mechanism, and the second review named it as the ADR-027 objection restated. A gate is worth considering and is listed in Follow-ups. It is the risk that would turn the tier into a second, unsearchable corpus. |
+| **A payload near the cap spills to a file on read** and never enters context | Low | High | ⚠ **The first draft capped RUNES, which does not bound this risk** — `wholeMemoryBudget = 40_000` (`drawers.go:56`) is in BYTES, so an escape-heavy or multibyte payload passes a rune cap and still spills, creating a key that can be written and never read. Property 7 therefore caps the **serialized byte length**, refused at write time, never at read time where the spill is silent and unfixable. ⚠ The 4.2% / 7.3% JSON-overhead samples behind the original 36,000 are ENGLISH PROSE and are **not** a worst-case bound; deriving the real bound is a Follow-up, not a claim made here. |
+| ⚠ **The 40-45KB budget the cap rests on has no executable provenance** | Med | Med | Raised by the second review, and it is upstream of this record rather than caused by it: `wholeMemoryBudget` is a declared constant, and the figure justifying it is not reproducible from anything in the tree. This record inherits that weakness by depending on the constant. Not fixable here; named so the dependency is visible. |
 | **The migration collides with an open branch** | Low | High | Allocate at merge. ⚠ The first draft named `00030`, which ADR-038 has since taken along with `00031`–`00033`; head on `main` is `00033` and the next free is `00034`. That the number rotted inside a row whose own subject is number collisions is the argument for allocating at merge, not at authoring. |
 | ⚠ **Two motivating measurements were DISPUTED — one is now reconciled** | — | Medium | Originally: this session measured `llm_open_threads` at 13 drawers and `am_skillset` at 40 tools; a reviewer measured 1 drawer and both bootstrap tools live. **The tool count was a TIMELINE, not two instances** — the hosted catalogue held 40 before a redeploy on 2026-08-27 and 42 after, with both bootstrap tools answering, so both readings were correct hours apart and neither was stale in the sense claimed. Re-measured 2026-08-27 on hosted `atvirokodosprendimai-498ccd`: **42 tools**, and `llm_open_threads` holds **15** drawers — consistent with 13 plus two filed since, and not with 1. ⚠ The 1-versus-13 half stays **unreconciled**; it is the one that still needs an endpoint attached before it is quoted. The decision rests on neither; the urgency claim rests on the second. |
 
@@ -280,11 +370,20 @@ migration.
 **against the same palace**. If it does not, this has reproduced the problem behind a nicer name.
 This is the same falsifier ADR-036 set for itself in F-16.
 
-⚠ **The first draft deferred to F-16 as unchecked and said it "should be checked first, since it may
-close most of the gap on its own". Both halves of that are now answered, and the answer runs the
-other way.**
+⚠ **The first draft deferred to F-16 as "still unchecked". That was wrong, and so was the correction
+that replaced it — F-16 is TWO things and both drafts conflated them.**
 
-**F-16 has been measured (2026-08-27), and `am_bootstrap` does not subtract.** The call itself is
+**F-16's code gate exists and passes.** `TestTheBootstrapCostsFewerTokensThanTheProtocolItReplaces`
+(`internal/palace/recallanswers_spec_test.go:847`) checks semantic parity before tokens, and ADR-036's
+task README records its **T8** as complete against F-16. So the falsifier has a committed, running
+test — and note that this is ADR-036's task status, not a completion claim by this record, which owns
+no tasks yet.
+⚠ **But that gate does not validate this record**: it exercises `Service.Bootstrap` over fresh
+fixture data with derived edges already present, and never calls the store proposed here. A green
+F-16 is evidence about the bootstrap API, not about KV.
+
+**What is open is the LIVE-CORPUS adoption measurement, and there `am_bootstrap` does not subtract.**
+The call itself is
 cheap — 1 call, 10.7KB — but a *bootstrap-led session* still came to **33 calls / 182,575 B** against
 the hand-executed protocol's **33 calls / 180,500 B**: the same call count and about 2KB *more*. The
 reason is structural rather than a defect in the tool: the bootstrap's inline tier is the entry
@@ -293,8 +392,9 @@ scattered across records reachable only by traversal. **One addressed key carryi
 value is precisely the thing `am_bootstrap` could not be** — which makes F-16 an argument *for* this
 record, not a reason to wait on it.
 
-⚠ **And the stated blocker no longer holds.** Review reported that F-16 "cannot be checked on the
-motivating wing" because `am_bootstrap` returns `resolution: "unknown_term"` on `wing_agentmemories`.
+⚠ **And the stated blocker applies only to that live half.** The first review reported that F-16
+"cannot be checked on the motivating wing" because `am_bootstrap` returns `resolution: "unknown_term"`
+on this project's wing.
 Called live on the hosted palace (workspace `atvirokodosprendimai-498ccd`) it returns
 `resolution: "matched"`: the entry edges were hand-authored at 08:28–08:29Z on 2026-08-27, roughly
 six hours before that review was submitted at 14:59Z. The automated backfill is still filed in
@@ -317,20 +417,37 @@ against the same palace, end to end. That number is owed before adoption, not be
 - [ ] Report the measured before/after for the bootstrap path, whichever way it falls. ⚠ This is the
       **only** thing that can falsify this record, and it is still unmeasured — ADR-036's F-16 is now
       answered and does not substitute for it.
+- [ ] ⚠ **Should `am_kv_delete` be on the AGENT surface at all?** It is write-gated, but it removes
+      every version of a key — irreversible erasure reachable by an agent, three weeks after ADR-038
+      T4 removed exactly that class from the agent catalogue and kept it for the operator CLI. The
+      consistent answer is that `am_kv_delete` follows `delete_wing`: operator-only, with the agent
+      surface getting nothing destructive. **Not decided here** — it narrows the tool set the owner
+      just chose, so it is put back to them rather than assumed.
 - [ ] ⚠ **Confirm Decision property 6 — the enforced namespace segment — is the owner's call.** It
       was added in response to review, not present in the original design, and it trades one literal
-      of prior knowledge for a collision that would otherwise be silent in a 13-wing workspace. It is
-      the one substantive design change this round; reversing it is a one-line edit to property 6.
-- [ ] Reconcile the surviving half of the disputed measurement in Risks (`llm_open_threads`: 1 vs
-      13/15), with the endpoint named on both sides.
+      of prior knowledge for interference that would otherwise be silent. Reversing it is a one-line
+      edit to property 6.
+- [ ] **Derive the real serialization bound for property 7.** The 4.2% / 7.3% overhead figures are
+      English prose and are not a worst-case bound; escape-heavy and multibyte payloads are the cases
+      that matter, and 36,000 is provisional until they are measured.
+- [ ] **Is rule 3 gateable?** The one ADR-027 consequence answered by discipline rather than mechanism
+      is unbounded growth. A check — payload size trend, or a spine that must stay under N — would
+      convert this record's High/High risk into an exit code, which is what this repo asks of prose.
+- [ ] Reconcile the surviving half of the disputed measurement in Risks, with the endpoint named on
+      both sides.
 - [ ] **Settle ADR-039 against ADR-038** — if the `must.*`/`ref.*` tier moves onto KV keys, ADR-038's
-      supersede-on-update leaves that tier alone; if it does not, every correction re-points it. This
-      is live rather than dormant now that ADR-038 has merged, and it should be decided before
-      implementation starts.
+      supersede-on-update leaves that tier alone; if it does not, every correction re-points it. Live
+      rather than dormant now that ADR-038 is Accepted and merged; decide before implementation.
 
-**Resolved by review (2026-08-27):**
+**Closed in review (2026-08-27) — recorded as prose rather than as checked boxes, because a checked
+box in a record with no `tasks/` directory is a done-claim `adr-verify` has nowhere to write evidence
+for, and `adr-lint` says so:**
 
-- [x] ~~Confirm the ADR-027 qualification is the reviewer's intent, or narrow this ADR instead.~~
-      Confirmed. Review: *"Narrowing an accepted decision by showing that its falsifier does not
-      reach the new case … is the right way to do it,"* and adopting rule 3 verbatim rather than
-      displacing it "is the correct call too."
+- *Confirm the ADR-027 qualification, or narrow this ADR instead.* **Re-opened by the second review
+  and now answered properly.** The first review endorsed the qualification; the cold read showed its
+  stated argument was wrong, because ADR-027's rationale is not only retrieval. The qualification
+  survives, but on four arguments rather than one — see the table above. ⚠ The endorsement is what
+  made this easy to leave alone, which is why it took a reviewer with no stake in the earlier round
+  to catch it.
+- *A guidance home for five commands sharing one tool description.* Dissolved by the split into five
+  tools; see Out of Scope.
