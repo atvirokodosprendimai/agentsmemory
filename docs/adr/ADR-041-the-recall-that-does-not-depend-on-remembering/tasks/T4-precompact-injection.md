@@ -34,8 +34,14 @@ At compaction, a recall is performed and its result enters the new context witho
 ## Acceptance
 
 ```bash
-docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'go test ./clients/claude-code/ -run "^(TestF6AHookIsSilentInTheCommonCase|TestPreCompactHookIsRegistered)$" -count=1 -v 2>&1 | tee /tmp/acc.out; ! grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/acc.out'
+docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'apk add --no-cache bash git >/dev/null && go test ./clients/claude-code/ -run "^(TestF6AHookIsSilentInTheCommonCase|TestPreCompactHookIsRegistered)$" -count=1 -v 2>&1 | tee /tmp/acc.out; ! grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/acc.out'
 ```
+
+⚠ THE FENCE INSTALLS bash AND git, and that is not incidental. The acceptance image is
+golang:1.26-alpine, which has neither. The test drives the real hook SCRIPT, so without bash it
+called t.Skip — and a skipped test is a test that cannot fail: two mutants came back `survived`
+while the same edits made the test go red locally. The mutation pass is what exposed it; a green
+acceptance run never would have.
 
 ⚠ The fence proves the mechanism exists and is selected. The measured delta is a sign-off line:
 `adr-verify --human "delta <before> -> <after>, N=<count> over <window>"`, recorded whichever way it
@@ -73,6 +79,14 @@ falls (F-10).
   the fence passed with the mechanism broken
   ```
 - 2026-08-28 · 5e30ae1* · mutant survived · exit 0 · `clients/claude-code/hooks/agentsmemory-precompact-hook.sh` · the off-switch must short-circuit before the search · acceptance-sha256:e71b964ed8015a11f7cb06e10da893d578f41c8de99b25f319da6fe5a036ec4e
+  ```
+  the fence passed with the mechanism broken
+  ```
+- 2026-08-28 · 502f172 · mutant survived · exit 0 · `clients/claude-code/hooks/agentsmemory-precompact-hook.sh` · F-6: with no query the hook must be silent, not guess a query · acceptance-sha256:e71b964ed8015a11f7cb06e10da893d578f41c8de99b25f319da6fe5a036ec4e
+  ```
+  the fence passed with the mechanism broken
+  ```
+- 2026-08-28 · 502f172* · mutant survived · exit 0 · `clients/claude-code/hooks/agentsmemory-precompact-hook.sh` · the off-switch must short-circuit before the search · acceptance-sha256:e71b964ed8015a11f7cb06e10da893d578f41c8de99b25f319da6fe5a036ec4e
   ```
   the fence passed with the mechanism broken
   ```
