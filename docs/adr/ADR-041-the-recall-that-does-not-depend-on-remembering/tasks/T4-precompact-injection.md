@@ -51,8 +51,8 @@ falls (F-10).
 
 | Test name | File | Verifies | Covers |
 |-----------|------|----------|--------|
-| `TestF6AHookIsSilentInTheCommonCase` | `clients/claude-code/recallrate_spec_test.go` | no output when there is nothing to say | F-6 |
-| `TestPreCompactHookIsRegistered` | `clients/claude-code/installer_test.go` | the installer writes the event into settings.json | — |
+| `TestF6AHookIsSilentInTheCommonCase` | `clients/claude-code/precompact_test.go` | no output when there is nothing to say | F-6 |
+| `TestPreCompactHookIsRegistered` | `clients/claude-code/precompact_test.go` | the installer writes the event into settings.json | — |
 
 ## Reachability
 
@@ -95,6 +95,7 @@ falls (F-10).
   ```
   the fence passed with the mechanism broken
   ```
+- 2026-08-28 · 0a7005d · mutant killed · exit 1 · `clients/claude-code/hooks/agentsmemory-precompact-hook.sh` · the off-switch must short-circuit before the search · acceptance-sha256:1ca9f7ca6761a677b0e7390dc80ac05c8471a18eeab4ce7fbf66f584663846fc
 
 ## Invariants
 
@@ -119,3 +120,5 @@ Stop if `PreCompact` does not fire, or fires without a usable payload, on the in
 ## Verification Log
 - 2026-08-28 · 5a91bcc · exit 0 · `docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'apk add --no-cache bash git >/dev/null && go test ./clients/claude-code/ -run "^(TestF6AHookIsSilentInTheCommonCase|TestPreCompactHookIsRegistered)$" -count=1 -v 2>&1 | tee /tmp/acc.out; ! grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/acc.out'` · acceptance-sha256:1ca9f7ca6761a677b0e7390dc80ac05c8471a18eeab4ce7fbf66f584663846fc
 - 2026-08-28 · 5a91bcc* · exit 0 · `docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'apk add --no-cache bash git >/dev/null && go test ./clients/claude-code/ -run "^(TestF6AHookIsSilentInTheCommonCase|TestPreCompactHookIsRegistered)$" -count=1 -v 2>&1 | tee /tmp/acc.out; ! grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/acc.out'` · acceptance-sha256:1ca9f7ca6761a677b0e7390dc80ac05c8471a18eeab4ce7fbf66f584663846fc
+- 2026-08-28 · 0a7005d* · exit 0 · `docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'apk add --no-cache bash git >/dev/null && go test ./clients/claude-code/ -run "^(TestF6AHookIsSilentInTheCommonCase|TestPreCompactHookIsRegistered)$" -count=1 -v 2>&1 | tee /tmp/acc.out; ! grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/acc.out'` · acceptance-sha256:1ca9f7ca6761a677b0e7390dc80ac05c8471a18eeab4ce7fbf66f584663846fc
+- 2026-08-28 · human-observed · mechanism shipped; delta not yet measurable — needs a measurement window of real compactions against the 27.6% baseline (F-10)

@@ -120,6 +120,13 @@ reporting success.
 - `agentsmemory-session-end-hook.sh` → the `SessionEnd` hook: what recall actually
   did across the whole session. It is the only one of the hooks that can report
   that, because at `Stop` the session has barely begun.
+- `agentsmemory-precompact-hook.sh` → the `PreCompact` hook: it PERFORMS a recall
+  for the current branch and injects the result, so a compacted session does not
+  start blind. It is the one mechanism here that asks nothing of the agent —
+  ADR-017 named it in 2026-08 ("a subagent cannot skip a recall that already
+  happened") and left it unbuilt pending measurement, which ADR-041 supplied. It
+  prints nothing when the recall returns nothing; `AGENTSMEMORY_PRECOMPACT=off`
+  disables it.
 - `agentsmemory-bootstrap.md` → the always-on operating protocol, pulled into
   the config dir's `CLAUDE.md` via a managed `@agentsmemory-bootstrap.md` import.
   Claude Code loads `$CLAUDE_CONFIG_DIR/CLAUDE.md` as user memory, so the
