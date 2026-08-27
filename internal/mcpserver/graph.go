@@ -15,12 +15,10 @@ import (
 // find_tunnels, graph_stats), and recompute_graph. All are tenant-scoped via admit.
 func registerGraph(reg *registrar, drawers *palace.Service, usageSvc *usage.Service, scopeSearchToWing bool) {
 	registerCreateTunnel(reg, drawers, usageSvc)
-	registerDeleteTunnel(reg, drawers, usageSvc)
 	registerListTunnels(reg, drawers, usageSvc, scopeSearchToWing)
 	registerFindTunnels(reg, drawers, usageSvc)
 	registerFollowTunnels(reg, drawers, usageSvc)
 	registerListHallways(reg, drawers, usageSvc, scopeSearchToWing)
-	registerDeleteHallway(reg, drawers, usageSvc)
 	registerTraverse(reg, drawers, usageSvc)
 	registerGraphStats(reg, drawers, usageSvc)
 	registerRecomputeGraph(reg, drawers, usageSvc)
@@ -138,28 +136,6 @@ func registerCreateTunnel(reg *registrar, drawers *palace.Service, usageSvc *usa
 	})
 }
 
-func registerDeleteTunnel(reg *registrar, drawers *palace.Service, usageSvc *usage.Service) {
-	tool := newTool("delete_tunnel",
-		mcp.WithDescription("Delete a tunnel by id."),
-		mcp.WithString("tunnel_id", mcp.Required(), mcp.Description("The tunnel id to delete.")),
-	)
-	reg.addWrite(tool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		t, errResult, ok := admit(ctx, usageSvc)
-		if !ok {
-			return errResult, nil
-		}
-		id, err := req.RequireString("tunnel_id")
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		deleted, err := drawers.DeleteTunnel(ctx, t.TeamID, id)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		return jsonResult(map[string]any{"deleted": deleted, "tunnel_id": id}), nil
-	})
-}
-
 func registerListTunnels(reg *registrar, drawers *palace.Service, usageSvc *usage.Service, scopeSearchToWing bool) {
 	tool := newTool("list_tunnels",
 		mcp.WithDescription("List explicit and derived tunnels, optionally filtered to those touching a wing. Omitted, scoped to this registration's default_wing only when one is configured and SEARCH_SCOPE is not workspace; otherwise omission lists every wing. Pass \"*\" to list every wing deliberately."),
@@ -270,28 +246,6 @@ func registerListHallways(reg *registrar, drawers *palace.Service, usageSvc *usa
 			}
 		}
 		return jsonResult(out), nil
-	})
-}
-
-func registerDeleteHallway(reg *registrar, drawers *palace.Service, usageSvc *usage.Service) {
-	tool := newTool("delete_hallway",
-		mcp.WithDescription("Delete a hallway by id (it will return on the next am_recompute_graph if the co-occurrence still holds)."),
-		mcp.WithString("hallway_id", mcp.Required(), mcp.Description("The hallway id to delete.")),
-	)
-	reg.addWrite(tool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		t, errResult, ok := admit(ctx, usageSvc)
-		if !ok {
-			return errResult, nil
-		}
-		id, err := req.RequireString("hallway_id")
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		deleted, err := drawers.DeleteHallway(ctx, t.TeamID, id)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		return jsonResult(map[string]any{"deleted": deleted}), nil
 	})
 }
 

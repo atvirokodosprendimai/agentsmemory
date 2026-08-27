@@ -203,7 +203,7 @@ func TestDeletingADrawerTakesItsDerivedEdge(t *testing.T) {
 		return len(q.Facts)
 	}
 
-	t.Run("re-filing changed content leaves no edge behind", func(t *testing.T) {
+	t.Run("re-filing changed content leaves its edge pointing at a row that still resolves", func(t *testing.T) {
 		svc := newTestService(t)
 		first, err := svc.Add(ctx, team, AddInput{Wing: "wing_acme", Room: "decisions", SourceFile: "notes.md", Content: "the original answer"})
 		if err != nil {
@@ -216,8 +216,20 @@ func TestDeletingADrawerTakesItsDerivedEdge(t *testing.T) {
 		if _, err := svc.Add(ctx, team, AddInput{Wing: "wing_acme", Room: "decisions", SourceFile: "notes.md", Content: "a DIFFERENT answer entirely"}); err != nil {
 			t.Fatalf("re-add: %v", err)
 		}
-		if n := edgesNaming(t, svc, old); n != 0 {
-			t.Errorf("%d edge(s) still name the purged drawer %s; they are current and point at nothing", n, old)
+		// The premise changed with ADR-038 T3 and the test changed with it. A re-file
+		// no longer PURGES the chunk it replaced — it ENDS it, so the row is still
+		// there and an edge naming it is not an orphan. What had to be true before
+		// (no edge naming a deleted row) is now true a better way: nothing was
+		// deleted, so nothing dangles.
+		if n := edgesNaming(t, svc, old); n == 0 {
+			t.Errorf("the edge naming %s is gone; a re-file must END the old chunk, not destroy it", old)
+		}
+		// GetAnyVersion: the question is whether the ROW is still there, and an ended
+		// record is still a record. The default route hides it (T5) and that is not
+		// what makes an edge dangle — a deleted row is.
+		if _, err := svc.GetAnyVersion(ctx, team, old); err != nil {
+			t.Errorf("the edge names %s but the row no longer resolves (%v) — THAT is the orphan "+
+				"this test exists to catch", old, err)
 		}
 	})
 

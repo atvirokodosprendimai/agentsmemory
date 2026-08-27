@@ -83,7 +83,12 @@ func TestMineIdempotentReplacesSource(t *testing.T) {
 		t.Fatalf("mine second: %v", err)
 	}
 
-	list, err := svc.List(ctx, team, "w", "r", 100, 0)
+	// CURRENT rows, not List. After ADR-038 T3 a re-mine ENDS the chunks the source
+	// dropped instead of deleting them, and List does not filter by validity until
+	// T5 composes current() into every read route — so until then List legitimately
+	// returns the ended ones too. Asserting on List here would be asserting the
+	// old contract.
+	list, err := svc.repo.CurrentDrawers(ctx, team, "w")
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}

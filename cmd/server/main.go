@@ -109,6 +109,7 @@ func rootCommand(def config.Config) *cli.Command {
 			stdioCommand(def),
 			syncCommand(def),
 			wingCommand(def),
+			drawerCommand(def),
 			importCommand(),
 			evalCommand(def),
 			kgExtractCommand(def),
@@ -988,6 +989,24 @@ func buildServicesWith(cfg config.Config, prepare bool) (*services, error) {
 		}
 		if err := migrate(sqlDB); err != nil {
 			return nil, fmt.Errorf("migrate: %w", err)
+		}
+		// ADR-038 T2: stamp the content key on any row that has none.
+		//
+		// Beside migrate, inside `prepare`, so the read-only inspection path
+		// (doctor, which opens the database with query_only(1)) never reaches a
+		// write. It runs on EVERY prepared boot, gated on rows-still-empty rather
+		// than on the goose version: goose records a migration's version the first
+		// time its SQL runs and never runs it again, so a backfill expressed as
+		// "runs once" would never resume after an abort and the corpus would sit
+		// permanently half-keyed with nothing reporting it. On a fully-keyed
+		// palace this costs one bounded SELECT.
+		//
+		// A collision FAILS THE BOOT rather than being logged and skipped: two
+		// current rows hashing to one key is a corpus fact somebody must look at,
+		// and a server that starts anyway serves a store whose dedup is silently
+		// wrong for exactly the rows that collided.
+		if err := palace.NewRepo(gdb).BackfillContentKeys(context.Background()); err != nil {
+			return nil, fmt.Errorf("backfill content keys: %w", err)
 		}
 	}
 

@@ -132,7 +132,14 @@ func (s *Service) Mine(ctx context.Context, teamID string, in MineInput) (result
 	// Purge the prior version of this source FIRST (drawers and closets, rows and
 	// vectors), so a re-mine that now yields fewer — or zero — chunks cannot leave
 	// orphans behind. Done before the new write, mirroring add_drawer's purge.
-	if err := s.purgeSource(ctx, teamID, wing, room, source); err != nil {
+	// The surviving keys are computed from the CHUNKS rather than from the drawers,
+	// because the purge runs before the drawers are built — and the key recipe is
+	// exactly the chunk's own locating tuple, so the two cannot drift.
+	keep := make([]string, 0, len(chunks))
+	for _, c := range chunks {
+		keep = append(keep, contentKeyOf(teamID, wing, room, source, c.Index, c.Content))
+	}
+	if err := s.purgeSource(ctx, teamID, wing, room, source, keep); err != nil {
 		return MineResult{}, err
 	}
 	if err := s.purgeClosetSource(ctx, teamID, source); err != nil {
@@ -144,6 +151,14 @@ func (s *Service) Mine(ctx context.Context, teamID string, in MineInput) (result
 
 	// Build one drawer per chunk. Entities are extracted per chunk (so co-occurrence
 	// is local to a chunk); the content date is shared across the source's chunks.
+	// Same reuse as Add: a re-mine of unchanged text must not rename the memory,
+	// and attachDerivedEdgeTo edges the id in this slice — a fresh mint here would
+	// edge an id the upsert never created.
+	existing, err := s.repo.IDsByContentKeys(ctx, teamID, keep)
+	if err != nil {
+		return MineResult{}, fmt.Errorf("look up rows already holding these content keys: %w", err)
+	}
+
 	drawers := make([]Drawer, len(chunks))
 	texts := make([]string, len(chunks))
 	for i, c := range chunks {
@@ -152,7 +167,8 @@ func (s *Service) Mine(ctx context.Context, teamID string, in MineInput) (result
 			parentID = drawers[0].ID
 		}
 		drawers[i] = Drawer{
-			ID:          DrawerID(teamID, wing, room, source, c.Index, c.Content),
+			ID:          mintOrReuse(existing, keep[i]),
+			ContentKey:  keep[i],
 			TeamID:      teamID,
 			Wing:        wing,
 			Room:        room,

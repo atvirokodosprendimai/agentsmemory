@@ -296,8 +296,10 @@ func registerAll(reg *registrar, deps Deps) {
 	// The temporal knowledge graph: kg_add/invalidate/query/stats/timeline.
 	registerKG(reg, deps.Drawers, deps.Usage)
 	registerBootstrap(reg, deps.Drawers, deps.Usage)
-	// Palace maintenance: merge_wing, memories_filed_away, and delete_wing when local.
-	registerAdmin(reg, deps.Drawers, deps.Usage, deps.Local)
+	// Palace maintenance: merge_wing and memories_filed_away. Erasure is NOT here
+	// — ADR-038 moved it to the operator CLI, so the agent catalogue offers no
+	// verb that destroys a record on either deployment.
+	registerAdmin(reg, deps.Drawers, deps.Usage)
 	// Recall measurement: how well the memory answers, per wing.
 	registerRecallStats(reg, deps.Drawers, deps.Usage, deps.ScopeSearchToWing)
 	// Staleness: pin memories to code, and record what verification found.

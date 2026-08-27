@@ -224,6 +224,29 @@ its author knows exists. The escape hatch is `notOperatorFacing`, and
 `TestNotOperatorFacingIsJustified` refuses an entry without a written reason — the
 reason is the review.
 
+**An IDENTITY has a role, and a gate keeps it.** ADR-038 made a drawer's id opaque —
+minted once, never recomputed — and moved the derived hash to `content_key`.
+`TestNoPathRederivesADrawerID` parses this package and fails when anything other
+than `contentKeyOf` calls `DrawerID`, because `contentKeyOf` is where the diary
+exemption lives: a key computed anywhere else enters the partial unique index and
+dedupes two identical journal entries into one. That is not hypothetical — four of
+the five mint paths did it, and an import of two identical reflections produced one
+row and reported two. `TestEveryDrawerMintWritesAContentKey` derives its universe
+from the source, so a mint path added tomorrow joins the check on the same commit.
+`TestNoCommentClaimsADrawerIdIsDerivedFromItsContent` keeps the prose from going
+false one instance at a time, and is in two parts because its first draft matched
+ZERO of the instances that motivated it.
+
+**A corpus check an operator can run.** Every finding behind ADR-038 — 27 drifted
+rows, 39 of 41 anchored drawers one re-file from losing their pin, 16 facts naming
+a drawer that no longer existed — was produced by a throwaway script and by nothing
+in the tree. `doctor --corpus` exits non-zero on a finding like `--index` and
+`--schema` do, and reports THREE states rather than two: a reference to a current
+row, a reference to an ENDED row (the system working — provenance is historical),
+and a reference to nothing. `TestDoctorCorpusIsReachable` covers the rung
+`TestEveryFlagIsRead` cannot see: a flag that is declared, documented and read
+inside a block nothing can reach.
+
 The same principle covers the gates already in the tree: `internal/doclint`
 (a doc comment must document the declaration it sits on), `TestEveryDeclaredArmIsRegistered`
 (an eval arm that no code path registers appears in no table, silently), and

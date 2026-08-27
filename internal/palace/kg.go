@@ -177,6 +177,10 @@ type kgTripleRow struct {
 	// authored. A nil pointer means the row predates the distinction, which is
 	// not the same claim as "authored" — see 00028_kg_triples_derived.sql.
 	Derived *bool `gorm:"column:derived"`
+	// EndedReason is WHY the fact stopped being true. The store already kept THAT
+	// a fact ended, in valid_to; the reason is the expensive half and it had
+	// nowhere to land until 00032_kg_ended_reason.sql.
+	EndedReason string `gorm:"column:ended_reason"`
 }
 
 func (kgTripleRow) TableName() string { return "kg_triples" }
@@ -221,10 +225,10 @@ func (r *Repo) CurrentTriples(ctx context.Context, teamID, subject, predicate, o
 
 // InvalidateKGTriples ends every current triple for a subject/predicate/object by
 // setting its valid_to, reporting how many it ended.
-func (r *Repo) InvalidateKGTriples(ctx context.Context, teamID, subject, predicate, object, ended string) (int64, error) {
+func (r *Repo) InvalidateKGTriples(ctx context.Context, teamID, subject, predicate, object, ended, reason string) (int64, error) {
 	res := r.db.WithContext(ctx).Model(&kgTripleRow{}).
 		Where("team_id = ? AND subject = ? AND predicate = ? AND object = ? AND valid_to = ''", teamID, subject, predicate, object).
-		Update("valid_to", ended)
+		Updates(map[string]any{"valid_to": ended, "ended_reason": reason})
 	return res.RowsAffected, res.Error
 }
 
@@ -530,6 +534,10 @@ type KGFact struct {
 	// existed" — the row keeps that difference (a NULL), but a reader acting on
 	// a fact only needs to know whether to trust it as somebody's decision.
 	Derived bool `json:"derived,omitempty"`
+	// EndedReason is WHY the fact stopped being true, and it is the half of a
+	// retraction a reader cannot reconstruct: valid_to already says THAT it ended.
+	// Empty on a current fact, and on any fact ended before ADR-038 required one.
+	EndedReason string `json:"ended_reason,omitempty"`
 }
 
 // kgRowFieldRenames maps a kgTripleRow field to the KGFact field that returns it,
@@ -592,66 +600,106 @@ func (s *Service) KGAdd(ctx context.Context, teamID, subject, predicate, object,
 		return KGAddResult{}, fmt.Errorf("%w: valid_to=%q is before valid_from=%q; an inverted interval is invisible to every query", ErrInvalidInput, vt, vf)
 	}
 
-	subID, objID, p := normalizeEntityID(subj), normalizeEntityID(obj), normalizePredicate(pred)
-	now := time.Now().UTC().Format(time.RFC3339)
-	if err := s.repo.UpsertKGEntity(ctx, teamID, subID, subj, now); err != nil {
+	res, err := kgAddOn(ctx, s.repo, teamID, subj, pred, obj, vf, vt, sourceCloset, sourceFile, sourceDrawerID)
+	if err != nil {
 		return KGAddResult{}, err
 	}
-	if err := s.repo.UpsertKGEntity(ctx, teamID, objID, obj, now); err != nil {
+	s.indexFactLabels(ctx, teamID, subj, obj)
+	return res, nil
+}
+
+// kgAddOn writes a fact through the repo it is handed — s.repo for an ordinary
+// add, a TRANSACTION-BOUND copy for a supersede. It exists so KGSupersede can put
+// the end and the add in one transaction without a second copy of the
+// upsert/dedupe/insert sequence drifting away from this one.
+//
+// It deliberately does NOT index the endpoint labels. That is a network call to
+// the embedder, and holding SQLite's single write transaction open across one is
+// how a slow embedder becomes a locked database. The caller indexes after the
+// write has landed.
+//
+// Its arguments are already sanitized; it is unexported and both callers validate
+// first, so re-validating here would only be a second place for the rules to
+// disagree.
+func kgAddOn(ctx context.Context, r *Repo, teamID, subj, pred, obj, vf, vt, sourceCloset, sourceFile, sourceDrawerID string) (KGAddResult, error) {
+	subID, objID, p := normalizeEntityID(subj), normalizeEntityID(obj), normalizePredicate(pred)
+	now := time.Now().UTC().Format(time.RFC3339)
+	if err := r.UpsertKGEntity(ctx, teamID, subID, subj, now); err != nil {
+		return KGAddResult{}, err
+	}
+	if err := r.UpsertKGEntity(ctx, teamID, objID, obj, now); err != nil {
 		return KGAddResult{}, err
 	}
 
 	fact := subj + " → " + p + " → " + obj
-	if existing, err := s.repo.CurrentTripleID(ctx, teamID, subID, p, objID); err != nil {
+	if existing, err := r.CurrentTripleID(ctx, teamID, subID, p, objID); err != nil {
 		return KGAddResult{}, err
 	} else if existing != "" {
 		return KGAddResult{TripleID: existing, Fact: fact}, nil
 	}
 
 	id := tripleID(subID, p, objID, vf, now)
-	if err := s.repo.InsertKGTriple(ctx, kgTripleRow{
+	if err := r.InsertKGTriple(ctx, kgTripleRow{
 		TeamID: teamID, ID: id, Subject: subID, Predicate: p, Object: objID,
 		ValidFrom: vf, ValidTo: vt, Confidence: 1.0,
 		SourceCloset: sourceCloset, SourceFile: sourceFile, SourceDrawerID: sourceDrawerID, ExtractedAt: now,
 	}); err != nil {
 		return KGAddResult{}, err
 	}
-	// Index both endpoint labels so the fact is reachable by a QUESTION, not only
-	// by spelling the entity exactly. This is the incremental half of the
-	// lifecycle: an index built once at backfill is stale by its second day and
-	// never says so — it just answers with yesterday's graph.
-	//
-	// Non-fatal. The fact is written; the label index is only how it is found,
-	// and refusing the write because the embedder is down is the trade this
-	// codebase already declined on the drawer path.
-	for _, e := range []struct{ id, label string }{{subID, subj}, {objID, obj}} {
+	return KGAddResult{TripleID: id, Fact: fact}, nil
+}
+
+// indexFactLabels indexes both endpoint labels so the fact is reachable by a
+// QUESTION, not only by spelling the entity exactly. This is the incremental half
+// of the lifecycle: an index built once at backfill is stale by its second day and
+// never says so — it just answers with yesterday's graph.
+//
+// Non-fatal. The fact is written; the label index is only how it is found, and
+// refusing the write because the embedder is down is the trade this codebase
+// already declined on the drawer path.
+func (s *Service) indexFactLabels(ctx context.Context, teamID, subj, obj string) {
+	for _, e := range []struct{ id, label string }{
+		{normalizeEntityID(subj), subj},
+		{normalizeEntityID(obj), obj},
+	} {
 		if err := s.IndexEntityLabel(ctx, teamID, e.id, e.label); err != nil {
 			slog.WarnContext(ctx, "entity label not indexed; the fact is stored but unreachable by question",
 				"entity", e.id, "err", err)
 		}
 	}
-	return KGAddResult{TripleID: id, Fact: fact}, nil
 }
 
-// KGInvalidate ends a current fact by setting its valid_to (defaulting to today).
-// It rejects an end that precedes the fact's own start. Ending a fact never
-// deletes it — the history stays queryable as-of an earlier time.
-func (s *Service) KGInvalidate(ctx context.Context, teamID, subject, predicate, object, ended string) (fact, resolvedEnded string, err error) {
+// KGInvalidate ends a current fact by setting its valid_to (defaulting to today)
+// and recording WHY. It rejects an end that precedes the fact's own start.
+// Ending a fact never deletes it — the history stays queryable as-of an earlier
+// time.
+//
+// The reason is REQUIRED (ADR-038). valid_to already recorded that a fact stopped
+// being true; the reason is the half a later reader cannot reconstruct from the
+// row, and the store kept the cheap one and dropped the expensive one for as long
+// as there was nowhere to put it.
+func (s *Service) KGInvalidate(ctx context.Context, teamID, subject, predicate, object, ended, reason string) (endedFacts int64, fact, resolvedEnded string, err error) {
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		return 0, "", "", fmt.Errorf("%w: a reason is required to end a fact — an invalidation that "+
+			"records only THAT a fact ended keeps the cheapest half and drops the expensive one. "+
+			"Say what changed, or use kg_supersede if something replaces it", ErrInvalidInput)
+	}
 	subj, err := sanitizeKGValue(subject, "subject")
 	if err != nil {
-		return "", "", err
+		return 0, "", "", err
 	}
 	pred, err := SanitizeName(predicate, "predicate")
 	if err != nil {
-		return "", "", err
+		return 0, "", "", err
 	}
 	obj, err := sanitizeKGValue(object, "object")
 	if err != nil {
-		return "", "", err
+		return 0, "", "", err
 	}
 	e, err := sanitizeISOTemporal(ended, "ended")
 	if err != nil {
-		return "", "", err
+		return 0, "", "", err
 	}
 	if e == "" {
 		e = time.Now().UTC().Format("2006-01-02")
@@ -661,17 +709,42 @@ func (s *Service) KGInvalidate(ctx context.Context, teamID, subject, predicate, 
 	// Reject an end before any matching fact's start (the inverted-interval guard).
 	current, err := s.repo.CurrentTriples(ctx, teamID, subID, p, objID)
 	if err != nil {
-		return "", "", err
+		return 0, "", "", err
 	}
 	for _, row := range current {
 		if row.ValidFrom != "" && temporalEndKey(e) < temporalStartKey(row.ValidFrom) {
-			return "", "", fmt.Errorf("%w: ended=%q is before valid_from=%q", ErrInvalidInput, e, row.ValidFrom)
+			return 0, "", "", fmt.Errorf("%w: ended=%q is before valid_from=%q", ErrInvalidInput, e, row.ValidFrom)
 		}
 	}
-	if _, err := s.repo.InvalidateKGTriples(ctx, teamID, subID, p, objID, e); err != nil {
-		return "", "", err
+	// RowsAffected is the ANSWER here, not a diagnostic, and discarding it was the
+	// defect M reported on 2026-08-27: this returned nil for a fact it had never
+	// touched and the MCP handler rendered a hardcoded "success": true. Reproduced
+	// against the running server — invalidating a triple that had never existed
+	// answered success while kg_triples ended nothing.
+	//
+	// It is this repository's characteristic defect wearing a temporal hat: a
+	// write that reports success and changes nothing. Worse here than elsewhere,
+	// because the entire purpose of an invalidation is that the fact stops being
+	// returned, so an agent that retracts a wrong fact, is told it worked, and
+	// finds it still current has been misled by the one operation that exists to
+	// keep the store honest.
+	n, err := s.repo.InvalidateKGTriples(ctx, teamID, subID, p, objID, e, reason)
+	if err != nil {
+		return 0, "", "", err
 	}
-	return subj + " → " + p + " → " + obj, e, nil
+	if n == 0 {
+		// Name the NORMALIZED terms, not the caller's spelling. normalizeEntityID
+		// and normalizePredicate rewrite all three, so the likeliest cause of a
+		// legitimate miss is a spelling that resolved somewhere the caller did not
+		// expect — and echoing their own input back explains nothing. The other
+		// cause is an already-ended fact, which is named too because it is the
+		// case that looks most like a bug from the outside.
+		return 0, "", "", fmt.Errorf(
+			"%w: %s → %s → %s. Either it was never filed, or it is already ended "+
+				"(am_kg_query with status \"ended\" shows it). Nothing was changed",
+			ErrFactNotFound, subID, p, objID)
+	}
+	return n, subj + " → " + p + " → " + obj, e, nil
 }
 
 // kgComplementStatus returns the status a withheld tally must count: what a query
@@ -929,7 +1002,7 @@ func kgFact(direction, subject, predicate, object string, row kgTripleRow) KGFac
 		Direction: direction, Subject: subject, Predicate: predicate, Object: object,
 		ValidFrom: row.ValidFrom, ValidTo: row.ValidTo, Confidence: row.Confidence,
 		SourceCloset: row.SourceCloset, SourceFile: row.SourceFile,
-		SourceDrawerID: row.SourceDrawerID, RecordedAt: row.ExtractedAt,
+		SourceDrawerID: row.SourceDrawerID, RecordedAt: row.ExtractedAt, EndedReason: row.EndedReason,
 		Current: row.ValidTo == "",
 		Derived: row.Derived != nil && *row.Derived,
 	}

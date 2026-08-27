@@ -288,7 +288,10 @@ Refusing is the safe half of the fix, not the whole one. Two things are still op
   particular code.
 
 Still open from this cluster: re-chunking on update (above), which stays an ADR rather than a bug
-fix because it changes which ids exist.
+fix because it changes which ids exist. **ADR-038 (Proposed, 2026-08-27) removes the blocker** — it
+splits the id that dedupes from the id that refers, so re-chunking no longer invalidates anything
+pointing at a drawer. It does NOT do the re-chunking; the open question it leaves is what happens to
+a reference pointing at a non-parent chunk that a re-chunk deletes. See `docs/adr/ADR-038-refer-by-the-id-and-end-instead-of-overwrite.md`.
 
 ## The ADR evidence chain depends on a tool outside the repository
 
@@ -501,7 +504,11 @@ without the exit-code trap the first version had.
 
 ## From ADR-010 (supersede, do not overwrite)
 
-- **Ordering a supersession chain when history is asked for** — ADR-010 T3 returns the chain newest-first behind `include_history`, and stops there: nothing decides whether a history response should be RANKED by relevance, or by what, once a chain runs past a handful of records. Filed because T3's Out of Scope pointed at ADR-004 as "it owns ordering" and that ADR holds nothing of the kind — it is Accepted, it measures where a stale drawer lands in DEFAULT recall as the gate on populating the graph, states "No MCP surface change" and "production ranking unchanged", and never mentions history at all. `include_history` does not exist until T3 creates it, so no ADR owns this yet and the pointer resolved to a real file that could not have received it.
+**Owner changed 2026-08-27: ADR-010 was superseded by ADR-038 (`docs/adr/ADR-038-refer-by-the-id-and-end-instead-of-overwrite.md`), which absorbed its decision
+in full. Every item below is now ADR-038's, and its Out of Scope carries them. They are left under
+this heading rather than moved, so that a search for ADR-010 still finds where its obligations went.**
+
+- **Ordering a supersession chain when history is asked for** — now ADR-038 T5, formerly ADR-010 T3 returns the chain newest-first behind `include_history`, and stops there: nothing decides whether a history response should be RANKED by relevance, or by what, once a chain runs past a handful of records. Filed because T3's Out of Scope pointed at ADR-004 as "it owns ordering" and that ADR holds nothing of the kind — it is Accepted, it measures where a stale drawer lands in DEFAULT recall as the gate on populating the graph, states "No MCP surface change" and "production ranking unchanged", and never mentions history at all. `include_history` does not exist until T3 creates it, so no ADR owns this yet and the pointer resolved to a real file that could not have received it.
 - **Full event sourcing of the whole store** — an append-only log as the source of truth with current state as a projection: the stronger form of the validity window ADR-010 chose instead. Rejected there on risk rather than on merit — drawer identity already carries vectors, chunking and anchors hanging off it, and rebuilding that as a projection is a rewrite the window's benefit does not pay for. The stated trigger is a SECOND consumer of history; today the only one is the explicit history flag on recall, and nobody has written down what else would read the log. Revisit when that second consumer exists, not on principle.
 - **Validity windows on diary entries** — ADR-010 gives drawers `valid_to`, `superseded_by` and a required reason; diary entries get none of them, deferred on the ground that a diary is append-only by construction so nothing overwrites an entry. This file already records the counter-evidence: `DrawerID` drops agent and topic, so two byte-identical entries in one wing collapse to a single row on import, which the portability section above calls a silent violation of the append-only guarantee `diaryEntryID`'s own doc comment states. Append-only-by-construction is therefore the premise to check first, not the reason to skip the work. The retraction half is untouched either way — an entry whose decision later reversed stays current and competes with its correction, and since there is no way to mark one ended, no instance has ever been recorded.
 - **Structured reasons — a taxonomy of why something ended** — ADR-010 makes `reason` required free text on every retraction and on `am_kg_invalidate`, deliberately uncategorised, because a taxonomy chosen before there are reasons to classify is a guess. What would settle it is the corpus that field produces — median reason length plus a human reading a sample, which ADR-010 measures and which does not exist yet. The risk it would address is recorded there already: a required field an agent fills with "obsolete" buys nothing. Better tool prompting is the first remedy; a closed set only if the writing stays uninformative once there is writing to read.
@@ -670,6 +677,9 @@ without the exit-code trap the first version had.
   wing would remove the whole class of merge-drift, and it would also rewrite every id and
   invalidate every anchor, tunnel and knowledge-graph source pointer. Too large for ADR-015; worth
   deciding deliberately rather than inheriting.
+  **Taken up by ADR-038 (Proposed, 2026-08-27)**, which answers the concern without the rewrite:
+  `DrawerID` still hashes the wing, but nothing derives identity from it any more, so a merge
+  invalidates nothing. Close this entry when ADR-038 is executed or withdrawn.
 - **The drift check looks only at `wing`** — a point's payload also carries `room`, and nothing
   compares it. `room` has no relabel path today, which is why it is not urgent, and "no path today"
   is exactly the assumption that produced the wing drift.
@@ -1281,3 +1291,78 @@ as the deferral so the pointer has a receiving end.
   the production reporter — the table prints recall and MRR and not the answered/cases fraction the
   arm exists to produce. **Trigger: before the first answerable-rate is quoted anywhere; until then
   that number can only be produced by a test, which is not the instrument this ADR claimed.**
+
+## From ADR-038 (dedupe on the content, refer by the id)
+
+- **Re-chunking on update, now unblocked.** ADR-038 makes a drawer id opaque and moves dedup onto a
+  content key, so changing which chunk rows exist no longer invalidates any anchor, tunnel or
+  knowledge-graph pointer. What it does NOT answer is ADR-027's question: what happens to a
+  reference pointing at a **non-parent** chunk that a re-chunk deletes. **Trigger: whenever
+  `Service.Update`'s multi-chunk refusal blocks real work again — it already blocks one live drawer
+  measured at 6,448 runes.** Owner: whoever takes ADR-027's remaining half.
+- **Repairing the drifted rows.** Measured 2026-08-27: 27 of 1,705 non-diary drawers carry an id
+  that no longer derives from their current fields — 5 explained by a wing move, 1 by a room move,
+  21 unattributed (an upper bound on in-place content edits, since a merge from a wing that now
+  holds no drawers is undetectable by wing substitution). ADR-038 makes the drift *checkable* and
+  deliberately does not repair it: every one of those rows is correct as stored, and the only thing
+  wrong is that nothing recorded which key described it. **Trigger: the first time T3's drift query
+  reports a row whose content key ALSO disagrees, which would mean a write path is losing the key
+  rather than history explaining it.** See `docs/adr/ADR-038-refer-by-the-id-and-end-instead-of-overwrite.md`.
+- **Should re-filing a named source discard an in-place edit to it?** `purgeSource` deletes every
+  drawer under a `(wing, room, source_file)` triple before inserting the new set, so an
+  `am_update_drawer` edit is destroyed by the next `am_add_drawer` for that source. Measured
+  2026-08-27: 27 drifted rows across 19 source triples are in that state; the RATE cannot be
+  measured, because a re-file leaves no trace of its predecessor. ADR-038 deliberately preserves
+  this behaviour and fixes only the collateral damage — chunks the re-file did not change keep their
+  ids and their anchors. Two defensible answers: a re-file means "replace the source" and the edit
+  should go, or an edit is a correction and re-filing stale text over it is loss. **Trigger: the
+  first time someone reports losing an edit this way; until then it is a known trade, not a bug.**
+- **Taking `merge_wing` off the agent surface.** ADR-038 T4 removes `delete_drawer`, `delete_tunnel`,
+  `delete_hallway` and `delete_wing` from the agent registration. `merge_wing` stays, and the reason
+  is that it is not erasure — it is a move, and ADR-015 governs what a move invalidates. But
+  `registerMergeWing` (`admin.go:196`) is UNCONDITIONAL, so an agent reaches it everywhere, and
+  ADR-015 exists because a merge can silently invalidate a search index. **Trigger: whenever an agent
+  is found to have merged a wing nobody asked it to merge.** Found by review 2026-08-27, correcting an
+  ADR-010 claim that both were "already outside the agent surface" — they were not.
+- **Does a date-only `valid_to` mean *through* that day, or *as of* it?** Issue #74. `temporalEndKey`
+  (`kg.go:117`) stretches a date-only `valid_to` to `T23:59:59Z`; `inEffectAt` (`:962`) excludes only
+  below `as_of`. So `status:"current"` drops an ended fact immediately while `as_of` keeps it for the
+  rest of that day — two filters, two answers, one day, nothing documenting the difference and no test
+  pinning either reading. ADR-038's `am_kg_supersede` sidesteps it by stamping instants rather than
+  dates, deliberately: answering it changes what the 15 already-ended facts on this palace mean.
+  **Trigger: before any second consumer of `as_of` ships, or the first time someone reports a fact
+  that "did not go away today".**
+- **A validity window for TUNNELS.** Found auditing ADR-038's own class 2026-08-27. `tunnels` has zero
+  validity columns and `DeleteTunnel` destroys. ADR-038 T4 takes `delete_tunnel` off the AGENT surface
+  but leaves the operator path destroying an **authored** artifact with no trace, while that record's
+  whole argument is that authored things are ended rather than deleted. Closets, hallways and anchors
+  are derived or re-derivable and are correctly delete-only; tunnels are the one authored non-drawer
+  artifact left delete-only. 18 exist. **BLOCKED, not merely deferred:** a tunnel's PK is `canonicalTunnelID(endpoints)` and
+  `UpsertExplicitTunnel` conflicts on it, so an ENDED tunnel would swallow every attempt to re-create
+  the same link — the id is minted identically and the upsert updates the corpse. Tunnels need an
+  opaque id before they can have a validity window. **Trigger: when someone takes on opaque ids for
+  the graph tables, not before.**
+- **The interval is CLOSED where a validity window wants half-open.** Extends issue #74 from the other
+  direction, found by review 2026-08-27 and reproduced: `inEffectAt` (`kg.go:955`) excludes only on
+  `>` and `<`, never `>=`/`<=`, so with `old.valid_to == new.valid_from == B` both rows are in effect
+  at exactly `B`. ADR-038's `am_kg_supersede` collapses the overlap from 86,400 seconds to 1 by
+  stamping instants instead of dates; it cannot remove the last one, because the shared endpoint IS
+  the mechanism. The one-character fix (`<` → `<=`) is the half-open semantics and re-reads every
+  ended fact by one boundary unit, including the 15 already ended. **Same decision as #74's — what a
+  `valid_to` means — so one record answers both.**
+- **The other half of the "a write reports success and changed nothing" sweep.** #73 fixed the shape
+  where a count EXISTS and is discarded. The other shape is a write that returns no count at all, so
+  the caller cannot check. **Find them with the predicate, not with a list** — a list is a snapshot
+  and rots exactly as the doc-comment list did:
+
+      grep -nE '^func \(r \*Repo\) (Save|Update|Delete|Invalidate|Relabel|Drop|Mark|Upsert|Add|Replace)[A-Za-z]*\(' internal/palace/*.go
+
+  On 2026-08-27 that returned 14 of 29 package-wide returning a bare `error`. Not all need a count —
+  an insert of a known set does not — but every predicate-scoped UPDATE or DELETE does. **Trigger:
+  the next time a write is reported as having done something it did not.**
+- **`merge_wing` on the agent surface.** ADR-038 leaves it, because it is a MOVE — `MergeWing`
+  (`admin.go:47`) relabels via `RelabelDrawerWingReturningIDs` and `RelabelClosetWingReturningIDs`
+  and deletes nothing. **The trigger is a condition, not a date:** ADR-038 T2 makes a merge into a
+  target holding identical content REFUSE rather than silently duplicate. If that refusal is ever
+  softened to "end the loser and keep going", `merge_wing` becomes an ending operation performed by
+  an agent and the surface question reopens.

@@ -4,7 +4,7 @@
 **Date:** 2026-08-25
 **Owner:** unassigned
 **Spec:** None — no spec stage; grounded in a server-side measurement of the live palace and the declarations at `internal/palace/chunk.go:20,56` and `internal/palace/service.go:775`, recorded inline.
-**Cross-references:** ADR-010 (supersede, do not overwrite — delete-and-refile is exactly the history loss this avoids), ADR-013 (a page of memories, not chunks), ADR-016 (a memory an agent files must be navigable — the same reachability principle, one layer down), ADR-019 (the agent sees a quarter of the memory), issue #39 part 2 (re-chunking on update — the server-layer alternative this declines), `internal/palace/chunk.go:20` (`ChunkSize`), `:56` (`MaxEmbedRunes`), `internal/palace/service.go:775` (the refusal), `internal/mcpserver/drawers.go:601` (`content_length` = `len([]rune(...))`)
+**Cross-references:** ADR-010 (supersede, do not overwrite — delete-and-refile is exactly the history loss this avoids; **superseded by ADR-038 on 2026-08-27**), ADR-013 (a page of memories, not chunks), ADR-016 (a memory an agent files must be navigable — the same reachability principle, one layer down), ADR-019 (the agent sees a quarter of the memory), issue #39 part 2 (re-chunking on update — the server-layer alternative this declines), `internal/palace/chunk.go:20` (`ChunkSize`), `:56` (`MaxEmbedRunes`), `internal/palace/service.go:775` (the refusal), `internal/mcpserver/drawers.go:601` (`content_length` = `len([]rune(...))`)
 **Numbering:** next free after ADR-026.
 **Invalidates:** none — checked (grepped ADR-001..026 for `spine`, `linked drawers`, `one record per question`, `MaxEmbedRunes`, `re-chunk`: no accepted ADR governs how a long maintained document is stored).
 **Served-path change:** **None.** No code, no schema, no tool signature, no default. This is a convention binding on agents that write to the palace, plus the repair of one live drawer that the convention makes necessary.
@@ -176,8 +176,9 @@ acceptance is the falsification measurement above.
 
 ## Out of Scope
 
-- **Re-chunking on update** (deferred: `docs/adr/BACKLOG.md`, issue #39 part 2 — it
-  changes which ids exist and owns its own ADR)
+- **Re-chunking on update** — issue #39 part 2. ADR-038 removes the blocker this bullet
+  named (an id that is also a content hash); what remains is a reference-survival rule for
+  non-parent chunks (deferred: docs/adr/ADR-038-refer-by-the-id-and-end-instead-of-overwrite.md)
 - **Every server-side improvement surfaced in the same session** (deferred: each
   needs its own issue). Folding any of them in would widen this decision silently,
   which is how a decision stops being one:

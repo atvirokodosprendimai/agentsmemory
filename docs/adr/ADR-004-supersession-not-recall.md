@@ -5,7 +5,7 @@
 **Owner:** Zy (with Mindaugas as upstream maintainer)
 **Spec:** None — no spec stage; grounded in eval measurements and cited research.
 **Cross-references:** `internal/palace/kg.go` (validity windows), `internal/palace/eval.go:105` (`CatTemporal`), `internal/palace/eval.go:562` (`ArmProduction`), `internal/palace/eval.go:772` (`OlderNeighbor`), `internal/palace/evalstats.go` (intervals), `cmd/server/eval.go:209` (`generateTemporalCases`), `cmd/server/eval.go:1006` (`printPoolDiagnosis`), `docs/adr/ADR-001-recall-answers-or-abstains.md`, `docs/adr/BACKLOG.md`
-**Served-path change:** **None — this ADR changes only measurement.** All five tasks are done and every one is an eval arm, a statistic or a gate. What an agent receives from `am_search` is byte-identical before and after. The behaviour this measures — recall preferring current records over superseded ones — is ADR-010's, which is still Proposed at 0 of 3.
+**Served-path change:** **None — this ADR changes only measurement.** All five tasks are done and every one is an eval arm, a statistic or a gate. What an agent receives from `am_search` is byte-identical before and after. The behaviour this measures — recall preferring current records over superseded ones — was ADR-010's and is now **ADR-038's** (ADR-010 superseded 2026-08-27); it remains Proposed and unbuilt.
 
 ## Context
 
@@ -203,4 +203,4 @@ No persistent state, no contract, no production behaviour: reverting the commits
 
 - [ ] Record the gate's first verdict, its case count and its interval in `docs/adr/BACKLOG.md` whichever way it lands — a `not justified` that goes unwritten will be re-litigated within a month.
 - [ ] Re-derive the −0.05 MRR non-inferiority margin once the non-temporal case set can resolve less than that; today it is set by the instrument's resolution rather than by the recall loss we would actually accept, and it is the weakest number in this ADR.
-- [ ] Received from ADR-010 T3: ranking superseded records when history IS requested. ADR-010 hides superseded records from ordinary recall and defers the ordering question here, because this ADR already owns how a history request is ranked.
+- [ ] Received from ADR-010 T3, now **ADR-038 T5** (ADR-010 superseded 2026-08-27): ranking superseded records when history IS requested. ADR-038 T5 hides ended records from ordinary recall and defers the ordering question here, because this ADR already owns how a history request is ranked.

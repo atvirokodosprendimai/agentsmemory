@@ -70,7 +70,7 @@ func TestKGInvalidateAndAsOf(t *testing.T) {
 	if _, err := svc.KGAdd(ctx, team, "Alice", "works at", "Acme", "2024-01-01", "", "", "", ""); err != nil {
 		t.Fatalf("add: %v", err)
 	}
-	if _, _, err := svc.KGInvalidate(ctx, team, "Alice", "works at", "Acme", "2025-06-01"); err != nil {
+	if _, _, _, err := svc.KGInvalidate(ctx, team, "Alice", "works at", "Acme", "2025-06-01", "she left"); err != nil {
 		t.Fatalf("invalidate: %v", err)
 	}
 
@@ -127,7 +127,7 @@ func TestEndedFactIsAbsentFromCurrentQuery(t *testing.T) {
 	if _, err := svc.KGAdd(ctx, team, "Alice", "works at", "Globex", "2025-06-01", "", "", "", ""); err != nil {
 		t.Fatalf("add survivor: %v", err)
 	}
-	if _, _, err := svc.KGInvalidate(ctx, team, "Alice", "works at", "Acme", "2025-06-01"); err != nil {
+	if _, _, _, err := svc.KGInvalidate(ctx, team, "Alice", "works at", "Acme", "2025-06-01", "she left"); err != nil {
 		t.Fatalf("invalidate: %v", err)
 	}
 
@@ -324,7 +324,7 @@ func TestKGStatsAndTimeline(t *testing.T) {
 
 	_, _ = svc.KGAdd(ctx, team, "Alice", "works at", "Acme", "2024-01-01", "", "", "", "")
 	_, _ = svc.KGAdd(ctx, team, "Bob", "knows", "Alice", "", "", "", "", "")
-	_, _, _ = svc.KGInvalidate(ctx, team, "Alice", "works at", "Acme", "2025-06-01")
+	_, _, _, _ = svc.KGInvalidate(ctx, team, "Alice", "works at", "Acme", "2025-06-01", "she left")
 
 	stats, err := svc.KGStats(ctx, team)
 	if err != nil {

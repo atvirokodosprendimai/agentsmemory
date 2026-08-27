@@ -41,15 +41,20 @@ func TestUpdateDrawerAdvertisesTheBoundItEnforces(t *testing.T) {
 		t.Fatalf("%s publishes no content property, so the argument this bound applies to is undiscoverable", tool)
 	}
 
-	bound := strconv.Itoa(palace.MaxEmbedRunes)
+	// Since ADR-038 T4 the bound is MaxContentLength, not MaxEmbedRunes: a content
+	// change supersedes and files the new text through Add, which chunks, so the
+	// embedder's single-piece window is no longer what the caller has to respect.
+	// MaxEmbedRunes still bounds what reaches the embedder — ChunkText enforces it
+	// — but it is no longer a limit an agent can hit or needs to know.
+	bound := strconv.Itoa(palace.MaxContentLength)
 	if !strings.Contains(description, bound) {
 		t.Errorf("%s's content description never names the %s-character bound it enforces.\n"+
 			"  description: %q\n"+
 			"  An agent reads this schema to decide what it may send. The service refuses\n"+
-			"  content over palace.MaxEmbedRunes, so an agent that cannot see the number\n"+
+			"  content over palace.MaxContentLength, so an agent that cannot see the number\n"+
 			"  finds it by having a write fail — and the natural repair (shorten and retry\n"+
 			"  blind) is guesswork against a limit that is written down in the code.\n"+
-			"  Interpolate palace.MaxEmbedRunes into the description; do not hardcode it,\n"+
+			"  Interpolate palace.MaxContentLength into the description; do not hardcode it,\n"+
 			"  or the sentence and the constant drift apart silently.", tool, bound, description)
 	}
 }

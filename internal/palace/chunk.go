@@ -137,14 +137,25 @@ func diaryChunks(text string, size int) []Chunk {
 	return chunks
 }
 
-// DrawerID is the deterministic identity of a drawer: a SHA-256 of the locating
-// tuple (team, wing, room, source, chunkIndex) AND the chunk's content. Hashing
-// content too means re-adding identical text is idempotent (same id, replaced in
-// place) while two *different* memories filed to the same wing/room with no
-// source_file get distinct ids instead of silently overwriting each other —
-// which is what would happen if the id were location-only. The NUL separator
-// cannot occur in any textual input, so distinct tuples can never collide by
-// concatenation (e.g. wing "a", room "bc" vs wing "ab", room "c").
+// DrawerID computes a CONTENT KEY: a SHA-256 over the locating tuple (team, wing,
+// room, source, chunkIndex) and the chunk's content. It is the dedup key, and it
+// is not a name — a drawer's id is opaque, minted once and never recomputed
+// (ADR-038).
+//
+// ⚠ THE FUNCTION KEPT ITS OLD NAME AND LOST ITS OLD JOB, which is the one thing
+// worth knowing before calling it. Its comment used to open "the deterministic
+// identity of a drawer", and that sentence is why four of the five mint paths
+// called it directly instead of going through contentKeyOf: the name and the prose
+// both said this produced a drawer's id, so nobody looked for a wrapper. The
+// wrapper is where the diary exemption lives, and skipping it deduped journal
+// entries. TestNoPathRederivesADrawerID now refuses a second caller.
+//
+// Hashing content as well as location means re-filing identical text matches the
+// row already holding it, while two *different* memories filed to the same
+// wing/room with no source_file get distinct keys instead of colliding — which is
+// what a location-only key would do. The NUL separator cannot occur in any textual
+// input, so distinct tuples can never collide by concatenation (e.g. wing "a",
+// room "bc" vs wing "ab", room "c").
 func DrawerID(teamID, wing, room, sourceFile string, chunkIndex int, content string) string {
 	h := sha256.New()
 	for _, part := range []string{teamID, wing, room, sourceFile, strconv.Itoa(chunkIndex), content} {

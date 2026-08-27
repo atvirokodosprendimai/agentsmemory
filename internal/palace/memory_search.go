@@ -21,7 +21,7 @@ const maxCandidateWidening = 8
 
 // scopeDrops counts what the scope rule removed, split by cause.
 //
-// The three are NOT interchangeable. OutOfScope is an ALARM rather than a metric:
+// The four are NOT interchangeable. OutOfScope is an ALARM rather than a metric:
 // the wing/room comparison is documented as redundant when the index honoured the
 // filter, and kept solely so a stale index cannot surface another wing's memory —
 // so a non-zero count there means the vector index and the durable rows have
@@ -36,10 +36,24 @@ type scopeDrops struct {
 	Orphan       int
 	OutOfScope   int
 	OverDistance int
+	// Superseded counts records the validity filter removed (ADR-038 T5), and it
+	// is deliberately its OWN field rather than folded into any of the three
+	// above.
+	//
+	// An ended drawer keeps its vector, so the index still returns it and the
+	// filter drops it here — which means a page can come back shorter than limit
+	// with nothing saying why. Reporting is the chosen answer rather than
+	// over-fetching, because over-fetching changes what the pool means and every
+	// measurement taken against it. A page short because records were superseded
+	// and a page short because of wing policy are different facts about the
+	// system, and one merged counter answers neither.
+	Superseded int
 }
 
 // Any reports whether the predicate dropped anything at all.
-func (d scopeDrops) Any() bool { return d.Orphan+d.OutOfScope+d.OverDistance > 0 }
+func (d scopeDrops) Any() bool {
+	return d.Orphan+d.OutOfScope+d.OverDistance+d.Superseded > 0
+}
 
 // survivorsFrom applies the scope rule to a retrieved prefix: it drops orphan
 // vectors, rows outside the wing/room the caller asked for, and rows beyond the
@@ -65,6 +79,13 @@ func survivorsFrom(hits []store.Hit, rows map[string]Drawer, q SearchQuery, stal
 		}
 		if !drawerMatchesSearch(d, q) {
 			drops.OutOfScope++
+			continue
+		}
+		// AFTER the wing/room check, so OutOfScope keeps its meaning as a
+		// divergence alarm: a superseded record counted there would look like the
+		// vector index and the durable rows had drifted apart.
+		if d.ValidTo != "" && !q.IncludeHistory {
+			drops.Superseded++
 			continue
 		}
 		distance := distanceFromScore(h.Score)
@@ -268,9 +289,24 @@ func (s *Service) collapseCandidatesToMemories(ctx context.Context, teamID strin
 		memoryChunks := byRoot[root]
 		inScope := make([]Drawer, 0, len(memoryChunks))
 		for _, d := range memoryChunks {
-			if drawerMatchesSearch(d, q) {
-				inScope = append(inScope, d)
+			if !drawerMatchesSearch(d, q) {
+				continue
 			}
+			// The ended-sibling filter, and it is NOT redundant with the one in
+			// survivorsFrom. That one runs over the RETRIEVED chunk; this expansion
+			// re-reads every sibling under the root through MemoryChunksByRoots,
+			// which is history-inclusive — so an ended sibling of a current root is
+			// reassembled into MemoryContent, scored by BM25 and the cross-encoder,
+			// and returned as part of the memory.
+			//
+			// The mixed state is ROUTINE rather than exotic: purgeSource ends only
+			// the chunks whose content key left the source, so any re-file that
+			// drops a trailing chunk leaves a current root with an ended child. A
+			// supersede ends a memory whole; a re-file does not.
+			if d.ValidTo != "" && !q.IncludeHistory {
+				continue
+			}
+			inScope = append(inScope, d)
 		}
 		representative.MemoryID = root
 		representative.MemoryContent = reassembleMemory(inScope)

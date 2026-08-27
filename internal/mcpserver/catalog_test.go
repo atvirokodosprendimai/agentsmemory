@@ -2,6 +2,10 @@ package mcpserver
 
 import (
 	"context"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"go/types"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -68,8 +72,12 @@ func liveSurface(t *testing.T, local bool) ([]CatalogEntry, []mcp.Tool) {
 // against any value the file happens to hold.
 func TestCatalogSizeIsWhatTheReadmeClaims(t *testing.T) {
 	const (
-		wantHosted = 42 // every tool except delete_wing
-		wantLocal  = 43 // + delete_wing, safe only when the agent owns the machine
+		// Equal since ADR-038 T4. delete_wing was the only tool local added, and
+		// removing it from the agent surface removed the difference: an agent may
+		// not erase on either deployment, because "the agent owns the machine" was
+		// never a reason for the agent to be able to destroy the record.
+		wantHosted = 41
+		wantLocal  = 41
 	)
 
 	hosted, local := fullCatalog(false), fullCatalog(true)
@@ -111,6 +119,58 @@ func TestCatalogSizeIsWhatTheReadmeClaims(t *testing.T) {
 		if !strings.Contains(reconnectRow, want) {
 			t.Errorf("README am_reconnect row does not explain its backend write; missing %q: %s", want, reconnectRow)
 		}
+	}
+}
+
+// TestDestructiveToolsAreAbsentFromTheAgentCatalogue is rung 3 for ADR-038's
+// erasure boundary, and it is a REGISTRATION check on purpose: a behavioural test
+// that never calls a tool passes whether or not the tool is offered, so only the
+// catalogue can fail on this.
+//
+// ⚠ It is built with local=true, and that is load-bearing. delete_wing is
+// registered only when local, so a fixture on the default hosted server finds it
+// absent today, passes for the wrong reason, and stays green if someone restores
+// the line. local was never a boundary — it is the case where the agent and the
+// operator share a process, which is the case where an agent CAN erase.
+//
+// Erasure does not disappear; it moves to the operator, who has the database file
+// and no palace protocol telling them a delete is a correction.
+func TestDestructiveToolsAreAbsentFromTheAgentCatalogue(t *testing.T) {
+	for _, local := range []bool{false, true} {
+		name := "hosted"
+		if local {
+			name = "local"
+		}
+		t.Run(name, func(t *testing.T) {
+			offered := map[string]bool{}
+			for _, n := range fullCatalog(local) {
+				offered[n] = true
+			}
+			for _, gone := range []string{
+				mcpprotocol.ToolPrefix + "delete_drawer",
+				mcpprotocol.ToolPrefix + "delete_tunnel",
+				mcpprotocol.ToolPrefix + "delete_hallway",
+				mcpprotocol.ToolPrefix + "delete_wing",
+			} {
+				if offered[gone] {
+					t.Errorf("%s is still in the %s catalogue. A tool an agent can SEE is a tool an "+
+						"agent will call: an agent doing a retraction currently gets an erasure, and "+
+						"the destroyed record is the one thing irrecoverable at any price",
+						gone, name)
+				}
+			}
+			// The replacements must be there, or this is a removal rather than a
+			// boundary and an agent that cannot delete files a duplicate instead.
+			for _, want := range []string{
+				mcpprotocol.ToolPrefix + "invalidate_drawer",
+				mcpprotocol.ToolPrefix + "kg_supersede",
+			} {
+				if !offered[want] {
+					t.Errorf("%s is not in the %s catalogue; removing erasure without offering the "+
+						"correction leaves an agent no way to say a memory is wrong", want, name)
+				}
+			}
+		})
 	}
 }
 
@@ -175,12 +235,26 @@ func TestLiveToolMetadataMatchesRegistrationPolicy(t *testing.T) {
 	}
 }
 
-func TestLocalCatalogAddsOnlyDeleteWing(t *testing.T) {
+// TestLocalAndHostedOfferTheSameTools replaces TestLocalCatalogAddsOnlyDeleteWing.
+//
+// local used to add exactly one tool — delete_wing — on the reasoning that a
+// self-hoster has no dashboard, so the alternative to an agent deleting a wing was
+// nobody deleting it. ADR-038 removed it: local is the case where the operator
+// boundary is ABSENT, not the case where destroying a record is safe, and erasure
+// moved to `agentsmemory wing delete`.
+//
+// Asserting the two surfaces are now IDENTICAL is what keeps that from being
+// undone quietly — a tool added behind the local flag would fail here, and the
+// flag is exactly where a destructive verb would be tempting to hide.
+func TestLocalAndHostedOfferTheSameTools(t *testing.T) {
 	_, hosted := liveSurface(t, false)
 	_, local := liveSurface(t, true)
 	hostedNames := make(map[string]bool, len(hosted))
 	for _, tool := range hosted {
 		hostedNames[tool.Name] = true
+	}
+	if len(hosted) == 0 {
+		t.Fatal("the hosted surface is empty; this check reads nothing")
 	}
 	var extra []string
 	for _, tool := range local {
@@ -188,8 +262,151 @@ func TestLocalCatalogAddsOnlyDeleteWing(t *testing.T) {
 			extra = append(extra, tool.Name)
 		}
 	}
-	if len(extra) != 1 || extra[0] != "am_delete_wing" {
-		t.Fatalf("local-only tools = %v, want [am_delete_wing]", extra)
+	if len(extra) != 0 {
+		t.Errorf("local offers tools hosted does not: %v. Since ADR-038 the deployments differ in "+
+			"who runs the server, not in what an agent may destroy", extra)
+	}
+	if len(local) != len(hosted) {
+		t.Errorf("local has %d tools and hosted %d", len(local), len(hosted))
+	}
+}
+
+// TestIncludeHistoryIsDeclaredInEveryToolThatHonoursIt is rung 3 for ADR-038 T5.
+//
+// A handler that honours an argument the schema never advertises is a capability
+// nobody will ever send. That is this repository's characteristic defect in its
+// mildest-looking form: the code is finished, the tests pass, and the one line
+// that lets a caller select it was never written. am_update_drawer shipped exactly
+// this once — its handler read code_anchors from the moment it was written and the
+// tool never DECLARED the argument.
+//
+// The universe is DERIVED, not listed: every register* function that reads
+// "include_history" out of the request must declare it on the tool it builds. A
+// hardcoded list of three tool names would be a guess about which tools have the
+// argument today, and it would go stale the moment a fourth honours it — silently,
+// which is the failure mode a gate exists to remove.
+//
+// It reads the LIVE tools/list schema for the declaration half, because the wire
+// is what an agent receives and a description that never reaches it is not
+// documentation.
+func TestIncludeHistoryIsDeclaredInEveryToolThatHonoursIt(t *testing.T) {
+	const arg = "include_history"
+	// requestVar is the parameter name every handler closure gives the incoming
+	// request. Pinned rather than inferred: it is one identifier, the same in every
+	// register* function, and a mismatch is reported below rather than matching
+	// nothing quietly.
+	const requestVar = "req"
+
+	pkgs, err := parser.ParseDir(token.NewFileSet(), ".", notATest, 0)
+	if err != nil {
+		t.Fatalf("parse package: %v", err)
+	}
+
+	honours := map[string][]string{} // register func -> tool names it builds
+	var unattributed []string
+	var mentions int
+
+	// EVERY occurrence of the literal in the package, not only those inside a
+	// register* body — that narrower walk was the gate's own hole. Moving the read
+	// into a one-line helper (`func historyFlag(r mcp.CallToolRequest) bool`) put
+	// the literal in a function no walk visited, and the check went green with a
+	// tool honouring an argument it never declared. Found by review 2026-08-27 and
+	// reproduced before this rewrite.
+	for _, p := range pkgs {
+		for _, f := range p.Files {
+			// The enclosing top-level function, so an occurrence can be attributed
+			// (or reported as unattributable) rather than silently dropped.
+			for _, d := range f.Decls {
+				fn, ok := d.(*ast.FuncDecl)
+				if !ok || fn.Body == nil {
+					continue
+				}
+				isRegister := strings.HasPrefix(fn.Name.Name, "register")
+				var tools []string
+				ast.Inspect(fn.Body, func(n ast.Node) bool {
+					call, ok := n.(*ast.CallExpr)
+					if !ok || len(call.Args) == 0 {
+						return true
+					}
+					lit, ok := call.Args[0].(*ast.BasicLit)
+					if !ok || lit.Kind != token.STRING {
+						return true
+					}
+					value := strings.Trim(lit.Value, `"`)
+					if ident, ok := call.Fun.(*ast.Ident); ok && ident.Name == "newTool" {
+						tools = append(tools, mcpprotocol.ToolPrefix+value)
+						return true
+					}
+					if value != arg {
+						return true
+					}
+					mentions++
+					sel, ok := call.Fun.(*ast.SelectorExpr)
+					if !ok {
+						unattributed = append(unattributed, fn.Name.Name+": "+types.ExprString(call.Fun))
+						return true
+					}
+					recv, isIdent := sel.X.(*ast.Ident)
+					switch {
+					case isRegister && isIdent && recv.Name == requestVar && strings.HasPrefix(sel.Sel.Name, "Get"):
+						honours[fn.Name.Name] = nil // filled in after the walk
+					case isIdent && recv.Name == "mcp":
+						// the declaration; verified on the wire below
+					default:
+						unattributed = append(unattributed, fn.Name.Name+": "+types.ExprString(call.Fun))
+					}
+					return true
+				})
+				if _, reads := honours[fn.Name.Name]; reads {
+					honours[fn.Name.Name] = tools
+				}
+			}
+		}
+	}
+
+	if mentions == 0 {
+		t.Fatalf("the literal %q appears nowhere in this package, so this check reads nothing. "+
+			"Either the argument was renamed and the gate went quiet, or the capability is gone", arg)
+	}
+	if len(honours) == 0 {
+		t.Fatalf("%q is mentioned %d time(s) but no register* function reads it directly off %s; "+
+			"the gate can no longer attribute any tool", arg, mentions, requestVar)
+	}
+	for _, where := range unattributed {
+		t.Errorf("%s names %q where this gate cannot attribute it to a tool. Read it directly as "+
+			"%s.GetBool(%q, …) inside the register* function, or teach this check to trace it — an "+
+			"occurrence it cannot follow is a tool whose schema nothing is checking.",
+			where, arg, requestVar, arg)
+	}
+
+	_, tools := liveSurface(t, false)
+	declared := map[string]bool{}
+	for _, tool := range tools {
+		if tool.InputSchema.Properties == nil {
+			continue
+		}
+		if _, ok := tool.InputSchema.Properties[arg]; ok {
+			declared[tool.Name] = true
+		}
+	}
+
+	for fn, built := range honours {
+		if len(built) != 1 {
+			// Loud rather than silently unattributed: with two tools in one function
+			// this check cannot say WHICH honours the argument, and a gate that
+			// quietly stops attributing is a gate that stops gating.
+			t.Errorf("%s honours %q and builds %d tools (%v); this check cannot attribute the "+
+				"argument. Split the registration, or extend the check to walk each tool's own "+
+				"handler closure", fn, arg, len(built), built)
+			continue
+		}
+		if !declared[built[0]] {
+			t.Errorf("%s reads %q from the request, and %s does not publish it in its schema.\n"+
+				"  An agent reads the schema to decide what it may send, so an argument that is "+
+				"honoured and undeclared is a capability nobody will ever use — the code is "+
+				"finished and the one line that makes it selectable was never written.",
+				fn, arg, built[0])
+		}
 	}
 }
 

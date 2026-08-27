@@ -180,55 +180,23 @@ func registerRecallStats(reg *registrar, drawers *palace.Service, usageSvc *usag
 }
 
 // registerAdmin wires the palace-maintenance tools: merge_wing (fold wings
-// together), memories_filed_away (a recent-activity summary), and — in local mode
-// only — delete_wing. The frozen sync and hook_settings tools are deliberately not
-// ported — both are single-user-local (on-disk source pruning / local Claude Code
-// hook config) with no meaning on a multi-tenant server. All admin tools are
-// tenant-scoped.
+// together) and memories_filed_away (a recent-activity summary). The frozen sync
+// and hook_settings tools are deliberately not ported — both are single-user-local
+// (on-disk source pruning / local Claude Code hook config) with no meaning on a
+// multi-tenant server. All admin tools are tenant-scoped.
 //
-// local gates delete_wing because the two deployments differ in who is on the far
-// end of the connection. Self-hosted, the agent and the operator are one person on
-// one machine with one workspace, and the alternative to an agent deleting a wing
-// is nobody deleting it — there is no dashboard. On the multi-tenant server a
-// workspace is shared, an unrecoverable mass delete is not a tool an agent should
-// be able to reach for on a colleague's memory, and the dashboard is right there.
-func registerAdmin(reg *registrar, drawers *palace.Service, usageSvc *usage.Service, local bool) {
+// delete_wing was registered here when local, and ADR-038 removed it. The argument
+// for keeping it was that self-hosted, the agent and the operator are one person on
+// one machine, so the alternative to an agent deleting a wing was nobody deleting
+// it. That is not a boundary — it is the case where the boundary is ABSENT, which
+// is exactly when a model's mistake is unrecoverable. Erasure moved to
+// `agentsmemory wing delete`, which the same person runs and which no misread
+// retraction can reach.
+//
+// merge_wing deliberately stays: it moves memories, it does not destroy them.
+func registerAdmin(reg *registrar, drawers *palace.Service, usageSvc *usage.Service) {
 	registerMergeWing(reg, drawers, usageSvc)
 	registerMemoriesFiledAway(reg, drawers, usageSvc)
-	if local {
-		registerDeleteWing(reg, drawers, usageSvc)
-	}
-}
-
-// registerDeleteWing: permanently remove one wing. Registered only in local mode.
-func registerDeleteWing(reg *registrar, drawers *palace.Service, usageSvc *usage.Service) {
-	tool := newTool("delete_wing",
-		mcp.WithDescription("Permanently delete one wing and everything filed in it: its drawers, closets, hallways, and every tunnel with an endpoint in it. This cannot be undone and knowledge-graph facts are left untouched. Set confirm to the wing's own name; any other value is refused and reports what the delete would have removed."),
-		mcp.WithString("wing", mcp.Required(), mcp.Description("The wing to delete.")),
-		mcp.WithString("confirm", mcp.Required(), mcp.Description("Repeat the wing name exactly. This is a deliberate second spelling, so do not derive it from the wing argument — take it from what the user actually asked you to delete.")),
-	)
-	reg.addWrite(tool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		t, errResult, ok := admit(ctx, usageSvc)
-		if !ok {
-			return errResult, nil
-		}
-		wing, err := req.RequireString("wing")
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		// Absent rather than defaulted: a missing confirmation must fail the guard,
-		// and "" would fail it anyway, but requiring the field makes the refusal say
-		// so rather than reporting a mismatch against an argument nobody sent.
-		confirm, err := req.RequireString("confirm")
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		res, err := drawers.DeleteWing(ctx, t.TeamID, wing, confirm)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		return jsonResult(res), nil
-	})
 }
 
 // wingMerger is the palace work merge_wing performs, declared here at the

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -34,7 +35,10 @@ func doctorCommand(def config.Config) *cli.Command {
 			"  integrity checks (exit non-zero on a finding):\n" +
 			"    --index    do vector payload wings agree with their SQLite drawer rows?\n" +
 			"    --schema   are all tables declared by migrations actually present?\n" +
-			"    --roles    which active API keys authenticate but are refused every write?\n\n" +
+			"    --roles    which active API keys authenticate but are refused every write?\n" +
+			"    --corpus   do content keys still match their rows, and does every parent_id,\n" +
+			"               anchor and fact provenance still resolve? (an ENDED drawer is not a\n" +
+			"               finding — it is the system working; a reference to NOTHING is)\n\n" +
 			"  diagnostic reports (measure a question; they do not declare palace health):\n" +
 			"    --graph    what graph would current entity extraction derive from this corpus?\n" +
 			"    --windows  which snippet windows compete for QUERY against --drawer?\n\n" +
@@ -51,40 +55,74 @@ func doctorCommand(def config.Config) *cli.Command {
 			&cli.BoolFlag{Name: "graph", Usage: "report what the derived graph WOULD hold if every drawer were run through the entity extractor now (read-only)"},
 			&cli.BoolFlag{Name: "roles", Usage: "count active API keys refused every write: deliberate member roles, missing membership rows, and empty roles"},
 			&cli.BoolFlag{Name: "schema", Usage: "check that every table the migrations declare actually exists — catches a goose version recorded without its effect"},
+			&cli.BoolFlag{Name: "corpus", Usage: "check that content keys match their rows and that parent_id, anchors and fact provenance still resolve — distinguishes an ENDED drawer (fine) from a reference to nothing (not)"},
 			&cli.StringFlag{Name: "windows", Usage: "report every candidate snippet window for this QUERY against --drawer, and which one search returns (read-only)"},
 			&cli.StringFlag{Name: "drawer", Usage: "the memory id --windows reports on"},
 		),
 		Action: func(ctx context.Context, c *cli.Command) error {
-			if !c.Bool("index") && !c.Bool("graph") && !c.Bool("roles") && !c.Bool("schema") && c.String("windows") == "" {
-				return fmt.Errorf("nothing to check: pass --index, --graph, --roles, --schema or --windows")
+			if !c.Bool("index") && !c.Bool("graph") && !c.Bool("roles") && !c.Bool("schema") &&
+				!c.Bool("corpus") && c.String("windows") == "" {
+				return fmt.Errorf("nothing to check: pass --index, --corpus, --graph, --roles, --schema or --windows")
 			}
 			cfg := configFromCmd(c, def)
+			// The command's own writer, not os.Stdout. Every doctor check already
+			// takes an io.Writer and every one was handed the process's stdout, which
+			// made the REPORTS — the thing an operator actually reads — unobservable
+			// from a test. The dispatch order bug this task fixes was invisible for
+			// exactly that reason: nothing could assert which reports appeared.
+			out := doctorOutput(c)
 			if q := c.String("windows"); q != "" {
-				if err := doctorWindows(ctx, cfg, c.String("project"), q, c.String("drawer"), os.Stdout); err != nil {
+				if err := doctorWindows(ctx, cfg, c.String("project"), q, c.String("drawer"), out); err != nil {
 					return err
 				}
 			}
 			if c.Bool("graph") {
-				if err := doctorGraph(ctx, cfg, c.String("project"), os.Stdout); err != nil {
+				if err := doctorGraph(ctx, cfg, c.String("project"), out); err != nil {
 					return err
 				}
 			}
 			if c.Bool("roles") {
-				if err := doctorRoles(ctx, cfg, os.Stdout); err != nil {
+				if err := doctorRoles(ctx, cfg, out); err != nil {
 					return err
 				}
 			}
 			if c.Bool("schema") {
-				if err := doctorSchema(ctx, cfg, os.Stdout); err != nil {
+				if err := doctorSchema(ctx, cfg, out); err != nil {
 					return err
 				}
 			}
-			if c.Bool("index") {
-				return doctorIndex(ctx, cfg, c.String("project"), os.Stdout)
+			// EVERY selected check runs, and the failures are joined at the end.
+			//
+			// --index used to `return` here, which meant a check added after it never
+			// ran when both flags were passed — the classic shape of a capability that
+			// is finished and unreachable, and one TestEveryFlagIsRead cannot see
+			// because the flag IS read, in a block nothing reaches. Returning early
+			// also made a passing --index hide a failing --corpus, so the exit code
+			// answered a narrower question than the operator asked.
+			var failures []error
+			if c.Bool("corpus") {
+				if err := doctorCorpus(ctx, cfg, c.String("project"), out); err != nil {
+					failures = append(failures, err)
+				}
 			}
-			return nil
+			if c.Bool("index") {
+				if err := doctorIndex(ctx, cfg, c.String("project"), out); err != nil {
+					failures = append(failures, err)
+				}
+			}
+			return errors.Join(failures...)
 		},
 	}
+}
+
+// doctorOutput is where a doctor report goes: the command's writer when one is
+// set, and the process's stdout otherwise. cli leaves Writer nil unless a caller
+// sets it, so the fallback is what the binary uses in production.
+func doctorOutput(c *cli.Command) io.Writer {
+	if w := c.Root().Writer; w != nil {
+		return w
+	}
+	return os.Stdout
 }
 
 // doctorIndex runs the wing-payload drift check and reports it.

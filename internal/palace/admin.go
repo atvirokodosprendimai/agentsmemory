@@ -79,6 +79,19 @@ func (s *Service) MergeWing(ctx context.Context, teamID string, sources []string
 		return MergeWingResult{}, fmt.Errorf("relabel drawers: %w", err)
 	}
 
+	// The content key hashes the wing, so a move must carry it (ADR-038 T2). This
+	// is the path easiest to forget — the row's content never changes and only one
+	// of the six hashed fields does — and forgetting it leaves a merged drawer
+	// whose key describes a wing it no longer sits in.
+	//
+	// A collision is refused with a named error rather than a bare constraint
+	// violation, and it FAILS THE WHOLE MERGE for the reason ADR-015 already
+	// gives: rows relabelled over a stale index is a half-done state nobody can
+	// see from the outside.
+	if err := s.repo.RecomputeContentKeys(ctx, teamID, moved); err != nil {
+		return MergeWingResult{}, fmt.Errorf("carry content keys to %s: %w", tgt, err)
+	}
+
 	// Correct the stored payloads, in batches bounded like every other id list
 	// here. A failure FAILS THE MERGE: rows relabelled over a stale index is a
 	// half-done state nobody can see from the outside, and reporting success over

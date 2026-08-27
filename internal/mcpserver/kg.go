@@ -24,12 +24,14 @@ var kgStatusParamDescription = fmt.Sprintf(
 	"Which half of a fact's life to return: %q (open-ended, not retracted), %q (retracted — the audit direction), or %q. Default %q. This is filtered SERVER-SIDE, so what it removes never reaches your context; it selects on whether a fact was ever ended, which is a different question from as_of's \"was it in effect at that moment\", and the two compose.",
 	palace.KGStatusCurrent, palace.KGStatusEnded, palace.KGStatusAll, kgQueryDefaultStatus)
 
-// registerKG wires the temporal knowledge-graph tools: kg_add / kg_invalidate
-// (write facts and end them), kg_query / kg_timeline (read, optionally as-of a
-// point in time), and kg_stats. All are tenant-scoped via admit.
+// registerKG wires the temporal knowledge-graph tools: kg_add / kg_invalidate /
+// kg_supersede (write facts, retract them, and replace them atomically),
+// kg_query / kg_timeline (read, optionally as-of a point in time), and kg_stats.
+// All are tenant-scoped via admit.
 func registerKG(reg *registrar, drawers *palace.Service, usageSvc *usage.Service) {
 	registerKGAdd(reg, drawers, usageSvc)
 	registerKGInvalidate(reg, drawers, usageSvc)
+	registerKGSupersede(reg, drawers, usageSvc)
 	registerKGQuery(reg, drawers, usageSvc)
 	registerKGStats(reg, drawers, usageSvc)
 	registerKGTimeline(reg, drawers, usageSvc)
@@ -77,11 +79,12 @@ func registerKGAdd(reg *registrar, drawers *palace.Service, usageSvc *usage.Serv
 
 func registerKGInvalidate(reg *registrar, drawers *palace.Service, usageSvc *usage.Service) {
 	tool := newTool("kg_invalidate",
-		mcp.WithDescription("Mark a current fact as no longer true by ending its validity window. The fact is kept (queryable as-of an earlier time), not deleted."),
+		mcp.WithDescription("Retract a current fact that nothing replaces, by ending its validity window and recording WHY. The fact is kept (queryable as-of an earlier time), never deleted. When something does replace it, use kg_supersede — hand-rolling invalidate-then-add leaves both values in effect between the two calls. Returns ended_facts: how many CURRENT rows this ended — one triple can match several. REFUSES when nothing matched, rather than reporting success for a fact it never touched: either it was never filed, or it is already ended."),
 		mcp.WithString("subject", mcp.Required(), mcp.Description(fmt.Sprintf("The fact's subject entity. A SHORT LABEL (max %d characters), not a sentence — the entity is a node the graph is queried by, so put explanation in a drawer and point at it with source_drawer_id.", palace.MaxKGValueLen))),
 		mcp.WithString("predicate", mcp.Required(), mcp.Description("The relationship.")),
 		mcp.WithString("object", mcp.Required(), mcp.Description(fmt.Sprintf("The fact's object entity. A SHORT LABEL (max %d characters), not a sentence — evidence, commit ids and repro steps belong in a drawer referenced by source_drawer_id, never smuggled in here.", palace.MaxKGValueLen))),
 		mcp.WithString("ended", mcp.Description("When it stopped being true (YYYY-MM-DD or datetime; default today).")),
+		mcp.WithString("reason", mcp.Required(), mcp.Description("Why it stopped being true. valid_to already records THAT the fact ended; the reason is the half a later reader cannot reconstruct from the row, and it had nowhere to land until now. If something REPLACES this fact, use kg_supersede instead — it does both ends in one transaction.")),
 	)
 	reg.addWrite(tool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		t, errResult, ok := admit(ctx, usageSvc)
@@ -100,11 +103,59 @@ func registerKGInvalidate(reg *registrar, drawers *palace.Service, usageSvc *usa
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
-		fact, ended, err := drawers.KGInvalidate(ctx, t.TeamID, subject, predicate, object, req.GetString("ended", ""))
+		reason, err := req.RequireString("reason")
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
-		return jsonResult(map[string]any{"success": true, "fact": fact, "ended": ended}), nil
+		n, fact, ended, err := drawers.KGInvalidate(ctx, t.TeamID, subject, predicate, object, req.GetString("ended", ""), reason)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		// ended_facts is returned rather than implied. One (subject, predicate,
+		// object) can match several CURRENT rows — the same fact re-asserted with a
+		// different valid_from — so "it worked" and "three facts ended" are
+		// different answers, and only the second one is checkable.
+		return jsonResult(map[string]any{"success": true, "fact": fact, "ended": ended, "ended_facts": n}), nil
+	})
+}
+
+// registerKGSupersede is the line that makes the atomic replacement reachable.
+// Without it Service.KGSupersede is a correct function no agent can call, and the
+// hand-rolled invalidate-then-add stays the only expressible replacement — which
+// is the sequence issue #74 reproduced a day-scale overlap in.
+func registerKGSupersede(reg *registrar, drawers *palace.Service, usageSvc *usage.Service) {
+	tool := newTool("kg_supersede",
+		mcp.WithDescription("Replace a fact with a new value in ONE transaction: the old value's window ends and the new one starts at the SAME instant, so no query sees both values or neither. Use this instead of kg_invalidate followed by kg_add — that sequence ends the old fact at day precision, which leaves both values in effect for the rest of the day, and leaves the graph with zero current values if the session dies between the two calls."),
+		mcp.WithString("subject", mcp.Required(), mcp.Description(fmt.Sprintf("The fact's subject entity. A SHORT LABEL (max %d characters), not a sentence.", palace.MaxKGValueLen))),
+		mcp.WithString("predicate", mcp.Required(), mcp.Description("The relationship. Unchanged by a supersede — this replaces the OBJECT.")),
+		mcp.WithString("old_object", mcp.Required(), mcp.Description("The value that stopped being true. Must match a CURRENT fact; the call is refused and changes nothing if it does not.")),
+		mcp.WithString("new_object", mcp.Required(), mcp.Description(fmt.Sprintf("The value that replaces it. A SHORT LABEL (max %d characters).", palace.MaxKGValueLen))),
+		mcp.WithString("reason", mcp.Required(), mcp.Description("Why the old value stopped being true. The row already records THAT it ended; only you can say why.")),
+	)
+	reg.addWrite(tool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		t, errResult, ok := admit(ctx, usageSvc)
+		if !ok {
+			return errResult, nil
+		}
+		var args [5]string
+		for i, name := range []string{"subject", "predicate", "old_object", "new_object", "reason"} {
+			v, err := req.RequireString(name)
+			if err != nil {
+				return mcp.NewToolResultError(err.Error()), nil
+			}
+			args[i] = v
+		}
+		boundary, err := drawers.KGSupersede(ctx, t.TeamID, args[0], args[1], args[2], args[3], args[4])
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		// The boundary is returned rather than implied: it is the single instant
+		// both windows share, and an agent that wants to query either side of the
+		// replacement needs it.
+		return jsonResult(map[string]any{
+			"success": true, "boundary": boundary,
+			"fact": args[0] + " → " + args[1] + " → " + args[3], "replaced": args[2],
+		}), nil
 	})
 }
 

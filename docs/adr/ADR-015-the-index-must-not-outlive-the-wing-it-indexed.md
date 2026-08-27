@@ -105,7 +105,7 @@ Three tasks: `tasks/README.md`.
 
 ## Out of Scope
 
-- Making `DrawerID` independent of the wing so a merge does not invalidate anything derived from the id (deferred: docs/adr/BACKLOG.md)
+- Making `DrawerID` independent of the wing so a merge does not invalidate anything derived from the id (deferred: docs/adr/ADR-038-refer-by-the-id-and-end-instead-of-overwrite.md)
 - The derived graph a merge also invalidates — hallways and entity tunnels (deferred: docs/adr/ADR-016-a-memory-an-agent-files-must-be-navigable.md — that ADR shows hallways cannot exist at all on an agent-populated palace, which has to be true before a merge can be said to invalidate them)
 - Wing rename as a first-class operation distinct from merge (permanent: a rename is a merge into a wing that holds nothing, and a second spelling of one operation is a second thing to keep correct)
 - Repairing indexes on deployments nobody runs `doctor` against (permanent: this ADR gives the operator a check and a fix; running it is theirs)

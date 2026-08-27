@@ -87,7 +87,7 @@ func seedKGCorpus(t *testing.T, svc *Service, ctx context.Context, team string, 
 			t.Fatalf("seed: %v", err)
 		}
 		if i%30 == 0 {
-			if _, _, err := svc.KGInvalidate(ctx, team, subj, pred, obj, "2025-06-01"); err != nil {
+			if _, _, _, err := svc.KGInvalidate(ctx, team, subj, pred, obj, "2025-06-01", "superseded by the plan"); err != nil {
 				t.Fatalf("seed invalidate: %v", err)
 			}
 		}

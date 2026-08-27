@@ -129,12 +129,20 @@ func TestDirectCLIReadSurfaceComesFromLiveAnnotations(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	deleteWing, ok := mcpcli.FindTool(definitions, "delete_wing")
+	// A destructive verb used to stand here: delete_wing, checked for being present
+	// on the local surface and NOT annotated read-only. ADR-038 removed it, so the
+	// same property is checked on the verb that replaced it — a write must never be
+	// advertised as a read, or a client that trusts the annotation calls it freely.
+	invalidate, ok := mcpcli.FindTool(definitions, "invalidate_drawer")
 	if !ok {
-		t.Fatal("local production surface does not expose am_delete_wing")
+		t.Fatal("local production surface does not expose am_invalidate_drawer")
 	}
-	if mcpcli.IsReadOnly(deleteWing) {
-		t.Fatal("am_delete_wing is classified read-only")
+	if mcpcli.IsReadOnly(invalidate) {
+		t.Fatal("am_invalidate_drawer is classified read-only; it ends a memory")
+	}
+	if _, gone := mcpcli.FindTool(definitions, "delete_wing"); gone {
+		t.Error("am_delete_wing is back on the local production surface — local is where the " +
+			"operator boundary is absent, which is when an agent's mistake is unrecoverable")
 	}
 
 	out, err := runDirectMCP(t, cfg)
@@ -150,13 +158,13 @@ func TestDirectCLIReadSurfaceComesFromLiveAnnotations(t *testing.T) {
 			t.Errorf("live read tool %s is listed but not callable: %v\n%s", name, err, called)
 		}
 	}
-	if strings.Contains(out, "delete_wing") {
-		t.Errorf("read-only CLI catalogue includes delete_wing:\n%s", out)
+	if strings.Contains(out, "invalidate_drawer") {
+		t.Errorf("read-only CLI catalogue includes invalidate_drawer:\n%s", out)
 	}
 
-	_, err = runDirectMCP(t, cfg, "delete_wing", "--team", "team-a")
+	_, err = runDirectMCP(t, cfg, "invalidate_drawer", "--team", "team-a")
 	if err == nil || !strings.Contains(err.Error(), "writes to the palace") {
-		t.Fatalf("delete_wing error = %v, want a write refusal from the live annotation", err)
+		t.Fatalf("invalidate_drawer error = %v, want a write refusal from the live annotation", err)
 	}
 }
 

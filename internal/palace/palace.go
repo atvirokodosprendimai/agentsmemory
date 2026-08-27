@@ -16,8 +16,16 @@ import "strings"
 // metadata. The cardinal rule from the Python tool carries over — a drawer is
 // never a summary; the exact source text is preserved so recall is lossless.
 type Drawer struct {
-	// ID is a deterministic hash of (team, wing, room, source, chunkIndex) so
-	// re-mining the same source is idempotent rather than duplicative.
+	// ID is the drawer's OPAQUE name. It is minted once and never recomputed,
+	// never compared to a hash, and never used to infer anything about the row's
+	// content — it exists so that anchors, tunnels, kg_triples.source_drawer_id,
+	// parent_id, search_events and the vector store have something stable to point
+	// at (ADR-038).
+	//
+	// It previously read "a deterministic hash of (team, wing, room, source,
+	// chunkIndex)", which was wrong twice over: the recipe also hashed CONTENT,
+	// and three shipped paths mutate those fields in place while keeping the id.
+	// What that sentence described is now ContentKey.
 	ID string
 
 	// TeamID is the owning tenant; it selects the Qdrant collection.
@@ -43,6 +51,29 @@ type Drawer struct {
 	// Empty for single-chunk drawers.
 	ParentID string
 
+	// ContentKey is the hash dedup matches on: DrawerID over this row's own
+	// fields (ADR-038, migration 00031). It is what ID used to be, moved to a
+	// column of its own so the id can stay put while the content changes.
+	//
+	// EMPTY for diary rows, because a journal is append-only and two identical
+	// reflections are two entries — the unique index's `content_key != ''`
+	// conjunct is what keeps them out of dedup.
+	ContentKey string
+
+	// ValidTo, SupersededBy, EndedReason and EndedAt are the validity window
+	// (ADR-038, migration 00030). A drawer is CURRENT while ValidTo is empty,
+	// exactly as a knowledge-graph fact already is — ending a memory never
+	// deletes it, so the record of why a decision changed survives the change.
+	//
+	// EndedReason is required at every ending and is the point of the window: an
+	// invalidation that records only THAT something ended destroys the only thing
+	// worth keeping about it. SupersededBy names the successor when a correction
+	// replaces this record, and is empty for a retraction that replaces nothing.
+	ValidTo      string
+	SupersededBy string
+	EndedReason  string
+	EndedAt      string
+
 	// Agent and Topic carry the two extra fields a diary entry needs and a normal
 	// drawer leaves empty (migration 00007). Agent is whose journal the entry
 	// belongs to — stored lowercased so diary_read is case-insensitive, matching
@@ -58,6 +89,20 @@ type Drawer struct {
 	// did, so a caller learns it without a second query.
 	HasEdge     bool `json:"has_edge,omitempty"`
 	EdgeDerived bool `json:"edge_derived,omitempty"`
+
+	// Supersedes and SupersededReason name the record THIS one replaced, and why.
+	// They are not persisted either — the predecessor row holds the truth in its
+	// SupersededBy and EndedReason, and these are resolved onto the live record
+	// when it is read (ADR-038 T5).
+	//
+	// They ride the DEFAULT path deliberately. ADR-010 first put history behind a
+	// flag and then corrected itself: hiding it AND expecting retractions to stop
+	// re-litigation cannot both hold, because a session about to redo a rejected
+	// thing does not know to ask for history. So the current record carries what
+	// it replaced, and SupersededReason is capped at maxCarriedReasonRunes — the
+	// full text stays on the predecessor, reachable by the history route.
+	Supersedes       string `json:"supersedes,omitempty"`
+	SupersededReason string `json:"superseded_reason,omitempty"`
 }
 
 // Dynamics are the L7 "living connection" fields every hallway and tunnel carries:

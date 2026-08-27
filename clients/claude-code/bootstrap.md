@@ -337,6 +337,42 @@ whenever the answer would change what you do next:
   local list is not an absent skill** — check the catalogue before you decide the
   team has no convention and fall back to your own judgement.
 
+## What these tools do silently
+
+Four behaviours return a confident WRONG answer rather than an error. None of them
+raise anything; each looks like success at the call site, which is why every one of
+them cost a real session before it was written down. A tool that REFUSES is not on
+this list however sharp its edge — a refusal you can read is the system working.
+
+⚠**`am_kg_add` NEVER CHECKS THAT WHAT YOU NAME EXISTS.** It validates the SHAPE of
+subject, predicate and object and stores the edge. So a drawer id you shortened,
+truncated or retyped does not fail — it silently creates a NEW node, and the edge
+you meant to weave points at nothing. `source_drawer_id` is unchecked the same way,
+which turns provenance into a citation resolving to no row. Measured 2026-08-27
+against one 2,037-drawer palace: **16 facts cite a row that does not exist**
+(`doctor --corpus` counts them). **Ids are full length, always** — copied, never
+typed.
+
+⚠**A LISTING CAN ARRIVE EMPTY BECAUSE IT WAS TOO BIG.** `am_list_drawers` returns
+whole drawers with no size budget, and past roughly 40-45KB a result stops reaching
+the model at all on the transports these agents use — it spills to a file nothing
+reads. An oversized listing is therefore not truncated, it is silently EMPTIER, and
+the conclusion it invites is "this room holds nothing". `am_search` bounds this and
+says so (`content_truncated`, plus a note naming the remedy); a listing does not.
+Page it — a small `limit`, walked with `offset`. **An empty-looking room is not
+evidence of an empty room.**
+
+⚠**`am_kg_query` FAILS OPEN ON A NAME IT DOES NOT KNOW.** An entity filed under a
+different spelling returns `count: 0` and no error — byte-identical to the answer
+for a graph that genuinely holds nothing about it. Zero rows is a cue to check the
+name, never a finding to report.
+
+⚠**`am_get_drawer` RETURNS ONE CHUNK, AND IT LOOKS COMPLETE.** A memory past the
+chunk size is several drawers sharing a parent, and a search hands back only the one
+that matched. Pass `whole: true` when you mean to READ a memory rather than confirm
+it exists — or ask the recall itself for whole memories with `snippet_chars: 0`,
+which returns them bounded and flags any it had to window.
+
 ## Step 2 — Plan
 
 Build the structured, multi-step plan directly from the loaded context, using

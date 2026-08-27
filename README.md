@@ -15,7 +15,7 @@ versioned skills** the team keeps up to date.
 > and MCP transport are wired and verified end-to-end, and the **core memory
 > loop** (file a drawer → recall it semantically) now works end-to-end against
 > Ollama + the vector store. Today the server exposes **41 MCP
-> tools** (40 of them hosted; `am_delete_wing` is self-hosted only) — the WRITE/FILE + SEARCH/RECALL families, the agent `diary`, the `am_mine`
+> tools**, the same 41 whether hosted or self-hosted — the WRITE/FILE + SEARCH/RECALL families, the agent `diary`, the `am_mine`
 > pipeline (text → chunked drawers + closet index), **hybrid** search (vector +
 > BM25 + closet boost), the navigable **graph** (hallways + tunnels + traverse),
 > the temporal **knowledge graph**, the skill-registry CRUD, and wing admin. Only
@@ -150,7 +150,7 @@ exposes same-named tools — without the client seeing two tools of the same nam
 | `am_status` | ✅ | Liveness + the team this session is scoped to |
 | `am_load_skill` | ✅ | Load a centralised, team-shared skill by name |
 | `am_add_drawer` | ✅ | File a verbatim memory (chunked + embedded; idempotent by source) |
-| `am_get_drawer` / `am_update_drawer` / `am_delete_drawer` | ✅ | Read, edit-in-place, or remove a drawer by id |
+| `am_get_drawer` / `am_update_drawer` / `am_invalidate_drawer` | ✅ | Read a memory; correct it (sending `content` supersedes — a new record, the old one ended with your `reason`, the two linked) or move it (wing/room keeps the id); retract one that nothing replaces. **No agent-reachable tool destroys a record** — erasure is `agentsmemory drawer erase`, which needs the database file |
 | `am_list_drawers` | ✅ | Paginate drawers, optionally filtered by wing/room |
 | `am_search` | ✅ | Hybrid recall — vector candidates re-ranked by vector + BM25 + closet boost, then optionally by a TEI cross-encoder (`RERANK_URL`) |
 | `am_check_duplicate` | ✅ | Is content near-identical to an existing drawer? |
@@ -159,17 +159,16 @@ exposes same-named tools — without the client seeing two tools of the same nam
 | `am_reconnect` | ✅ | Ensure the workspace's vector namespace exists; write-gated because this may create backend state |
 | `am_diary_write` / `am_diary_read` | ✅ | Append to / read an agent's append-only journal (timestamped, newest-first) |
 | `am_mine` | ✅ | Mine a text payload into chunked drawers (entities + content date) + the closet index; idempotent by source |
-| `am_list_hallways` / `am_delete_hallway` | ✅ | Within-wing entity co-occurrence links (derived from mined entities) |
-| `am_create_tunnel` / `am_delete_tunnel` / `am_list_tunnels` / `am_find_tunnels` / `am_follow_tunnels` | ✅ | Cross-wing links — explicit (authored, symmetric) + derived (entity) |
+| `am_list_hallways` | ✅ | Within-wing entity co-occurrence links (derived from mined entities). Rebuilt by `am_recompute_graph`, which is also how one is removed |
+| `am_create_tunnel` / `am_list_tunnels` / `am_find_tunnels` / `am_follow_tunnels` | ✅ | Cross-wing links — explicit (authored, symmetric) + derived (entity) |
 | `am_traverse` / `am_graph_stats` / `am_recompute_graph` | ✅ | Walk the room↔wing graph, summarise it, rebuild hallways + entity tunnels |
-| `am_kg_add` / `am_kg_invalidate` / `am_kg_query` / `am_kg_stats` / `am_kg_timeline` | ✅ | Temporal knowledge graph — subject→predicate→object facts with validity windows, queryable as-of a point in time |
+| `am_kg_add` / `am_kg_invalidate` / `am_kg_supersede` / `am_kg_query` / `am_kg_stats` / `am_kg_timeline` | ✅ | Temporal knowledge graph — subject→predicate→object facts with validity windows, queryable as-of a point in time. `am_kg_invalidate` retracts and requires a `reason`; `am_kg_supersede` REPLACES a value in one transaction, ending the old window and starting the new one at the same instant — hand-rolling invalidate-then-add leaves both values in effect until the end of the day |
 | `am_list_skills` / `am_update_skill` | ✅ | List the team's centralised skills; create/version-bump a skill body (writer/admin) |
 | `am_bootstrap` | ✅ | Start a session in one call: a wing's entry node, its first records inlined, pointers to the rest, and the corrections attached to any of them. Replaces a hand-executed multi-call traversal. **Returns `resolution: "unknown_term"` on a wing whose `llm_init` drawers were filed before the derived room edges shipped** — those edges are written when a drawer is written, and existing corpora are not backfilled |
 | `am_entry_point` | ✅ | Where to START in a wing: the entry node and what it points at. Edges naming a record in another wing are dropped and counted in `refused`, never listed. Same `unknown_term` condition as `am_bootstrap` |
 | `am_list_anchors` / `am_mark_anchors` | ✅ | Code anchors pinned to a memory — list them, or re-check them against the tree and mark the drawers whose code has since changed |
 | `am_recall_stats` | ✅ | What recall actually did: counts and score distributions over recorded searches, including why a cross-encoder did not order a page |
 | `am_merge_wing` / `am_memories_filed_away` | ✅ | Fold wings together; summarise what the team has filed |
-| `am_delete_wing` | ✅ | **Self-hosted only.** Permanently delete one wing and everything filed in it — drawers, closets, hallways, and every tunnel with an endpoint in it. Knowledge-graph facts are left untouched. `confirm` must be the wing's own name; any other value is refused and reports what the delete would have removed |
 | `sync`, `hook_settings` | ⛔ | Not ported — single-user-local (on-disk source pruning / local hook config) with no multi-tenant meaning |
 
 ---
@@ -814,7 +813,7 @@ tarball needs the same treatment.
 
 ### The server is inert without the protocol
 
-Connecting the MCP gives your agent 43 tools and **no reason to call any of
+Connecting the MCP gives your agent 41 tools and **no reason to call any of
 them**. Nothing about a tool catalogue tells an agent to recall before it acts or
 to write down what it learned; without that instruction the memory simply never
 gets opened. Delegation comes in three layers, and self-hosting only gets you the
@@ -1492,7 +1491,8 @@ makes a committed mapping file worth committing and a scheduled re-import safe.
 purges by source — it has to, because a batched migration would otherwise delete
 the earlier batches of the source it is still uploading — so a new profile is
 filed *beside* the old one and yesterday's numbers stay recallable. Delete the
-superseded drawer with `am_delete_drawer` after a real change, until the
+superseded drawer with `am_invalidate_drawer` after a real change — its text stays
+readable with your reason attached — until the
 [backlog item](docs/adr/BACKLOG.md) that closes this lands.
 
 Pushing straight to a server takes `--as`, and the CLI refuses the push without

@@ -345,11 +345,14 @@ func TestUpdateRefreshesEntities(t *testing.T) {
 	id := added.Drawers[0].ID
 
 	replacement := "We reversed it and chose Kafka over Mongo for the event log. Kafka wins on ordering; Mongo wins on shape. Kafka it is."
-	if _, err := svc.Update(ctx, team, id, DrawerPatch{Content: &replacement}); err != nil {
+	up, err := svc.Update(ctx, team, id, DrawerPatch{Content: &replacement, Reason: "we reversed the decision"})
+	if err != nil {
 		t.Fatalf("update: %v", err)
 	}
 
-	stored, err := svc.Get(ctx, team, id)
+	// The CORRECTING record, not the one it replaced: a correction mints a new row
+	// and the old one keeps its own text and therefore its own entities.
+	stored, err := svc.Get(ctx, team, up.Drawer.ID)
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}

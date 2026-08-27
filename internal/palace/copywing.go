@@ -63,7 +63,16 @@ func (s *Service) CopyWing(ctx context.Context, fromTeam, toTeam, wing string) (
 
 	// --- drawers: page the source wing, copy vectors+rows re-keyed for the dest ---
 	for offset := 0; ; offset += copyBatch {
-		src, err := s.repo.List(ctx, fromTeam, wing, "", copyBatch, offset)
+		// ListCurrent, not List, until a copy can carry a validity window.
+		//
+		// The destination row is built field by field below and carries no valid_to,
+		// superseded_by, ended_reason or ended_at — so copying an ended row would
+		// RESURRECT it: the text a team retracted arrives in the target as current,
+		// with the reason it was retracted gone. History-inclusive is the right
+		// default for a transfer only once the format can carry the window; until
+		// then, dropping history loses the account of why, and copying it loses the
+		// account AND asserts the claim. The second is worse.
+		src, err := s.repo.ListCurrent(ctx, fromTeam, wing, "", copyBatch, offset)
 		if err != nil {
 			return res, fmt.Errorf("list source drawers: %w", err)
 		}
@@ -117,6 +126,17 @@ func (s *Service) copyDrawerBatch(ctx context.Context, reader vectorReader, from
 	if err != nil {
 		return 0, 0, fmt.Errorf("read source vectors: %w", err)
 	}
+	// Keys first, so a copy into a team that already holds the same memory updates
+	// that row rather than renaming it — the same reuse every other mint path does.
+	copyKeys := make([]string, 0, len(src))
+	for _, d := range src {
+		copyKeys = append(copyKeys, contentKeyOf(toTeam, d.Wing, d.Room, d.SourceFile, d.ChunkIndex, d.Content))
+	}
+	existingKeys, err := s.repo.IDsByContentKeys(ctx, toTeam, copyKeys)
+	if err != nil {
+		return 0, 0, fmt.Errorf("look up rows already holding these content keys: %w", err)
+	}
+
 	dstDrawers := make([]Drawer, 0, len(src))
 	dstVectors := make([][]float32, 0, len(src))
 	skipped := 0
@@ -127,7 +147,8 @@ func (s *Service) copyDrawerBatch(ctx context.Context, reader vectorReader, from
 			continue
 		}
 		dstDrawers = append(dstDrawers, Drawer{
-			ID:          DrawerID(toTeam, d.Wing, d.Room, d.SourceFile, d.ChunkIndex, d.Content),
+			ID:          mintOrReuse(existingKeys, contentKeyOf(toTeam, d.Wing, d.Room, d.SourceFile, d.ChunkIndex, d.Content)),
+			ContentKey:  contentKeyOf(toTeam, d.Wing, d.Room, d.SourceFile, d.ChunkIndex, d.Content),
 			TeamID:      toTeam,
 			Wing:        d.Wing,
 			Room:        d.Room,

@@ -2,8 +2,6 @@ package palace
 
 import (
 	"context"
-	"errors"
-	"strconv"
 	"strings"
 	"testing"
 )
@@ -28,17 +26,23 @@ func (c *countingEmbedder) EmbedOne(ctx context.Context, input string) ([]float3
 	return c.fakeEmbedder.EmbedOne(ctx, input)
 }
 
-// TestUpdateRefusesContentTheEmbedderWouldSilentlyTruncate is the gate for the
+// TestCorrectingWithLongContentChunksInsteadOfTruncating is the gate for the
 // invariant teiembed.go states in prose: nothing reaches the embedder as one
 // piece above what the model can represent.
 //
-// It was prose, and a live path violated it. ChunkText bounds Add; Update
-// re-embeds a whole memory with EmbedOne and never chunks, so a memory created
-// small and grown in place was the one unbounded input — and because the client
-// asks for truncation rather than an error, an oversized update returned a
-// vector for the prefix and reported success. The memory still read back whole
-// from am_get_drawer while being unfindable past the cut.
-func TestUpdateRefusesContentTheEmbedderWouldSilentlyTruncate(t *testing.T) {
+// It was prose, and a live path violated it. ChunkText bounds Add; Update used to
+// re-embed a whole memory with EmbedOne and never chunk, so a memory created small
+// and grown in place was the one unbounded input — and because the client asks for
+// truncation rather than an error, an oversized update returned a vector for the
+// prefix and reported success. The memory still read back whole from am_get_drawer
+// while being unfindable past the cut.
+//
+// It was fixed by REFUSING an oversized update, and this test asserted that
+// refusal. ADR-038 T4 removed the need: a content change is now a supersede, which
+// files the new text through Add, which chunks. So the same invariant holds by a
+// better route — the caller is no longer told to delete and re-file by hand — and
+// what is asserted here is the invariant, not the refusal that used to enforce it.
+func TestCorrectingWithLongContentChunksInsteadOfTruncating(t *testing.T) {
 	emb := &countingEmbedder{}
 	svc := newTestServiceWith(t, emb)
 	ctx := context.Background()
@@ -50,65 +54,37 @@ func TestUpdateRefusesContentTheEmbedderWouldSilentlyTruncate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("seed: %v", err)
 	}
-	if len(added.Drawers) != 1 {
-		t.Fatalf("seed produced %d chunks, want 1 — this test needs a single-chunk memory", len(added.Drawers))
-	}
 	id := added.Drawers[0].ID
 
-	// Add embeds through the BATCH path, so EmbedOne is untouched so far and any
-	// call counted below is one this update made.
-	if emb.oneCalls != 0 {
-		t.Fatalf("Add called EmbedOne %d times; the baseline for this test is 0", emb.oneCalls)
+	oversized := strings.Repeat("x ", MaxEmbedRunes)
+	res, err := svc.Update(ctx, team, id, DrawerPatch{
+		Content: &oversized, Reason: "the short version left out the whole procedure",
+	})
+	if err != nil {
+		t.Fatalf("a correction longer than the embedder's window must be chunked, not refused: %v", err)
+	}
+	if res.Supersedes != id {
+		t.Errorf("supersedes = %q, want %q", res.Supersedes, id)
 	}
 
-	oversized := strings.Repeat("x", MaxEmbedRunes+1)
-	if _, err := svc.Update(ctx, team, id, DrawerPatch{Content: &oversized}); err == nil {
-		t.Fatal("an update larger than the embedder can hold in one piece was accepted; " +
-			"the text past the model's window would be stored and never findable")
-	} else if !errors.Is(err, ErrInvalidInput) {
-		t.Fatalf("refusal must be ErrInvalidInput so the MCP layer reports it as a bad request, got %v", err)
-	} else {
-		// The caller cannot act on "too long" without both numbers and a way out.
-		// Derived from the constant, never spelled: hard-coding "4000" here made a
-		// legitimate change to the bound fail as a complaint about MESSAGE WORDING,
-		// which sends the reader to the wrong place. The one test that should fail
-		// on a changed bound is the one below, deliberately.
-		for _, want := range []string{
-			strconv.Itoa(MaxEmbedRunes + 1),
-			strconv.Itoa(MaxEmbedRunes),
-			"add_drawer",
-		} {
-			if !strings.Contains(err.Error(), want) {
-				t.Errorf("refusal does not mention %q, so the caller cannot tell what to do: %v", want, err)
-			}
+	chunks, err := svc.GetMemory(ctx, team, res.Drawer.ID)
+	if err != nil {
+		t.Fatalf("read the correcting memory: %v", err)
+	}
+	if len(chunks) < 2 {
+		t.Fatalf("the correcting memory is %d chunk(s); content of %d runes must be split, or the "+
+			"tail is stored and never findable", len(chunks), len([]rune(oversized)))
+	}
+	for _, c := range chunks {
+		if n := len([]rune(c.Content)); n > MaxEmbedRunes {
+			t.Errorf("a chunk of %d runes reached the store; the embedder takes at most %d in one "+
+				"piece and truncates rather than failing, so anything past that is unfindable",
+				n, MaxEmbedRunes)
 		}
 	}
-
-	if emb.oneCalls != 0 {
-		t.Errorf("the embedder was called %d time(s) for content that was then refused — "+
-			"the check must come BEFORE the embed, or the truncated vector has already been fetched",
-			emb.oneCalls)
-	}
-
-	// A refused update must leave the memory exactly as it was: this path writes
-	// the vector before the row, so a half-applied refusal is a real possibility.
-	unchanged, err := svc.Get(ctx, team, id)
-	if err != nil {
-		t.Fatalf("get after refusal: %v", err)
-	}
-	if unchanged.Content != "the original short memory" {
-		t.Errorf("a refused update changed the drawer: %q", unchanged.Content)
-	}
-
-	// The boundary belongs in the test, not in a reader's head: exactly the limit
-	// is allowed, so the comparison is > and not >=.
-	atLimit := strings.Repeat("y", MaxEmbedRunes)
-	if _, err := svc.Update(ctx, team, id, DrawerPatch{Content: &atLimit}); err != nil {
-		t.Fatalf("content of exactly MaxEmbedRunes was refused, so the bound is off by one: %v", err)
-	}
-	if emb.longest != MaxEmbedRunes {
-		t.Errorf("longest string handed to the embedder was %d, want exactly the limit %d",
-			emb.longest, MaxEmbedRunes)
+	if emb.longest > MaxEmbedRunes {
+		t.Errorf("the longest string handed to the embedder was %d, above the %d limit — this is the "+
+			"invariant, and it must hold whichever path files the text", emb.longest, MaxEmbedRunes)
 	}
 }
 

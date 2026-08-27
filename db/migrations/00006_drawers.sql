@@ -15,7 +15,7 @@
 -- +goose StatementBegin
 CREATE TABLE drawers (
     team_id      TEXT    NOT NULL,            -- owning tenant (also the vector namespace)
-    id           TEXT    NOT NULL,            -- deterministic hash(team,wing,room,source,chunk) — idempotency key
+    id           TEXT    NOT NULL,            -- opaque name, minted once and never recomputed (ADR-038); see content_key
     wing         TEXT    NOT NULL,            -- project namespace
     room         TEXT    NOT NULL,            -- aspect within the wing
     source_file  TEXT    NOT NULL DEFAULT '', -- provenance of the chunk

@@ -9,7 +9,7 @@ suggested: prove the palace is exercised before trusting anything measured about
 | 2 | [ADR-006](ADR-006-knobs-that-do-nothing.md) | Does a setting an operator changes reach an active code path and change behaviour? | nothing |
 | 3 | [ADR-007](ADR-007-no-number-without-its-population.md) | Does the eval print numbers that mean what they say? | nothing technically; third by priority |
 | 4 | [ADR-009](ADR-009-tune-against-your-own-corpus.md) | Is the configuration an operator actually runs the right one for their corpus? | ADR-007 T3 (a tuner must not read a number it cannot trust) |
-| 5 | [ADR-010](ADR-010-supersede-do-not-overwrite.md) | Does correcting a memory destroy the record of why it changed? | ADR-008 (its scenarios are how the falsification is checked) |
+| 5 | [ADR-010](ADR-010-supersede-do-not-overwrite.md) — **superseded 2026-08-27 by [ADR-038](ADR-038-refer-by-the-id-and-end-instead-of-overwrite.md)** | Does correcting a memory destroy the record of why it changed? | ADR-008 (its scenarios are how the falsification is checked) |
 
 **Why this order.** The standard we are held to is not "a test exists that names this" but "there is
 an active code path, it is exercised, and here is the evidence". Measured 2026-08-20 against that
