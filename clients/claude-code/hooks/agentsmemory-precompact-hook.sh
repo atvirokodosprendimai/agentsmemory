@@ -53,7 +53,22 @@ QUERY="$(printf '%s %s' "${BRANCH:-}" "${FILES:-}" | tr -s ' ' | sed 's/^ *//;s/
 # placeholder when there is not — the local server ignores it, and a hosted one
 # rejects it loudly, which is the correct outcome in both cases.
 ERRFILE="$(mktemp 2>/dev/null || echo /tmp/agentsmemory-precompact.err)"
+#
+# ⚠ room=decisions AND max_distance ARE BOTH LOAD-BEARING, and both were added after
+# measuring what this hook actually injected. Unscoped, the top three hits for a real
+# mid-work query were THIS SESSION'S OWN TRANSCRIPT CHUNKS at distance 0.46-0.52 —
+# the hook would re-inject into the fresh context the very text compaction had just
+# removed. Scoped to decisions it returned real decisions, but at 0.50-0.56, which is
+# the weak band: measured 2026-08-28, real questions land at 0.32-0.44 and bare
+# identifiers at 0.41-0.57. A branch name is not a question.
+#
+# So the floor decides. At 0.42 this query returns nothing and the hook stays quiet,
+# which is the correct outcome for a query with no real match — F-6 working rather
+# than failing. The two classes DO overlap around 0.41-0.44, so the threshold is a
+# trade rather than a boundary; it is set to exclude all 25 measured bare-identifier
+# queries while keeping question-grade hits.
 HITS="$(aiagentmemory mcp search "$QUERY" -a limit=3 -a snippet_chars=300 \
+  -a room=decisions -a max_distance=0.42 \
   --token "${AGENTSMEMORY_LOCAL_TOKEN:-${AGENTSMEMORY_TOKEN:-local}}" 2>"$ERRFILE")"
 RC=$?
 if [ "$RC" -ne 0 ]; then
