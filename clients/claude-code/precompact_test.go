@@ -105,13 +105,7 @@ func TestF6AHookIsSilentInTheCommonCase(t *testing.T) {
 		t.Errorf("with nothing to go on the hook spoke (%q) or searched anyway (called=%v)", out, called)
 	}
 
-	// The off-switch is silence too, and it must short-circuit before the search.
-	off := place(t)
-	if out, called := run(t, []string{"AGENTSMEMORY_PRECOMPACT=off", "CLAUDE_PROJECT_DIR=" + off}, off); out != "" || called {
-		t.Errorf("AGENTSMEMORY_PRECOMPACT=off produced output (%q) or still searched (called=%v)", out, called)
-	}
-
-	// And it SPEAKS when it has something. Without this the two assertions above
+	// And it SPEAKS when it has something. Without this the assertions around it
 	// are satisfied by a script that does nothing at all.
 	live := place(t)
 	for _, args := range [][]string{{"init"}, {"config", "user.email", "t@example.test"},
@@ -135,5 +129,15 @@ func TestF6AHookIsSilentInTheCommonCase(t *testing.T) {
 	}
 	if !strings.Contains(out, "Memory recalled") {
 		t.Errorf("the hook had a hit and said nothing: %q", out)
+	}
+
+	// ⚠ THE OFF-SWITCH IS TESTED HERE, IN THE LIVE TREE, and the placement is the
+	// point. Run in an empty directory it passes whatever the switch does, because
+	// the empty-query guard produces the silence — which is exactly how its first
+	// mutant survived. Only a working tree, where a query exists and the hook would
+	// otherwise speak, leaves the switch as the one thing that can keep it quiet.
+	if out, called := run(t, []string{"AGENTSMEMORY_PRECOMPACT=off", "CLAUDE_PROJECT_DIR=" + live}, live); out != "" || called {
+		t.Errorf("AGENTSMEMORY_PRECOMPACT=off produced output (%q) or still searched (called=%v) "+
+			"on a tree where the hook otherwise speaks", out, called)
 	}
 }

@@ -90,6 +90,11 @@ falls (F-10).
   ```
   the fence passed with the mechanism broken
   ```
+- 2026-08-28 · 5a91bcc* · mutant killed · exit 1 · `clients/claude-code/hooks/agentsmemory-precompact-hook.sh` · F-6: with no query the hook must be silent, not guess a query · acceptance-sha256:1ca9f7ca6761a677b0e7390dc80ac05c8471a18eeab4ce7fbf66f584663846fc
+- 2026-08-28 · 5a91bcc* · mutant survived · exit 0 · `clients/claude-code/hooks/agentsmemory-precompact-hook.sh` · the off-switch must short-circuit before the search · acceptance-sha256:1ca9f7ca6761a677b0e7390dc80ac05c8471a18eeab4ce7fbf66f584663846fc
+  ```
+  the fence passed with the mechanism broken
+  ```
 
 ## Invariants
 
@@ -112,3 +117,5 @@ Stop if `PreCompact` does not fire, or fires without a usable payload, on the in
 - Acting on the injected content automatically
 
 ## Verification Log
+- 2026-08-28 · 5a91bcc · exit 0 · `docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'apk add --no-cache bash git >/dev/null && go test ./clients/claude-code/ -run "^(TestF6AHookIsSilentInTheCommonCase|TestPreCompactHookIsRegistered)$" -count=1 -v 2>&1 | tee /tmp/acc.out; ! grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/acc.out'` · acceptance-sha256:1ca9f7ca6761a677b0e7390dc80ac05c8471a18eeab4ce7fbf66f584663846fc
+- 2026-08-28 · 5a91bcc* · exit 0 · `docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'apk add --no-cache bash git >/dev/null && go test ./clients/claude-code/ -run "^(TestF6AHookIsSilentInTheCommonCase|TestPreCompactHookIsRegistered)$" -count=1 -v 2>&1 | tee /tmp/acc.out; ! grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/acc.out'` · acceptance-sha256:1ca9f7ca6761a677b0e7390dc80ac05c8471a18eeab4ce7fbf66f584663846fc
