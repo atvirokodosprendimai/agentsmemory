@@ -178,8 +178,11 @@ is there. It is the discipline that keeps this tier from becoming a second corpu
   **(3) It creates a second thing to keep true.** The pointer and the row are now two records of one
   address. Under ADR-038 a re-file **ends** the old row rather than overwriting it, so a pointer can
   come to name an ended row while still resolving — and that is measured, not hypothetical: ADR-038
-  shipped `doctor --corpus` because 16 facts already named a drawer that no longer existed, and it
-  reports "points at an ENDED row" as a distinct third state for this reason.
+  shipped `doctor --corpus` to find exactly this, and its first run reported **16 facts naming no
+  row**. ⚠ Scoped as ADR-038 scopes it: that run was against the **self-hosted container, a different
+  corpus**, and its own follow-up says the hosted palace could differ. The class is demonstrated; the
+  count is not a property of this palace. `doctor --corpus` reports "points at an ENDED row" as a
+  distinct third state for this reason (`AGENTS.md:245`).
 
   ★ **The honest summary: this alternative fixes the *address*, and this record is about the
   *address and the payload together*.** If only the address were broken, this would win on cost.
@@ -294,8 +297,11 @@ record, not a reason to wait on it.
 motivating wing" because `am_bootstrap` returns `resolution: "unknown_term"` on `wing_agentmemories`.
 Called live on the hosted palace (workspace `atvirokodosprendimai-498ccd`) it returns
 `resolution: "matched"`: the entry edges were hand-authored at 08:28–08:29Z on 2026-08-27, roughly
-six hours before that review was submitted at 14:59Z. The backfill for *other* wings is still filed
-in `BACKLOG.md` and still has not run — this wing was fixed by hand, and no other wing has one.
+six hours before that review was submitted at 14:59Z. The automated backfill is still filed in
+`BACKLOG.md` and still has not run — every entry point that exists was authored by hand, this wing's
+and others': `wing_wgmesh` and `wing_forumchat` both resolve `matched` too, checked here rather than
+recalled. ⚠ That correction is this record's own lesson landing on it: an earlier draft of this
+paragraph said "no other wing has one", taken from a memory written before those wings were done.
 ⚠ **Instance named deliberately, not to settle it by assertion:** this record already carries one
 unreconciled local-versus-hosted disagreement in Risks, so a second measurement gets its endpoint
 attached rather than a verdict.
