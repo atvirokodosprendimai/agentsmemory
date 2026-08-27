@@ -107,5 +107,18 @@ Additive throughout. T1's store is a file — delete it. T3 reverts to deferred 
 
 ## Follow-ups
 
-- [ ] Report the first measured baseline in `docs/adr/BACKLOG.md` whichever way it falls — including "the classifier matched nothing", which falsifies the instrument rather than the hypothesis.
+- [x] **The baseline is 27.6%** — 61/221 over 46 sessions, classifier v2, precision 48%, window
+      2026-08-01..28, in `docs/adr/BACKLOG.md`. It carries its precision because at 48% roughly half
+      the denominator is not the class. The classifier did NOT match nothing; the first held-out set
+      that suggested it had was 3,000 characters of prose across four abandoned sessions.
+- [ ] **ELAPSED TIME IS THE ONLY THING BLOCKING THE REST.** T4 is shipped and needs a measurement
+      window of real compactions before T6 may ship (F-9). Record the delta whichever way it falls,
+      including "no effect" — the outcome that retires T4 rather than extending it (F-10).
+- [ ] **F-14 needs re-scoping or withdrawing by the owner.** T3 measured deferral as a harness-wide
+      policy over MCP tools as a class — a two-tool server is deferred — so the fact asserts an
+      outcome this system cannot produce. Its binding stays red until the owner rules.
+- [ ] **F-12's binding stays red with T5.** A bare grep pattern is not a question: 0 of 25 subjects
+      reached canary-grade distance. Reopening needs a different trigger, not a tighter bound.
+- [ ] **F-2's narrowing is decided and unimplemented**, with two measured dead ends recorded. The
+      next attempt starts from "prose does not token-match declarations", not from a better index.
 - [ ] Decide whether the store should be readable by `doctor`, once there is a rate worth reading.

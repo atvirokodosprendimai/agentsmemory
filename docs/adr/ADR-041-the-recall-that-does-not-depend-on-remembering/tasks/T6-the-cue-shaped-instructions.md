@@ -47,6 +47,36 @@ falls (F-10).
 | `TestF11InstructionsNameTheClassOfClaimNotTheDuty` | `internal/mcpserver/recallcue_spec_test.go` | the class is named; no bare imperative | F-11, UC2-S1 |
 | `TestInstructionsStayShort` | `internal/mcpserver/instructions_test.go` | the ceiling holds (already passing) | F-7 |
 
+## DEFERRED by F-9, not blocked and not shipped — 2026-08-28
+
+T6 is ready to write and must not be written yet. The reason is a rule the record fixed before any
+of this was known, which is the only kind worth obeying when the conclusion is inconvenient.
+
+**F-9: exactly one mechanism ships per measurement window.** T4 shipped; its window has not run —
+its own sign-off says so: *"mechanism shipped; delta not yet measurable"*. Shipping T6 now puts two
+mechanisms in flight against one baseline and neither becomes attributable. Four windows was always
+going to be slow; the alternative is not faster, it is unmeasurable.
+
+**"Ship it as tidying instead" does not escape this.** T6 edits the text every session reads at
+handshake, so it moves the same number T4 is being judged on. There is no version of this change
+that is neutral to T4's window.
+
+**T6's own Stop Condition cannot be evaluated.** It says to stop *"if the three prior windows show
+the rate already at ceiling"*. There are no three prior windows: T3 and T5 are blocked and produced
+none, and T4's is pending. The premise is unmet, so the condition neither fires nor clears.
+
+⚠ **T6 IS NOT VINDICATED BY BEING THE LAST ONE STANDING.** Two of the three mechanisms that asked
+nothing of the agent have failed — T3 because deferral is not the server's to control, T5 because a
+grep pattern is not a question. That elimination says nothing about whether prose works, and F-8
+still holds: added protocol prose is not a mechanism. T6 replaces rather than adds, which is a
+material difference in context cost and NOT an argument for effectiveness. When it does ship it
+ships as the mechanism ranked LAST by compliance-dependence, and it is judged by the same number as
+the others.
+
+**What unblocks it:** a measured delta for T4 against the 27.6% baseline, recorded whichever way it
+falls (F-10) — including "no effect", which is the outcome that would retire T4 rather than extend
+it. That needs elapsed sessions with real compactions, not code.
+
 ## Reachability
 
 | Rung | How this task shows it |
