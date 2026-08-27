@@ -21,9 +21,11 @@ not optional"* — automatically, from the schema, without having loaded a proto
 `icons`. `_meta` exists and is opaque — no client surfaces it to a model — so filling it would be a
 capability that is finished and unreachable, this repository's signature defect.
 
-**So the channel is `description`, and it has room.** Our longest tool description is 521 bytes;
-some agent clients truncate at ~1,800. Every tool has roughly 1.3KB of unused, already-delivered,
-already-model-visible space.
+**So the channel is `description`, and it has room.** Our longest tool description is 521 bytes —
+measured across all 43 tools — against no ceiling at all. ⚠ **A truncation figure of ~1,800 chars was
+reported for some clients during this ADR's drafting and is NOT verified here**: no client publishes
+its limit, and the limit moves between versions. It is recorded as a reason to bound descriptions at
+all, never as the number to bound them to. See the budget gate and Risks.
 
 **And a per-tool obligation is what a description is FOR.** ADR-021 rejected putting protocol in
 descriptions, and that rejection stands for what it actually judged: the *wing rule*, a cross-cutting
@@ -84,9 +86,16 @@ may still declare one.
   catalogue, so a tool added tomorrow joins the check on the same commit.
 - **Published** — the clause appears in the description a real `tools/list` returns, via
   `liveSurface`. Catalogue metadata that never reached the wire must not pass.
-- **Budgeted** — no description exceeds a ceiling below the ~1,800 truncation some clients apply.
-  Asserted rather than intended, the defence `TestInstructionsStayShort` already gives
-  `serverInstructions`.
+- **Budgeted** — no description exceeds a ceiling, asserted rather than intended: the defence
+  `TestInstructionsStayShort` (`instructions_test.go:153`) already gives `serverInstructions`.
+
+  ⚠ **The number is justified BEHAVIOURALLY, not by a client truncation point**, and this is the one
+  place a reviewer should push. `serverInstructions`' 1,200 is defended by ADR-017's measurement —
+  the full protocol delivered first and verbatim produced **0 recalls in 5 dispatches**, one short
+  paragraph produced **5** — and cites no truncation limit anywhere. A truncation limit is the
+  tempting justification and must not be used: it is unpublished, it moves between versions, and a
+  ceiling that cites one reads as measured when it is not. Pick this number the same way, or measure
+  the truncation point first and say which client and which version.
 
 ⚠ **The gate must fail when the pairing is removed.** Not "the description is non-empty": delete a
 declaration and the build goes red. That is this repository's stated rule, and the four capabilities
@@ -162,15 +171,18 @@ patched document.
   field every client already delivers to its model, at the moment it is choosing that tool.
 - **Positive:** ADR-021's boundary becomes explicit and testable rather than a judgement re-made per
   rule. The division-of-labour table is the artifact a future reviewer checks against.
-- **Positive:** the budget gate closes the ~1,800 truncation as a silent failure mode before it bites.
+- **Positive:** descriptions get a ceiling they have never had, so the pairing clause cannot grow
+  into a second protocol. ⚠ It does **not** follow that this makes us truncation-proof — that would
+  require knowing a limit nobody publishes.
 - **Positive:** the skill gets shorter, not longer. Routing to the schema means per-tool guidance has
   exactly one home, so a rule cannot be fixed in the description and left stale in a skill body.
 - **Negative:** descriptions are read at catalogue time, not at call time. Part 4 mitigates this by
   making the read a deliberate step, but it does not eliminate it — the channel's nature is what it
   is. **This is the honest weakness**, and the falsifier below is written to expose it rather than
   argue around it.
-- **Negative:** every description grows. Bounded by the budget gate; the headroom is real (521B used
-  of ~1,800).
+- **Negative:** every description grows, and it is context every client pays for on every
+  `tools/list`. Bounded by the budget gate; the headroom is real in the sense that matters — 521
+  bytes is the longest we ship today, and one clause is tens of bytes.
 - **Neutral:** existing orphaned drawers are untouched — a separate deferred backfill with a receipt
   in `BACKLOG.md`.
 
@@ -190,6 +202,7 @@ patched document.
 | **Pairings accrete into a protocol nobody reads** | High | Med | The budget gate, plus the requirement that a pairing name **one** other tool and say what breaks without it. |
 | **The exemption list becomes where tools go to avoid the rule** | Med | Med | An exemption needs a written reason; the reason is the review. Same shape as `TestNotOperatorFacingIsJustified`. |
 | **A gate passes on catalogue metadata never published on the wire** | Med | High | `liveSurface` exists precisely to prevent this and is reused rather than re-implemented. |
+| ⚠ **The budget ceiling gets cited as "what clients keep"** | **Med — the ~1,800 figure is already loose in this repo's conversation, and it entered this ADR unverified** | Med | The gate's number is justified behaviourally, the way `serverInstructions`' 1,200 is, and the Decision says so in terms. Any future citation of a truncation point must name the client and the version it was measured on, or it is folklore wearing a number. |
 
 ## Rollback
 
@@ -219,4 +232,8 @@ sentence somewhere nobody acts on it. The honest response is to say so here and 
       `memory-orchestration`, `human-decisions`, the `am_skillset` preamble and `AGENTS.md` before
       calling it landed — and note that the preamble is an unpinned row, so a line added there alone
       is restored by no seed.
+- [ ] **Measure a real client truncation point, or stop referring to one.** The ~1,800 figure is
+      reported and unverified. If it is ever to justify a number rather than merely motivate having
+      one, it needs a named client, a named version, and a probe — the same standard ADR-021 T3 held
+      itself to when it measured delivery in one Claude Desktop build and said `n = 1` out loud.
 - [ ] Report the measured before/after from the falsifier, whichever way it falls.
