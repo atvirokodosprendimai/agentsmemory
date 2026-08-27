@@ -42,7 +42,7 @@ work.
 | ID | Title | Status | Covers | Acceptance |
 |----|-------|--------|--------|------------|
 | T1 | Count recall-before-assertion from a session transcript | done | F-1, F-2, F-4, F-5, F-15, F-16, F-17, UC1-S1, UC1-S2, UC1-S3 | `go vet ./clients/claude-code/ && go test ./clients/claude-code/ -run "^(TestF1RecallRateIsCountedFromTranscripts\|TestF2TheCountableUnitIsANoChangeAssertion\|TestF4AClassifierThatMatchesNothingFailsLoudly\|TestF5AnUnreadableTranscriptRecordsNothing\|TestF15AnObservationCarriesCountsNotContent\|TestF16AnObservationCarriesItsClassifierVersion\|TestF17AMissIsRepresentable\|TestTheInstrumentIsCalledByTheHook)$" -count=1 -v` |
-| T2 | Record the baseline rate before anything tries to move it | pending | F-3 | `go test ./clients/claude-code/ -run "TestF3\|TestTheBaselineRefusesAnUndersizedSample" -count=1 -v` |
+| T2 | Record the baseline rate before anything tries to move it | done | F-3 | `go test ./clients/claude-code/ -run "^(TestF3NoMechanismShipsBeforeABaseline\|TestTheBaselineRefusesAnUndersizedSample)$" -count=1 -v` |
 | T3 | Register the tools so the first call needs no lookup | pending | F-9, F-10, F-12, F-13, F-14, UC3-S1, UC3-S2 | `go test ./internal/mcpserver/ -run "TestF14" -count=1 -v && go test -tags contractaxis ./internal/mcptest` |
 | T4 | Perform the recall at compaction and inject the result | pending | F-6 | `go test ./clients/claude-code/ -run "TestF6\|TestPreCompactHookIsRegistered" -count=1 -v` |
 | T5 | Cue at the moment a source search would form the belief | pending | F-12 | `go test ./clients/claude-code/ -run "TestPreToolUseCueFiresOncePerSubsystem\|TestPreToolUseHookIsRegistered" -count=1 -v` |

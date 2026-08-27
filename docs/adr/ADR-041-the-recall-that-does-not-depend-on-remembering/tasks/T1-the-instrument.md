@@ -139,6 +139,35 @@ complete-judgement method that justified v2 and is now the rule for any future n
 **Left at v2.** F-2's narrowing stands as the decision; this implementation of it does not, and the
 next attempt needs a resolver that can see the constructed surface — not another walk of the tree.
 
+## v4 measured and rejected too — narrowing stops here, 2026-08-28
+
+The second attempt at F-2's "resolves" fixed exactly what v3 got wrong. v3 could not see names
+assembled at runtime; v4 indexes the CONSTRUCTED surface from source literals — `newTool("x")` →
+`am_x` (125 tool names), `json:"y"` → wire fields (1,419 tags), plus filenames, Go declarations and
+record ids. 2,507 symbols. The canary passed: *"`am_kg_query` does not fail open"* resolves under
+v4 and did not under v3.
+
+| | v2 | v3 (declarations) | v4 (+ constructed surface) |
+|---|---|---|---|
+| kept, of 97 v2 matches | 97 | 24 (25%) | 53 (54%) |
+| judged discard side | — | ~10/15 genuine | ~12/15 genuine |
+
+**Twice as much recall, and still discarding a large majority of the true class.** The reason is not
+a gap in the index — it is the premise. Agents write about a system in language that does not
+token-match its declarations: a concept ("min-max was never run"), an installed artifact under a
+different name than its source, a symbol that IS indexed but reached through a sentence the splitter
+already cut. Widening the index chases each of those one at a time and never converges, because the
+mismatch is between prose and identifiers rather than between two identifier sets.
+
+**Decision: STOP NARROWING.** This was pre-committed before the measurement, so it is not a
+rationalisation after a disappointing number. Two implementations of F-2's resolution rule were
+built and measured; both traded the class away for the number. T2 runs at **v2**, and the baseline
+carries its precision beside the rate — which is exactly why T2 was amended to require that.
+
+**What F-2 still buys, unimplemented:** it remains the right decision about what the unit IS, and it
+now has two recorded dead ends attached, so the next attempt starts from "prose does not token-match
+declarations" rather than from the idea that a better index would work.
+
 ## Reachability
 
 | Rung | How this task shows it |

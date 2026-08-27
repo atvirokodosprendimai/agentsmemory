@@ -188,8 +188,64 @@ func TestF17AMissIsRepresentable(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestF3NoMechanismShipsBeforeABaseline(t *testing.T) {
-	t.Fatalf(notYetBuilt, "F-3 (T2): a mechanism intended to raise the rate cannot ship until a "+
-		"baseline exists. Otherwise its effect is unfalsifiable in both directions")
+	// F-3: a rate exists before any mechanism ships, or the mechanism's effect is
+	// unfalsifiable in both directions.
+	obs := make([]Observation, minBaselineSessions)
+	for i := range obs {
+		obs[i] = Observation{Assertions: 4, Preceded: 1, Classifier: classifierVersion}
+	}
+	r, err := ComputeRate(obs, 48)
+	if err != nil {
+		t.Fatalf("a sufficient sample with a precision figure must produce a rate: %v", err)
+	}
+	if r.Percent() != 25 {
+		t.Errorf("rate = %.1f%%, want 25%%", r.Percent())
+	}
+	if r.PrecisionPct != 48 || r.Classifier != classifierVersion {
+		t.Errorf("the rate does not carry what it means: precision=%d classifier=%q",
+			r.PrecisionPct, r.Classifier)
+	}
+
+	// ⚠ A rate without precision is refused rather than reported. Half the
+	// denominator is not the class at v2, so a bare number would be quoted as
+	// meaning one thing while meaning another.
+	if _, err := ComputeRate(obs, 0); !errors.Is(err, ErrPrecisionUnknown) {
+		t.Errorf("a rate was produced with no precision figure: %v", err)
+	}
+
+	// Rates from different classifiers are not comparable (F-16).
+	mixed := append(append([]Observation{}, obs...), Observation{Assertions: 1, Classifier: "v1"})
+	if _, err := ComputeRate(mixed, 48); err == nil {
+		t.Error("observations spanning two classifier versions were averaged into one rate")
+	}
+}
+
+func TestTheBaselineRefusesAnUndersizedSample(t *testing.T) {
+	// The floor is fixed BEFORE collection. T2's Stop Condition names choosing it
+	// afterwards as the way to make this criterion impossible to fail.
+	obs := make([]Observation, minBaselineSessions-1)
+	for i := range obs {
+		obs[i] = Observation{Assertions: 3, Preceded: 3, Classifier: classifierVersion}
+	}
+	if _, err := ComputeRate(obs, 48); !errors.Is(err, ErrUndersized) {
+		t.Errorf("a rate was reported from %d sessions: %v", len(obs), err)
+	}
+
+	// And a round trip through the store, so the reader is exercised rather than
+	// only the arithmetic.
+	store := filepath.Join(t.TempDir(), "observations.jsonl")
+	for _, o := range obs {
+		if err := AppendObservation(store, o); err != nil {
+			t.Fatalf("append: %v", err)
+		}
+	}
+	back, err := ReadObservations(store)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if len(back) != len(obs) {
+		t.Errorf("read %d observations, wrote %d", len(back), len(obs))
+	}
 }
 
 func TestF6AHookIsSilentInTheCommonCase(t *testing.T) {

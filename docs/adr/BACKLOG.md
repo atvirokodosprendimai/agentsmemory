@@ -7,6 +7,37 @@ pointers that lead here.
 An entry leaves this file in one of two ways: it becomes an ADR, or it is re-tagged
 `(permanent: <why>)` in its originating ADR because we decided it should never happen.
 
+
+## ADR-041 T2 — the recall-before-assertion baseline, measured 2026-08-28
+
+**27.6%** — of 221 no-change assertions across 46 sessions, 61 were preceded by a recall.
+
+| | |
+|---|---|
+| sessions | 46 |
+| assertions | 221 |
+| preceded by a recall | 61 |
+| **rate** | **27.6%** |
+| classifier | v2 |
+| **precision** | **48%** (12/25 hand-judged, 2026-08-27) |
+| window | 2026-08-01 .. 2026-08-28 |
+
+⚠ **THE PRECISION IS NOT A FOOTNOTE.** At 48%, roughly 110 of those 221 sentences are not the class,
+so the 27.6% is a blend of the real rate and whatever rate the noise class happens to sit at —
+measured at ~15% for the noise that could be isolated. The true rate on genuine assertions is
+plausibly nearer 40%. **Do not quote 27.6% without 48% beside it**, and do not compare it against
+any rate taken under a different classifier version (F-16).
+
+**What this number is for:** the mechanisms in T3-T6 ship one per measurement window and are judged
+against it. A mechanism that does not move it is recorded as not shown to work (F-10), which is the
+outcome that retires an idea rather than extending it. At 48% precision an effect is attenuated by
+roughly half, so a real improvement will show smaller than it is — an argument for measuring more
+sessions per window, not for adjusting the number afterwards.
+
+**Two narrowings were built, measured and rejected** before settling here; both traded away most of
+the true class for a better-looking precision figure. See ADR-041 T1's evaluation sections.
+
+
 ## From ADR-001 (recall answers or abstains)
 
 - **Contradiction reporting** — recall says "this changed on `<date>`: it was X, it is now Y".

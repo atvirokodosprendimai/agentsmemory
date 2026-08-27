@@ -284,3 +284,93 @@ func recallObserveCommand() *cli.Command {
 		},
 	}
 }
+
+// ADR-041 T2. Turning observations into a rate that can be quoted.
+
+// minBaselineSessions is the floor below which no rate is reported.
+//
+// ⚠ FIXED BEFORE COLLECTION, and that is the whole point. T2's Stop Condition
+// names the way to make this criterion impossible to fail: choose the minimum
+// AFTER seeing how many observations turned up. Twenty is what the task committed
+// to before any were collected.
+const minBaselineSessions = 20
+
+// ErrUndersized reports a sample too small to quote a rate from.
+var ErrUndersized = fmt.Errorf("not enough observations to report a rate")
+
+// ErrPrecisionUnknown reports a rate asked for without its precision.
+//
+// ⚠ THIS REFUSAL IS THE POINT OF T2's AMENDMENT. Measured 2026-08-27 over 46
+// transcripts, the classifier runs at roughly 48% precision — about half the
+// denominator is not the class. A bare rate would be quoted as meaning one thing
+// while meaning another, and it would be quoted for a year. So the reader refuses
+// to produce one rather than trusting the caller to remember the caveat.
+var ErrPrecisionUnknown = fmt.Errorf("a rate cannot be reported without the precision it was judged at")
+
+// Rate is a baseline: the number, and everything needed to know what it means.
+type Rate struct {
+	Sessions   int    `json:"sessions"`
+	Assertions int    `json:"assertions"`
+	Preceded   int    `json:"preceded_by_recall"`
+	Classifier string `json:"classifier_version"`
+	// Precision is hand-judged, not derived — no code can tell a genuine
+	// no-change assertion from a shape-alike. It is supplied, and required.
+	PrecisionPct int `json:"precision_pct"`
+}
+
+// Percent is the rate itself, and it is the least interesting field here.
+func (r Rate) Percent() float64 {
+	if r.Assertions == 0 {
+		return 0
+	}
+	return 100 * float64(r.Preceded) / float64(r.Assertions)
+}
+
+// ReadObservations loads the local store.
+func ReadObservations(storePath string) ([]Observation, error) {
+	f, err := os.Open(storePath)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+	var out []Observation
+	sc := bufio.NewScanner(f)
+	for sc.Scan() {
+		var o Observation
+		if json.Unmarshal(sc.Bytes(), &o) == nil {
+			out = append(out, o)
+		}
+	}
+	return out, sc.Err()
+}
+
+// ComputeRate aggregates observations into a quotable baseline, or refuses.
+//
+// It refuses two ways, and both are the task rather than defensive programming: an
+// undersized sample (a rate from five sessions gets quoted like a rate from five
+// hundred), and a missing precision figure. It also refuses to average across
+// classifier versions — F-16 exists because tightening the regex would otherwise
+// read as a movement in the thing being measured.
+func ComputeRate(obs []Observation, precisionPct int) (Rate, error) {
+	if len(obs) < minBaselineSessions {
+		return Rate{}, fmt.Errorf("%w: %d session(s), need %d — a rate from a handful of "+
+			"sessions is quoted exactly like a rate from hundreds", ErrUndersized, len(obs), minBaselineSessions)
+	}
+	if precisionPct <= 0 {
+		return Rate{}, ErrPrecisionUnknown
+	}
+	r := Rate{Sessions: len(obs), PrecisionPct: precisionPct}
+	for _, o := range obs {
+		if r.Classifier == "" {
+			r.Classifier = o.Classifier
+		}
+		if o.Classifier != r.Classifier {
+			return Rate{}, fmt.Errorf("observations mix classifier versions %q and %q; rates taken "+
+				"under different classifiers are not comparable and must not be averaged",
+				r.Classifier, o.Classifier)
+		}
+		r.Assertions += o.Assertions
+		r.Preceded += o.Preceded
+	}
+	return r, nil
+}
