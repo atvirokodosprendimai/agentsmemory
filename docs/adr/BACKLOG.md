@@ -13,7 +13,7 @@ An entry leaves this file in one of two ways: it becomes an ADR, or it is re-tag
 **The general finding stands; the instance I filed it with was refuted in review and is corrected
 below. Both halves are kept, because the way the instance was wrong is the more useful lesson.**
 
-**The limitation, verified identical in `quality-harness` 2.19.0, 2.21.0 and 2.23.0** (the same line numbers in all three, so it is not a version artefact). It is stronger than "the DAG cannot see
+**The limitation, verified 2026-08-28 against the quality-harness plugin cache on the authoring machine**, where `adr-lint` on `PATH` resolves to **2.23.0**, and identical in the 2.19.0 and 2.21.0 copies present there — same line numbers in all three. ⚠ A reviewer whose machine carries only 2.19.0 can confirm that copy and nothing else, so read the multi-version claim as "not a version artefact *here*" rather than as reproducible anywhere. The behaviour is what matters and it reproduces on the version everybody has. It is stronger than "the DAG cannot see
 these edges" — the schema forbids writing one:
 
 - `bin/adr-lint:272-276` validates every `Depends-on` entry against `all_stems`, the SIBLING task
@@ -32,8 +32,9 @@ all imply ordering, but none of them can be represented.
 ADR-002 T3 was gated on ADR-003 T3/T4, quoting ADR-003's Decision. That sentence sits inside a
 paragraph opening *"an earlier draft of this ADR was wrong"* (`ADR-003:68`) — it is **subjunctive**,
 describing a hazard that draft *would have* created and which the accepted design removed at source
-in **T1**, which is `done`. Four things say so, all four pre-existing, and one of them was in the
-very file the change edited:
+in **T1**, which is `done`. Four things say so, all four pre-existing. The round-1 change
+edited two files and two of the four cited things lived in them; this head edits only `BACKLOG.md`,
+so none of them does now:
 
 - `T3-measure-both-normalizers.md:11-18` — *"the confound the control existed for is gone rather
   than being controlled for"*. That is 55 lines above where the retracted paragraph was added,
@@ -72,8 +73,9 @@ The section *"The ADR evidence chain depends on a tool outside the repository"* 
 externality as an open decision and names **vendoring the checker into the repo** as one of two
 ways out. And this repo already binds Go tests to a harness artefact twice —
 `internal/mcpserver/recallcue_spec_test.go` (`taskIndexRow` + `statusOfTask`) and
-`clients/claude-code/recallrate_spec_test.go` (`indexRow` :325 + `taskStatus` :328, gating on
-`status[m.task] == "done"` at :386 and :401). Both read an ADR task README's status column. So a
+`clients/claude-code/recallrate_spec_test.go` (`indexRow` :325 + `taskStatus` :328). The gate is
+`status[m.task] == "done"` at `:386`; `:401` reads the same map into `st` and gates on `""` /
+`"pending"` — both are status gates, only `:386` is that expression. Both read an ADR task README's status column. So a
 gate on this side of the boundary is not hypothetical; it is precedent. Whether to add a third is
 a decision, not a foregone no.
 
