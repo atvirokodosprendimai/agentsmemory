@@ -100,19 +100,38 @@ QUERY="$(printf '%s %s' "${BRANCH:-}" "${FILES:-}" | tr -s ' ' | sed 's/^ *//;s/
 # rejects it loudly, which is the correct outcome in both cases.
 ERRFILE="$(mktemp 2>/dev/null || echo /tmp/agentsmemory-recall.err)"
 #
-# ⚠ room=decisions AND max_distance ARE BOTH LOAD-BEARING, and both were added after
-# measuring what this hook actually injected. Unscoped, the top three hits for a real
-# mid-work query were THIS SESSION'S OWN TRANSCRIPT CHUNKS at distance 0.46-0.52 —
-# the hook would re-inject into the fresh context the very text compaction had just
-# removed. The floor then decides relevance: measured 2026-08-28, real questions land
-# at 0.32-0.44, bare identifiers at 0.41-0.57, and branch+file queries at 0.39-0.41.
-# The classes overlap around 0.41-0.44, so 0.42 is a trade rather than a boundary.
+# ⚠ THE ROOM AND THE FLOOR ARE BOTH LOAD-BEARING, AND THE ROOM WAS WRONG.
+#
+# Scoping to a room is what stops this hook re-injecting THIS SESSION'S OWN
+# TRANSCRIPT CHUNKS — unscoped, those were the top three hits for a real mid-work
+# query at 0.46-0.52, so the hook would put back into the fresh context the very
+# text compaction had just removed. That reasoning stands. The room CHOSEN did not.
+#
+# `decisions` was picked by argument rather than measurement, and it is the one room
+# a branch+files query cannot match: measured 2026-08-28 across three real branches
+# under this same floor, hits per room were
+#
+#     room              branch A   branch B   branch C
+#     decisions            0          3          0        <- silent on two of three
+#     diary                2          3          2        <- hits on all three
+#     gotchas              2          3          0
+#     llm_corrections      1          0          0
+#
+# so the installed hook was mute for most branches while looking exactly like F-6
+# working. `diary` holds the session summaries the persist step writes — "what was
+# done on this branch, and why" — which is what a branch+files query is asking, and
+# it is not the raw-transcript room, so the re-injection hazard above does not apply.
+#
+# The FLOOR is correctly calibrated and unchanged: every hit in that table is
+# 0.359-0.417, inside the 0.42 cutoff. Measured the same day, real questions land at
+# 0.32-0.44, bare identifiers at 0.41-0.57, branch+file queries at 0.39-0.41. The
+# classes overlap around 0.41-0.44, so 0.42 is a trade rather than a boundary.
 # ⚠ PASS --token ONLY WHEN THE ENVIRONMENT SUPPLIES ONE. The first version always
 # passed one, defaulting to the placeholder `local`, which looks harmless and is
 # not: --token OVERRIDES the CLI's own resolution, so an install whose token lives
 # in agentsmemory.env authenticated as "local" and was refused. Omitting the flag
 # lets the CLI resolve the credential the way `verify` already does.
-set -- mcp search "$QUERY" -a limit=3 -a snippet_chars=300 -a room=decisions -a max_distance=0.42
+set -- mcp search "$QUERY" -a limit=3 -a snippet_chars=300 -a room=diary -a max_distance=0.42
 TOKEN="${AGENTSMEMORY_LOCAL_TOKEN:-${AGENTSMEMORY_TOKEN:-}}"
 [ -n "$TOKEN" ] && set -- "$@" --token "$TOKEN"
 HITS="$(aiagentmemory "$@" 2>"$ERRFILE")"

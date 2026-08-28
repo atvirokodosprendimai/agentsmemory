@@ -78,16 +78,25 @@ func TestF6AHookIsSilentInTheCommonCase(t *testing.T) {
 	stubDir := t.TempDir()
 	marker := filepath.Join(stubDir, "was-called")
 	// ⚠ THE STUB ASSERTS THE INVOCATION, not just its own existence. The flags that
-	// keep this hook useful — room=decisions, and a distance floor — are arguments,
-	// not branches, so no assertion on the hook's OUTPUT can see them: a stub that
+	// keep this hook useful — a room scope and a distance floor — are arguments, not
+	// branches, so no assertion on the hook's OUTPUT can see them: a stub that
 	// ignores its arguments returns a hit either way and the mutant survives.
-	// Measured 2026-08-28: without the scope the top three hits for a real mid-work
-	// query were this session's own transcript chunks, so dropping these flags makes
-	// the hook actively harmful rather than merely quiet.
+	// Measured 2026-08-28: without a room scope the top three hits for a real
+	// mid-work query were this session's own transcript chunks, so dropping these
+	// flags makes the hook actively harmful rather than merely quiet.
+	//
+	// ⚠ THE ROOM IS `diary`, AND THIS ASSERTION IS WHY THE WRONG ONE SURVIVED SO
+	// LONG. Matching on the flag proves the hook PASSES a scope; it cannot show that
+	// the scope returns anything, because the stub answers whatever it is asked.
+	// The hook shipped with `room=decisions` and was mute on most real branches —
+	// measured across three, `decisions` returned hits on one and `diary` on all
+	// three — while this test stayed green throughout. What closes that gap is not
+	// a stronger assertion here but `aiagentmemory doctor`, which runs the installed
+	// hook against a live palace and fails when it produces nothing.
 	stub := "#!/usr/bin/env bash\n" +
 		"touch " + marker + "\n" +
 		"case \"$*\" in\n" +
-		"  *room=decisions*max_distance*) echo '{\"count\":1,\"hits\":[{\"id\":\"x\"}]}' ;;\n" +
+		"  *room=diary*max_distance*) echo '{\"count\":1,\"hits\":[{\"id\":\"x\"}]}' ;;\n" +
 		"  *) echo '{\"count\":0,\"hits\":[]}' ;;\n" +
 		"esac\n"
 	if err := os.WriteFile(filepath.Join(stubDir, "aiagentmemory"), []byte(stub), 0o755); err != nil {
@@ -220,7 +229,7 @@ func TestF6AHookIsSilentInTheCommonCase(t *testing.T) {
 //
 // No assertion on the hook's OUTPUT can catch that — the stub returns a hit
 // whatever it is asked. The query is an argument, so the stub has to record it.
-// This is the same shape as the room=decisions flags above: a mechanism that is
+// This is the same shape as the room scope flags above: a mechanism that is
 // an argument rather than a branch is invisible to a test that only reads stdout.
 func TestTheQueryCarriesTheBranchWorkOnACleanTree(t *testing.T) {
 	for _, bin := range []string{"bash", "git"} {
