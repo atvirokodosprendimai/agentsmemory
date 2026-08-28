@@ -1411,10 +1411,14 @@ whatever it was about.
 baseline. The latching call was `am_search` at tool_use **#172 of 8,277**, and every assertion after
 it inherited the flag. The number is an artifact, not an achievement.
 
-*(An earlier version of this entry said "#3 of 8,256". That was the first PALACE call —
-`am_skillset` — not the first RECALL call. `recallTools` is `am_search` and `am_get_drawer` only
-(`recallrate.go:51`), so the latch cannot flip on a wake-up call. Corrected after review; the
-mis-measurement is the same class as the defect being reported, one iteration out.)*
+*(Two corrections, and the second is the same error one layer further out. First: an earlier version
+said "#3 of 8,256", which was the first PALACE call — `am_skillset` — not the first RECALL call.
+Second: the correction then claimed the latch "cannot flip on a wake-up call". `recallTools` is
+`am_search` and `am_get_drawer` (`recallrate.go:51`), and `AGENTS.md:370` mandates
+`am_get_drawer(id, whole:true)` once per `must.*` edge AS PART OF the wake-up sequence — dozens of
+edges, before the task search. So a protocol-following wake-up flips the latch almost immediately;
+only `am_skillset` and `am_status` cannot flip it. The mis-measurement is the same class as the
+defect being reported, now twice over.)*
 
 **What the metric actually answers** is "had this session touched the palace at any earlier point",
 not "was this claim grounded in a recall". Those are different questions, and the second is the one
@@ -1425,18 +1429,49 @@ ADR-041 exists to move.
 1. **T2's 27.6% baseline measures the weaker thing.** Across 46 sessions it is approximately the
    share of assertions made in sessions that had called a recall tool at all, weighted by how many
    assertions each session made — not a rate of grounded claims.
-2. **The metric has a ceiling any protocol-following session hits trivially.** `AGENTS.md` mandates
-   `am_status` at wake-up and the SessionStart hooks encourage it, so a compliant session scores
-   100% before it has recalled anything relevant.
+2. **The metric has a ceiling any protocol-following session hits trivially.** `AGENTS.md:370`
+   mandates `am_get_drawer(id, whole:true)` once per `must.*` edge as part of the wake-up sequence —
+   dozens of edges, before the task search — and `am_get_drawer` IS a recall tool. So a compliant
+   session flips the latch almost immediately and scores 100% before it has recalled anything
+   relevant to what it then asserts. It is not vacuous: `am_skillset` and `am_status` cannot flip
+   it, so a session that only woke up and never fetched would score zero.
+
+   ⚠ **And the window is wider than one AGENT.** `Observe` deliberately does not filter
+   `isSidechain` (`recallrate.go:153-157`), for a reason it states well: excluding subagents would
+   silently drop "the population most likely to skip recall" from the measurement of skipping
+   recall. The consequence was not drawn out — subagent records share the parent's transcript, so a
+   subagent's `am_search` flips the latch for the parent's later assertions and vice versa. One
+   transcript is not one agent, so the window is session-wide ACROSS agents, further from
+   `spec:33`'s "in the same session" than this entry first claimed.
 3. **Therefore it cannot detect the improvement the ADR is for.** A mechanism that makes recall
    *proximate and relevant* — which is what T4, T5 and T6 are all about — moves this number by zero.
    ADR-041 T1's whole purpose was to create the measurement before any requirement claiming an
    improvement; the measurement it created is insensitive to that improvement.
 
-**The spec DECIDED this; it did not forget.** Main flow step 2
-(`docs/specs/2026-08-27-recall-before-asserting.md:33`) says to determine whether an `am_search`
-(or `am_get_drawer`) call "preceded it **in the same session**", and the Definitions section fixes
-what a recall is. `Observe` is a faithful implementation of that sentence.
+★ **AND THE FLAGSHIP MECHANISM IS INVISIBLE TO THE INSTRUMENT — a stronger version of this entry's
+thesis than the latch, and checkable from the tree by anyone.** T4's hook does not encourage a
+recall, it PERFORMS one, as a CLI subprocess:
+`HITS="$(aiagentmemory "$@" …)"` (`hooks/agentsmemory-recall-hook.sh:118`). `Observe` counts only
+`tool_use` blocks by name (`recallrate.go:177-182`), and a subprocess emits no `tool_use`. So a
+hook-performed recall is **not counted at all**.
+
+Two consequences, and the second is the one that matters:
+
+- T4 cannot register as an improvement however well it works.
+- **If the injected recall does its job — the agent already has the answer and therefore does NOT
+  call `am_search` — T4 measures as a DECREASE.** An instrument that scores a working mechanism
+  negatively is worse than one that is merely insensitive to it.
+
+**The spec DECIDED one thing in its flow and MITIGATED THE OPPOSITE in its Risks, and nothing
+reconciled them.** Main flow step 2 (`docs/specs/2026-08-27-recall-before-asserting.md:33`) says to
+determine whether an `am_search` (or `am_get_drawer`) call "preceded it **in the same session**",
+and `## Domain` (`:155-157`) fixes what a recall is. `Observe` implements that faithfully.
+
+But the Risks table of the same spec (`:184`) records a mitigation the code never implemented:
+*"Count searches that preceded an assertion, not searches; **a search on an unrelated subject is not
+a recall**."* So neither "the spec forgot" nor "the spec decided cleanly" is accurate — it decided a
+session-wide window in one section and promised subject-relatedness in another, and neither the ADR
+nor the implementation noticed.
 
 That changes the remedy and makes the claim harder to wave away. This is not an underspecification
 an implementer may fill — it is **a specified decision whose consequence was not drawn out**, so
