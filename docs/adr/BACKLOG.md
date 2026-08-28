@@ -1485,7 +1485,7 @@ Found by an independent review of PR #85; verified from source and made VISIBLE 
 fixed.
 
 `--socket` registers the agent's MCP over the stdio bridge and does not change `i.mcpURL`.
-`hookCommand` (`clients/claude-code/installer.go:1102`) exports that URL — and only that URL — into
+`hookCommand` (`clients/claude-code/installer.go:1133`) exports that URL — and only that URL — into
 every hook command; the socket is never written into one. `listenerFor` (`cmd/server/listen.go:33`)
 binds EITHER the socket OR the TCP address, never both. So every hook a socket-only install writes
 carries an endpoint nothing is listening on.
@@ -1500,8 +1500,11 @@ the variable the hooks carry and why it cannot work, pinned by
 `registerStopHook` rather than the helper, so deleting the CALL SITE goes red. That subtest was
 added after review: the first version tested the function directly, so removing the one line that
 invokes it left the whole package green. The mechanism built to make a silent failure loud was
-itself silent if severed — the same defect one level out. That is the cheap half: the failure is no
-longer silent.
+itself silent if severed — the same defect one level out. **Its sibling `warnIfRepointing`
+(`installer.go:874`) had the identical hole and is now pinned the same way**, because the class is
+"a warning whose only test calls it directly", not this one warning; verified 2026-08-28 by
+severing that call site and watching the new subtest go red. That is the cheap half: the failure is
+no longer silent.
 
 **The real fix is new capability and a product decision, so it stays here.** The `socket` flag
 belongs to `install`; the `mcp` subcommand has NO socket flag and only dials HTTP (`dialMCP`), while
@@ -1509,6 +1512,13 @@ verify and stats use `curl`. Making hooks work over a socket means either giving
 unix-socket transport and exporting the socket into hook commands, or having a socket-served server
 also bind a loopback port. Which one is right depends on whether hooks should follow the bridge or
 the server should always be reachable over TCP — nobody has decided that.
+
+A third option was listed here before the warning shipped and is dropped on purpose rather than
+forgotten: **have `--socket` refuse to install hooks it knows cannot work.** The warning does the
+same job without the cost — a refusal removes the recall, verify and stats hooks from a socket
+install entirely, so an operator who wanted the MCP over a socket silently loses four capabilities
+that have nothing to do with the transport. Saying so and installing them is strictly more
+recoverable than not installing them. Named here so the next reader does not re-propose it as new.
 
 **Whatever is chosen, the check must drive a GENERATED hook against a socket-only server.** The
 existing socket tests assert the registration, which is the half that already works; the new warning

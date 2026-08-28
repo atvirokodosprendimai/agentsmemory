@@ -243,6 +243,28 @@ func TestAnInstallSaysSoWhenItRepointsYourHooks(t *testing.T) {
 		t.Errorf("re-installing against the SAME endpoint warned anyway: %q\n"+
 			"A warning that fires on every install is one people stop reading.", quiet)
 	}
+
+	// ⚠ THE CALL SITE, NOT ONLY THE HELPER. Everything above calls
+	// warnIfRepointing directly, so severing installer.go:874 left the whole
+	// package green — the warning existed and nothing invoked it. Its sibling
+	// warnSocketHooksCannotReachTheServer had the identical hole, found in review
+	// of this branch; this is the same pin on the other member of the pair, so the
+	// class is covered rather than the instance.
+	t.Run("the install path itself warns, not just the helper", func(t *testing.T) {
+		inst, _, dir := newTestInstaller(t, false)
+		write(t, dir, "http://localhost:8080/mcp")
+		inst.mcpURL = "https://aiagentmemory.dev/mcp"
+		buf := &bytes.Buffer{}
+		inst.out = buf
+		if err := inst.registerStopHook(); err != nil {
+			t.Fatalf("register hooks: %v", err)
+		}
+		if !strings.Contains(buf.String(), "REPOINTS") {
+			t.Errorf("an install that moved the hooks to another server said nothing: %q\n"+
+				"The warning is only worth having if the install path reaches it — delete its "+
+				"call and this is the assertion that must go red.", buf.String())
+		}
+	})
 }
 
 // TestAWaivedCredentialDoesNotTravelThroughARedirect closes the hole the
@@ -345,14 +367,13 @@ func TestASocketInstallSaysItsHooksCannotReachTheServer(t *testing.T) {
 	// itself silent if severed. A hook is reached by its registration and a
 	// warning by its call site; testing the component is not testing the wiring.
 	t.Run("the install path itself warns, not just the helper", func(t *testing.T) {
-		inst, _, dir := newTestInstaller(t, false)
+		inst, _, _ := newTestInstaller(t, false)
 		inst.socket = "/tmp/agentsmemory.sock"
 		buf := &bytes.Buffer{}
 		inst.out = buf
 		if err := inst.registerStopHook(); err != nil {
 			t.Fatalf("register hooks: %v", err)
 		}
-		_ = dir
 		if !strings.Contains(buf.String(), "CANNOT reach") {
 			t.Errorf("installing hooks for a --socket install said nothing: %q\n"+
 				"The warning is only worth having if the install path reaches it — delete its "+
