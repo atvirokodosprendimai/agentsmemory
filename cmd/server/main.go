@@ -379,9 +379,14 @@ func run(ctx context.Context, cfg config.Config) error {
 	// BILLING_PROVIDER). Always constructed so the dashboard wiring stays simple; it
 	// is inert until the active provider's env is set (billingSrv.Enabled() gates
 	// the upgrade UI). It flips teams.plan_id, so it reuses tenants as its PlanStore.
-	// OpenCollective has no signed webhook, so with that provider activation is an
-	// operator action (the set-plan CLI) rather than a webhook flip.
-	billingSrv := billing.NewService(billingConfig(), tenants, billing.NewRepo(svc.gdb))
+	//
+	// OpenCollective sends no SIGNED webhook, so a payment is learned by asking its
+	// API on a schedule rather than by being told (ADR-042). The intent store is what
+	// lets a landed contribution be attributed to the workspace that started it.
+	billingCfg := billingConfig()
+	billingSrv := billing.NewService(billingCfg, tenants, billing.NewRepo(svc.gdb)).
+		WithIntents(billing.NewIntentRepo(svc.gdb))
+	startOpenCollectiveReconciler(ctx, billingCfg, billingSrv, svc.gdb)
 
 	// Per-workspace data export (BDAR right of access): builds a scoped SQLite
 	// archive of a tenant's data from the same source-of-truth database.
@@ -761,6 +766,27 @@ func billingConfig() billing.Config {
 		cfg.PriceByPlanCode = map[string]string{
 			"pro_monthly": os.Getenv("OPENCOLLECTIVE_CHECKOUT_PRO_MONTHLY"),
 			"pro_annual":  os.Getenv("OPENCOLLECTIVE_CHECKOUT_PRO_ANNUAL"),
+		}
+		// Reconciliation wiring, read only on this branch because it is only read in
+		// this mode (ADR-006). An unset personal token leaves reconciliation off and
+		// activation manual, which is the documented rollback.
+		cfg.OpenCollectivePersonalToken = os.Getenv("OPENCOLLECTIVE_PERSONAL_TOKEN")
+		cfg.OpenCollectiveSlug = os.Getenv("OPENCOLLECTIVE_COLLECTIVE_SLUG")
+		cfg.OpenCollectiveAPIURL = strings.TrimSpace(os.Getenv("OPENCOLLECTIVE_API_URL"))
+		if cfg.OpenCollectiveAPIURL == "" {
+			cfg.OpenCollectiveAPIURL = billing.DefaultOpenCollectiveAPIURL
+		}
+		// A zero interval would spin the loop, so an unset or unparseable value falls
+		// back to the default rather than being taken literally.
+		cfg.ReconcileInterval = billing.DefaultReconcileInterval
+		if raw := strings.TrimSpace(os.Getenv("OPENCOLLECTIVE_RECONCILE_INTERVAL")); raw != "" {
+			if d, err := time.ParseDuration(raw); err != nil {
+				log.Printf("warning: OPENCOLLECTIVE_RECONCILE_INTERVAL=%q is not a duration; using %s", raw, billing.DefaultReconcileInterval)
+			} else if d <= 0 {
+				log.Printf("warning: OPENCOLLECTIVE_RECONCILE_INTERVAL=%q is not positive; using %s", raw, billing.DefaultReconcileInterval)
+			} else {
+				cfg.ReconcileInterval = d
+			}
 		}
 	default:
 		cfg.PriceByPlanCode = map[string]string{

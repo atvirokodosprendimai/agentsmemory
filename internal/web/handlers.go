@@ -225,10 +225,17 @@ func (s *Server) projectsForUser(ctx context.Context, userID string) ([]views.Pr
 		// subscription" button off the card for an operator-comped workspace.
 		isComped := planCode == "unlimited"
 		isAdmin := role == tenant.RoleAdmin
+		// A paid plan does NOT imply a provider relationship exists to manage. Under
+		// OpenCollective the plan is set by reconciliation or by the operator's set-plan
+		// CLI, and set-plan writes only teams.plan_id — so gating Manage on the plan
+		// alone rendered a button whose handler could only ever return
+		// ErrNoSubscription. Ask billing whether a relationship is on record; this is
+		// the same test ManageURL itself applies (ADR-042).
+		hasRelationship := s.billing.HasRelationship(ctx, t.ID)
 		// Upgrade is offered on a free plan; Manage on a paid one. Both require an admin
 		// and configured billing, and they are mutually exclusive by the onFree split.
 		canUpgrade := s.billing.Enabled() && isAdmin && onFree
-		canManage := s.billing.Enabled() && isAdmin && !onFree && !isComped
+		canManage := s.billing.Enabled() && isAdmin && !onFree && !isComped && hasRelationship
 		out = append(out, views.ProjectVM{
 			TeamID: t.ID, Name: t.Name, Slug: t.Slug, PlanName: planName, Endpoint: "/mcp",
 			Used: st.Used, Cap: st.Cap, Pct: pct,

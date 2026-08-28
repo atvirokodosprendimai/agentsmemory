@@ -8,6 +8,113 @@ An entry leaves this file in one of two ways: it becomes an ADR, or it is re-tag
 `(permanent: <why>)` in its originating ADR because we decided it should never happen.
 
 
+## A pointer in prose is checked by nothing, and most of this corpus's pointers are prose — 2026-08-28
+
+Surveyed after four review rounds in which a majority of findings were claims nothing in the tree
+could contradict.
+
+⚠ **NO FROZEN COUNTS LIVE HERE.** The first draft of this entry carried five, and one was false at
+the commit carrying it — the entry's own prose added three ADR citations to the number it was
+reporting. That is verbatim the recurrence `internal/repohygiene/citation_test.go` already records
+about two shipped counts, with the remedy written beside it: *"a hand-maintained integrity number is
+not a check, it is a second source of truth… the gate logs the live figure on every `-v` run; read
+it there."* A second count differed from a reviewer's by 30% purely because we extracted it with
+different regexes, so these numbers are METHOD-dependent as well as time-dependent. Both live
+figures come from the gates:
+
+```bash
+go test ./internal/repohygiene -run 'TestEveryCitedADRResolvesInDocsToo|TestNoDocCitesItsOwnLineNumbers' -v
+```
+
+For the ungated rows, the method is the command rather than the answer:
+
+⚠ **The first version of this command could not reproduce its own answer**, and that is worth
+keeping visible because it inverted the argument it was published to make. `tracked` was a `set` and
+the resolver took `c[0]` from it, so a bare basename with more than one candidate — a third of the
+references in this corpus — resolved to whichever file the set happened to yield. Six verbatim runs
+on one clean tree returned six different figures for the third number. A frozen count is at least
+falsifiable; a method that returns a different answer each run is worse than the number it replaced.
+
+It sorts now, and it no longer resolves an ambiguous basename at all — the same rule the Go gate
+adopted: 31 `README.md` in this tree means a basename is not an identity, so an ambiguous reference
+is reported as its own class rather than guessed into one of the other two.
+
+```bash
+# source file:line citations written in docs, split by whether the file resolves
+python3 - <<'EOF'
+import re,subprocess
+tracked=sorted(subprocess.run(["git","ls-files"],capture_output=True,text=True).stdout.split())
+pl=re.compile(r"([A-Za-z0-9_./-]+\.(?:go|sh|yml|yaml)):(\d+)")
+tot=nofile=amb=oob=0
+for d in (t for t in tracked if t.endswith(".md")):
+    for m in pl.finditer(open(d,encoding="utf-8",errors="replace").read()):
+        p,ln=m.group(1),int(m.group(2)); tot+=1
+        c=[t for t in tracked if t==p or t.endswith("/"+p)]
+        if not c: nofile+=1
+        elif len(c)>1: amb+=1          # a basename several files can mean: never guessed
+        elif ln>sum(1 for _ in open(c[0],encoding="utf-8",errors="replace")): oob+=1
+print(tot,"total,",nofile,"naming no tracked file,",amb,"ambiguous,",oob,"out of bounds")
+EOF
+```
+
+**Two pointer classes are now gated; two deliberately are not.**
+
+**Gated — ADR citations in docs.** `TestEveryCitedADRResolvesInDocsToo`. The Go gate reads `.go`
+only, so the large majority of this corpus's ADR citations — the ones in ADRs, task files, the README
+and this file — were unchecked. A renamed or withdrawn record leaves a pointer to nothing that still
+reads as provenance.
+
+Every unresolved citation the survey found turned out to be a MENTION rather than a pointer: a
+Numbering line saying which numbers an open PR still claims, and two records that must DISPLAY an
+unresolvable number to explain the citation gate itself. Shipped without an exemption list this gate
+would have been all false alarms on day one, which is how a gate gets switched off; this repo has
+already had one such incident (issue #16, the AGENTS.md gate false-positiving on every fresh
+install). Exemptions are keyed by **file and number** — keying by file alone took 36 working
+pointers out of the gate to hide one word — and `TestDocCitedADRExemptionsAreJustified` refuses a
+blank reason or one that no longer applies.
+
+**Gated — a doc citing its own line numbers.** `TestNoDocCitesItsOwnLineNumbers`. Zero findings, and
+that is the point: a gate against recurrence, not a cleanup. The form cannot survive its own file —
+one entry's self-citation drifted `:690` to `:716` to `:744` to `:763` across four review rounds
+because the entry doing the citing kept inserting lines above its own target, and a second sat in
+ADR-038 pointing at a receipt that had moved.
+
+⚠ **A basename is not an identity here.** The first version compared `filepath.Base`, and this tree
+holds 31 files called `README.md` and 28 called `CLAUDE.md` — so one README citing ANOTHER by line
+read as self-reference. Reproduced in review by appending a correct cross-file pointer to a nested
+README and watching the gate go red, with an error telling the author to cite a heading instead.
+Self-reference is now decided by PATH, and **ambiguity is not a finding**: a bare `README.md:5` that
+31 files could mean is left alone. That costs a real false negative and buys the gate's credibility,
+which is the right trade — a missed finding costs one drifted pointer; a false alarm costs the gate.
+
+**NOT gated — unresolved repo-relative paths.** Most are legitimate FORWARD references: a task file
+naming files it will create (`cmd/server/abstain_test.go` in ADR-001 T4,
+`internal/palace/anchor_evidence_test.go` in ADR-002 T3, both unexecuted). Telling a planned artifact
+from a stale one needs the task's status — more machinery than the finding is worth.
+
+**NOT gated — `file:line` refs whose file does not resolve.** Suggested in review as the cheap
+subclass where the forward-reference objection does not apply. It does not survive reading the four
+instances: `server/session.go:301` and `server/server.go:581` are mcp-go's source, and `up.go:82` is
+goose's — the citing sentence names `goose v3.27.1` beside it. They are deliberate citations into
+pinned third-party source, and a gate over them would be four findings and four false alarms. The
+same shape as the mentions above, one class over.
+
+**NOT gated — `file:line` refs pointing past the end of a file that does exist.** Real, and the floor
+of the true number, since a citation naming the wrong-but-existing line is undetectable. Left as a
+command rather than a gate because most point into refactored files where the correct line is
+unknowable, so "fix them" means guesses that drift again — the fix this corpus has already disproved
+four times.
+
+**Scope, stated honestly.** These two gates cover ADR citations and self-references. By the survey's
+own commands that is well under half of the pointers in the corpus, and the largest ungated class —
+source `file:line` — is the one the title is about. This retires two classes and measures the rest;
+it does not retire the problem.
+
+**What none of it catches, and it is the larger half.** The two sharpest findings of the last four
+rounds were a sentence that CONCEDED the premise it was meant to reinforce, and a check whose scope
+could not see the defect it was written to prevent. Both semantic; no linter finds either. The
+mechanical gates exist so review attention goes where only a reader can judge.
+
 ## adr-lint cannot express a cross-record dependency — 2026-08-28
 
 **The general finding stands; the instance I filed it with was refuted in review and is corrected
@@ -381,7 +488,7 @@ The server registers 41 tools; roughly eight are in regular use. What is built, 
 | capability | live count | why it is idle |
 |---|---|---|
 | closets | **0** | Built by `am_mine` only, and mining is retired for now — the prior it feeds measured harmful on mined corpora (~0.10 MRR) and `CLOSET_BOOST` defaults to 0. The summary index itself is untested against a curated corpus, which is a different question from the ranking prior and has never been asked. |
-| hallways | **0**, and structurally so | Not "nobody ran the build step" — `am_recompute_graph` was run across all 8 wings on 2026-08-20 and returned `hallways: 0, entity_tunnels: 0`. Hallways are entity co-occurrence, and 82 of 82 drawers have an empty `entities` column: `Service.Add` (`internal/palace/service.go:305`) builds its `Drawer` literal without one, and the only code that ever calls `extractEntities` is `internal/palace/mine.go`. Mining is retired, so nothing writes the input. |
+| hallways | **0** | ⚠ The 2026-08-20 reason — an empty `entities` column on every drawer — is NO LONGER TRUE and the correction is in item 2 below. `Service.Add` writes entities (ADR-016). Still 0, for a different reason: the extractor yields too few and too generic entities for any pair to co-occur in the two drawers `hallwayMinCount` requires. |
 | tunnels | **0** | Explicit tunnels have never been created by a session, and derived ones cannot exist: `entityTunnelsForWing` (`internal/palace/tunnel.go:180`) takes hallways as its input, so it inherits the zero above. The craft/project wing split is exactly what explicit tunnels are for, and that half is available today. |
 | skills (centralised) | 2 | Was **0** for the project's whole life: every session reported `am_list_skills` empty and fell back to generic conventions while the bootstrap called loading them a hard gate, so the gate passed vacuously. `memory-orchestration` and `writing-memories` were published 2026-08-20 and sessions began loading them the same hour. `effective-go` and `cqrs` — the two this repo's protocol names by name — were published the same day, so the catalogue holds 4 and the promise in `AGENTS.md` and `CLAUDE.md` is true for the first time. |
 | anchors | 5 | Used, and the cross-repo verdict bug that deleted memories is fixed. Adoption is still incidental rather than routine. |
@@ -398,27 +505,77 @@ Three of these are worth acting on, in order:
    missing is a seed path (skill bodies in the repo tree, pushed at install) plus the gate that
    naturally follows: a test failing when the protocol names a skill the tree does not carry.
 
-2. **Decide the entity graph: feed it or retire it.** This is the repository's own named defect,
-   and the largest instance of it yet. Hallways, derived entity tunnels and the entity half of
-   `am_traverse` are written, tested and reachable by tool call — three MCP tools and a rebuild
-   command — and all of them return nothing, because their single input is written by one retired
-   code path. `am_mine` calls `extractEntities`; `Service.Add` does not, so every drawer filed by
-   `am_add_drawer` or `am_diary_write` carries an empty `entities` column, 82 of 82 today. The tests
-   pass because they exercise the component (given entities, compute hallways) rather than the
-   selection (does anything ever produce entities), which is the same shape as the eval arm that
-   won four tables while being unreachable from production.
+2. **Decide the entity graph: feed it or retire it.** Hallways, derived entity tunnels and the
+   entity half of `am_traverse` are written, tested and reachable by tool call — three MCP tools and
+   a rebuild command — and all of them return nothing.
 
-   Two honest options, and the measurement should pick between them. **Feed it:** call the existing
-   entity extractor on the normal write path, so hallways and derived tunnels describe the curated
-   corpus rather than a mined one — cheap, since `closetEntities` already exists and runs on
-   content we already hold. **Retire it:** delete the hallway/entity-tunnel derivation and the two
-   tools that expose it, and keep explicit tunnels only. What is not an option is leaving three
-   tools in a catalogue of 41 that answer every call with an empty list, because an agent reading
-   the catalogue cannot tell that apart from a palace that simply has no links yet.
+   ⚠ **THE DIAGNOSIS BELOW THIS LINE WAS WRONG FOR EIGHT DAYS, AND IT NAMED A FIX THAT HAD ALREADY
+   SHIPPED.** It said the input was dry: *"`am_mine` calls `extractEntities`; `Service.Add` does not,
+   so every drawer filed by `am_add_drawer` or `am_diary_write` carries an empty `entities` column,
+   82 of 82 today."* ADR-016 closed that — `internal/palace/service.go:693` reads
+   `Entities: extractEntities(c.Content)` and its own comment says *"Entities is the field this path
+   was missing (ADR-016)."* A session picking this item up would have gone to add a line that is
+   there. That is the pointer-to-nothing class this repository gates for in code and in prose,
+   applied to a DIAGNOSIS, where nothing checks it at all: an entry dated once and read as current
+   forever.
 
-   Whichever way it goes needs a gate that fails when the input dries up again — a test asserting
-   that a drawer written through the normal path carries entities, which fails today and is
-   therefore the right red test to open the ADR with.
+   **What is actually true, measured 2026-08-28 over 20 consecutive drawers in one room of this
+   repo's own wing.** Entities are written; the extractor's YIELD is what starves the derivation:
+
+   | | count |
+   |---|---|
+   | drawers carrying at least one entity | 13 of 20 |
+   | drawers carrying **two or more** — the minimum for a pair to exist at all | **4 of 20** |
+   | distinct entity pairs those four produced | 12 |
+   | pairs occurring in two different drawers, which `hallwayMinCount = 2` requires | **0** |
+
+   The method, not the answer — these numbers are a snapshot of a corpus that grows every session,
+   and the whole point of this correction is that a dated figure read as current is what went wrong:
+
+   ```bash
+   # entities per drawer, over one room of this repo's wing
+   aiagentmemory mcp am_list_drawers -a wing=wing_agentmemories -a room=decisions -a limit=20 \
+     | python3 -c 'import sys,json,itertools,collections
+   d=json.load(sys.stdin)["drawers"]
+   pairs=collections.Counter()
+   for x in d:
+       e=sorted(set(x.get("entities") or []))
+       pairs.update(itertools.combinations(e,2))
+   print(sum(1 for x in d if x.get("entities")),"of",len(d),"carry an entity")
+   print(sum(1 for x in d if len(x.get("entities") or [])>1),"carry two or more")
+   print(len(pairs),"distinct pairs;",sum(1 for c in pairs.values() if c>=2),"reach hallwayMinCount")'
+   ```
+
+   The single most common entity is `ADR`, alone in seven of the twenty — a token that contributes
+   no pair whatsoever. The rest are `DISCARDED`, `FAULT`, `GREP`, `TOKEN`, `CLI`: shouted words and
+   acronyms, not subjects. The cause is `entityMinFreq = 2` (`internal/palace/entity.go:35`), which
+   requires a word to REPEAT INSIDE ONE DRAWER. Prose written once mentions most of its subjects
+   once, so what survives the filter is whatever the author happened to say twice — which is
+   uppercase emphasis and abbreviations, and is close to orthogonal to what the memory is about.
+
+   So the choice is unchanged but the evidence is not: this is no longer "an unreachable component
+   fed by a retired path", it is **a component whose input is produced and is the wrong shape**.
+
+   **Feed it properly:** the extractor needs to select subjects rather than repeated tokens.
+   Whatever replaces it, the acceptance question is not "does a drawer carry entities" — it does —
+   but "do two drawers about the same thing share a pair", which is the property `hallwayMinCount`
+   actually tests and which is 0 out of 12 today.
+
+   **Retire it:** delete the hallway/entity-tunnel derivation and the tools that expose it, and keep
+   explicit tunnels only. What is not an option is leaving tools in the catalogue that answer every
+   call with an empty list, because an agent reading the catalogue cannot tell that apart from a
+   palace that simply has no links yet.
+
+   ⚠ **The obvious red test is the WRONG one, and that is the trap this correction exists to stop.**
+   "A drawer written through the normal path carries entities" was the right test on 2026-08-20 and
+   it PASSES today over a corpus that derives no hallways at all — a gate that would have gone green
+   on the first commit and reported the feature working ever since. The test that fails today is
+   about co-occurrence, not presence.
+
+   Note also that hallways are not hypothetical here: `internal/palace/hallway.go:85` records a
+   production incident across **1,338** of them, so the derivation has run at scale on a corpus whose
+   entities came from mining. Retiring it is a decision about the curated write path, not about
+   whether the mechanism ever worked.
 
 3. **Use explicit tunnels for the craft/project split.** Independent of the entity graph above and
    available now: a craft lesson learned in a project incident should carry a tunnel back to the
@@ -1602,15 +1759,17 @@ it inherited the flag. The number is an artifact, not an achievement.
 *(Two corrections, and the second is the same error one layer further out. First: an earlier version
 said "#3 of 8,256", which was the first PALACE call — `am_skillset` — not the first RECALL call.
 Second: the correction then claimed the latch "cannot flip on a wake-up call". `recallTools` is
-`am_search` and `am_get_drawer` (`recallrate.go:51`), and `AGENTS.md:370` mandates
+`am_search` and `am_get_drawer` (`recallrate.go:51`), and `AGENTS.md`'s manual traversal (under *"When the tools are present"*) mandates
 `am_get_drawer(id, whole:true)` once per `must.*` edge AS PART OF the wake-up sequence — dozens of
 edges, before the task search. So a protocol-following wake-up flips the latch almost immediately.
-`am_skillset` and `am_status` cannot flip it — nor can `am_bootstrap` (`AGENTS.md:345`),
-`am_list_drawers` (`:368`) or `am_kg_query` (`:369`), none of which are in `recallTools`; an
+`am_skillset` and `am_status` cannot flip it — nor can `am_bootstrap`,
+`am_list_drawers` or `am_kg_query` — all three named in that same traversal, none of them in
+`recallTools`; an
 earlier version of this sentence said "only" of the first two and was over-precise.
 
 ⚠ **That premise has an expiry the entry should name.** The wake-up flips the latch *because*
-`AGENTS.md:357-362` records `am_bootstrap` returning `unknown_term` for this wing, which is what
+`AGENTS.md` records `am_bootstrap` returning `unknown_term` for this wing (*"It can honestly return
+nothing, and you must read that correctly"*), which is what
 makes the manual `am_get_drawer` traversal mandatory today. Once that backfill runs, a compliant
 session may make no `am_get_drawer` call at wake-up and this consequence evaporates. The mis-measurement is the same class as the
 defect being reported, now twice over.)*
@@ -1624,8 +1783,8 @@ ADR-041 exists to move.
 1. **T2's 27.6% baseline measures the weaker thing.** Across 46 sessions it is approximately the
    share of assertions made in sessions that had called a recall tool at all, weighted by how many
    assertions each session made — not a rate of grounded claims.
-2. **The metric has a ceiling any protocol-following session hits trivially.** `AGENTS.md:370`
-   mandates `am_get_drawer(id, whole:true)` once per `must.*` edge as part of the wake-up sequence —
+2. **The metric has a ceiling any protocol-following session hits trivially.** `AGENTS.md`'s manual
+   traversal mandates `am_get_drawer(id, whole:true)` once per `must.*` edge as part of the wake-up sequence —
    dozens of edges, before the task search — and `am_get_drawer` IS a recall tool. So a compliant
    session flips the latch almost immediately and scores 100% before it has recalled anything
    relevant to what it then asserts. It is not vacuous: `am_skillset` and `am_status` cannot flip
@@ -1946,3 +2105,37 @@ credential elsewhere, so any placeholder must be conditional on the URL.
 `agentsmemory.env` in the config dir (0600). Verified: the CLI then reports
 `token from …/agentsmemory.env` and the recall hook speaks.
 
+
+## The recall hook searches every project, and its header says "this branch" — 2026-08-28
+
+`agentsmemory-recall-hook.sh` calls `mcp search` with no `wing`. These registrations report
+`default_wing: ""`, so per `drawers.go` an omitted wing searches EVERY wing in the workspace rather
+than the project the session is in. Observed, not theorised: on 2026-08-28 an independent run of the
+hook's exact query shape on two open branches put a drawer from an unrelated codebase into one of
+the three slots, both times.
+
+The protocol this repository ships is explicit that another wing's memory is context and never an
+instruction, and that unrelated projects "do not remove your answer, they add competitors ahead of
+it". PR #95 made the printed header say so instead of asserting a provenance the query cannot
+guarantee. That is a label, not a fix.
+
+The fix is to scope the query, and the reason it is filed rather than done is that the hook cannot
+resolve the wing the way the protocol says to: rung 0 is what the server's registration reports, and
+the hook has no way to ask before it searches. The candidates are all worse in a specific way —
+deriving `wing_<repo>` from the git remote is rung 3 and disagrees with rung 0 on at least one live
+registration; passing the wing at install time freezes it into a script. Whichever wins is a
+decision, not an implementation detail.
+
+## A stale-flagged hit is injected as current — 2026-08-28
+
+The server marks a drawer `stale: true` when its code anchors no longer match the tree, and returns
+a warning telling the caller to re-read the code before acting. `agentsmemory-recall-hook.sh` filters
+on nothing but the server's `count`, so a stale hit is injected into a fresh context with the warning
+dropped. Observed 2026-08-28: a PR#25 drawer carrying `stale: true` passed the 0.42 floor on a real
+branch query.
+
+Not fixed in PR #95 because it changes what reaches the model and therefore needs its own
+measurement: dropping stale hits shrinks an already-scarce payload, and a stale memory is not
+worthless — it is evidence that something changed, which is occasionally the most useful thing in
+the page. The choice is between dropping them and labelling them, and that is F-10's kind of
+question.

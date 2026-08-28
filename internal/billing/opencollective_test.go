@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"net/url"
 	"testing"
 
 	"github.com/atvirokodosprendimai/agentsmemory/internal/tenant"
@@ -44,16 +45,93 @@ func TestOpenCollectiveStartCheckout_ReturnsStaticURL(t *testing.T) {
 	if !svc.Enabled() {
 		t.Fatal("expected OC provider to be enabled with checkout URLs configured")
 	}
-	url, err := svc.StartCheckout(context.Background(), CheckoutRequest{
+	raw, err := svc.StartCheckout(context.Background(), CheckoutRequest{
 		TeamID: teamID, PlanCode: "pro_monthly", CustomerEmail: "a@b.co",
 		SuccessURL: "https://app/ok", CancelURL: "https://app/no",
 	})
 	if err != nil {
 		t.Fatalf("StartCheckout: %v", err)
 	}
-	// The checkout IS the static contribution page — no session to create.
-	if url != testOCMonthlyURL {
-		t.Fatalf("url = %q, want %q", url, testOCMonthlyURL)
+	// The checkout target IS the configured contribution page — no session is
+	// created, nothing is called. Since ADR-042-T2 the URL also carries attribution
+	// parameters, so the assertion is on the tier page itself (scheme, host, path)
+	// rather than on byte equality; TestOpenCollectiveCheckoutCarriesAttribution
+	// covers the query.
+	got, err := url.Parse(raw)
+	if err != nil {
+		t.Fatalf("parse %q: %v", raw, err)
+	}
+	want, err := url.Parse(testOCMonthlyURL)
+	if err != nil {
+		t.Fatalf("parse fixture: %v", err)
+	}
+	if got.Scheme != want.Scheme || got.Host != want.Host || got.Path != want.Path {
+		t.Fatalf("checkout target = %s://%s%s, want %s://%s%s",
+			got.Scheme, got.Host, got.Path, want.Scheme, want.Host, want.Path)
+	}
+}
+
+// TestOpenCollectiveCheckoutCarriesAttribution pins ADR-042-T2: the checkout URL
+// must name the workspace that started it. Before this, createCheckout received
+// TeamID, CustomerEmail and SuccessURL and used only PlanCode, so every buyer of a
+// plan got a byte-identical link and a landed contribution could not be attributed
+// to anyone. The parameter names are Open Collective's own contribution-flow
+// parameters (read 2026-08-28 from opencollective-frontend).
+func TestOpenCollectiveCheckoutCarriesAttribution(t *testing.T) {
+	svc, _, teamID := ocTestEnv(t)
+	raw, err := svc.StartCheckout(context.Background(), CheckoutRequest{
+		TeamID: teamID, PlanCode: "pro_monthly", CustomerEmail: "buyer@example.com",
+		SuccessURL: "https://app.example/projects/x/billing/success",
+	})
+	if err != nil {
+		t.Fatalf("StartCheckout: %v", err)
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		t.Fatalf("parse %q: %v", raw, err)
+	}
+	// The configured tier page is still where the user lands.
+	base, _ := url.Parse(testOCMonthlyURL)
+	if u.Host != base.Host || u.Path != base.Path {
+		t.Fatalf("checkout target moved: got %s%s, want %s%s", u.Host, u.Path, base.Host, base.Path)
+	}
+	q := u.Query()
+	if got := q.Get("tags"); got != intentTag(teamID) {
+		t.Errorf("tags = %q, want the workspace tag %q", got, intentTag(teamID))
+	}
+	if got := q.Get("email"); got != "buyer@example.com" {
+		t.Errorf("email = %q, want the customer's email prefilled", got)
+	}
+	if got := q.Get("redirect"); got != "https://app.example/projects/x/billing/success" {
+		t.Errorf("redirect = %q, want the success URL", got)
+	}
+}
+
+// TestOpenCollectiveCheckoutPreservesConfiguredQuery guards the append: an operator
+// may already have query parameters on the configured tier URL, and clobbering them
+// would silently change what the contributor sees.
+func TestOpenCollectiveCheckoutPreservesConfiguredQuery(t *testing.T) {
+	svc, _, _, _, teamID := newTestEnv(t)
+	oc := newOpenCollectiveProvider(Config{
+		PriceByPlanCode: map[string]string{"pro_monthly": testOCMonthlyURL + "?interval=month"},
+	})
+	svc.checkout, svc.webhook, svc.portal = oc, oc, oc
+
+	raw, err := svc.StartCheckout(context.Background(), CheckoutRequest{
+		TeamID: teamID, PlanCode: "pro_monthly",
+	})
+	if err != nil {
+		t.Fatalf("StartCheckout: %v", err)
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if got := u.Query().Get("interval"); got != "month" {
+		t.Fatalf("configured query parameter was clobbered: interval = %q", got)
+	}
+	if u.Query().Get("tags") == "" {
+		t.Fatal("tags was not appended alongside the configured query")
 	}
 }
 

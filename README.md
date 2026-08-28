@@ -707,15 +707,32 @@ docker compose -f docker-compose.prod.yml up -d
 
 The port is published on the host loopback only; put Caddy/nginx/Traefik in
 front and forward 443 → 127.0.0.1:8080. Billing is single-provider per
-deployment and inert until configured. With OpenCollective (donations — the
-checkout is a hosted contribution page, and there is no signed webhook, so plan
-activation after payment is the `set-plan` CLI):
+deployment and inert until configured. With OpenCollective — a donations
+platform, so the checkout is a hosted contribution page:
 
 ```bash
 BILLING_PROVIDER=opencollective
 OPENCOLLECTIVE_CHECKOUT_PRO_MONTHLY=https://opencollective.com/it-uoga/projects/ai-agents-memory/contribute/pro-monthly-104934/checkout
 OPENCOLLECTIVE_CHECKOUT_PRO_ANNUAL=https://opencollective.com/it-uoga/projects/ai-agents-memory/contribute/pro-yearly-104935/checkout
 OPENCOLLECTIVE_PROJECT_URL=https://opencollective.com/it-uoga/projects/ai-agents-memory
+# Activation: OpenCollective does not SIGN its webhooks, so the server asks
+# instead of waiting to be told — it polls the authenticated GraphQL API and
+# reconciles contributions into plan changes (ADR-042).
+OPENCOLLECTIVE_PERSONAL_TOKEN=oc_pat_...          # read-only; this is the switch
+OPENCOLLECTIVE_COLLECTIVE_SLUG=ai-agents-memory
+OPENCOLLECTIVE_RECONCILE_INTERVAL=15m             # optional, this is the default
+```
+
+A paid contribution started from the dashboard's Upgrade button is attributed
+back to its workspace and activated within one interval. Two cases still need a
+human, by design rather than omission: a contribution made outside that button
+carries no attribution, and one whose payer cannot be matched is counted and
+logged rather than guessed at. Both — and any deployment that leaves
+`OPENCOLLECTIVE_PERSONAL_TOKEN` unset, which turns polling off entirely — are
+settled with:
+
+```bash
+agentsmemory set-plan --slug <workspace> --plan pro_monthly
 ```
 
 **CI deploy (opt-in).** Tagging `vX.Y.Z` already builds binaries and the GHCR
