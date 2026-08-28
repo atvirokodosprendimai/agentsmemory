@@ -73,10 +73,24 @@ docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v 
   `{"wing":"wing_<a real project>"}` in this evidence directory: the gate went red naming the file.
   So the run completes and its evidence cannot be committed.
 
-  This is the gate working, not a bug in it. Resolve before running, not after: either point the
-  mined runs at a neutrally-named wing, or decide what the record should carry instead of the raw
-  wing — noting that step 3 leans on the `wing` field to prove two mined runs share a corpus, so
-  dropping it removes a real check. That is an ADR-level call and it is filed in `BACKLOG.md`.
+  This is the gate working, not a bug in it. **And the executor does not need a decision to get
+  past it:** `mine-claude` takes an explicit `--wing` that wins over the derived name
+  (`clients/claude-code/mineclaude.go:318`), and `wing_acme` / `wing_alpha` are already declared
+  examples (`internal/repohygiene/hygiene_test.go:258`), so evidence mined into one of those commits
+  as-is. That also supplies the single mined corpus `--n 80` needs, since forcing one `--wing` mines
+  every session into one wing — the two problems have one solution.
+
+  ⚠ **That mixing is deliberate and worth stating rather than inferring.** `mineclaude.go:435-437`
+  refuses `$AGENTSMEMORY_WING` precisely because *"a process-wide variable meant for one launched
+  session would file EVERY project's history into a single wing — the exact mixing the miner exists
+  to avoid."* Passing `--wing` performs that mixing on purpose. For an eval corpus a heterogeneous
+  mixed wing is arguably what you want; it is still a judgement, and this task makes it rather than
+  leaving it to whoever runs the command.
+
+  Only the OTHER two options need the ADR owner — changing what the record carries instead of the
+  raw wing (step 3 leans on that field to prove two mined runs share a corpus, so dropping it
+  removes a real check), or hashing it as `case_set_id` already does. Those stay filed in
+  `BACKLOG.md`; this one does not block.
 
 ## Stop Condition
 

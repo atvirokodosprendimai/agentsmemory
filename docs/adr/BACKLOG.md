@@ -1438,11 +1438,17 @@ one corpus, so dropping it removes a real check, while keeping it makes the evid
 which the `wing` field contradicted; the comment now names the exception rather than overstating the
 rule.
 
-**Options, none taken here:** run the mined evals against a neutrally-named wing; or replace the raw
-wing with a one-way hash, as `case_set_id` already does for questions — that preserves step 3's
-sibling check and discloses nothing; or drop the field and replace the check with something else. The
-second looks cheapest and matches an existing precedent in the same file, but it changes what a
-published record means, so it is the ADR owner's call.
+**Option 1 needs no decision and is now written into T3.** `mine-claude` takes an explicit `--wing`
+that wins over the derived name (`clients/claude-code/mineclaude.go:318`), and `wing_acme` /
+`wing_alpha` are declared examples (`internal/repohygiene/hygiene_test.go:258`), so evidence mined
+into one commits as-is. It also supplies the single mined corpus `--n 80` needs, because forcing one
+`--wing` mines every session into one wing. ⚠ That mixing is deliberate: `mineclaude.go:435-437`
+refuses `$AGENTSMEMORY_WING` for exactly this reason, so `--wing` opts into it — a judgement T3 now
+makes rather than leaving to the executor.
+
+**Options that DO need the owner:** replace the raw wing with a one-way hash, as `case_set_id`
+already does for questions (preserves step 3's sibling check, discloses nothing); or drop the field
+and replace the check. Either changes what a published record means.
 
 **T3 is blocked on this**, not on the eval itself. The four runs also need a mined wing with enough
 drawers for `--n 80`, which this local palace may not have — check before building the binary.

@@ -1693,8 +1693,12 @@ func buildStamp() (commit string, dirty bool) {
 // identifies a question set to anyone who already holds it and discloses nothing
 // to anyone who does not.
 //
-// ⚠ `wing` IS THE EXCEPTION, and the rule above overstated itself until this was
-// written down. The wing name is an operator input rather than palace content,
+// ⚠ `wing` IS THE EXCEPTION THAT CARRIES AN IDENTITY, and the rule above
+// overstated itself until this was written down. It is not the only palace-derived
+// field — `corpus_drawers` is `len(drawers)` from the sampled palace — but a size
+// discloses no identity, and T3's own Risks require it recorded so a corpus that
+// moved mid-measurement is visible. The wing is different in kind: it names a
+// project. The wing name is an operator input rather than palace content,
 // but it NAMES A PRIVATE PROJECT: `mine-claude` derives a wing from a session's
 // working directory, so on a real palace it is somebody's project name, and this
 // record is committed. `TestNoRealProjectNamesInWings` catches it — verified
