@@ -201,10 +201,44 @@ aiagentmemory wrap [args]                      run Claude against the global con
 aiagentmemory wrap --agent codex [args]        run codex against ~/.codex
 aiagentmemory mcp                              list the memory tools you can call
 aiagentmemory mcp <tool> [arg] [-a k=v]        call one and print what it returns
+aiagentmemory doctor [--agent <a>]             can the installed hooks reach a session?
 ```
 
 `--agent` is only read in the leading position of `run`/`wrap` — everything after
 the sandbox name is forwarded to the agent untouched.
+
+### `doctor` — are the hooks actually wired?
+
+A hook is two things: a script, and a line in `settings.json` selecting it. The
+script half is easy to check and the registration half is where installs break —
+hand-edited settings, a config dir inherited with `--copy`, or an older install that
+registered a hook on an event Claude Code no longer injects.
+
+```console
+$ aiagentmemory doctor
+config:  ~/.claude
+project: ~/code/your-repo
+
+  agentsmemory-recall-hook.sh            SessionStart   speaks       3909 bytes
+      | agentsmemory-recall: query=… room=diary max_distance=0.42 count=1
+  agentsmemory-verify-hook.sh            SessionStart   silent       no output; see its stderr for what it asked
+
+  all 2 injecting hook(s) are registered on an injecting event and ran
+```
+
+It exits non-zero on three states, and only these three:
+
+| verdict | what it means |
+|---|---|
+| `UNREGISTERED` | the script is installed and no event runs it — re-run `install` |
+| `DISCARDED` | registered on an event whose stdout goes to the debug log; only `SessionStart`, `UserPromptSubmit` and `UserPromptExpansion` reach the model |
+| `FAILED` | it exited non-zero; the indented line under it is the hook's own stderr |
+
+**`silent` is not a failure.** Both of these hooks are silent when everything is
+fine — the verify hook prints only when a memory drifted, the recall hook only when
+the palace has something for your branch. Nothing can tell that apart from a broken
+hook in one run, so `doctor` prints what each hook wrote to stderr (which no event
+injects, and which the model therefore never sees) and lets you read it.
 
 ### `install` flags
 

@@ -3,30 +3,9 @@ package main
 import (
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"testing"
 )
-
-// injectingEvents are the hook events whose plain stdout Claude Code adds to the
-// model's context as text the model can read and act on. Every other event sends
-// a hook's stdout to the debug log, where nothing reads it.
-//
-// The list is exhaustive and it is short on purpose — from Claude Code's hooks
-// reference, 2026-08-28: "For most events, stdout is written to the debug log but
-// not shown in the transcript. The exceptions are UserPromptSubmit,
-// UserPromptExpansion, and SessionStart, where Claude Code adds plain-text stdout
-// as context that Claude can see and act on."
-var injectingEvents = map[string]bool{
-	"SessionStart":        true,
-	"UserPromptSubmit":    true,
-	"UserPromptExpansion": true,
-}
-
-// hookOutputDecl is the `# hook-output: <channel>` line every script in hooks/
-// carries. The channel is the first token; anything after an em dash is the
-// author's reason for not using the injecting channel.
-var hookOutputDecl = regexp.MustCompile(`(?m)^# hook-output:[ \t]*([a-z-]+)[ \t]*(.*)$`)
 
 // hookScripts reads the shipped hooks directory and returns each script's name,
 // body and declared channel.

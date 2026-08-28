@@ -252,6 +252,26 @@ is what stops a new script from being invisible to it, and
 `TestANonInjectedChannelIsJustified` refuses a quieter channel without a written
 reason, so the declaration cannot become the dodge.
 
+**A REGISTRATION IS THE OTHER HALF OF A HOOK, AND NO TEST CAN SEE THE ONE ON DISK.**
+`TestEveryInjectingHookIsOnAnInjectingEvent` gates the installer's PLAN; the
+`settings.json` in front of an operator — hand-edited, copied from another config
+dir with `--copy`, or written by an older install — is gated by nothing.
+`aiagentmemory doctor` reads that file, finds every registration naming a script
+that declares `# hook-output: stdout-injected`, and exits non-zero on three states:
+installed and registered by no event, registered on an event whose stdout goes to
+the debug log, or unable to run. `TestDoctorIsRegistered` covers the rung the
+command's own tests cannot: they build their own root, so all of them passed with
+`doctorCommand(),` deleted from `main.go`.
+
+⚠ **It does NOT fail on silence, and that limit is the finding.** Both shipped
+injecting hooks are silent when healthy — the verify hook prints only on drift, the
+recall hook only when the palace has something for the branch — so an earlier
+version that called zero bytes MUTE failed on a correct install. One run cannot tell
+healthy silence from muteness, and resolving that in an exit code is a guess wearing
+a check. `TestDoctorDoesNotFailOnSilence` keeps it out. What closes the gap instead
+costs nothing: each hook writes what it asked and what came back to stderr, which no
+event injects, and `doctor` prints it verbatim so a human judges the silence.
+
 **A corpus check an operator can run.** Every finding behind ADR-038 — 27 drifted
 rows, 39 of 41 anchored drawers one re-file from losing their pin, 16 facts naming
 a drawer that no longer existed — was produced by a throwaway script and by nothing
