@@ -356,7 +356,7 @@ func StreamHTTP(srv *server.MCPServer) *server.StreamableHTTPServer {
 // most callers. am_status is where a client learns its own.
 const serverInstructions = `This server is agentsmemory: a memory palace your team writes to and reads from across sessions.
 
-RECALL BEFORE YOU ACT. Call am_search with the subject of the task before reading code or answering from your own memory. The palace holds what this team already decided, what was tried and abandoned, and what a previous session got wrong — re-deriving that from source is slower and often lands somewhere else.
+WHAT SOURCE CANNOT SETTLE. Code shows what it does now. It cannot show that something still works a given way, that it does not do something, or that a question was never decided — a fix looks identical to code that was always right. That class is what this palace holds: what was decided, what was abandoned, what a past session got wrong. am_search takes a subject.
 
 CHECK YOUR SCOPE ONCE, with am_status. If default_wing names a wing, this registration is scoped to one project and omitting the wing argument keeps recall there. If default_wing is EMPTY, omitting it searches EVERY wing — so pass an explicit wing when you know which project the answer is in, because unrelated projects do not remove the answer, they add competitors ahead of it. wing:"*" is for genuinely cross-project questions, never a safe default.
 

@@ -40,7 +40,7 @@ A source search whose subject is behaviour meets a cue before the belief is writ
 ## Acceptance
 
 ```bash
-docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'go test ./clients/claude-code/ -run "TestPreToolUseCueFiresOncePerSubsystem|TestPreToolUseHookIsRegistered" -count=1 -v 2>&1 | tee /tmp/acc.out; ! grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/acc.out'
+docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'go test ./clients/claude-code/ -run "TestPreToolUseCueFiresOncePerSubsystem|TestPreToolUseHookIsRegistered" -count=1 -v 2>&1 | tee /tmp/acc.out; grep -q "^=== RUN" /tmp/acc.out && ! grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/acc.out'
 ```
 
 ⚠ The fence proves the mechanism exists and is selected. The measured delta is a sign-off line:

@@ -46,7 +46,7 @@ work.
 | T3 | Register the tools so the first call needs no lookup | blocked | F-9, F-10, F-12, F-13, UC3-S1, UC3-S2 | `go test ./clients/claude-code/ -run "^(TestF9OneMechanismPerMeasurementWindow\|TestF10EveryResultIsRecordedEitherWay\|TestF12EachMechanismNamesTheFailureItAddresses\|TestF13MechanismsAreOrderedByComplianceDependence)$"` |
 | T4 | Perform the recall for a fresh context and inject the result | blocked | F-6 | `apk add --no-cache bash git >/dev/null && go test ./clients/claude-code/ -run "^(TestF6AHookIsSilentInTheCommonCase\|TestRecallHookIsRegistered\|TestEveryInjectingHookIsOnAnInjectingEvent\|TestEveryHookScriptDeclaresItsOutputChannel\|TestANonInjectedChannelIsJustified\|TestTheQueryCarriesTheBranchWorkOnACleanTree\|TestNoCredentialIsSilentButABadOneSpeaks\|TestEveryHookScriptIsEmbedded)$" -count=1 -v` |
 | T5 | Cue at the moment a source search would form the belief | blocked | F-12 | `go test ./clients/claude-code/ -run "TestPreToolUseCueFiresOncePerSubsystem\|TestPreToolUseHookIsRegistered" -count=1 -v` |
-| T6 | Replace the imperative in the handshake with the cue | blocked | F-7, F-8, F-11, UC2-S1, UC2-S2 | `go test ./internal/mcpserver/ -run "TestF11\|TestInstructionsStayShort" -count=1 -v && go test -tags contractaxis ./internal/mcptest` |
+| T6 | Replace the imperative in the handshake with the cue | done | F-7, F-8, F-11, UC2-S1, UC2-S2 | `go test ./internal/mcpserver/ -run "TestF11\|TestInstructionsStayShort" -count=1 -v && go test -tags contractaxis ./internal/mcptest` |
 
 Status: `pending` | `running` | `blocked` | `done` | `failed`.
 

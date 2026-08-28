@@ -1,6 +1,13 @@
 # Task ADR-041-T6: Replace the imperative in the handshake with the cue
 
-**Depends-on:** T5
+**Depends-on:** T2
+
+⚠ **Was T5, changed 2026-08-28.** T5 is STOPPED on a measured, disqualifying finding — at PreToolUse
+time the only query available is a bare grep pattern, and 0 of 25 such patterns reached canary-grade
+relevance against the live palace. A task that can never complete cannot gate the one mechanism
+left, which is the same correction F-14'''s withdrawal forced on the T3 edge. The ordering F-13 froze
+is unchanged: T6 is still last by compliance-dependence, and the three before it are recorded
+stopped rather than reordered around.
 **Covers:** F-7, F-8, F-11, UC2-S1, UC2-S2
 **Estimated scope:** S (single file)
 **Owner:** unassigned
@@ -37,10 +44,17 @@ The MCP instructions name the CLASS OF CLAIM that requires a recall, and carry n
 3. The text names the sentence shape and what source cannot show; it does not say "recall first".
 4. Re-run the contract axis on a clean tree.
 
+⚠ **The fence installs `git` first, and without it this task could never pass.** The acceptance
+image is `golang:1.26-alpine`, which carries no git; the contract axis shells out to
+`git rev-parse --show-toplevel` to locate the repo before applying its stored mutant patches, so in
+the container it fails with `exec: "git": executable file not found` and reports the axis
+unenforced. That is not a finding about the code — it is the fence being unable to run the check it
+names, and it looked exactly like a real failure until the container's own output was read.
+
 ## Acceptance
 
 ```bash
-docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'go test ./internal/mcpserver/ -run "TestF11|TestInstructionsStayShort" -count=1 -v && go test -tags contractaxis ./internal/mcptest 2>&1 | tee /tmp/acc.out; ! grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/acc.out'
+docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'apk add --no-cache git >/dev/null && { go test ./internal/mcpserver/ -run "TestF11|TestInstructionsStayShort" -count=1 -v && go test -tags contractaxis ./internal/mcptest; } 2>&1 | tee /tmp/acc.out; grep -q "^=== RUN" /tmp/acc.out && ! grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/acc.out'
 ```
 
 ⚠ The fence proves the mechanism exists and is selected. The measured delta is a sign-off line:
@@ -95,6 +109,15 @@ it. That needs elapsed sessions with real compactions, not code.
 
 ## Mutation Log
 
+- 2026-08-28 · 1b3657f · mutant survived · exit 0 · `internal/mcpserver/server.go` · the cue ships beside the imperative instead of replacing it — F-8's added paragraph · acceptance-sha256:05047ff82bd6025a814bb75ad4bb6524500bae1c4f444332d682b3522c0a134f
+  ```
+  the fence passed with the mechanism broken
+  ```
+- 2026-08-28 · 7a57c8b · mutant killed · exit 1 · `internal/mcpserver/server.go` · the cue ships beside the imperative instead of replacing it — the added paragraph F-8 rules out as a mechanism · acceptance-sha256:648fb18310130661c65d283e4c121a4b40d92b256ed557e091bc4778fab6bd31
+- 2026-08-28 · b979f14 · mutant killed · exit 1 · `internal/mcpserver/server.go` · the cue names the class but drops the REASON source cannot settle it, which is the whole argument for asking the palace · acceptance-sha256:648fb18310130661c65d283e4c121a4b40d92b256ed557e091bc4778fab6bd31
+- 2026-08-28 · 7b74bd6 · mutant killed · exit 1 · `internal/mcpserver/server.go` · the cue ships beside the imperative instead of replacing it — the added paragraph F-8 rules out as a mechanism · acceptance-sha256:5cc7aee860d08b558888732a9eaacfc78b28fb50ccd460ce56489262660ad200
+- 2026-08-28 · 3edba4b · mutant killed · exit 1 · `internal/mcpserver/server.go` · the cue names the class but drops the REASON source cannot settle it, which is the whole argument for asking the palace instead of reading the tree · acceptance-sha256:5cc7aee860d08b558888732a9eaacfc78b28fb50ccd460ce56489262660ad200
+
 ## Invariants
 
 - Replaces rather than adds; the ceiling holds (F-7).
@@ -113,3 +136,30 @@ Stop if the three prior windows show the rate already at ceiling — then this s
 - Any further protocol prose anywhere (permanent boundary of this record)
 
 ## Verification Log
+- 2026-08-28 · 324e894 · exit 1 · `docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c '{ go test ./internal/mcpserver/ -run "TestF11|TestInstructionsStayShort" -count=1 -v && go test -tags contractaxis ./internal/mcptest; } 2>&1 | tee /tmp/acc.out; grep -q "^=== RUN" /tmp/acc.out && ! grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/acc.out'` · acceptance-sha256:648fb18310130661c65d283e4c121a4b40d92b256ed557e091bc4778fab6bd31
+  ```
+  2026/08/28 17:37:56 OK   00028_kg_triples_derived.sql (2.48ms)
+  2026/08/28 17:37:56 OK   00029_search_events_rerank_skip_reason.sql (1.9ms)
+  2026/08/28 17:37:56 OK   00030_drawers_validity_window.sql (2.82ms)
+  2026/08/28 17:37:56 OK   00031_drawers_content_key.sql (1.89ms)
+  2026/08/28 17:37:56 OK   00032_kg_ended_reason.sql (968.88µs)
+  2026/08/28 17:37:56 OK   00033_drawers_superseded_by_idx.sql (1.2ms)
+  2026/08/28 17:37:56 goose: successfully migrated database to version: 33
+  FAIL
+  FAIL	github.com/atvirokodosprendimai/agentsmemory/internal/mcptest	13.382s
+  FAIL
+  ```
+- 2026-08-28 · 6e5421d · exit 1 · `docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c '{ go test ./internal/mcpserver/ -run "TestF11|TestInstructionsStayShort" -count=1 -v && go test -tags contractaxis ./internal/mcptest; } 2>&1 | tee /tmp/acc.out; grep -q "^=== RUN" /tmp/acc.out && ! grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/acc.out'` · acceptance-sha256:648fb18310130661c65d283e4c121a4b40d92b256ed557e091bc4778fab6bd31
+  ```
+  2026/08/28 17:39:06 OK   00028_kg_triples_derived.sql (1.08ms)
+  2026/08/28 17:39:06 OK   00029_search_events_rerank_skip_reason.sql (2.04ms)
+  2026/08/28 17:39:06 OK   00030_drawers_validity_window.sql (2.28ms)
+  2026/08/28 17:39:06 OK   00031_drawers_content_key.sql (1.19ms)
+  2026/08/28 17:39:06 OK   00032_kg_ended_reason.sql (2.15ms)
+  2026/08/28 17:39:06 OK   00033_drawers_superseded_by_idx.sql (2.78ms)
+  2026/08/28 17:39:06 goose: successfully migrated database to version: 33
+  FAIL
+  FAIL	github.com/atvirokodosprendimai/agentsmemory/internal/mcptest	13.152s
+  FAIL
+  ```
+- 2026-08-28 · 8f18d82 · exit 0 · `docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'apk add --no-cache git >/dev/null && { go test ./internal/mcpserver/ -run "TestF11|TestInstructionsStayShort" -count=1 -v && go test -tags contractaxis ./internal/mcptest; } 2>&1 | tee /tmp/acc.out; grep -q "^=== RUN" /tmp/acc.out && ! grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/acc.out'` · acceptance-sha256:5cc7aee860d08b558888732a9eaacfc78b28fb50ccd460ce56489262660ad200

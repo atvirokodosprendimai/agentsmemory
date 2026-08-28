@@ -35,7 +35,7 @@ The `am_*` tools are reachable on the first call, with no schema round-trip in f
 ## Acceptance
 
 ```bash
-docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'go test ./clients/claude-code/ -run "^(TestF9OneMechanismPerMeasurementWindow|TestF10EveryResultIsRecordedEitherWay|TestF12EachMechanismNamesTheFailureItAddresses|TestF13MechanismsAreOrderedByComplianceDependence)$" -count=1 -v 2>&1 | tee /tmp/acc.out; ! grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/acc.out'
+docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'go test ./clients/claude-code/ -run "^(TestF9OneMechanismPerMeasurementWindow|TestF10EveryResultIsRecordedEitherWay|TestF12EachMechanismNamesTheFailureItAddresses|TestF13MechanismsAreOrderedByComplianceDependence)$" -count=1 -v 2>&1 | tee /tmp/acc.out; grep -q "^=== RUN" /tmp/acc.out && ! grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/acc.out'
 ```
 
 ⚠ The fence proves the mechanism exists and is selected. The measured delta is a sign-off line:
