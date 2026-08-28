@@ -13,7 +13,7 @@ An entry leaves this file in one of two ways: it becomes an ADR, or it is re-tag
 **The general finding stands; the instance I filed it with was refuted in review and is corrected
 below. Both halves are kept, because the way the instance was wrong is the more useful lesson.**
 
-**The limitation, verified in `quality-harness 2.21.0`.** It is stronger than "the DAG cannot see
+**The limitation, verified identical in `quality-harness` 2.19.0, 2.21.0 and 2.23.0** (the same line numbers in all three, so it is not a version artefact). It is stronger than "the DAG cannot see
 these edges" — the schema forbids writing one:
 
 - `bin/adr-lint:272-276` validates every `Depends-on` entry against `all_stems`, the SIBLING task
@@ -32,14 +32,19 @@ all imply ordering, but none of them can be represented.
 ADR-002 T3 was gated on ADR-003 T3/T4, quoting ADR-003's Decision. That sentence sits inside a
 paragraph opening *"an earlier draft of this ADR was wrong"* (`ADR-003:68`) — it is **subjunctive**,
 describing a hazard that draft *would have* created and which the accepted design removed at source
-in **T1**, which is `done`. Four things say so, three of them pre-existing in files the change
-touched:
+in **T1**, which is `done`. Four things say so, all four pre-existing, and one of them was in the
+very file the change edited:
 
 - `T3-measure-both-normalizers.md:11-18` — *"the confound the control existed for is gone rather
-  than being controlled for"*, 55 lines above where I added the contradiction.
-- `ADR-014:51-53` and `BACKLOG.md:690` — T3 is *"a check on a shipped default rather than a gate
-  before one"*; the flip already happened, and `internal/config/config.go:374` ships
-  `ClosetBoost: 0`.
+  than being controlled for"*. That is 55 lines above where the retracted paragraph was added,
+  in the same file. (The paragraph is gone from this branch, so the file is now byte-identical to
+  `main`; the citation is to what was already there.)
+- `ADR-014:51-53` — T3 is *"a check on a shipped default rather than a gate before one"*.
+- `BACKLOG.md`, the bullet *"ADR-003 T3's two-corpus measurement is now a check, not a gate"* —
+  which reports ADR-014's finding in its own words rather than quoting it. The flip already
+  happened: `internal/config/config.go:374` ships `ClosetBoost: 0`. (No line number on purpose;
+  this entry inserts lines above that bullet, so any number written here is wrong in the tree the
+  entry produces — which is exactly what happened in round 1.)
 - `ADR-002:157` — record B **already carried its own constraint**, and carried it better: scoped to
   T4 alone and stated as a conditional, *"If T4 ships closet-ON after all"*. T4 shipped closet-OFF,
   so the condition never fired.
@@ -57,10 +62,24 @@ prose"; ADR-002 had it, correctly, all along.
    visibly when its condition resolves; a prerequisite has to be remembered and retired by hand, and
    nobody does.
 
-**Still open for the harness owner** (a different project, not ours to change): let `Depends-on`
-name a qualified foreign task, resolve it against the corpus, and make `adr-next` report
-`blocked: cannot evaluate X` rather than `ready` for an edge it could not evaluate. Cycle checking
-would then need to run over the union rather than per record.
+**Still open for the harness owner:** let `Depends-on` name a qualified foreign task, resolve it
+against the corpus, and make `adr-next` report `blocked: cannot evaluate X` rather than `ready` for
+an edge it could not evaluate. Cycle checking would then need to run over the union rather than per
+record.
+
+⚠ **"A different project, not ours to change" is NOT settled here, and this entry said it was.**
+The section *"The ADR evidence chain depends on a tool outside the repository"* treats the same
+externality as an open decision and names **vendoring the checker into the repo** as one of two
+ways out. And this repo already binds Go tests to a harness artefact twice —
+`internal/mcpserver/recallcue_spec_test.go` (`taskIndexRow` + `statusOfTask`) and
+`clients/claude-code/recallrate_spec_test.go` (`indexRow` :325 + `taskStatus` :328, gating on
+`status[m.task] == "done"` at :386 and :401). Both read an ADR task README's status column. So a
+gate on this side of the boundary is not hypothetical; it is precedent. Whether to add a third is
+a decision, not a foregone no.
+
+*(Found by a reviewer who first "corrected" the count from two to one and then retracted the
+correction: the second precedent implements the same pattern under different identifiers, so a grep
+for the first one's names missed it. Ask which entries exist, not which files contain this string.)*
 
 ## ADR-041 T2 — the recall-before-assertion baseline, measured 2026-08-28
 

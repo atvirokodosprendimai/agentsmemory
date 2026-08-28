@@ -64,8 +64,6 @@ docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v 
 
 ## Risks
 
-
-
 - A reranker outage mid-run degrades the reranked arms and `EvalReport.Warnings` records it; step 4 turns that from a thing to remember into a thing the gate refuses. Re-run instead.
 - The four original tables may not all be reproducible from saved case files. If one is not, say so in the test's package comment and treat the evidence as three tables plus a gap, rather than quietly substituting a fresh corpus.
 - The retrieval ceiling caps what any of this can show: on our mined corpus 98% of golds reach the pool, 75% are already at rank 1. An arm difference smaller than a couple of cases is inside the noise these n permit, and the intervals will say so.
