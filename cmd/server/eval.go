@@ -1694,15 +1694,17 @@ func buildStamp() (commit string, dirty bool) {
 // to anyone who does not.
 //
 // ⚠ `wing` IS THE EXCEPTION THAT CARRIES AN IDENTITY, and the rule above
-// overstated itself until this was written down. It is not the only palace-derived
-// field — `corpus_drawers` is a SAMPLE SIZE rather than a corpus size: it is
-// `len(drawers)` capped by `--n` (`SampleDrawers(…, c.Int("n"))`), and under
-// `--style real` it is not drawers at all but `len(queries)`. So it does not tell
-// a reader how big the palace was, and it cannot show a corpus that moved
-// mid-measurement unless the corpus fell BELOW `--n`. It is recorded because a
-// run that sampled fewer items than it asked for is worth seeing; a size discloses
-// no identity either way. The wing is different in kind: it names a project. The wing name is an operator input rather than palace content,
-// but it NAMES A PRIVATE PROJECT: `mine-claude` derives a wing from a session's
+// overstated itself until this was written down.
+//
+// It is not the only palace-derived field. `corpus_drawers` is a SAMPLE size, not
+// a corpus size: `len(drawers)`, bounded by `--n` AND by how many distinct
+// `source_file` values the over-fetch reached, because ListRandom keeps at most
+// one drawer per source (repo.go:797). Under `--style real` it is not drawers at
+// all but `len(queries)`. It says how many items this run took and nothing about
+// how big the palace is. A size discloses no identity either way.
+//
+// The wing is different in kind: it names a project. The name is an operator
+// input rather than palace content, but it NAMES A PRIVATE PROJECT: `mine-claude` derives a wing from a session's
 // working directory, so on a real palace it is somebody's project name, and this
 // record is committed. `TestNoRealProjectNamesInWings` catches it — verified
 // 2026-08-28 by planting one in an evidence file and watching the gate go red —
