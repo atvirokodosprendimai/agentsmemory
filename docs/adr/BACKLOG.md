@@ -8,6 +8,32 @@ An entry leaves this file in one of two ways: it becomes an ADR, or it is re-tag
 `(permanent: <why>)` in its originating ADR because we decided it should never happen.
 
 
+## Cross-ADR ordering is unenforceable by this repository — 2026-08-28
+
+`adr-lint` builds its task DAG from `Depends-on` and `Consumes` **within one record**. It cannot see
+an edge between two ADRs, and it is not ours to change: it lives in the harness
+(`quality-harness/bin/adr-lint`), not in this tree.
+
+**The live instance.** ADR-003's Decision states that ADR-002's normaliser comparison is read off
+exactly the sweep and adaptive arms the closet prior contaminates, so ADR-003 T3/T4 must land before
+ADR-002 T3 is measured. ADR-002 T3's header reads `Depends-on: T2` — no mention of ADR-003 — and
+`adr-next` reports it **ready** today. An executor who trusts the tooling runs it in the wrong order,
+takes evidence on a closet-ON pipeline while production ends up closet-OFF, and every gate stays
+green.
+
+**Half of this is now closed, and it is the half that lives here.** The constraint is written into
+ADR-002 T3's own Risks, where the executor reads it, with the check to run first (ADR-003 T3 and T4
+both `done` — both are `pending`, and T3 is itself blocked). That is the same move as the socket
+warning: when the mechanism cannot be enforced, put the fact where the reader already is.
+
+**The other half is a harness change** — teach the DAG to resolve a `Depends-on` that names another
+record, or give a task a first-class cross-record prerequisite. Worth raising with the harness owner;
+the failure mode is general, not specific to these two ADRs.
+
+⚠ **Prose in record A cannot govern record B.** ADR-003 states the constraint and ADR-002 executes
+the task, so the only reader who needs it is the one least likely to open ADR-003. Anywhere this
+pattern recurs, restate the constraint in the record that will be executed.
+
 ## ADR-041 T2 — the recall-before-assertion baseline, measured 2026-08-28
 
 **27.6%** — of 221 no-change assertions across 46 sessions, 61 were preceded by a recall.
