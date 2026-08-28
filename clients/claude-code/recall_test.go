@@ -201,3 +201,93 @@ func TestF6AHookIsSilentInTheCommonCase(t *testing.T) {
 			"on a tree where the hook otherwise speaks", out, called)
 	}
 }
+
+// TestTheQueryCarriesTheBranchWorkOnACleanTree pins the second reason this hook
+// could not work when it shipped.
+//
+// ⚠ THE FIRST VERSION ASKED `git diff --name-only HEAD` — uncommitted changes
+// only, which is EMPTY on the clean tree a session sits on right after a commit.
+// The query collapsed to the bare branch name, and measured 2026-08-28 against
+// the live palace, bare branch names land at 0.450-0.509 while the hook's floor
+// is 0.42: silent on every one of three real branches. The hook looked like F-6
+// working perfectly and was simply mute.
+//
+// No assertion on the hook's OUTPUT can catch that — the stub returns a hit
+// whatever it is asked. The query is an argument, so the stub has to record it.
+// This is the same shape as the room=decisions flags above: a mechanism that is
+// an argument rather than a branch is invisible to a test that only reads stdout.
+func TestTheQueryCarriesTheBranchWorkOnACleanTree(t *testing.T) {
+	for _, bin := range []string{"bash", "git"} {
+		if _, err := exec.LookPath(bin); err != nil {
+			t.Skipf("%s is not available; the acceptance fence installs it", bin)
+		}
+	}
+	script, err := assets.ReadFile(recallHookAsset)
+	if err != nil {
+		t.Fatalf("read hook: %v", err)
+	}
+
+	repo := t.TempDir()
+	git := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = repo
+		cmd.Env = append(os.Environ(),
+			"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@example.invalid",
+			"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@example.invalid")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	write := func(name string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(repo, name), []byte("x\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	git("init", "-b", "main", "-q")
+	write("base.txt")
+	git("add", "-A")
+	git("commit", "-qm", "base")
+	git("checkout", "-qb", "fix/a-distinctive-branch")
+	// The distinctive part: COMMITTED, so the tree is clean afterwards. That is
+	// exactly the state the broken query saw as empty.
+	write("theonlyfilethatnames.go")
+	git("add", "-A")
+	git("commit", "-qm", "work")
+
+	stubDir := t.TempDir()
+	queryFile := filepath.Join(stubDir, "query")
+	stub := "#!/usr/bin/env bash\nprintf '%s' \"$*\" > " + queryFile + "\necho '{\"count\":0,\"hits\":[]}'\n"
+	if err := os.WriteFile(filepath.Join(stubDir, "aiagentmemory"), []byte(stub), 0o755); err != nil {
+		t.Fatalf("stub: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "recall.sh"), script, 0o755); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	cmd := exec.Command("bash", filepath.Join(repo, "recall.sh"))
+	cmd.Dir = repo
+	cmd.Stdin = strings.NewReader(`{"hook_event_name":"SessionStart","source":"compact"}`)
+	cmd.Env = append(os.Environ(),
+		"PATH="+stubDir+":"+os.Getenv("PATH"), "CLAUDE_PROJECT_DIR="+repo)
+	if out, err := cmd.Output(); err != nil {
+		t.Fatalf("the hook failed the session (%v, out=%q) — it must never do that", err, out)
+	}
+
+	asked, err := os.ReadFile(queryFile)
+	if err != nil {
+		t.Fatalf("the hook never searched on a clean branch with committed work: %v", err)
+	}
+	query := string(asked)
+	if !strings.Contains(query, "theonlyfilethatnames.go") {
+		t.Errorf("the query does not name the branch's committed work: %q\n"+
+			"On a clean tree an uncommitted-only diff is empty, so the query collapses to the "+
+			"bare branch name — which measures below this hook's own relevance floor and makes "+
+			"it permanently silent.", query)
+	}
+	if !strings.Contains(query, "fix/a-distinctive-branch") {
+		t.Errorf("the query does not name the branch: %q", query)
+	}
+}

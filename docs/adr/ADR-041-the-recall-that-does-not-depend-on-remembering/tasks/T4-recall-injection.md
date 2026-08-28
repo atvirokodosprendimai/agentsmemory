@@ -36,7 +36,7 @@ When a context starts fresh — most often just after a compaction — a recall 
 ## Acceptance
 
 ```bash
-docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'apk add --no-cache bash git >/dev/null && go test ./clients/claude-code/ -run "^(TestF6AHookIsSilentInTheCommonCase|TestRecallHookIsRegistered|TestEveryInjectingHookIsOnAnInjectingEvent|TestEveryHookScriptDeclaresItsOutputChannel|TestANonInjectedChannelIsJustified)$" -count=1 -v 2>&1 | tee /tmp/acc.out; ! grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/acc.out'
+docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'apk add --no-cache bash git >/dev/null && go test ./clients/claude-code/ -run "^(TestF6AHookIsSilentInTheCommonCase|TestRecallHookIsRegistered|TestEveryInjectingHookIsOnAnInjectingEvent|TestEveryHookScriptDeclaresItsOutputChannel|TestANonInjectedChannelIsJustified|TestTheQueryCarriesTheBranchWorkOnACleanTree)$" -count=1 -v 2>&1 | tee /tmp/acc.out; ! grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/acc.out'
 ```
 
 ⚠ THE FENCE INSTALLS bash AND git, and that is not incidental. The acceptance image is
@@ -58,6 +58,7 @@ falls (F-10).
 | `TestEveryInjectingHookIsOnAnInjectingEvent` | `clients/claude-code/hookchannel_test.go` | no hook prints for the model on an event that discards stdout | — |
 | `TestEveryHookScriptDeclaresItsOutputChannel` | `clients/claude-code/hookchannel_test.go` | the gate's universe is the hooks directory, so a new script cannot be invisible | — |
 | `TestANonInjectedChannelIsJustified` | `clients/claude-code/hookchannel_test.go` | a quieter channel carries a written reason | — |
+| `TestTheQueryCarriesTheBranchWorkOnACleanTree` | `clients/claude-code/recall_test.go` | the query names committed branch work, not just the branch | — |
 
 ## The mechanism was registered on an event that discards its output — 2026-08-28
 
@@ -82,6 +83,13 @@ against a 0.42 floor — silent on all three. The same branches with a merge-bas
 discriminates rather than ranking whatever is most popular.
 
 Both were found by asking where the output goes, not by running the tests again.
+
+The query defect SURVIVED its first mutant: reverting to the uncommitted-only diff broke nothing,
+because every assertion read the hook's stdout and the stub returns a hit whatever it is asked. The
+query is an argument, so a test has to record it. `TestTheQueryCarriesTheBranchWorkOnACleanTree`
+builds a temp repository, commits work on a branch so the tree is CLEAN, and asserts the recorded
+query names that work — with the mutant applied it reports the shipped query verbatim,
+`mcp search fix/a-distinctive-branch`, with no file in it.
 
 **The fix is `SessionStart`, and the timing argument is independent of the channel.** Output
 injected *before* a compaction is part of the context being compacted — it would be summarised
