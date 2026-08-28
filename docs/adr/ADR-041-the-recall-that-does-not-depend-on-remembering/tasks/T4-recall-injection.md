@@ -245,6 +245,7 @@ better than a mechanism that appears to work by injecting noise.
 - 2026-08-28 · 0159db0 · mutant killed · exit 1 · `clients/claude-code/hooks/agentsmemory-precompact-hook.sh` · the relevance floor: without it the hook injects the nearest neighbour, measured as this session own transcript · acceptance-sha256:1ca9f7ca6761a677b0e7390dc80ac05c8471a18eeab4ce7fbf66f584663846fc
 - 2026-08-28 · f4c9324 · mutant killed · exit 1 · `clients/claude-code/installer.go` · the event IS the mechanism: on PreCompact the recall runs and its output goes to the debug log · acceptance-sha256:ecb7966c9934d73b7f50a2e67b482e85f83b531ae12612d376f8d492c557f00e
 - 2026-08-28 · 4be3ccf · mutant killed · exit 1 · `clients/claude-code/hooks/agentsmemory-recall-hook.sh` · the query on a clean tree: an uncommitted-only diff is empty, so it collapses to the bare branch name and falls below the relevance floor · acceptance-sha256:748b84cd7a42e0bd7ed80331a32d5d7b6ce2ece9902d0dafea534b07dec1baa2
+- 2026-08-28 · 7683966 · mutant killed · exit 1 · `clients/claude-code/installer.go` · the event IS the mechanism: on PreCompact the recall runs and its output goes to the debug log · acceptance-sha256:c69c7aef536d0e00a5b2ccae16eb244e95c32bbc42e13d2633cfa8d6392b07c7
 
 ## Invariants
 
