@@ -85,6 +85,36 @@ for the first one's names missed it. Ask which entries exist, not which files co
 
 ## ADR-041 T2 — the recall-before-assertion baseline, measured 2026-08-28
 
+⚠ **RE-TAKEN 2026-08-28 UNDER v3.** "Preceded" now means A RECALL SINCE THE LAST USER TURN, decided
+by Zy from the measured distribution of all three candidate readings. Under v2 it meant "this
+session touched the palace at some earlier point" — a latch that flipped at the first recall and
+never reset, which nobody chose; it is simply what the code computed. Rates under the two are NOT
+comparable, which is what the version stamp is for, and the v2 figure is kept below rather than
+deleted because it is what the earlier evidence proved.
+
+**7.6%** — of 341 no-change assertions across 24 sessions, 26 had a recall since the user turn that
+asked for the work.
+
+| | |
+|---|---|
+| transcripts scanned | 48 |
+| sessions with at least one assertion | 24 |
+| assertions | 341 |
+| preceded by a recall (since the last user turn) | 26 |
+| **rate** | **7.6%** |
+| classifier | v3 |
+
+Cross-readings on the same corpus, so the choice stays auditable: v2's latched reading **52.8%**;
+since the last compaction **43.4%**; within 100 tool calls 28.7%, within 50 17.6%, within 25 12.3%,
+within 10 **7.3%**, within 5 5.3%, within 1 1.8%.
+
+The user-turn reading lands within half a point of the within-10-calls window from a completely
+different derivation, which is the only evidence any particular window is more than a number
+someone picked. `TestTheRecordedBaselineNamesTheVersionTheCodeStamps` pins the `classifier` row
+above to the constant the code stamps, so a future redefinition cannot ship without re-taking this.
+
+### Superseded: the v2 baseline, 2026-08-28
+
 **27.6%** — of 221 no-change assertions across 46 sessions, 61 were preceded by a recall.
 
 | | |
@@ -93,7 +123,7 @@ for the first one's names missed it. Ask which entries exist, not which files co
 | assertions | 221 |
 | preceded by a recall | 61 |
 | **rate** | **27.6%** |
-| classifier | v2 |
+| classifier-v2 | v2 |
 | **precision** | **48%** (12/25 hand-judged, 2026-08-27) |
 | window | 2026-08-01 .. 2026-08-28 |
 

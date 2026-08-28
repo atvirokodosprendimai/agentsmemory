@@ -22,12 +22,24 @@ import (
 // this palace is uniquely able to answer, and the class that produced both
 // published errors on 2026-08-27.
 
-// classifierVersion is stamped on every observation.
+// classifierVersion stamps the COUNTING RULE on every observation — both halves of
+// it, which is wider than the name suggests and wider than v2 covered.
 //
-// ⚠ BUMP IT WHENEVER assertionShape OR assertionSubject CHANGES. Rates taken under
-// different versions are not comparable, and without this stamp tightening the
-// regex reads as a behaviour change in the thing being measured (spec F-16).
-const classifierVersion = "v2"
+// ⚠ BUMP IT WHENEVER assertionShape OR assertionSubject CHANGES, **OR WHEN THE
+// DEFINITION OF "PRECEDED" CHANGES**. The second clause is new in v3 and it is the
+// gap that let a rate go uncomparable in silence: F-16 guards the numerator's
+// CLASSIFIER, and nothing guarded its DEFINITION. `preceded_by_recall` meant "this
+// session touched the palace at some earlier point" — a latch with no reset, which
+// nobody chose — and that could have been redefined under an unchanged v2 stamp with
+// every rate before and after looking comparable.
+//
+// v3 = the same sentence classifier as v2, with "preceded" meaning A RECALL SINCE
+// THE LAST USER TURN. Decided 2026-08-28 from the measured distribution, not from
+// argument: the tool-call windows spread across an order of magnitude with no
+// natural break, while this reading has a meaning ("did the agent ask about the work
+// it was just given") and lands on 7.6% — almost exactly the within-10-calls window,
+// from a completely different derivation.
+const classifierVersion = "v3"
 
 // assertionShape matches the sentence form: a claim that nothing changed.
 var assertionShape = regexp.MustCompile(
@@ -78,7 +90,17 @@ var recallWindows = []int{1, 5, 10, 25, 50, 100}
 type Observation struct {
 	SessionID  string `json:"session_id"`
 	Assertions int    `json:"assertions"`
-	Preceded   int    `json:"preceded_by_recall"`
+	// Preceded is the rate ADR-041 reports: assertions with a recall since the last
+	// USER TURN. v2 counted a latch that flipped at the first recall and never reset,
+	// so it answered "did this session ever touch the palace" and saturated on the
+	// first call — measured 52.8% where this reading gives 7.6% over the same corpus.
+	// Rates under the two are NOT comparable, which is what the version stamp says.
+	Preceded int `json:"preceded_by_recall"`
+
+	// EverInSession is v2's number, kept because it is what the old baseline measured
+	// and because a reader of an archived observation needs to be able to line the
+	// two up. It is not the rate.
+	EverInSession int `json:"recall_anywhere_earlier"`
 
 	// Recalls is how many recall calls the session made at all. One and a hundred
 	// are the same to Preceded, and they are not the same session.
@@ -320,7 +342,7 @@ func Observe(transcriptPath string) (Observation, bool) {
 						obs.BeforeFirstRecall++
 						continue
 					}
-					obs.Preceded++
+					obs.EverInSession++
 					// The distance the latched field cannot express. Every window
 					// wide enough to contain it gets the credit, so the buckets are
 					// cumulative and a reader can see where the rate falls off.
@@ -336,6 +358,7 @@ func Observe(transcriptPath string) (Observation, bool) {
 					// whether a call sits exactly on the line.
 					if lastRecallAt > lastUserAt {
 						obs.PrecededSinceUserMessage++
+						obs.Preceded++
 					}
 					if lastRecallAt > lastCompactAt {
 						obs.PrecededSinceCompaction++

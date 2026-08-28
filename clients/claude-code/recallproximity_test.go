@@ -1,7 +1,9 @@
 package main
 
 import (
+	"os"
 	"path/filepath"
+	"regexp"
 	"testing"
 )
 
@@ -41,10 +43,10 @@ func TestPrecededCannotSeeProximityAndTheObservationCan(t *testing.T) {
 		t.Fatal("a fixture holds no assertions, so this test is vacuous: the classifier " +
 			"stopped matching the fixture sentences and nothing else here means anything")
 	}
-	if distant.Preceded != distant.Assertions || proximate.Preceded != proximate.Assertions {
-		t.Fatalf("the premise no longer holds — `preceded` is meant to score BOTH at 100%%, "+
-			"which is the defect: distant %d/%d, proximate %d/%d",
-			distant.Preceded, distant.Assertions, proximate.Preceded, proximate.Assertions)
+	if distant.EverInSession != distant.Assertions || proximate.EverInSession != proximate.Assertions {
+		t.Fatalf("the premise no longer holds — v2's latched reading is meant to score BOTH "+
+			"at 100%%, which is the defect it exists to show: distant %d/%d, proximate %d/%d",
+			distant.EverInSession, distant.Assertions, proximate.EverInSession, proximate.Assertions)
 	}
 
 	// One recall then a wall of claims, versus a recall before each claim. `preceded`
@@ -115,6 +117,21 @@ func TestAnAssertionBeforeAnyRecallIsCountedAsSuch(t *testing.T) {
 // are not a tool-call count: a recall since the last user turn, and one since the
 // last compaction. Both are candidates only — nothing here decides which wins.
 func TestABoundaryIsWhereNewWorkStarts(t *testing.T) {
+	// ⚠ THE REPORTED RATE MUST *BE* THE CHOSEN DEFINITION, not merely be stamped v3.
+	// Reverting `Preceded` to v2's latch while the stamp still read v3 passed the whole
+	// suite — the version pin ties the stamp to the record, and nothing tied the field
+	// to its own meaning. That is the same defect one layer over: a name asserting a
+	// property nothing drives.
+	sameAsChosenDefinition := func(t *testing.T, name string, o Observation) {
+		t.Helper()
+		if o.Preceded != o.PrecededSinceUserMessage {
+			t.Errorf("%s: preceded_by_recall = %d but preceded_since_user_message = %d. "+
+				"v3 defines the reported rate AS the user-turn reading; a divergence means "+
+				"the published number is measuring something the record does not describe.",
+				name, o.Preceded, o.PrecededSinceUserMessage)
+		}
+	}
+
 	obs := func(name string) Observation {
 		t.Helper()
 		o, ok := Observe(filepath.Join(fixtures, name))
@@ -125,6 +142,7 @@ func TestABoundaryIsWhereNewWorkStarts(t *testing.T) {
 			t.Fatalf("%s holds %d assertions, want 1 — the fixture stopped demonstrating "+
 				"anything and every assertion below would be vacuous", name, o.Assertions)
 		}
+		sameAsChosenDefinition(t, name, o)
 		return o
 	}
 
@@ -141,10 +159,13 @@ func TestABoundaryIsWhereNewWorkStarts(t *testing.T) {
 			t.Errorf("preceded_since_user_message = %d, want 0 — the recall happened before "+
 				"this work was asked for, which is the whole distinction", o.PrecededSinceUserMessage)
 		}
-		// The shipped field cannot see the difference, which is why this one exists.
-		if o.Preceded != 1 {
-			t.Errorf("preceded_by_recall = %d, want 1 — the latch is meant to score this "+
-				"session, and the divergence is the finding", o.Preceded)
+		// v2's latched number still scores this session, and the divergence between the
+		// two fields is the finding: `recall_anywhere_earlier` says the palace was
+		// touched, `preceded_by_recall` says not for THIS work.
+		if o.EverInSession != 1 {
+			t.Errorf("recall_anywhere_earlier = %d, want 1 — v2's reading scores this "+
+				"session, and the gap to preceded_by_recall is what v3 exists to show",
+				o.EverInSession)
 		}
 	})
 
@@ -169,9 +190,9 @@ func TestABoundaryIsWhereNewWorkStarts(t *testing.T) {
 				"queue and no palace, which is the failure ADR-041 was opened for",
 				o.PrecededSinceCompaction)
 		}
-		if o.Preceded != 1 {
-			t.Errorf("preceded_by_recall = %d, want 1 — the latch survives the compaction it "+
-				"is meant to be measuring the cost of", o.Preceded)
+		if o.EverInSession != 1 {
+			t.Errorf("recall_anywhere_earlier = %d, want 1 — v2's latch survives the "+
+				"compaction it is meant to be measuring the cost of", o.EverInSession)
 		}
 	})
 }
@@ -195,5 +216,46 @@ func TestAStringContentLineIsNotSkipped(t *testing.T) {
 	}
 	if o.SessionID == "" {
 		t.Error("no session id: the fixture's lines are not being parsed at all")
+	}
+}
+
+// baselineRecordPath is where the recorded baseline lives.
+const baselineRecordPath = "../../docs/adr/BACKLOG.md"
+
+// recordedBaselineVersion reads the classifier version the recorded baseline was
+// taken under.
+var recordedBaselineVersion = regexp.MustCompile(`(?m)^\| classifier \| (v\d+) \|`)
+
+// TestTheRecordedBaselineNamesTheVersionTheCodeStamps is the pin the version stamp
+// did not have.
+//
+// ⚠ F-16 GUARDS THE NUMERATOR'S CLASSIFIER AND NOTHING GUARDED ITS DEFINITION. That
+// is the gap this test closes, and it is not hypothetical: `preceded_by_recall`
+// meant "this session touched the palace at some earlier point" — a latch with no
+// reset that nobody chose — and it could have been redefined under an unchanged v2
+// stamp, leaving every rate before and after looking comparable. Over one corpus the
+// two readings are 52.8% and 7.6%.
+//
+// So the stamp now covers the counting rule, both halves, and this fails when the
+// code's version and the recorded baseline's disagree. A redefinition then has to
+// re-take the baseline — which is F-16's actual requirement — rather than being a
+// constant nobody remembered to change.
+func TestTheRecordedBaselineNamesTheVersionTheCodeStamps(t *testing.T) {
+	record, err := os.ReadFile(baselineRecordPath)
+	if err != nil {
+		t.Fatalf("read %s: %v", baselineRecordPath, err)
+	}
+	m := recordedBaselineVersion.FindSubmatch(record)
+	if m == nil {
+		t.Fatalf("%s records no baseline classifier version. The row `| classifier | vN |` is "+
+			"what ties a published rate to the rule that produced it; without it a reader "+
+			"cannot tell whether two numbers are comparable", baselineRecordPath)
+	}
+	if got := string(m[1]); got != classifierVersion {
+		t.Errorf("the code stamps %q and the recorded baseline was taken under %q.\n"+
+			"  Rates under different counting rules are not comparable (F-16). Either the\n"+
+			"  baseline must be re-taken under %s and re-recorded, or this version bump was\n"+
+			"  not one — a redefinition of what `preceded` means is exactly what the stamp\n"+
+			"  exists to make visible.", classifierVersion, got, classifierVersion)
 	}
 }
