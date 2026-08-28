@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -478,5 +479,115 @@ func TestTheRecallHookAsksTheRoomItsRecordShips(t *testing.T) {
 			"  One of the two moved without the other. The room decides whether this hook can "+
 			"speak at all: `decisions` shipped for two repairs and was mute on every branch whose "+
 			"work was not filed there.", asked[1], t4RecordPath, shipped[1])
+	}
+}
+
+// TestAThinQueryIsWidenedOnEveryBranch pins the fallback that keeps this hook from
+// asking with a bare branch name.
+//
+// ⚠ THE CONDITION IS THE QUERY, NOT THE BRANCH, and the first draft got that wrong.
+// It tested `$BRANCH = $DEFAULT`, which fixes the default branch and leaves every
+// other case with no branch work exactly as mute as before: a branch cut minutes ago
+// with no commits, and a branch whose work is already merged, both produce the empty
+// file list and the same bare-branch-name query. All three are subtests here.
+//
+// The failure this closes was found by restarting a session on `main` and getting
+// nothing at all: the merge-base is HEAD there, so the branch-work diff is empty, the
+// uncommitted fallback is empty on a clean tree, and the query collapsed to four
+// characters — below the length guard, so the hook exited before it ever searched.
+//
+// ⚠ THE WIDENED QUERY MUST BE SUBSTANTIAL, NOT MERELY NON-EMPTY. A thin query does
+// not fail to retrieve; it retrieves whatever is generically popular across every
+// wing. Measured 2026-08-28 against a live palace: the bare branch name returned a
+// hit from an unrelated project, one commit subject returned more hits with one from
+// an unrelated project, and three subjects returned hits only from this project's own
+// wing. So the assertion is on what the query CARRIES, not on the hook having spoken.
+func TestAThinQueryIsWidenedOnEveryBranch(t *testing.T) {
+	for _, bin := range []string{"bash", "git"} {
+		if _, err := exec.LookPath(bin); err != nil {
+			t.Skipf("%s is not available; the acceptance fence installs it", bin)
+		}
+	}
+	script, err := assets.ReadFile(recallHookAsset)
+	if err != nil {
+		t.Fatalf("read hook: %v", err)
+	}
+
+	// One distinctive word per commit subject, so the assertion cannot be satisfied
+	// by the branch name or a filename leaking into the query.
+	subjects := []string{"aardvark the first", "basilisk the second", "chimaera the third"}
+
+	for _, tc := range []struct {
+		name  string
+		setup func(git func(...string))
+	}{
+		{"the default branch, where the merge-base is HEAD", func(git func(...string)) {}},
+		{"a branch cut with no commits of its own", func(git func(...string)) {
+			git("checkout", "-qb", "wip/nothing-yet")
+		}},
+		{"a branch whose work is already merged", func(git func(...string)) {
+			git("checkout", "-qb", "fix/already-merged")
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := t.TempDir()
+			git := func(args ...string) {
+				t.Helper()
+				cmd := exec.Command("git", args...)
+				cmd.Dir = repo
+				cmd.Env = append(os.Environ(),
+					"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@example.invalid",
+					"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@example.invalid")
+				if out, err := cmd.CombinedOutput(); err != nil {
+					t.Fatalf("git %v: %v\n%s", args, err, out)
+				}
+			}
+			git("init", "-b", "main", "-q")
+			for i, s := range subjects {
+				if err := os.WriteFile(filepath.Join(repo, fmt.Sprintf("f%d.txt", i)), []byte("x\n"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				git("add", "-A")
+				git("commit", "-qm", s)
+			}
+			tc.setup(git)
+
+			stubDir := t.TempDir()
+			queryFile := filepath.Join(stubDir, "query")
+			stub := "#!/usr/bin/env bash\nprintf '%s' \"$*\" > " + queryFile + "\necho '{\"count\":0,\"hits\":[]}'\n"
+			if err := os.WriteFile(filepath.Join(stubDir, "aiagentmemory"), []byte(stub), 0o755); err != nil {
+				t.Fatalf("stub: %v", err)
+			}
+			if err := os.WriteFile(filepath.Join(repo, "recall.sh"), script, 0o755); err != nil {
+				t.Fatalf("write: %v", err)
+			}
+
+			cmd := exec.Command("bash", filepath.Join(repo, "recall.sh"))
+			cmd.Dir = repo
+			cmd.Stdin = strings.NewReader(`{"hook_event_name":"SessionStart","source":"startup"}`)
+			cmd.Env = append(os.Environ(),
+				"PATH="+stubDir+":"+os.Getenv("PATH"), "CLAUDE_PROJECT_DIR="+repo,
+				"AGENTSMEMORY_LOCAL_TOKEN=", "AGENTSMEMORY_TOKEN=")
+			if out, err := cmd.Output(); err != nil {
+				t.Fatalf("the hook failed the session (%v, out=%q) — it must never do that", err, out)
+			}
+
+			asked, err := os.ReadFile(queryFile)
+			if err != nil {
+				t.Fatalf("the hook never called the server at all: with no branch work its query "+
+					"collapses to the bare branch name, which is below the length guard, so it exits "+
+					"before searching. That is the whole defect: %v", err)
+			}
+			// Every subject, not just one: a single subject was measured to retrieve
+			// from an unrelated project, so a query carrying one is not the fix.
+			for _, s := range subjects {
+				if !strings.Contains(string(asked), s) {
+					t.Errorf("the query does not carry the commit subject %q.\n  asked: %s\n"+
+						"A thin query does not fail to retrieve — it retrieves whatever is "+
+						"generically popular across every wing, which is worse than silence.",
+						s, asked)
+				}
+			}
+		})
 	}
 }

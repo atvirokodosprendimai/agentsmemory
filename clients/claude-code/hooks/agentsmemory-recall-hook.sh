@@ -43,10 +43,22 @@
 # Off-switch: AGENTSMEMORY_RECALL=off.
 set -uo pipefail
 
+# ⚠ EVERY EXIT PATH SAYS WHY, ON STDERR. The first version of this trace printed
+# only after the search returned, which left every earlier exit — no binary on
+# PATH, a query too short to ask with, the off-switch, no credential — as a silent
+# run with no explanation. That is the same defect the trace was added to close,
+# one guard earlier, and it was found the same day by restarting a session on the
+# default branch and getting nothing at all.
+#
+# Stderr rather than stdout because Claude Code injects only stdout into the
+# model's context, so this costs no context and F-6's scarcity rule is untouched.
+# It is written for whoever runs the hook by hand.
+trace() { printf 'agentsmemory-recall: %s\n' "$*" >&2; }
+
 INPUT="$(cat || true)"
 
-[ "${AGENTSMEMORY_RECALL:-on}" = "off" ] && exit 0
-command -v aiagentmemory >/dev/null 2>&1 || exit 0
+[ "${AGENTSMEMORY_RECALL:-on}" = "off" ] && { trace "off (AGENTSMEMORY_RECALL=off)"; exit 0; }
+command -v aiagentmemory >/dev/null 2>&1 || { trace "no aiagentmemory on PATH"; exit 0; }
 
 PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$PWD}"
 cd "$PROJECT_DIR" 2>/dev/null || exit 0
@@ -82,10 +94,38 @@ fi
 
 QUERY="$(printf '%s %s' "${BRANCH:-}" "${FILES:-}" | tr -s ' ' | sed 's/^ *//;s/ *$//')"
 
+# ⚠ NO FILE LIST MEANS THE QUERY IS A BARE BRANCH NAME, WHICH IS MEASURED NOT TO
+# WORK. That is not a property of any one branch: it is true on the default branch,
+# where the merge-base is HEAD so the branch-work diff is empty; on a branch cut
+# minutes ago that has no commits yet; and on any branch whose work is already
+# merged. The condition is the QUERY being thin, so that is what is tested — an
+# earlier draft tested `$BRANCH = $DEFAULT` and would have left every one of the
+# other cases exactly as mute as before.
+#
+# Found 2026-08-28 by restarting a session on `main`: zero bytes of stdout, and —
+# before the trace above — zero bytes of stderr saying why.
+#
+# The signal that IS there is what was last done here. Recent commit subjects are
+# sentence-shaped, which is the query class measured to retrieve well: three
+# subjects returned hits at 0.404-0.409 under the unchanged 0.42 floor, both from
+# this project's own wing.
+#
+# ⚠ THREE SUBJECTS, NOT ONE, AND THAT IS THE WHOLE CARE HERE. Measured the same day
+# against the same palace: ONE subject returned MORE hits and one of them came from
+# an unrelated project, and the bare branch name returned a hit from another project
+# entirely. A thin query does not fail to retrieve — it retrieves whatever is
+# generically popular across every wing, which is worse than silence and is exactly
+# what the length guard below exists to prevent. So the fallback has to make the
+# query SUBSTANTIAL, not merely non-empty.
+if [ -z "$FILES" ]; then
+  SUBJECTS="$(git log -n 3 --format=%s 2>/dev/null | tr '\n' ' ' | tr -s ' ' | cut -c1-200 || true)"
+  [ -n "$SUBJECTS" ] && QUERY="$SUBJECTS"
+fi
+
 # Nothing to go on is not a reason to guess. A query built from an empty tree
 # recalls whatever is most popular, which is worse than silence.
-[ -n "$QUERY" ] || exit 0
-[ "${#QUERY}" -ge 8 ] || exit 0
+[ -n "$QUERY" ] || { trace "no query: empty branch name and no changed files"; exit 0; }
+[ "${#QUERY}" -ge 8 ] || { trace "query too short to ask with: '$QUERY'"; exit 0; }
 
 # ⚠ A HOOK THAT CANNOT ASK MUST NOT LOOK LIKE A HOOK WITH NOTHING TO SAY. The
 # first version wrote `2>/dev/null || true`, which made every failure — a missing
@@ -159,7 +199,7 @@ if [ "$RC" -ne 0 ]; then
   # wrong token, an unreachable server, a renamed flag — still speaks below. The
   # gap itself is recorded in BACKLOG.md rather than hidden by this line.
   case "$ERR" in
-    *"no workspace token found"*) exit 0 ;;
+    *"no workspace token found"*) trace "no credential configured; nothing to ask with"; exit 0 ;;
   esac
   # This is not "reporting all good" — it is reporting a fault, which is the one
   # thing F-6 asks a hook to speak about.
@@ -167,7 +207,7 @@ if [ "$RC" -ne 0 ]; then
   exit 0
 fi
 rm -f "$ERRFILE"
-[ -n "$HITS" ] || exit 0
+[ -n "$HITS" ] || { trace "the server returned nothing at all"; exit 0; }
 
 # count is the server's own field; no hits means nothing worth a line.
 COUNT="$(printf '%s' "$HITS" | sed -n 's/.*"count"[[:space:]]*:[[:space:]]*\([0-9]*\).*/\1/p' | head -n1)"
@@ -178,8 +218,7 @@ COUNT="$(printf '%s' "$HITS" | sed -n 's/.*"count"[[:space:]]*:[[:space:]]*\([0-
 # indistinguishable from a mute one from the outside, which is exactly how the wrong
 # room survived two repairs: every gate asked whether the script printed, and the
 # one fact that would have settled it — asked room X, got 0 — was never written down.
-printf 'agentsmemory-recall: query=%s room=diary max_distance=0.42 count=%s\n' \
-  "$QUERY" "${COUNT:-0}" >&2
+trace "query=$QUERY room=diary max_distance=0.42 count=${COUNT:-0}"
 
 case "${COUNT:-0}" in ''|0) exit 0 ;; esac
 

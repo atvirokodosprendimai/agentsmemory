@@ -215,6 +215,16 @@ nothing and stays quiet, which is F-6 working.
 > persist step writes that. See the hook's own comment for the evidence and for why the hit-COUNT
 > version of that argument does not survive a growing corpus.
 
+> ⚠ **And corrected again the same day: the hook asked with a bare branch name whenever the branch
+> had no work of its own, which is below its own length guard, so it exited before searching.** That
+> is the default branch on every clean tree — the merge-base is HEAD there — plus any branch cut
+> without commits and any branch already merged. Found by restarting a session on `main` and getting
+> zero bytes of stdout and zero bytes of stderr. The query is now widened with the last three commit
+> subjects whenever the file list is empty; THREE, because one subject and the bare branch name were
+> both measured returning hits from unrelated projects, and a thin query does not fail to retrieve,
+> it retrieves whatever is generically popular. Every exit path now says why on stderr, which no
+> event injects.
+
 **The mutant needed the stub to assert the invocation.** These flags are arguments, not branches, so
 no assertion on the hook's output can see them: a stub that ignores its arguments returns a hit
 either way and the mutant survives. The stub now refuses to answer unless both are passed.

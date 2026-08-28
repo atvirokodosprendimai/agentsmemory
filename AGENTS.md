@@ -328,6 +328,45 @@ with the whole suite at exit 0: a falsifiability half that shares nothing with t
 gate pins nothing. It resolves a subtest binding on its PARENT only, which the
 declaration says out loud rather than leaving a reader to assume otherwise.
 
+**A POINTER IN PROSE IS WORTH WHAT THE THING IT NAMES IS WORTH, AND MOST OF THIS
+CORPUS'S POINTERS ARE IN PROSE.** `TestEveryCitedADRResolves` reads `.go` and only
+`.go`, while the large majority of this corpus's ADR citations sit in ADRs, task
+files, the README and the backlog, where a renamed or withdrawn record leaves a
+pointer to nothing that still reads as provenance. (No count is written here: two
+frozen ones shipped in the first draft of this section and one was false at the
+commit carrying it, which is the recurrence `citation_test.go` already records. Both
+gates log their live figures on a `-v` run.) `TestEveryCitedADRResolvesInDocsToo` is a
+sibling rather than a widening, because the Go gate's scope is what lets it need no
+exemptions and docs need three: a Numbering line naming which numbers a PR claims,
+and two records that must SHOW an unresolvable number to explain the gate itself. A
+mention is not a pointer, and telling them apart in prose is the whole difficulty —
+shipped without that list the gate would have been all false alarms on day one.
+Exemptions are keyed by FILE AND NUMBER, because keying by file alone took 36
+working pointers out of the gate to hide one word, and the number is stored without
+its `ADR-` prefix so this list does not itself cite a record that does not exist.
+`TestDocCitedADRExemptionsAreJustified` refuses an entry with no reason and one that
+has stopped earning its place.
+
+**AND A LINE NUMBER IN THE FILE DOING THE CITING CANNOT SURVIVE ITS OWN FILE.** One
+backlog entry cited a sibling bullet and drifted `:690` → `:716` → `:744` → `:763`
+across four review rounds — every correction wrong again by the next, because the
+entry doing the citing kept inserting lines above its target.
+`TestNoDocCitesItsOwnLineNumbers` bans the form outright: cite the heading or quote
+the sentence, both of which survive an insert. The corpus holds zero today, which
+makes it a gate against recurrence rather than a cleanup.
+
+⚠ **It CAN cry wolf, and the first version did** — an earlier draft of this paragraph
+claimed otherwise. It compared basenames, and this tree holds 31 `README.md` and 28
+`CLAUDE.md`, so one README citing ANOTHER by line read as self-reference; review
+reproduced it with a correct cross-file pointer. Self-reference is decided by PATH
+now, and ambiguity is declined rather than reported: a bare `README.md:5` that 31
+files could mean is left alone, which costs a real false negative and buys the
+gate's credibility. Line citations into OTHER files stay legal, including into
+pinned third-party source, which is what this corpus's apparently-dangling ones are.
+Source `file:line` refs pointing past the end of a real file are recorded in
+`BACKLOG.md` as a command rather than gated, because most point into refactored
+files where the right line is unknowable.
+
 The same principle covers the gates already in the tree: `internal/doclint`
 (a doc comment must document the declaration it sits on), `TestEveryDeclaredArmIsRegistered`
 (an eval arm that no code path registers appears in no table, silently), and
