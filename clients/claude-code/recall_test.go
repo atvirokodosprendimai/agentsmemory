@@ -273,13 +273,42 @@ func TestTheQueryCarriesTheBranchWorkOnACleanTree(t *testing.T) {
 		t.Fatalf("write: %v", err)
 	}
 
-	cmd := exec.Command("bash", filepath.Join(repo, "recall.sh"))
-	cmd.Dir = repo
-	cmd.Stdin = strings.NewReader(`{"hook_event_name":"SessionStart","source":"compact"}`)
-	cmd.Env = append(os.Environ(),
-		"PATH="+stubDir+":"+os.Getenv("PATH"), "CLAUDE_PROJECT_DIR="+repo)
-	if out, err := cmd.Output(); err != nil {
-		t.Fatalf("the hook failed the session (%v, out=%q) — it must never do that", err, out)
+	ask := func(t *testing.T, env ...string) string {
+		t.Helper()
+		_ = os.Remove(queryFile)
+		cmd := exec.Command("bash", filepath.Join(repo, "recall.sh"))
+		cmd.Dir = repo
+		cmd.Stdin = strings.NewReader(`{"hook_event_name":"SessionStart","source":"compact"}`)
+		// The token variables are CLEARED rather than inherited: an ambient token in
+		// the developer's shell would make the no-token assertion below pass or fail
+		// for a reason that has nothing to do with the hook.
+		cmd.Env = append(os.Environ(), append([]string{
+			"PATH=" + stubDir + ":" + os.Getenv("PATH"), "CLAUDE_PROJECT_DIR=" + repo,
+			"AGENTSMEMORY_LOCAL_TOKEN=", "AGENTSMEMORY_TOKEN=",
+		}, env...)...)
+		if out, err := cmd.Output(); err != nil {
+			t.Fatalf("the hook failed the session (%v, out=%q) — it must never do that", err, out)
+		}
+		b, err := os.ReadFile(queryFile)
+		if err != nil {
+			t.Fatalf("the hook never searched: %v", err)
+		}
+		return string(b)
+	}
+
+	// ⚠ --token IS PASSED ONLY WHEN THE ENVIRONMENT HAS ONE, and this is an
+	// assertion about an ARGUMENT, which no assertion on the hook's output can
+	// reach. The first version always passed a token, defaulting to the placeholder
+	// `local`; --token overrides the CLI's own resolution, so an install keeping its
+	// token in agentsmemory.env authenticated as "local" and was refused. That
+	// mutant SURVIVED every output-based test in this file.
+	if got := ask(t); strings.Contains(got, "--token") {
+		t.Errorf("with no token in the environment the hook passed one anyway: %q\n"+
+			"--token overrides the CLI's own lookup, so a placeholder silently breaks "+
+			"every install that resolves its credential elsewhere.", got)
+	}
+	if got := ask(t, "AGENTSMEMORY_TOKEN=sk-from-the-environment"); !strings.Contains(got, "--token sk-from-the-environment") {
+		t.Errorf("a token in the environment did not reach the CLI: %q", got)
 	}
 
 	asked, err := os.ReadFile(queryFile)
