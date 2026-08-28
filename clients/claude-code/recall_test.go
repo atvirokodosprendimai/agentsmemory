@@ -291,3 +291,93 @@ func TestTheQueryCarriesTheBranchWorkOnACleanTree(t *testing.T) {
 		t.Errorf("the query does not name the branch: %q", query)
 	}
 }
+
+// TestNoCredentialIsSilentButABadOneSpeaks pins the difference the previous
+// version of this hook erased.
+//
+// ⚠ WITHOUT THIS TEST THE NO-CREDENTIAL BRANCH IS `2>/dev/null` WEARING A BETTER
+// COMMENT. That is the defect this hook already shipped once: every failure —
+// missing token, unreachable server, renamed flag — reported as a clean empty
+// recall, so a hook that could never speak looked exactly like F-6 working.
+//
+// The distinction is deliberate and narrow. "No workspace token is configured" is
+// a STATE: a Claude hosted install keeps its token in the MCP registration header,
+// which the CLI does not read, so the hook cannot ask and the operator cannot act
+// on being told so at every session start. Any OTHER failure is a fault and the
+// hook must say it.
+func TestNoCredentialIsSilentButABadOneSpeaks(t *testing.T) {
+	if _, err := exec.LookPath("bash"); err != nil {
+		t.Skip("bash is not available; the acceptance fence installs it")
+	}
+	script, err := assets.ReadFile(recallHookAsset)
+	if err != nil {
+		t.Fatalf("read hook: %v", err)
+	}
+
+	// A real repository, so the hook gets far enough to search. Without this the
+	// test passes for the wrong reason: silence because there was no query.
+	repo := t.TempDir()
+	git := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = repo
+		cmd.Env = append(os.Environ(),
+			"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@example.invalid",
+			"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@example.invalid")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not available; the acceptance fence installs it")
+	}
+	git("init", "-b", "main", "-q")
+	if err := os.WriteFile(filepath.Join(repo, "base.txt"), []byte("x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	git("add", "-A")
+	git("commit", "-qm", "base")
+	git("checkout", "-qb", "fix/some-real-branch")
+	if err := os.WriteFile(filepath.Join(repo, "subject.go"), []byte("package x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	git("add", "-A")
+	git("commit", "-qm", "work")
+	if err := os.WriteFile(filepath.Join(repo, "recall.sh"), script, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	runWith := func(t *testing.T, stderrLine string) string {
+		t.Helper()
+		stubDir := t.TempDir()
+		stub := "#!/usr/bin/env bash\nprintf '%s\\n' " +
+			"'" + stderrLine + "' >&2\nexit 1\n"
+		if err := os.WriteFile(filepath.Join(stubDir, "aiagentmemory"), []byte(stub), 0o755); err != nil {
+			t.Fatalf("stub: %v", err)
+		}
+		cmd := exec.Command("bash", filepath.Join(repo, "recall.sh"))
+		cmd.Dir = repo
+		cmd.Stdin = strings.NewReader(`{"hook_event_name":"SessionStart","source":"compact"}`)
+		cmd.Env = append(os.Environ(),
+			"PATH="+stubDir+":"+os.Getenv("PATH"), "CLAUDE_PROJECT_DIR="+repo,
+			"AGENTSMEMORY_LOCAL_TOKEN=", "AGENTSMEMORY_TOKEN=")
+		out, err := cmd.Output()
+		if err != nil {
+			t.Fatalf("the hook failed the session (%v) — it must never do that", err)
+		}
+		return string(out)
+	}
+
+	if out := runWith(t, "aiagentmemory: no workspace token found: pass --token"); out != "" {
+		t.Errorf("with no credential configured the hook spoke: %q\n"+
+			"That is a state the operator cannot act on, reported at every session start.", out)
+	}
+
+	// The other half, and the one that makes the check above mean something: a
+	// test asserting only silence is satisfied by `exit 0` on line one.
+	out := runWith(t, "aiagentmemory: initialize: transport error: authorization required")
+	if !strings.Contains(out, "could not run") {
+		t.Errorf("a real failure was swallowed: %q\n"+
+			"Every failure looking like a clean empty recall is the defect this hook shipped once.", out)
+	}
+}

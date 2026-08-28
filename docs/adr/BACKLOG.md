@@ -1397,3 +1397,24 @@ as the deferral so the pointer has a receiving end.
   target holding identical content REFUSE rather than silently duplicate. If that refusal is ever
   softened to "end the loser and keep going", `merge_wing` becomes an ending operation performed by
   an agent and the surface question reopens.
+
+## A Claude hosted install gives its hooks no credential — 2026-08-28
+
+ADR-041 T4's recall hook shells out to `aiagentmemory mcp search`. The CLI resolves a workspace
+token from `--token`, `$AGENTSMEMORY_TOKEN`, or an `agentsmemory.env` file. A Claude install writes
+none of them: `registerClaudeMCP` puts the token in the MCP registration's `Authorization` header
+(`clients/claude-code/installer.go:1194`), which the CLI does not read. Only `registerCodexMCP`
+writes `agentsmemory.env`, and it does so because `codex mcp add` has no static-header flag.
+
+**Consequence, measured 2026-08-28 on a hosted install:** the hook is written, registered on
+`SessionStart`, gated by `TestEveryInjectingHookIsOnAnInjectingEvent`, and cannot authenticate. It
+exits silently, because "no credential configured" is a state an operator cannot act on at every
+session start. T4 is therefore reachable on a `--local` install and on any install carrying an
+`agentsmemory.env`, and inert on a Claude hosted install — the primary audience.
+
+**Why it is filed rather than fixed:** closing it means writing a bearer token into a new
+plaintext file on the Claude path, which reverses a documented choice and is a credential-storage
+decision, not a bug fix. Options to weigh: write `agentsmemory.env` on the Claude path too (0600,
+mirroring codex); teach the CLI to read the token from the MCP registration; or give hooks a
+credential-free read path. Any of them is an ADR.
+

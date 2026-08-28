@@ -107,16 +107,36 @@ ERRFILE="$(mktemp 2>/dev/null || echo /tmp/agentsmemory-recall.err)"
 # removed. The floor then decides relevance: measured 2026-08-28, real questions land
 # at 0.32-0.44, bare identifiers at 0.41-0.57, and branch+file queries at 0.39-0.41.
 # The classes overlap around 0.41-0.44, so 0.42 is a trade rather than a boundary.
-HITS="$(aiagentmemory mcp search "$QUERY" -a limit=3 -a snippet_chars=300 \
-  -a room=decisions -a max_distance=0.42 \
-  --token "${AGENTSMEMORY_LOCAL_TOKEN:-${AGENTSMEMORY_TOKEN:-local}}" 2>"$ERRFILE")"
+# ⚠ PASS --token ONLY WHEN THE ENVIRONMENT SUPPLIES ONE. The first version always
+# passed one, defaulting to the placeholder `local`, which looks harmless and is
+# not: --token OVERRIDES the CLI's own resolution, so an install whose token lives
+# in agentsmemory.env authenticated as "local" and was refused. Omitting the flag
+# lets the CLI resolve the credential the way `verify` already does.
+set -- mcp search "$QUERY" -a limit=3 -a snippet_chars=300 -a room=decisions -a max_distance=0.42
+TOKEN="${AGENTSMEMORY_LOCAL_TOKEN:-${AGENTSMEMORY_TOKEN:-}}"
+[ -n "$TOKEN" ] && set -- "$@" --token "$TOKEN"
+HITS="$(aiagentmemory "$@" 2>"$ERRFILE")"
 RC=$?
 if [ "$RC" -ne 0 ]; then
+  ERR="$(head -n1 "$ERRFILE" 2>/dev/null)"
+  rm -f "$ERRFILE"
+  # ⚠ NO CREDENTIAL CONFIGURED IS A STATE, NOT A FAULT — and it is the state a
+  # Claude HOSTED install is in today. That install puts the token in the MCP
+  # registration's Authorization header, which the CLI does not read, and writes
+  # no agentsmemory.env (only the codex path does, because `codex mcp add` has no
+  # static-header flag). So the hook cannot ask, and saying so at every session
+  # start would be a line the operator cannot act on, four times a day — exactly
+  # the noise F-6 exists to prevent.
+  #
+  # This is a CHECKED BRANCH, not a swallowed error: every other failure — a
+  # wrong token, an unreachable server, a renamed flag — still speaks below. The
+  # gap itself is recorded in BACKLOG.md rather than hidden by this line.
+  case "$ERR" in
+    *"no workspace token found"*) exit 0 ;;
+  esac
   # This is not "reporting all good" — it is reporting a fault, which is the one
   # thing F-6 asks a hook to speak about.
-  printf 'agentsmemory: the recall could not run, so this session starts without one: %s\n' \
-    "$(head -n1 "$ERRFILE" 2>/dev/null)"
-  rm -f "$ERRFILE"
+  printf 'agentsmemory: the recall could not run, so this session starts without one: %s\n' "$ERR"
   exit 0
 fi
 rm -f "$ERRFILE"

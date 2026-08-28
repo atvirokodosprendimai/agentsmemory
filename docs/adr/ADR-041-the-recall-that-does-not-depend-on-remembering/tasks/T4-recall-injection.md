@@ -36,7 +36,7 @@ When a context starts fresh — most often just after a compaction — a recall 
 ## Acceptance
 
 ```bash
-docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'apk add --no-cache bash git >/dev/null && go test ./clients/claude-code/ -run "^(TestF6AHookIsSilentInTheCommonCase|TestRecallHookIsRegistered|TestEveryInjectingHookIsOnAnInjectingEvent|TestEveryHookScriptDeclaresItsOutputChannel|TestANonInjectedChannelIsJustified|TestTheQueryCarriesTheBranchWorkOnACleanTree)$" -count=1 -v 2>&1 | tee /tmp/acc.out; ! grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/acc.out'
+docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'apk add --no-cache bash git >/dev/null && go test ./clients/claude-code/ -run "^(TestF6AHookIsSilentInTheCommonCase|TestRecallHookIsRegistered|TestEveryInjectingHookIsOnAnInjectingEvent|TestEveryHookScriptDeclaresItsOutputChannel|TestANonInjectedChannelIsJustified|TestTheQueryCarriesTheBranchWorkOnACleanTree|TestNoCredentialIsSilentButABadOneSpeaks)$" -count=1 -v 2>&1 | tee /tmp/acc.out; ! grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/acc.out'
 ```
 
 ⚠ THE FENCE INSTALLS bash AND git, and that is not incidental. The acceptance image is
@@ -59,6 +59,7 @@ falls (F-10).
 | `TestEveryHookScriptDeclaresItsOutputChannel` | `clients/claude-code/hookchannel_test.go` | the gate's universe is the hooks directory, so a new script cannot be invisible | — |
 | `TestANonInjectedChannelIsJustified` | `clients/claude-code/hookchannel_test.go` | a quieter channel carries a written reason | — |
 | `TestTheQueryCarriesTheBranchWorkOnACleanTree` | `clients/claude-code/recall_test.go` | the query names committed branch work, not just the branch | — |
+| `TestNoCredentialIsSilentButABadOneSpeaks` | `clients/claude-code/recall_test.go` | an unconfigured credential is silent; every other failure speaks | F-6 |
 
 ## The mechanism was registered on an event that discards its output — 2026-08-28
 
@@ -107,6 +108,27 @@ which events honour `additionalContext`, and the timing argument rules `PreCompa
 **F-9 is not violated.** One mechanism per measurement window: T4-as-built never ran as a
 mechanism, because nothing it produced could reach a model. No window is contaminated, and this is
 the first window in which T4 exists at all.
+
+**A THIRD reason it could not work, and the one that still stands.** The hook passed
+`--token "${AGENTSMEMORY_LOCAL_TOKEN:-${AGENTSMEMORY_TOKEN:-local}}"` — always a token, defaulting
+to the placeholder `local`. `--token` OVERRIDES the CLI's own resolution, so an install whose token
+lives in `agentsmemory.env` authenticated as "local" and was refused. Fixed: the flag is passed only
+when the environment supplies one.
+
+That fix does not make the mechanism reachable everywhere, and the record must not imply it does.
+**On a Claude HOSTED install the hook still cannot authenticate at all.** That path puts the token
+in the MCP registration's `Authorization` header (`installer.go:1194`), which the CLI does not read,
+and writes no `agentsmemory.env` — only `registerCodexMCP` writes one, because `codex mcp add` has
+no static-header flag. So T4 is installed, registered, gated and **inert for the primary audience**.
+
+Closing that would mean writing a bearer token into a new file on the Claude path, reversing a
+documented choice; that is an ADR-level decision and it is filed in `BACKLOG.md`, not taken here.
+Reachable today: a `--local` install, and any install carrying an `agentsmemory.env`.
+
+**So T4 does not read `done` on the strength of a green fence.** The sign-off must carry the
+measured delta (F-10) *and* name the population the mechanism cannot reach — a gate that passes
+while the hook is mute for most installs is the same defect one layer out, which this task has now
+produced three times.
 
 **The gate.** `TestEveryInjectingHookIsOnAnInjectingEvent` derives its universe from the hooks
 directory and fails when a script declaring `# hook-output: stdout-injected` is registered on an
