@@ -1,5 +1,7 @@
 # agentsmemory-stats.sh — shared /stats fetch for Stop and SessionEnd.
 #
+# hook-output: not-a-hook — a helper sourced by the others, registered on no event.
+#
 # Sourced, not executed. One origin (AGENTSMEMORY_MCP_URL with /mcp stripped),
 # one off-switch (AGENTSMEMORY_STATS), one query builder. The installer prefixes
 # every hook command with AGENTSMEMORY_MCP_URL so a hosted install and a --local

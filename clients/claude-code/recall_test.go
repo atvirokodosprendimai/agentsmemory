@@ -11,31 +11,40 @@ import (
 // ADR-041 T4. The mechanism ADR-017 named in 2026-08 and left unbuilt pending a
 // measurement — which ADR-041 T2 now supplies.
 
-// TestPreCompactHookIsRegistered is rung 2. The script is inert without this one
-// line in the installer, and a hook that is written but never registered is this
+// TestRecallHookIsRegistered is rung 2. The script is inert without this one line
+// in the installer, and a hook that is written but never registered is this
 // repository's characteristic defect wearing a shell script.
-func TestPreCompactHookIsRegistered(t *testing.T) {
+//
+// ⚠ IT ASSERTS THE EVENT, not merely that some entry exists. The first version
+// asked only whether a PreCompact plan carried the script, which is exactly the
+// question that stayed green while the recall was being written to a debug log
+// nothing reads. Which event a hook is registered on IS the mechanism;
+// TestEveryInjectingHookIsOnAnInjectingEvent generalises this to every script.
+func TestRecallHookIsRegistered(t *testing.T) {
 	inst, _, dir := newTestInstaller(t, false)
 	if err := inst.run(); err != nil {
 		t.Fatalf("install: %v", err)
 	}
 
-	if _, err := os.Stat(filepath.Join(dir, precompactHookFile)); err != nil {
-		t.Fatalf("the PreCompact hook was not written: %v", err)
+	if _, err := os.Stat(filepath.Join(dir, recallHookFile)); err != nil {
+		t.Fatalf("the recall hook was not written: %v", err)
 	}
 
-	var found bool
+	var events []string
 	for _, p := range inst.hookPlans() {
-		if p.event == "PreCompact" {
-			found = true
-			if !strings.Contains(p.cmd, precompactHookFile) {
-				t.Errorf("PreCompact registered against %q, which is not the hook", p.cmd)
-			}
+		if strings.Contains(p.cmd, recallHookFile) {
+			events = append(events, p.event)
 		}
 	}
-	if !found {
-		t.Error("no PreCompact entry in the hook plans — the script is on disk and nothing " +
-			"invokes it, so a fresh context still starts blind")
+	if len(events) == 0 {
+		t.Fatal("no hook plan invokes the recall hook — the script is on disk and nothing " +
+			"runs it, so a fresh context still starts blind")
+	}
+	for _, ev := range events {
+		if !injectingEvents[ev] {
+			t.Errorf("the recall hook is registered on %q, whose stdout goes to the debug log; "+
+				"the recall would run and never reach the model", ev)
+		}
 	}
 }
 
@@ -44,8 +53,8 @@ func TestPreCompactHookIsRegistered(t *testing.T) {
 // F-6 is the constraint every pushed-recall mechanism lives inside: the SessionStart
 // verify hook states the reasoning in its own header — "a hook that reports 'all
 // good' at every session start is a hook people stop reading, and its output is
-// spent context". A compaction hook that speaks every time is that mistake at a
-// higher frequency.
+// spent context". A recall hook that speaks at every session start is that
+// mistake at a higher frequency.
 //
 // ⚠ IT STUBS THE BINARY, AND THE FIRST VERSION DID NOT — which made it a test that
 // could not fail. Without a stub the hook was silent because the REAL aiagentmemory
@@ -60,7 +69,7 @@ func TestF6AHookIsSilentInTheCommonCase(t *testing.T) {
 	if _, err := exec.LookPath("bash"); err != nil {
 		t.Skip("bash unavailable")
 	}
-	script, err := assets.ReadFile(precompactHookAsset)
+	script, err := assets.ReadFile(recallHookAsset)
 	if err != nil {
 		t.Fatalf("read embedded hook: %v", err)
 	}
@@ -88,9 +97,9 @@ func TestF6AHookIsSilentInTheCommonCase(t *testing.T) {
 	run := func(t *testing.T, extraEnv []string, workdir string) (string, bool) {
 		t.Helper()
 		_ = os.Remove(marker)
-		cmd := exec.Command("bash", filepath.Join(workdir, "precompact.sh"))
+		cmd := exec.Command("bash", filepath.Join(workdir, "recall.sh"))
 		cmd.Dir = workdir
-		cmd.Stdin = strings.NewReader(`{"hook_event_name":"PreCompact"}`)
+		cmd.Stdin = strings.NewReader(`{"hook_event_name":"SessionStart","source":"compact"}`)
 		cmd.Env = append(os.Environ(),
 			append([]string{"PATH=" + stubDir + ":" + os.Getenv("PATH")}, extraEnv...)...)
 		out, err := cmd.Output()
@@ -104,7 +113,7 @@ func TestF6AHookIsSilentInTheCommonCase(t *testing.T) {
 	place := func(t *testing.T) string {
 		t.Helper()
 		dir := t.TempDir()
-		if err := os.WriteFile(filepath.Join(dir, "precompact.sh"), script, 0o755); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, "recall.sh"), script, 0o755); err != nil {
 			t.Fatalf("write: %v", err)
 		}
 		return dir
@@ -169,9 +178,9 @@ func TestF6AHookIsSilentInTheCommonCase(t *testing.T) {
 	stage := exec.Command("git", "add", "-A")
 	stage.Dir = broken
 	_, _ = stage.CombinedOutput()
-	cmd := exec.Command("bash", filepath.Join(broken, "precompact.sh"))
+	cmd := exec.Command("bash", filepath.Join(broken, "recall.sh"))
 	cmd.Dir = broken
-	cmd.Stdin = strings.NewReader(`{"hook_event_name":"PreCompact"}`)
+	cmd.Stdin = strings.NewReader(`{"hook_event_name":"SessionStart","source":"compact"}`)
 	cmd.Env = append(os.Environ(), "PATH="+brokenBin+":"+os.Getenv("PATH"), "CLAUDE_PROJECT_DIR="+broken)
 	bout, err := cmd.Output()
 	if err != nil {
@@ -187,8 +196,8 @@ func TestF6AHookIsSilentInTheCommonCase(t *testing.T) {
 	// the empty-query guard produces the silence — which is exactly how its first
 	// mutant survived. Only a working tree, where a query exists and the hook would
 	// otherwise speak, leaves the switch as the one thing that can keep it quiet.
-	if out, called := run(t, []string{"AGENTSMEMORY_PRECOMPACT=off", "CLAUDE_PROJECT_DIR=" + live}, live); out != "" || called {
-		t.Errorf("AGENTSMEMORY_PRECOMPACT=off produced output (%q) or still searched (called=%v) "+
+	if out, called := run(t, []string{"AGENTSMEMORY_RECALL=off", "CLAUDE_PROJECT_DIR=" + live}, live); out != "" || called {
+		t.Errorf("AGENTSMEMORY_RECALL=off produced output (%q) or still searched (called=%v) "+
 			"on a tree where the hook otherwise speaks", out, called)
 	}
 }

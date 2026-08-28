@@ -891,8 +891,7 @@ inferred from documentation.
 | memory protocol | `CLAUDE.md` + `@import` | inlined in `AGENTS.md` | `rules/agentsmemory.mdc`, `alwaysApply: true` | **the MCP handshake** — it can hold no file | inlined in `AGENTS.md` |
 | slash commands | `/M`, `/am`, `/load-skill` | `/prompts:M`, … | **none** — no commands dir | **none** | `/M`, … |
 | Stop checkpoint | ✅ | ✅ — native TOML in `config.toml` | ❌ hook shape not established | ❌ | in the extension |
-| `SessionStart` / `SessionEnd` | ✅ | ❌ not registered; not part of the Codex subagent audit | ❌ | ❌ | ❌ |
-| `PreCompact` | ✅ — performs a recall for the branch and injects it, so a compacted session does not start blind (ADR-041) | ❌ not registered | ❌ | ❌ | ❌ |
+| `SessionStart` / `SessionEnd` | ✅ — two hooks share `SessionStart`: one verifies anchored memories, one performs a recall for the branch and injects it so a fresh context does not start blind (ADR-041) | ❌ not registered; not part of the Codex subagent audit | ❌ | ❌ | ❌ |
 | `SubagentStart` / `SubagentStop` | ✅ | ❌ events exist; [payload, feedback, and retry contracts remain to measure](docs/adr/BACKLOG.md) | ❌ | ❌ | ❌ |
 | subagent definition | `agents/*.md` | `agents/*.toml` | `agents/*.md` | ❌ | ❌ no subagent system |
 | `--wing` registration scope | ✅ header | ✅ URL query | ✅ header | ✅ `mcp-stdio --wing` | ✅ bridge env |

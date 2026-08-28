@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 # agentsmemory Stop hook — nudge Claude to persist the session into agentsmemory
+# hook-output: blocking — it speaks by exiting 2, whose stderr Claude Code shows the
+# model while preventing the stop. Plain stdout on Stop goes to the debug log only.
+#
 # memory (the team-shared MCP) before the turn ends: a diary entry, new
 # knowledge-graph facts, and any notable decisions as drawers. Mirrors the
 # mempalace stop-hook pattern.

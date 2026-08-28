@@ -60,7 +60,7 @@ Inherited from `docs/specs/2026-08-27-recall-before-asserting.md` §Contracts To
 
 | Surface | Change | Producer | Consumer(s) |
 |---------|--------|----------|-------------|
-| `PreCompact` hook registration | add | installer (T4) | every installed agent |
+| `SessionStart` hook registration (second entry) | add | installer (T4) | every installed agent |
 | `PreToolUse` hook registration | add | installer (T5) | every installed agent |
 | Observation store file (path + line format) | add | T1 | T2, and any later reader of the rate |
 

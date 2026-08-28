@@ -53,7 +53,7 @@ little each depends on the agent choosing to comply (F-13) — ADR-017's own ord
 | # | Mechanism | Failure it addresses | Compliance-dependence |
 |---|-----------|----------------------|-----------------------|
 | 1 | Eager tool registration (no schema lookup before the first call) | The tool is a two-step decision rather than a reflex | **None** — changes what is cheap, asks nothing |
-| 2 | `PreCompact` recall injection | A fresh context inherits a task queue and no palace. This session's failure began exactly there | **None** — the recall already happened |
+| 2 | `SessionStart` recall injection | A fresh context inherits a task queue and no palace. This session's failure began exactly there | **None** — the recall already happened |
 | 3 | `PreToolUse` cue on a source search for behaviour | The moment the belief is formed, before it is written | Low — a prompt at the point of action |
 | 4 | Cue-shaped MCP instructions (F-11) | The agent has no name for the class of claim that needs a recall | **Highest** — pure prose, and F-8's caveat applies |
 
@@ -139,7 +139,7 @@ And it is not described as directionally correct
 | F-3 | No mechanism intended to raise the rate ships before a baseline has been recorded. | `clients/claude-code/recallrate_spec_test.go::TestF3NoMechanismShipsBeforeABaseline` | @implemented | |
 | F-4 | A classifier that matches zero assertions over a fixture corpus containing them fails, rather than reporting a perfect rate. | `clients/claude-code/recallrate_spec_test.go::TestF4AClassifierThatMatchesNothingFailsLoudly` | @implemented | |
 | F-5 | An unreadable or absent transcript records no observation, and never fails the session. | `clients/claude-code/recallrate_spec_test.go::TestF5AnUnreadableTranscriptRecordsNothing` | @implemented | |
-| F-6 | A hook adds no output in the common case; it speaks only when it has something the session would otherwise get wrong. | `clients/claude-code/precompact_test.go::TestF6AHookIsSilentInTheCommonCase` | @implemented | |
+| F-6 | A hook adds no output in the common case; it speaks only when it has something the session would otherwise get wrong. | `clients/claude-code/recall_test.go::TestF6AHookIsSilentInTheCommonCase` | @implemented | |
 | F-7 | `serverInstructions` stays within its measured ceiling; any cue replaces text rather than adding to it. | `internal/mcpserver/instructions_test.go::TestInstructionsStayShort` | @spec | |
 | F-8 | Adding a paragraph to a document the agent already receives in full is not a mechanism under this spec. | `clients/claude-code/recallrate_spec_test.go::TestF8AddedProtocolTextIsNotAMechanism` | @spec | |
 | F-9 | Exactly one mechanism ships per measurement window. | `clients/claude-code/recallrate_spec_test.go::TestF9OneMechanismPerMeasurementWindow` | @spec | |

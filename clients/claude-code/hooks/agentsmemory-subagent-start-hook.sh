@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 # agentsmemory SubagentStart hook — put the recall instruction next to the task.
+# hook-output: structured — it writes hookSpecificOutput.additionalContext rather
+# than bare stdout, which is how SubagentStart (not an stdout-injecting event) still
+# reaches the subagent.
+#
 #
 # THE MEASUREMENT THIS EXISTS FOR (ADR-017 T1). A subagent already receives the
 # entire protocol: the global CLAUDE.md, the bootstrap inlined, and the repo's

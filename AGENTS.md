@@ -237,6 +237,21 @@ from the source, so a mint path added tomorrow joins the check on the same commi
 false one instance at a time, and is in two parts because its first draft matched
 ZERO of the instances that motivated it.
 
+**A HOOK'S EVENT IS ITS WIRING, and the tests that drive the script cannot see it.**
+ADR-041 T4 shipped a hook that performed a recall and printed it — registered on
+`PreCompact`, whose stdout Claude Code writes to the debug log. Only `SessionStart`,
+`UserPromptSubmit` and `UserPromptExpansion` put a hook's plain stdout into the
+model's context. The recall ran every compaction and was thrown away, and every test
+passed, because every test drove the SCRIPT and asserted what it wrote. Two mutants
+were killed against a mechanism that could not work: a mutant proves a test notices a
+change, never that the thing under test is reachable.
+`TestEveryInjectingHookIsOnAnInjectingEvent` derives its universe from the hooks
+directory and fails when a script declaring `# hook-output: stdout-injected` is
+registered on an event that discards stdout; `TestEveryHookScriptDeclaresItsOutputChannel`
+is what stops a new script from being invisible to it, and
+`TestANonInjectedChannelIsJustified` refuses a quieter channel without a written
+reason, so the declaration cannot become the dodge.
+
 **A corpus check an operator can run.** Every finding behind ADR-038 — 27 drifted
 rows, 39 of 41 anchored drawers one re-file from losing their pin, 16 facts naming
 a drawer that no longer existed — was produced by a throwaway script and by nothing

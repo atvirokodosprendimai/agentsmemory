@@ -120,13 +120,21 @@ reporting success.
 - `agentsmemory-session-end-hook.sh` → the `SessionEnd` hook: what recall actually
   did across the whole session. It is the only one of the hooks that can report
   that, because at `Stop` the session has barely begun.
-- `agentsmemory-precompact-hook.sh` → the `PreCompact` hook: it PERFORMS a recall
-  for the current branch and injects the result, so a compacted session does not
-  start blind. It is the one mechanism here that asks nothing of the agent —
+- `agentsmemory-recall-hook.sh` → a second `SessionStart` hook: it PERFORMS a
+  recall for the current branch and injects the result, so a fresh context does
+  not start blind. It is the one mechanism here that asks nothing of the agent —
   ADR-017 named it in 2026-08 ("a subagent cannot skip a recall that already
   happened") and left it unbuilt pending measurement, which ADR-041 supplied. It
-  prints nothing when the recall returns nothing; `AGENTSMEMORY_PRECOMPACT=off`
+  prints nothing when the recall returns nothing; `AGENTSMEMORY_RECALL=off`
   disables it.
+
+  It shipped first on `PreCompact` and could not work there: Claude Code adds a
+  hook's plain stdout to the model's context for `SessionStart`,
+  `UserPromptSubmit` and `UserPromptExpansion` only, and writes every other
+  event's stdout to the debug log. The recall ran and was discarded.
+  `SessionStart` is also the correct side of a compaction — output injected
+  before one is part of the context being compacted. `TestEveryInjectingHookIsOnAnInjectingEvent`
+  is what keeps that a gate rather than a paragraph.
 - `agentsmemory-bootstrap.md` → the always-on operating protocol, pulled into
   the config dir's `CLAUDE.md` via a managed `@agentsmemory-bootstrap.md` import.
   Claude Code loads `$CLAUDE_CONFIG_DIR/CLAUDE.md` as user memory, so the
