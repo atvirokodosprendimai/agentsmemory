@@ -18,14 +18,15 @@ var undescribedOnPurpose = map[string]string{
 		"chunk's id works. Naming the field again buys nothing.",
 	"checked_at": "a field INSIDE code_anchors, which is described. Documenting an object's " +
 		"sub-fields one by one would put the whole schema in the prose.",
-	"line": "a field INSIDE code_anchors, same reason as checked_at.",
 	"updated_at": "INERT, and never even reaches the wire. tunnels.updated_at is " +
 		"TEXT NOT NULL DEFAULT '' (00009_graph.sql:48), nothing in this codebase assigns it, " +
 		"and GORM's automatic timestamping does not apply to a string field with an explicit " +
 		"column tag. So it is empty for every tunnel this store has written, and omitempty " +
 		"then drops it. Describing a field no response carries would be a promise with " +
 		"nothing behind it.",
-	"last_activated": "INERT, and must not be advertised. internal/palace/hallway.go:143 " +
+	"last_activated": "INERT on BOTH structs it appears on — tunnelView and hallwayView, since " +
+		"the map is keyed by field NAME rather than by field, so one entry excuses every " +
+		"struct carrying that name. internal/palace/hallway.go:143 " +
 		"records that nothing has ever written it after initDynamics stamped it at creation, " +
 		"so it reports the moment a hallway was derived and never an activation. Describing " +
 		"it would promise reinforcement this store does not implement — issue #38, where the " +
@@ -38,8 +39,8 @@ var omitemptyTag = regexp.MustCompile(`json:"([a-z][a-z0-9_]*),omitempty"`)
 // descriptionText pulls the prose an agent actually reads at the call.
 var descriptionText = regexp.MustCompile(`(?s)mcp\.(?:With)?Description\((.*?)\)\)`)
 
-// TestEveryOmitemptyWireKeyIsDescribed: a field a caller cannot discover by
-// looking at one response must be named in the prose beside the call.
+// TestEveryOmitemptyWireKeyInThisPackageIsDescribed: a field a caller cannot discover
+// by looking at one response must be named in the prose beside the call.
 //
 // ⚠ THE CLASS IS THE POINT, and it is narrower than "every field". A field that is
 // always present is discoverable from any single answer — call the tool once and it
@@ -55,10 +56,33 @@ var descriptionText = regexp.MustCompile(`(?s)mcp\.(?:With)?Description\((.*?)\)
 // into every install. That is the defect this gate is for — not unreachable,
 // undiscoverable.
 //
-// Baseline when written: 26 omitempty response fields, 9 of them undescribed. Those
-// nine were fixed rather than allowlisted, except where a written reason says why
-// prose would buy nothing.
-func TestEveryOmitemptyWireKeyIsDescribed(t *testing.T) {
+// ⚠ THE NAME SAYS "IN THIS PACKAGE" BECAUSE THE UNIVERSE IS THE PACKAGE, NOT THE
+// WIRE, and the first name overclaimed. `packageSources` globs *.go in
+// internal/mcpserver: 26 omitempty keys, against 79 repo-wide. Response types from
+// internal/palace reach the wire through here by EMBEDDING (graphStatsView embeds
+// palace.GraphStats; mine.go embeds palace.MineResult) and by field type
+// (searchHitView.Corrections []palace.Correction) — and this gate is blind to all of
+// it. Proven in review by adding an omitempty field to palace.Correction: it reached
+// the wire and both gates stayed green.
+//
+// Two real fields sit in that blind spot today: palace/kg.go's `replacement_id` and
+// `elsewhere_wing` on Correction, both absent by construction until a record has
+// been corrected. `replacement_id` is the field telling a reader the memory in front
+// of them has been contradicted — the same stakes as stale_index, which this gate
+// did catch.
+//
+// A THIRD population is invisible to any struct-tag scan: conditional map[string]any
+// keys, set inside `if` blocks. out["stale_hits"], out["warning"],
+// out["supersedes"], out["reason"], out["ended_at"] and others are emitted where no
+// tag exists to find. Out of scope here and named so the next reader knows it.
+//
+// Widening the universe — a reflect walk from the registered view types, following
+// embedding and field types — is the better gate and its own change. What must not
+// ship is a gate whose name claims a third of the surface it covers.
+//
+// Baseline when written: 26 omitempty response fields in this package, 9 undescribed,
+// fixed rather than allowlisted except where a written reason says prose buys nothing.
+func TestEveryOmitemptyWireKeyInThisPackageIsDescribed(t *testing.T) {
 	files := packageSources(t)
 
 	var prose strings.Builder
@@ -84,9 +108,25 @@ func TestEveryOmitemptyWireKeyIsDescribed(t *testing.T) {
 			"prose to search every key would report as undescribed")
 	}
 
+	// ⚠ WORD BOUNDARY, NOT SUBSTRING, and two keys were passing on a coincidence
+	// before it. `stale` had three substring matches and ZERO standalone ones: it
+	// was credited to the word "staleness", in a sentence about erasure that has
+	// nothing to do with the field — and deleting the entire stale_index sentence
+	// left it green. `drawer_id` matched only inside `source_drawer_id`. A check
+	// that greps for a token is satisfied by any unrelated appearance of it, which
+	// is the same defect this gate exists to catch, one level down.
+	//
+	// A boundary is necessary and NOT sufficient: `note` and `wing` still pass on
+	// the English word and on parameter descriptions respectively. Crediting a field
+	// only from the description of the tool that EMITS it is the version that cannot
+	// be satisfied by accident; it is more work than this change and is recorded as
+	// a follow-up rather than pretended away.
+	described := func(key string) bool {
+		return regexp.MustCompile(`\b` + regexp.QuoteMeta(key) + `\b`).MatchString(prose.String())
+	}
 	var undescribed []string
 	for key, file := range keys {
-		if strings.Contains(prose.String(), key) {
+		if described(key) {
 			continue
 		}
 		if _, ok := undescribedOnPurpose[key]; ok {
@@ -118,9 +158,27 @@ func TestUndescribedOnPurposeIsJustified(t *testing.T) {
 	for _, src := range packageSources(t) {
 		all.WriteString(src)
 	}
+	// The prose, so a dead entry can be detected.
+	var prose strings.Builder
+	for _, src := range packageSources(t) {
+		for _, m := range descriptionText.FindAllStringSubmatch(src, -1) {
+			prose.WriteString(m[1])
+			prose.WriteString("\n")
+		}
+	}
+
 	for key, why := range undescribedOnPurpose {
 		if strings.TrimSpace(why) == "" {
 			t.Errorf("undescribedOnPurpose[%q] has no reason — the reason IS the review", key)
+		}
+		// ⚠ AN EXEMPTION THAT IS NO LONGER NEEDED IS INDISTINGUISHABLE FROM ONE THAT
+		// IS. `line` was dead weight when this was added: it is named in the prose
+		// and the entry excused nothing. A list that only grows records judgements
+		// nobody is making any more.
+		if regexp.MustCompile(`\b` + regexp.QuoteMeta(key) + `\b`).MatchString(prose.String()) {
+			t.Errorf("undescribedOnPurpose[%q] is dead: the field IS named in a description, so "+
+				"the exemption excuses nothing. Delete it — an unnecessary entry reads exactly "+
+				"like a necessary one.", key)
 		}
 		if !strings.Contains(all.String(), `json:"`+key+`,omitempty"`) {
 			t.Errorf("undescribedOnPurpose[%q] excuses a field this package no longer emits; "+

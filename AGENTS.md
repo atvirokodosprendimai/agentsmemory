@@ -261,6 +261,19 @@ fence runs one test name. That subtest drives the verdict through a substitutabl
 `testing.TB`: a test cannot pin its own reporting, and without the shim a disabled
 gate stayed green and announced "all resolved" over a tree carrying a real offender.
 
+**A FIELD A CALLER CANNOT DISCOVER IS UNREACHABLE EVEN WHEN IT IS EMITTED.** An
+`omitempty` response field is absent by construction until the case that produces it,
+so a caller who has never hit that case has no way to learn it exists — and every
+gate here is blind to that: the field is emitted, so reachability passes; the value
+is right, so behaviour passes. `TestEveryOmitemptyWireKeyInThisPackageIsDescribed`
+requires each one to be named in a tool or parameter description, matched on a WORD
+BOUNDARY because a substring check credited `stale` to the word "staleness" in an
+unrelated sentence. Its name says "in this package" because the universe is
+`internal/mcpserver` — 26 keys against 79 repo-wide — and a gate whose name claims
+more than it covers is worse than a narrower one.
+`TestUndescribedOnPurposeIsJustified` refuses an exemption with no written reason,
+one naming a field nothing emits, and one that is no longer needed.
+
 The same principle covers the gates already in the tree: `internal/doclint`
 (a doc comment must document the declaration it sits on), `TestEveryDeclaredArmIsRegistered`
 (an eval arm that no code path registers appears in no table, silently), and
