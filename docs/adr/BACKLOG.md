@@ -1408,9 +1408,13 @@ counts as "preceded by a recall", for the rest of the session, however far away 
 whatever it was about.
 
 **Measured on this session:** 109 assertions, 109 preceded — a perfect 100% against T2's 27.6%
-baseline. The first palace call was tool_use **#3 of 8,256**, 0.0% of the way in. The latch flipped
-almost immediately and every subsequent assertion inherited it. The number is an artifact, not an
-achievement.
+baseline. The latching call was `am_search` at tool_use **#172 of 8,277**, and every assertion after
+it inherited the flag. The number is an artifact, not an achievement.
+
+*(An earlier version of this entry said "#3 of 8,256". That was the first PALACE call —
+`am_skillset` — not the first RECALL call. `recallTools` is `am_search` and `am_get_drawer` only
+(`recallrate.go:51`), so the latch cannot flip on a wake-up call. Corrected after review; the
+mis-measurement is the same class as the defect being reported, one iteration out.)*
 
 **What the metric actually answers** is "had this session touched the palace at any earlier point",
 not "was this claim grounded in a recall". Those are different questions, and the second is the one
@@ -1429,10 +1433,20 @@ ADR-041 exists to move.
    ADR-041 T1's whole purpose was to create the measurement before any requirement claiming an
    improvement; the measurement it created is insensitive to that improvement.
 
-**The spec has the gap, not just the code.** F-2 defines the countable UNIT precisely and nothing
-defines what PRECEDED means — no window, no proximity, no reset. F-4 guards one route to a vacuous
-perfect rate (a classifier that matches nothing) and misses this one, which arrives from the
-opposite side: a numerator that counts everything.
+**The spec DECIDED this; it did not forget.** Main flow step 2
+(`docs/specs/2026-08-27-recall-before-asserting.md:33`) says to determine whether an `am_search`
+(or `am_get_drawer`) call "preceded it **in the same session**", and the Definitions section fixes
+what a recall is. `Observe` is a faithful implementation of that sentence.
+
+That changes the remedy and makes the claim harder to wave away. This is not an underspecification
+an implementer may fill — it is **a specified decision whose consequence was not drawn out**, so
+changing what "preceded" means is an AMENDMENT TO AN ACCEPTED RECORD and the owner's call. "The spec
+chose a session-wide window and the choice is insensitive" is a stronger statement than "the spec
+forgot".
+
+F-4 guards one route to a vacuous perfect rate (a classifier that matches nothing) and does not
+guard this one, which arrives from the opposite side: a numerator that counts everything after the
+first ask.
 
 **Not fixed here, because the fix is a spec decision.** What counts as "preceded" — within N tool
 calls, since the last user message, since the last compaction, or a recall whose query is related to
