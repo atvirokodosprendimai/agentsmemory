@@ -190,6 +190,119 @@ a decision, not a foregone no.
 correction: the second precedent implements the same pattern under different identifiers, so a grep
 for the first one's names missed it. Ask which entries exist, not which files contain this string.)*
 
+## A human sign-off that said STOP reads to every routing tool as PROCEED — 2026-08-28
+
+Found by checking what ADR-001 T3 decided before executing anything downstream of it.
+
+**The observation.** `docs/adr/ADR-001-recall-answers-or-abstains/tasks/T3-run-the-gate.md` holds
+one human-observed sign-off ending *"eval --calibrate --gate exit 1; no threshold on the curve
+clears both bars … decision BLOCKED — neither ship nor withdraw, because the preflight names this
+corpus unfit to decide; T4/T5/T6 not started"*. Against that:
+
+- `adr-next ADR-001 --all` prints **`done T3`** and **`READY T1`**.
+- `tasks/README.md` said **`pending`** for the same task, so the index and the router disagreed and
+  neither said `blocked`.
+- `adr-lint ADR-001` **PASSES** over that divergence. Its README↔evidence check is one-directional:
+  it rejects `done` without evidence, never `pending` with it.
+- `work-next` named ADR-001's remaining tasks as the next work in the whole repository.
+
+So every tool that routes work pointed an executor at T1 — the first step of the sequence T3 had
+just forbidden. The record is not vague about this. T3's **Stop Condition** says *"Stop the ADR —
+not just this task"* and *"a gate that cannot fail authorises T4–T6 on a verdict that means
+nothing"*; its **Out of Scope** says T4/T5/T6 start only *"until this task's log holds a `ship`
+sign-off"*. The stop is stated three times in three sections and read by nothing.
+
+**The cause, verified in source** (`bin/adr-next:96-106`; read on the authoring machine's plugin
+cache, where `adr-lint` on `PATH` resolves to 2.23.0 and the 2.19.0 and 2.21.0 copies present there
+are byte-identical here — ⚠ a reviewer carrying only one of those can confirm that one, and 2.19.0
+is the version everybody has):
+
+```python
+VLOG_HUMAN_RE = re.compile(r"^- \d{4}-\d{2}-\d{2} · human-observed · .+$")
+...
+if human and VLOG_HUMAN_RE.match(line):
+    return True
+```
+
+A human sign-off is counted done by its **grammar**: date, marker, and `.+`. Every other acceptance
+route reports a verdict the tooling reads — a tool-written entry carries an exit code and a fence
+digest, and a task is done only when both match. The human route carries neither, so any text after
+the marker reads as success, including text that says to stop. `adr-lint` skips the same path
+explicitly (`evidenced_task_ids`: `if inf.get("human"): continue`).
+
+**The half that is ours, and it is the more useful half.** The schema had no representation for
+*"ran, and the answer is stop"*. T3's own acceptance hint prescribes `decision <ship|withdraw>` —
+**two** values — and the run reached a third. The executor recorded it correctly and it landed in
+free text because there was nowhere else for it to go.
+
+`TestAHumanObservedSignOffAgreesWithTheIndex` (`internal/repohygiene/humansignoff_test.go`) now
+requires every human sign-off to name EXACTLY ONE outcome from `ship` / `withdraw` / `blocked`,
+requires the sibling README to carry the status that outcome maps to (`done` / `failed` / `blocked`),
+and requires the FENCED TEMPLATE in the task's Acceptance section — the command an operator copies,
+not the prose around it — to offer all three — because the defect was a template prescribing
+two values, and a gate demanding three beside a template offering two reproduces the dead end for
+the next operator. It derives its universe from the corpus. ADR-001 T3's row now reads `blocked` and
+its hint reads `decision <ship|withdraw|blocked>`.
+
+**And this is a class rather than a one-off, which answers "why gate for a single case".** ADR-004's
+supersession gate reached the identical third state on 2026-08-24 — recorded in the palace as
+*"REFUSED — NOT 'no' … the gate could not answer. Those are different facts"* — a run that completed,
+produced a third outcome, and had two slots to record it in. Issue #34 has been open on that
+ambiguity since, before this finding existed. Two ADRs, two routes, one missing value.
+
+⚠ **Exactly one, because no position rule works.** Three were tried: first match rejected a valid
+sign-off ("…the decision is recorded in evidence/x.md; decision ship" → "is"), last match rejected
+its mirror, and last-in-vocabulary admitted a FALSE PASS on the very failure this entry is about — a
+verdict of BLOCKED indexed `done` passed the gate because a later "do not record decision ship"
+clause won. Position was standing in for grammar. Counting refuses to guess instead: two outcome
+DIFFERENT outcome words is reported rather than resolved.
+
+⚠ **That is a cost, not a claim that a reader cannot resolve it.** The earlier wording said an entry
+a machine cannot resolve is one a reader cannot resolve either, and this gate's own fixture is the
+counter-example: *"decision blocked — saturated; the decision withdraw option was considered and
+rejected"*, indexed `blocked`, reads unambiguously to a person and is rejected here — because "was
+considered and rejected" is exactly the clause a machine cannot read. It is a deliberate casualty.
+
+⚠ **DISTINCT words, not occurrences.** Counting occurrences rejected one verdict stated twice —
+*"decision ship; recorded in evidence/x.md; per the stop condition T4 starts only on a decision
+ship"* — which is what an author writes when the entry names the index it just updated. A false
+alarm on a correct sign-off is what killed both position rules, and it nearly arrived again inside
+the fix for them.
+
+⚠ **The floor: it reads only the `decision <word>` template form.** A verdict in prose beside one
+template mention — *"the decision is blocked … do not record decision ship until the corpus grows"* —
+resolves to `ship` and passes. The remedy is to state the verdict in template form, and the gate
+cannot say so, because recognising that shape is the thing it cannot do.
+
+⚠ **`blocked` now carries three meanings across three tools**, and `statusForDecision`'s doc comment
+is where that is written down: `adr-next --all` prints it for a task whose DEPENDENCIES are unmet,
+`adr-lint:636-646` treats it as externally blocked with a green fence, and this gate means the task
+RAN and its verdict was stop. No task is in two of those states today, so nothing conflicts — but a
+reader comparing tools should know the word is overloaded.
+
+⚠ **What this does NOT fix, stated plainly: `adr-next` still prints `done T3` / `READY T1`.** The
+gate makes the corpus self-consistent and makes a future divergence fail a command; it cannot change
+what a tool in another tree computes from the task file. An executor who trusts `adr-next` over the
+README is still routed into forbidden work — and `/adr-execute`'s own instructions tell them to,
+because where the two disagree the task files are supposed to win.
+
+**Still open for the harness owner:** count a human-observed entry as done only when it names a
+success outcome, and report a recorded stop as `blocked` rather than `done`. That is a four-line
+change to `is_done` plus a vocabulary. It shares the externality question with two entries that both
+resolve in this file: *"The ADR evidence chain depends on a tool outside the repository"* and
+*"adr-lint cannot express a cross-record dependency"*. Three findings in one external tool is itself
+an argument that the vendoring option deserves a decision.
+
+*(This sentence has now been wrong in both directions. It first cited the third entry by a heading
+that existed only in its own paragraph — a pointer to nothing. The correction said the entry "lands
+with PR #91 and is NOT in this file yet", which went false the moment #91 merged, nine lines above
+the heading it claimed was absent. A cross-reference written in the future tense expires; one
+written by quoted heading does not, which is the rule this file already carries.)*
+
+**Not taken here, because it is the owner's:** ADR-001 is `Accepted` and its own T3 said to stop the
+ADR. Whether that means re-running T3 against a corpus that is not saturated, or withdrawing the
+record, is a decision this entry files rather than makes.
+
 ## ADR-041 T2 — the recall-before-assertion baseline, measured 2026-08-28
 
 ⚠ **RE-TAKEN 2026-08-28 UNDER v3.** "Preceded" now means A RECALL SINCE THE LAST USER TURN, decided
