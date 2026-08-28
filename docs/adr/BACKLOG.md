@@ -1590,12 +1590,57 @@ the assertion's subject — changes what the number means. Options, cheapest fir
 - Record more without deciding: also emit `recalls`, `assertions_before_first_recall`, and the
   distance in tool calls from each assertion back to the nearest preceding recall. Additive, it
   re-reads existing transcripts, and it lets the window be chosen from data rather than guessed.
+  **DONE 2026-08-28 — see the distribution below.**
 - Reset the latch at a boundary (user message, or compaction) and re-take the baseline.
 - Bind "preceded" to subject relatedness — the honest reading of the spec's intent, and much the
   hardest to implement.
 
 **The baseline must be re-taken under whatever definition wins.** A rate is only comparable with
 another measured the same way; T2's number cannot be carried over.
+
+### The additive option shipped, and the distribution is what the decision was waiting for
+
+`Observation` now carries `recalls`, `assertions_before_first_recall`, and `preceded_within` —
+cumulative counts of assertions whose NEAREST preceding recall was within 1, 5, 10, 25, 50 or 100
+tool calls. `preceded_by_recall` is deliberately UNCHANGED, latch and all, so T2's rate stays
+comparable under F-16: nothing here redefines the number, it measures what a redefinition would have
+to choose between. `classifierVersion` is unchanged for the same reason — neither `assertionShape`
+nor `assertionSubject` moved.
+
+`TestPrecededCannotSeeProximityAndTheObservationCan` is the gate, and it is written as the pair of
+sessions the old field cannot separate: one recall then a wall of claims, versus a recall before
+each claim. **Both score 100% on `preceded`.** Four mutants die on it — the distance never updating,
+every window credited unconditionally, `recalls` never counted, and `assertions_before_first_recall`
+never counted.
+
+Measured 2026-08-28 over 48 local session transcripts — 24 carrying at least one assertion, 341
+assertions, classifier v2. Re-run it rather than trusting these numbers; the corpus grows daily:
+
+| reading of "preceded" | rate |
+|---|---|
+| the latched field — *"this session touched the palace at some earlier point"* | **52.8%** |
+| nearest recall within 100 tool calls | 28.7% |
+| within 50 | 17.6% |
+| within 25 | 12.3% |
+| within 10 | 7.3% |
+| within 5 | 5.3% |
+| **within 1 — the claim made immediately after asking** | **1.8%** |
+
+47.2% of assertions are made before ANY recall in the session.
+
+Two things follow, and they are why this mattered rather than being tidy-up:
+
+1. **The reported rate and the strictest honest reading differ by a factor of about 29.** Every
+   window is a defensible definition of "preceded". The latched field is the one nobody chose — it
+   is simply what a flag with no reset computes.
+2. **There is headroom, which the old number denied.** The latch saturates on any protocol-following
+   session, so T4, T5 and T6 could only ever measure as "no effect" — the instrument would have
+   faithfully recorded four nulls under F-10. Against a 1.8-12% proximity rate they have somewhere
+   to move.
+
+**Still a decision, and deliberately left open here:** which window, if any, becomes the definition.
+Choosing one voids every rate taken under another. The table above is what that choice should be
+made from; this entry does not make it.
 
 ## Two tests name a property their fixtures never drive — 2026-08-28
 

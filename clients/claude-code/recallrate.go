@@ -53,15 +53,54 @@ var recallTools = map[string]bool{
 	"mcp__agentsmemory__am_get_drawer": true,
 }
 
+// recallWindows are the candidate proximity windows, measured in tool calls back
+// from an assertion to the nearest recall before it.
+//
+// ⚠ THEY ARE CANDIDATES, NOT A DECISION. Which one (if any) becomes the definition
+// of "preceded" is a spec question that changes what the rate MEANS, and the honest
+// order is to see the distribution before choosing — so this emits every bucket and
+// picks none. Choosing first is how the current number came to be: `preceded`
+// answers "had this session touched the palace at any earlier point", which nobody
+// decided, it is simply what a latch with no reset computes.
+var recallWindows = []int{1, 5, 10, 25, 50, 100}
+
 // Observation is one session's counts. Counts and identifiers only — no transcript
 // text is carried, because the instrument runs on a developer's machine over their
 // own working sessions and the measurement never needs the words (spec F-15).
+//
+// ⚠ Preceded IS DELIBERATELY UNCHANGED, INCLUDING ITS DEFECT. It latches at the
+// first recall and never resets, so a session that searched once at call 3 scores
+// 100% on 109 assertions made thousands of calls later — measured 2026-08-28 on the
+// session that built the instrument. Everything below is ADDITIVE for one reason:
+// F-16 forbids comparing rates across classifier versions, and T2's baseline cost
+// 46 real sessions. Redefining the field would discard it before anything had been
+// learned about what to redefine it TO.
 type Observation struct {
 	SessionID  string `json:"session_id"`
 	Assertions int    `json:"assertions"`
 	Preceded   int    `json:"preceded_by_recall"`
+
+	// Recalls is how many recall calls the session made at all. One and a hundred
+	// are the same to Preceded, and they are not the same session.
+	Recalls int `json:"recalls"`
+
+	// BeforeFirstRecall is how many assertions were made before ANY recall. These
+	// are the only misses Preceded can currently see, which is why its numerator
+	// saturates: after the first recall it can never record another.
+	BeforeFirstRecall int `json:"assertions_before_first_recall"`
+
+	// PrecededWithin counts, per candidate window, the assertions whose nearest
+	// preceding recall was that many tool calls back or fewer. This is the field
+	// that separates the two sessions Preceded cannot tell apart: one recall at the
+	// start and a hundred claims later, versus a recall before each claim.
+	PrecededWithin map[string]int `json:"preceded_within,omitempty"`
+
 	Classifier string `json:"classifier_version"`
 }
+
+// windowKey names a bucket in PrecededWithin, so the JSON is readable by a human
+// choosing a window rather than a magic index.
+func windowKey(n int) string { return fmt.Sprintf("%d", n) }
 
 // sentenceSplit is deliberately crude: transcript prose is markdown, not paragraphs
 // of formal English, and a sentence tokenizer would be a dependency for no gain.
@@ -162,8 +201,12 @@ func Observe(transcriptPath string) (Observation, bool) {
 	}
 	defer func() { _ = f.Close() }()
 
-	obs := Observation{Classifier: classifierVersion}
+	obs := Observation{Classifier: classifierVersion, PrecededWithin: map[string]int{}}
 	recalled := false
+	// calls counts every tool_use block seen so far; lastRecallAt is the call index
+	// of the most recent recall, or -1 when none has happened. Their difference is
+	// the distance the latch throws away.
+	calls, lastRecallAt := 0, -1
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 0, 64*1024), 8*1024*1024) // transcript lines are large
 	for sc.Scan() {
@@ -177,8 +220,11 @@ func Observe(transcriptPath string) (Observation, bool) {
 		for _, block := range line.Message.Content {
 			switch block.Type {
 			case "tool_use":
+				calls++
 				if recallTools[block.Name] {
 					recalled = true
+					lastRecallAt = calls
+					obs.Recalls++
 				}
 			case "text":
 				if line.Type != "assistant" {
@@ -189,8 +235,19 @@ func Observe(transcriptPath string) (Observation, bool) {
 						continue
 					}
 					obs.Assertions++
-					if recalled {
-						obs.Preceded++
+					if !recalled {
+						obs.BeforeFirstRecall++
+						continue
+					}
+					obs.Preceded++
+					// The distance the latched field cannot express. Every window
+					// wide enough to contain it gets the credit, so the buckets are
+					// cumulative and a reader can see where the rate falls off.
+					distance := calls - lastRecallAt
+					for _, w := range recallWindows {
+						if distance <= w {
+							obs.PrecededWithin[windowKey(w)]++
+						}
 					}
 				}
 			}
