@@ -148,7 +148,24 @@ sign-off ("…the decision is recorded in evidence/x.md; decision ship" → "is"
 its mirror, and last-in-vocabulary admitted a FALSE PASS on the very failure this entry is about — a
 verdict of BLOCKED indexed `done` passed the gate because a later "do not record decision ship"
 clause won. Position was standing in for grammar. Counting refuses to guess instead: two outcome
-words is an entry no reader can resolve either, so it is reported rather than resolved.
+DIFFERENT outcome words is reported rather than resolved.
+
+⚠ **That is a cost, not a claim that a reader cannot resolve it.** The earlier wording said an entry
+a machine cannot resolve is one a reader cannot resolve either, and this gate's own fixture is the
+counter-example: *"decision blocked — saturated; the decision withdraw option was considered and
+rejected"*, indexed `blocked`, reads unambiguously to a person and is rejected here — because "was
+considered and rejected" is exactly the clause a machine cannot read. It is a deliberate casualty.
+
+⚠ **DISTINCT words, not occurrences.** Counting occurrences rejected one verdict stated twice —
+*"decision ship; recorded in evidence/x.md; per the stop condition T4 starts only on a decision
+ship"* — which is what an author writes when the entry names the index it just updated. A false
+alarm on a correct sign-off is what killed both position rules, and it nearly arrived again inside
+the fix for them.
+
+⚠ **The floor: it reads only the `decision <word>` template form.** A verdict in prose beside one
+template mention — *"the decision is blocked … do not record decision ship until the corpus grows"* —
+resolves to `ship` and passes. The remedy is to state the verdict in template form, and the gate
+cannot say so, because recognising that shape is the thing it cannot do.
 
 ⚠ **`blocked` now carries three meanings across three tools**, and `statusForDecision`'s doc comment
 is where that is written down: `adr-next --all` prints it for a task whose DEPENDENCIES are unmet,

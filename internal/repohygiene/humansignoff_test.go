@@ -259,26 +259,58 @@ func checkHumanSignOffs(tb testing.TB, root string) {
 // signOffProblem is the comparison, split out so the table-driven half below drives
 // THIS code rather than a copy. Returns the empty string when sign-off and index
 // agree.
+//
+// ⚠ IT COUNTS DISTINCT VERDICT WORDS; IT DOES NOT PARSE ENGLISH, and both limits
+// below are deliberate rather than undiscovered.
+//
+// The COST: a sign-off naming two different outcomes is reported even when a human
+// resolves it in one pass — "decision blocked — saturated; the decision withdraw
+// option was considered and rejected" is unambiguous to a reader and rejected here,
+// because "was considered and rejected" is exactly the clause a machine cannot
+// read. That shape is a deliberate casualty, not an oversight; the earlier claim
+// that an entry a machine cannot resolve is one a reader cannot resolve either was
+// too strong, and this file's own fixture is the counter-example.
+//
+// The FLOOR: the count only sees clauses written in the `decision <word>` template
+// form. A verdict in prose beside one template mention — "the decision is blocked;
+// do not record decision ship until the corpus grows" — resolves to `ship` and
+// passes. The remedy is to state the verdict in template form, and this function
+// cannot tell the operator that, because the shape it would have to recognise is
+// the shape it cannot read.
 func signOffProblem(entry, status string) string {
 	all := decisionRE.FindAllStringSubmatch(entry, -1)
 	if len(all) == 0 {
 		return "names no decision"
 	}
-	var outcomes, saw []string
+	// ⚠ DISTINCT outcomes, not occurrences. Counting occurrences rejected a
+	// CORRECT sign-off that stated one verdict twice — "decision ship; recorded in
+	// evidence/x.md; per the stop condition T4 starts only on a decision ship" —
+	// which is the shape an author writes when the entry mentions the index it just
+	// updated. A false alarm on a correct entry is the failure this comparison has
+	// already been rewritten three times to avoid, and it is worse than the miss it
+	// would prevent: nobody switches a gate off for missing something.
+	var saw []string
+	seen := map[string]bool{}
+	var outcomes []string
 	for _, m := range all {
 		w := strings.ToLower(m[1])
 		saw = append(saw, w)
-		if statusForDecision[w] != "" {
-			outcomes = append(outcomes, w)
+		if statusForDecision[w] == "" || seen[w] {
+			continue
 		}
+		seen[w] = true
+		outcomes = append(outcomes, w)
 	}
 	switch len(outcomes) {
 	case 0:
 		return fmt.Sprintf("names no decision from %s (saw %q)", decisionVocabulary(), strings.Join(saw, ", "))
 	case 1: // the only resolvable shape
 	default:
-		return fmt.Sprintf("names %d decisions (%s) and a reader cannot tell which is the verdict — "+
-			"say it once, last", len(outcomes), strings.Join(outcomes, ", "))
+		// ⚠ NO POSITIONAL ADVICE HERE. "say it once, last" taught the operator a
+		// rule this function abandoned: first-match and last-match were both tried
+		// and both raised false alarms, which is why it counts instead.
+		return fmt.Sprintf("names %d different decisions (%s) and a reader cannot tell which is "+
+			"the verdict — state one", len(outcomes), strings.Join(outcomes, ", "))
 	}
 	decision := outcomes[0]
 	want := statusForDecision[decision]
@@ -329,6 +361,17 @@ func TestASignOffThatSaysStopIsCaught(t *testing.T) {
 			{"a stop with a trailing conditional ship", "decision blocked; T4 blocked until a later decision ship", "done", true},
 			{"a withdraw with a hypothetical ship", "gate exit 1; decision withdraw; a future decision ship would need a fresh corpus", "done", true},
 			{"two outcomes, correctly indexed for the first", "decision blocked — saturated; the decision withdraw option was considered and rejected", "blocked", true},
+			// ⚠ ONE VERDICT STATED TWICE IS NOT AMBIGUOUS, and counting occurrences
+			// rejected both of these. The second is what an author writes when the
+			// entry mentions the index it just updated. Rejecting a CORRECT sign-off
+			// is the failure mode that killed first-match and last-match, and it
+			// would have arrived here through the fix for the other two.
+			{"one verdict stated twice", "decision ship; recorded in evidence/x.md; per the stop condition T4 starts only on a decision ship", "done", false},
+			{"a stop restated when the index is named", "decision blocked — corpus saturated; the sibling README now reads the decision blocked state", "blocked", false},
+			// The floor the doc comment names: a verdict in prose beside one template
+			// mention resolves to the template's word. Recorded as a case so the
+			// limit is a pinned property rather than a sentence in a comment.
+			{"a prose verdict beside one template mention is not read", "corpus saturated; the decision is blocked — neither ship nor withdraw; do not record decision ship until the corpus grows", "done", false},
 		}
 		for _, c := range cases {
 			t.Run(c.name, func(t *testing.T) {
@@ -336,6 +379,35 @@ func TestASignOffThatSaysStopIsCaught(t *testing.T) {
 					t.Errorf("entry %q with status %q: caught=%v, want %v", c.entry, c.status, failed, c.wantFail)
 				}
 			})
+		}
+	})
+
+	// ⚠ THE TWO EXTRACTORS ARE PINNED HERE, NOT THROUGH THE CORPUS. Every real task
+	// file has a flat `## Acceptance` and a well-formed fence, so the corpus cannot
+	// reach either branch: reverting the depth rule or the empty-fence guard left the
+	// whole suite at exit 0. New logic nothing selects is this repository's
+	// characteristic defect, and it arrived inside the fix for it.
+	t.Run("the extractors", func(t *testing.T) {
+		doc := "## Acceptance\n\nbefore\n\n### A subsection\n\ninside\n\n## Verification Log\n\nafter\n"
+		sec := sectionOf(doc, "Acceptance")
+		if !strings.Contains(sec, "inside") {
+			t.Errorf("a `###` subsection inside `## Acceptance` was cut off: the section stops at the "+
+				"next SAME-OR-SHALLOWER heading, so a template split under a subheading would go "+
+				"unread and the vocabulary check would pass over it.\n  got: %q", sec)
+		}
+		if strings.Contains(sec, "after") {
+			t.Errorf("the section ran past `## Verification Log` into the next section: a verdict "+
+				"already logged would then satisfy a check about what the TEMPLATE offers.\n  got: %q", sec)
+		}
+
+		if got := fencedIn("## Acceptance\n\n```text\n\n```\n"); strings.TrimSpace(got) != "" {
+			t.Errorf("a whitespace-only fence yielded %q, not an empty string: the empty-fence guard "+
+				"reads this value, and a fence carrying only newlines has to reach it as empty or "+
+				"the guard reports a template that is present-and-blank as present", got)
+		}
+		if got := fencedIn("prose ```one two``` prose\n"); got != "" {
+			t.Errorf("an inline span was read as a fence: %q. A fence opens with a newline after its "+
+				"info string; without that the check would read backticked prose as the template", got)
 		}
 	})
 

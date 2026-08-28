@@ -307,6 +307,7 @@ reimplemented the loop, and severing the real resolution check then left it gree
 with the whole suite at exit 0: a falsifiability half that shares nothing with the
 gate pins nothing. It resolves a subtest binding on its PARENT only, which the
 declaration says out loud rather than leaving a reader to assume otherwise.
+
 **AN ACCEPTANCE THAT REPORTS ITS VERDICT IN PROSE IS READ BY NOTHING.** Every acceptance
 route here reports a verdict a tool can act on — an exit code plus a fence digest,
 and a task is done only when both match. The human-observed route carries neither:
