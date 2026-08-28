@@ -252,6 +252,7 @@ better than a mechanism that appears to work by injecting noise.
   the fence passed with the mechanism broken
   ```
 - 2026-08-28 · cf5bfb5 · mutant killed · exit 1 · `clients/claude-code/hooks/agentsmemory-recall-hook.sh` · the token override: always passing one defeats the CLI resolution an install actually uses · acceptance-sha256:c69c7aef536d0e00a5b2ccae16eb244e95c32bbc42e13d2633cfa8d6392b07c7
+- 2026-08-28 · 4f5ee39 · mutant killed · exit 1 · `clients/claude-code/installer.go` · the event IS the mechanism: on PreCompact the recall runs and its output goes to the debug log · acceptance-sha256:b6a56654d75cb5b4ee59cbacb279403b50345116acdbd168eedb832fcb0a09bb
 
 ## Invariants
 
