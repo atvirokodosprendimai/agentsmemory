@@ -336,4 +336,27 @@ func TestASocketInstallSaysItsHooksCannotReachTheServer(t *testing.T) {
 		t.Errorf("a non-socket install warned anyway: %q\n"+
 			"A warning that fires on every install is one people learn to skip.", quiet)
 	}
+
+	// ⚠ THE CALL SITE, NOT THE FUNCTION. Everything above invokes
+	// warnSocketHooksCannotReachTheServer directly, so deleting the ONE line in
+	// registerStopHook that actually calls it left the whole package green —
+	// found in review. That is precisely the defect this warning exists to
+	// prevent, one level out: the mechanism that makes a silent failure loud was
+	// itself silent if severed. A hook is reached by its registration and a
+	// warning by its call site; testing the component is not testing the wiring.
+	t.Run("the install path itself warns, not just the helper", func(t *testing.T) {
+		inst, _, dir := newTestInstaller(t, false)
+		inst.socket = "/tmp/agentsmemory.sock"
+		buf := &bytes.Buffer{}
+		inst.out = buf
+		if err := inst.registerStopHook(); err != nil {
+			t.Fatalf("register hooks: %v", err)
+		}
+		_ = dir
+		if !strings.Contains(buf.String(), "CANNOT reach") {
+			t.Errorf("installing hooks for a --socket install said nothing: %q\n"+
+				"The warning is only worth having if the install path reaches it — delete its "+
+				"call and this is the assertion that must go red.", buf.String())
+		}
+	})
 }

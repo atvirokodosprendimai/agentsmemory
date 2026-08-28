@@ -1496,8 +1496,12 @@ reach their palace — and because a hook's healthy state is silence, nothing re
 
 **Now it says so.** `warnSocketHooksCannotReachTheServer` warns during a `--socket` install, naming
 the variable the hooks carry and why it cannot work, pinned by
-`TestASocketInstallSaysItsHooksCannotReachTheServer` (mutant killed). That is the cheap half: the
-failure is no longer silent.
+`TestASocketInstallSaysItsHooksCannotReachTheServer` — including a subtest that drives
+`registerStopHook` rather than the helper, so deleting the CALL SITE goes red. That subtest was
+added after review: the first version tested the function directly, so removing the one line that
+invokes it left the whole package green. The mechanism built to make a silent failure loud was
+itself silent if severed — the same defect one level out. That is the cheap half: the failure is no
+longer silent.
 
 **The real fix is new capability and a product decision, so it stays here.** The `socket` flag
 belongs to `install`; the `mcp` subcommand has NO socket flag and only dials HTTP (`dialMCP`), while
