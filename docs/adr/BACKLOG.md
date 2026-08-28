@@ -1515,9 +1515,12 @@ the server should always be reachable over TCP — nobody has decided that.
 
 A third option was listed here before the warning shipped and is dropped on purpose rather than
 forgotten: **have `--socket` refuse to install hooks it knows cannot work.** The warning does the
-same job without the cost — a refusal removes the recall, verify and stats hooks from a socket
-install entirely, so an operator who wanted the MCP over a socket silently loses four capabilities
-that have nothing to do with the transport. Saying so and installing them is strictly more
+same job without the cost — a refusal removes every hook from a socket install, so an operator
+who wanted the MCP over a socket silently loses capabilities that have nothing to do with the
+transport — **six registered events** (Stop, SessionStart×2, SubagentStart, SubagentStop,
+SessionEnd, `installer.go:960-1005`) across **five** of the six scripts in `hooks/`; the sixth,
+`agentsmemory-stats.sh`, is SOURCED by the session-end hook rather than registered, so calling it a
+hook is loose. All of them contact the server, so the argument is if anything understated. Saying so and installing them is strictly more
 recoverable than not installing them. Named here so the next reader does not re-propose it as new.
 
 **Whatever is chosen, the check must drive a GENERATED hook against a socket-only server.** The
