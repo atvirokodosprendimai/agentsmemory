@@ -342,14 +342,18 @@ func TestASignOffThatSaysStopIsCaught(t *testing.T) {
 			{"a stop recorded as blocked", "decision BLOCKED — corpus saturated", "blocked", false},
 			{"no decision named at all", "ran the gate, it looked fine", "done", true},
 			{"a word outside the vocabulary", "decision maybe", "done", true},
-			// ⚠ The regex must read the LAST clause. This entry is the shape T3's own
-			// template produces, and the first-match version rejected it as decision "is".
+			// ⚠ These two are the shape T3's own template produces, and they are here
+			// because FIRST-MATCH rejected them as decision "is". They pass under the
+			// counting rule for a different reason than position: "is" is not in the
+			// vocabulary, so it is never a candidate, and exactly one outcome word
+			// remains. Position is not what makes them pass.
 			{"a valid ship after the word decision appears earlier", "gate exit 0; the decision is recorded in evidence/abstain-gate.md; decision ship", "done", false},
 			{"a stop after an earlier mention", "the decision is in the log below; decision blocked", "blocked", false},
-			// ⚠ The MIRROR of the case above: a valid verdict followed by a later
-			// "decision" that is not one. Last-match alone rejects these, which is a
-			// false alarm on a correct sign-off — so the reader takes the last
-			// IN-VOCABULARY candidate, not simply the last.
+			// ⚠ The MIRROR of the cases above: a valid verdict followed by a later
+			// "decision" that is not one. LAST-MATCH rejected these — a false alarm on a
+			// correct sign-off — and "last in-vocabulary" was the repair that then
+			// admitted the false pass four cells below. Neither rule survives. These pass
+			// by counting: one outcome word, wherever it sits.
 			{"a ship followed by a later mention", "decision ship; the decision will be revisited once the corpus grows", "done", false},
 			{"a ship followed by a passive mention", "decision ship — T4 may start; this decision was taken with the reranker live", "done", false},
 			{"a stop wrapped on both sides", "the decision is recorded in evidence/x.md; decision blocked — saturated; the decision is final", "blocked", false},
