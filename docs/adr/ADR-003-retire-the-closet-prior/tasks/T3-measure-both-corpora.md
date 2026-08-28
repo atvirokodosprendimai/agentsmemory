@@ -63,6 +63,20 @@ docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v 
 - The curated wing is small (~103 drawers), so its cells may fall below their floors. That is recorded as `n/a` by Table 2's rules and changes only what T5 documents; it must not be written up as support for the prior.
 - The `real` category depends on recorded traffic and has been as small as n=4. Its floor (10 admitted cases) is in the ADR, so a small `real` run is a recorded `n/a`, not an argument.
 - A palace changes between runs — memories get filed, sources re-mined. Run the four back to back, and record the drawer count each `cells.json` reports so a corpus that moved mid-measurement is visible.
+- ⚠ **THIS TASK CANNOT NAME ITS OWN CORPUS ON A REAL PALACE, and two repo rules collide over it.**
+  Step 3 says to name the mined wing and use it in all four runs, and `writeCells`
+  (`cmd/server/eval.go`) puts `"wing": meta.Wing` into the `.cells.json` — the file step 5 commits.
+  But `mine-claude` derives a wing from each session's working directory, so on a real palace the
+  mined wing is named after somebody's project, and `TestNoRealProjectNamesInWings`
+  (`internal/repohygiene/hygiene_test.go:297`) fails on any `wing_*` in any tracked textual file that
+  is not a declared example. Verified 2026-08-28 by planting
+  `{"wing":"wing_<a real project>"}` in this evidence directory: the gate went red naming the file.
+  So the run completes and its evidence cannot be committed.
+
+  This is the gate working, not a bug in it. Resolve before running, not after: either point the
+  mined runs at a neutrally-named wing, or decide what the record should carry instead of the raw
+  wing — noting that step 3 leans on the `wing` field to prove two mined runs share a corpus, so
+  dropping it removes a real check. That is an ADR-level call and it is filed in `BACKLOG.md`.
 
 ## Stop Condition
 

@@ -1417,6 +1417,36 @@ defect `SupersessionGatedArmFor`'s doc comment says "is how the gate judged a pi
 Neither is a bug in shipped behaviour. Both are gates weaker than their names, which is the
 condition this repository's checks exist to remove.
 
+## ADR-003 T3 cannot commit its own evidence — 2026-08-28
+
+Found while starting T3, before any eval was run.
+
+T3 step 3 says to name the mined wing and use it in all four runs. `writeCells` (`cmd/server/eval.go`)
+writes `"wing": meta.Wing` into the `.cells.json`, which step 5 commits. But `mine-claude` derives a
+wing from each session's working directory (`clients/claude-code/mineclaude.go:318`), so on a real
+palace the mined wing is named after somebody's project — and `TestNoRealProjectNamesInWings`
+(`internal/repohygiene/hygiene_test.go:297`) fails on any `wing_*` in any tracked textual file that is
+not a declared example.
+
+**Verified 2026-08-28**: planting `{"wing":"wing_<a real project>"}` in
+`docs/adr/ADR-003-retire-the-closet-prior/evidence/` turned the gate red, naming the file. Removed
+immediately; nothing was committed and no `.cells.json` is tracked today, so nothing has leaked.
+
+**The gate is right.** The conflict is that T3 leans on the `wing` field to prove two mined runs share
+one corpus, so dropping it removes a real check, while keeping it makes the evidence uncommittable.
+`writeCells`'s own doc comment claimed the record "must carry nothing that came out of the palace" —
+which the `wing` field contradicted; the comment now names the exception rather than overstating the
+rule.
+
+**Options, none taken here:** run the mined evals against a neutrally-named wing; or replace the raw
+wing with a one-way hash, as `case_set_id` already does for questions — that preserves step 3's
+sibling check and discloses nothing; or drop the field and replace the check with something else. The
+second looks cheapest and matches an existing precedent in the same file, but it changes what a
+published record means, so it is the ADR owner's call.
+
+**T3 is blocked on this**, not on the eval itself. The four runs also need a mined wing with enough
+drawers for `--n 80`, which this local palace may not have — check before building the binary.
+
 ## Four spellings of one entry point, and the served document teaches a fifth — 2026-08-28
 
 **Fourth framing. The three before it each named a single CAUSE and each died to one more query;
