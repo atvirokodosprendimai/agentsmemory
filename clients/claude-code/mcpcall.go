@@ -25,6 +25,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -142,8 +144,17 @@ func runRemoteMCP(ctx context.Context, c *cli.Command, out io.Writer) error {
 // authenticated with the workspace bearer token — the same handshake the pi
 // bridge extension performs (clients/claude-code/extensions/agentsmemory.ts).
 func dialMCP(ctx context.Context, url, token string, timeout time.Duration) (*client.Client, error) {
+	// ⚠ NO TOKEN MEANS NO HEADER, not an empty one. `Authorization: Bearer ` with
+	// nothing after it is a credential that was offered and is blank — a server is
+	// entitled to reject it, and neither ours nor the hosted one is tested against
+	// that shape. Omitting the header is the case a --local server already answers:
+	// its MCP registration carries no headers at all.
+	headers := map[string]string{}
+	if token != "" {
+		headers["Authorization"] = "Bearer " + token
+	}
 	c, err := client.NewStreamableHttpClient(url,
-		transport.WithHTTPHeaders(map[string]string{"Authorization": "Bearer " + token}),
+		transport.WithHTTPHeaders(headers),
 		transport.WithHTTPTimeout(timeout),
 	)
 	if err != nil {
@@ -182,8 +193,48 @@ func resolveWorkspaceToken(c *cli.Command) (token, source string, err error) {
 			return t, from, nil
 		}
 	}
+
+	// ⚠ A LOOPBACK SERVER IS NOT ASKED FOR A CREDENTIAL IT DOES NOT WANT. An
+	// `install --local` populates NONE of the four token sources by design — its
+	// own --help says "no token is prompted for" — so this used to refuse every
+	// call against a server that accepts no credentials at all: a client-side gate
+	// with nothing behind it. Measured 2026-08-28: every shipped hook was silent on
+	// a --local install for exactly this reason, including ADR-041 T4's recall.
+	//
+	// A token still WINS when one is configured, because a --local server may have
+	// been started with one.
+	if isLoopbackEndpoint(c.String("mcp-url")) {
+		return "", "a loopback server, which needs none", nil
+	}
+
 	return "", "", fmt.Errorf("no workspace token found: pass --token (or set %s), or point at an install with --sandbox <name>/--config-dir <dir>; looked in %s",
 		tokenEnvVar, strings.Join(dirs, ", "))
+}
+
+// isLoopbackEndpoint reports whether the endpoint addresses this machine.
+//
+// ⚠ IT PARSES THE HOST; IT DOES NOT SUBSTRING-MATCH THE URL. `strings.Contains(url,
+// "localhost")` is the obvious version and it accepts
+// http://localhost.example.invalid/mcp — a REMOTE host — which would drop
+// authentication on somebody else's server. The whole point of this function is
+// to decide when it is safe to send no credential, so the one thing it must not
+// do is be generous about what counts as local.
+func isLoopbackEndpoint(raw string) bool {
+	if raw == "" {
+		return false
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return false
+	}
+	host := u.Hostname()
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		return ip.IsLoopback()
+	}
+	return false
 }
 
 // tokenSearchDirs lists the config dirs to look for a token in. An explicit

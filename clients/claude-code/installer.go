@@ -2,12 +2,14 @@ package main
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/atvirokodosprendimai/agentsmemory/internal/mcpprotocol"
@@ -870,6 +872,7 @@ func (i *Installer) registerStopHook() error {
 	}
 	hooksFile := filepath.Join(i.targetDir, i.kit.hooksFile)
 	plans := i.hookPlans()
+	i.warnIfRepointing(hooksFile)
 
 	if i.dryRun {
 		for _, p := range plans {
@@ -1000,6 +1003,63 @@ func (i *Installer) hookPlans() []hookPlan {
 			note:  "registered SessionStart hook (a fresh context starts with a recall already done)",
 		},
 	)
+}
+
+// hookCommandURL is the endpoint baked into an installed hook command, or "" when
+// the command carries none.
+var hookCommandURL = regexp.MustCompile(`^` + regexp.QuoteMeta(mcpprotocol.MCPURLEnvVar) + `='([^']*)'`)
+
+// warnIfRepointing says so out loud when this install is about to send the hooks
+// at a DIFFERENT server than the one they currently talk to.
+//
+// ⚠ THIS IS THE LOUDEST THING THE INSTALLER DOES, and it exists because the
+// silent version cost a whole session. `install --agent claude` with no --mcp-url
+// takes the hosted default, and the default wins over whatever is already
+// configured: on 2026-08-28 that repointed five working hooks from a local server
+// to the hosted one, every hook went mute because the local token did not
+// authenticate there, and NOTHING said a word. The symptom looked like broken
+// hooks; the cause was a re-install.
+//
+// It reports and does not decide. Which URL wins is upgrade semantics — someone
+// migrating local→hosted needs the new one to take effect — and changing that is
+// a separate decision. Being told is what was missing.
+func (i *Installer) warnIfRepointing(hooksFile string) {
+	raw, err := os.ReadFile(hooksFile)
+	if err != nil {
+		return // no existing hooks file: nothing to repoint, and a fresh install says enough
+	}
+	var doc struct {
+		Hooks map[string][]struct {
+			Hooks []struct {
+				Command string `json:"command"`
+			} `json:"hooks"`
+		} `json:"hooks"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		return
+	}
+	seen := map[string]bool{}
+	for _, entries := range doc.Hooks {
+		for _, entry := range entries {
+			for _, h := range entry.Hooks {
+				if !strings.Contains(h.Command, i.kit.name) && !strings.Contains(h.Command, mcpName) {
+					continue
+				}
+				if m := hookCommandURL.FindStringSubmatch(h.Command); m != nil && m[1] != "" {
+					seen[m[1]] = true
+				}
+			}
+		}
+	}
+	for existing := range seen {
+		if existing == i.mcpURL {
+			continue
+		}
+		i.warn("this install REPOINTS your hooks: they currently talk to %s, and will now talk "+
+			"to %s. If that is not what you meant, re-run with --mcp-url %s (or --local for "+
+			"a server on this machine) — a hook pointed at a server it cannot authenticate "+
+			"to goes silent rather than failing loudly.", existing, i.mcpURL, existing)
+	}
 }
 
 // shellQuote renders one literal POSIX-shell argument. Hook commands are stored

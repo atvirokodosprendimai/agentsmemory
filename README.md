@@ -342,6 +342,26 @@ agent actually *use* the tools is the protocol the kit installs alongside it —
 see [the server is inert without the
 protocol](#the-server-is-inert-without-the-protocol).
 
+⚠ **Re-run `install` the same way you ran it the first time.** Without `--local`
+(or `--mcp-url`) the endpoint falls back to the hosted default, and the default
+wins over what is already configured — so a bare `aiagentmemory install` on a
+machine set up with `--local` repoints every installed hook at the hosted
+service. The hooks then talk to a server they hold no credential for, and a hook
+that cannot reach its palace goes **silent** rather than failing loudly, so
+nothing looks broken. The installer now says so before it writes:
+
+```
+[!!] this install REPOINTS your hooks: they currently talk to
+     http://localhost:8080/mcp, and will now talk to https://aiagentmemory.dev/mcp.
+```
+
+To see where your hooks point today, grep the endpoint out of your agent's hooks
+file — for Claude, `AGENTSMEMORY_MCP_URL` is the first thing in each command:
+
+```bash
+grep -o "AGENTSMEMORY_MCP_URL='[^']*'" ~/.claude/settings.json | sort -u
+```
+
 What changes:
 
 | | default | `--local` |
