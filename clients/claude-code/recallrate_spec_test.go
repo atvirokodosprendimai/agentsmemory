@@ -5,6 +5,8 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -248,28 +250,197 @@ func TestTheBaselineRefusesAnUndersizedSample(t *testing.T) {
 	}
 }
 
+// adr041TasksDir is the record these bindings read. F-9, F-10, F-12 and F-13 are
+// facts about how mechanisms are CHOSEN, ORDERED and REPORTED — process, not
+// code — so the artifact that can be wrong is the record, and that is what these
+// drive. The alternative was to leave them as `t.Fatalf("not built yet")` stubs,
+// which is what they were: they assert nothing, fail unconditionally, and made
+// two PRs permanently un-mergeable.
+const adr041TasksDir = "../../docs/adr/ADR-041-the-recall-that-does-not-depend-on-remembering/tasks"
+
+// mechanism is one row of the compliance-dependence table in tasks/README.md.
+type mechanism struct {
+	order      int
+	task       string
+	name       string
+	compliance string
+}
+
+// complianceRank orders the "Depends on compliance" column. F-13's whole claim is
+// that the sequence runs from asking least of the agent to asking most, so the
+// column has to be comparable rather than merely present.
+func complianceRank(t *testing.T, s string) int {
+	t.Helper()
+	clean := strings.ToLower(strings.TrimLeft(strings.TrimSpace(s), "*"))
+	for rank, word := range []string{"none", "low", "moderate", "high", "highest"} {
+		if strings.HasPrefix(clean, word) {
+			if word == "high" && strings.HasPrefix(clean, "highest") {
+				return 4
+			}
+			return rank
+		}
+	}
+	t.Errorf("compliance column %q names no known level; F-13's ordering cannot be checked "+
+		"against a value nothing can compare", s)
+	return -1
+}
+
+var mechanismRow = regexp.MustCompile(`(?m)^\|\s*(\d+)\s*\|\s*(T\d+)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*$`)
+
+// mechanismsInOrder reads the ordering table. ⚠ THE UNIVERSE IS THE TABLE: a
+// mechanism added to the record joins every check below on the same commit, which
+// a list repeated in this file would not.
+func mechanismsInOrder(t *testing.T) []mechanism {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join(adr041TasksDir, "README.md"))
+	if err != nil {
+		t.Fatalf("read the task index: %v", err)
+	}
+	body := string(raw)
+	i := strings.Index(body, "The mechanism ordering, recorded before any of them ships")
+	if i < 0 {
+		t.Fatal("tasks/README.md carries no mechanism-ordering section — F-13 requires the order " +
+			"to be recorded BEFORE any mechanism ships, so that it cannot be rearranged " +
+			"afterwards to fit whichever one happened to work")
+	}
+	rest := body[i:]
+	if j := strings.Index(rest, "\n## "); j > 0 {
+		rest = rest[:j]
+	}
+	var out []mechanism
+	for _, m := range mechanismRow.FindAllStringSubmatch(rest, -1) {
+		n, err := strconv.Atoi(m[1])
+		if err != nil {
+			continue
+		}
+		out = append(out, mechanism{order: n, task: m[2], name: m[3], compliance: m[4]})
+	}
+	if len(out) < 2 {
+		t.Fatalf("found %d mechanisms in the ordering table; an ordering of fewer than two is "+
+			"not an ordering and every check below would pass vacuously", len(out))
+	}
+	return out
+}
+
+var indexRow = regexp.MustCompile(`(?m)^\|\s*(T\d+)\s*\|\s*([^|]+?)\s*\|\s*([a-z]+)\s*\|`)
+
+// taskStatus reads the Task Index table: task id → recorded status.
+func taskStatus(t *testing.T) map[string]string {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join(adr041TasksDir, "README.md"))
+	if err != nil {
+		t.Fatalf("read the task index: %v", err)
+	}
+	out := map[string]string{}
+	for _, m := range indexRow.FindAllStringSubmatch(string(raw), -1) {
+		out[m[1]] = m[3]
+	}
+	if len(out) == 0 {
+		t.Fatal("no task rows parsed from the index — these checks would pass vacuously")
+	}
+	return out
+}
+
+// taskFile returns a mechanism task's record.
+func taskFile(t *testing.T, id string) (string, string) {
+	t.Helper()
+	entries, err := os.ReadDir(adr041TasksDir)
+	if err != nil {
+		t.Fatalf("read tasks dir: %v", err)
+	}
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), id+"-") {
+			raw, err := os.ReadFile(filepath.Join(adr041TasksDir, e.Name()))
+			if err != nil {
+				t.Fatalf("read %s: %v", e.Name(), err)
+			}
+			return e.Name(), string(raw)
+		}
+	}
+	t.Fatalf("the ordering table names %s but no task file starts with %s- — the record points "+
+		"at a plan that does not exist", id, id)
+	return "", ""
+}
+
 func TestF8AddedProtocolTextIsNotAMechanism(t *testing.T) {
-	t.Fatalf(notYetBuilt, "F-8 (T6, and UC2-S2): a paragraph added to a document the agent already "+
-		"receives in full is rejected as a mechanism, citing ADR-017")
+	name, body := taskFile(t, "T6")
+	// T6 is the one candidate that IS added protocol text. F-8 says such a
+	// paragraph is not a mechanism, and the reason is measured rather than
+	// asserted — ADR-017 delivered the whole protocol to a subagent and got 0
+	// recalls in 5 dispatches, while one short paragraph got 5. So the record has
+	// to carry that citation, or the next reader re-argues it from taste.
+	if !strings.Contains(body, "ADR-017") {
+		t.Errorf("%s does not cite ADR-017. F-8 rejects added protocol text as a mechanism on "+
+			"MEASURED grounds; without the citation the rejection reads as an opinion", name)
+	}
+	if !strings.Contains(body, "F-8") {
+		t.Errorf("%s does not name F-8, so nothing records that the constraint was applied to "+
+			"the one task it constrains", name)
+	}
 }
 
 func TestF9OneMechanismPerMeasurementWindow(t *testing.T) {
-	t.Fatalf(notYetBuilt, "F-9 (T3, and UC3-S1): ship one at a time, lowest compliance-dependence "+
-		"first")
+	status := taskStatus(t)
+	var shipped []string
+	for _, m := range mechanismsInOrder(t) {
+		if status[m.task] == "done" {
+			shipped = append(shipped, m.task)
+		}
+	}
+	if len(shipped) > 1 {
+		t.Errorf("%v are all recorded done. F-9 allows ONE mechanism per measurement window: "+
+			"two shipped into the same window make the delta unattributable, which is the "+
+			"whole reason the window exists", shipped)
+	}
 }
 
 func TestF10EveryResultIsRecordedEitherWay(t *testing.T) {
-	t.Fatalf(notYetBuilt, "F-10 (T3, and UC3-S2): a delta inside the instrument's resolution is "+
-		"recorded as NOT SHOWN TO WORK, never as directionally correct")
+	status := taskStatus(t)
+	dated := regexp.MustCompile(`(?m)^## .*\b20\d\d-\d\d-\d\d\b`)
+	for _, m := range mechanismsInOrder(t) {
+		st := status[m.task]
+		if st == "" || st == "pending" {
+			continue
+		}
+		name, body := taskFile(t, m.task)
+		if !dated.MatchString(body) {
+			t.Errorf("%s is recorded %q but its file carries no dated outcome section. F-10 "+
+				"requires the result to be written whichever way it fell — a mechanism that "+
+				"was tried and abandoned teaches the next one, and an unrecorded attempt "+
+				"gets made again", name, st)
+		}
+	}
 }
 
 func TestF12EachMechanismNamesTheFailureItAddresses(t *testing.T) {
-	t.Fatalf(notYetBuilt, "F-12 (T3-T5): a mechanism that cannot name the distinct failure it "+
-		"addresses is not a candidate")
+	for _, m := range mechanismsInOrder(t) {
+		name, body := taskFile(t, m.task)
+		if !strings.Contains(body, "distinct failure this addresses (F-12)") {
+			t.Errorf("%s does not name the distinct failure it addresses. F-12 makes that the "+
+				"entry condition for being a candidate at all: a mechanism that cannot say "+
+				"which failure it fixes cannot be judged to have fixed it", name)
+		}
+	}
 }
 
 func TestF13MechanismsAreOrderedByComplianceDependence(t *testing.T) {
-	t.Fatalf(notYetBuilt, "F-13 (T3): the ordering is recorded BEFORE any of them ships")
+	ms := mechanismsInOrder(t)
+	prev := -1
+	for i, m := range ms {
+		if m.order != i+1 {
+			t.Errorf("mechanism %s sits at order %d, expected %d — the ordering table has gaps "+
+				"or repeats, so it does not record an order", m.task, m.order, i+1)
+		}
+		rank := complianceRank(t, m.compliance)
+		if rank < prev {
+			t.Errorf("%s (%s) depends on compliance MORE than the mechanism before it. F-13 "+
+				"orders them least-dependent first, so that a failure early in the sequence "+
+				"cannot be explained away as the agent declining to comply", m.task, m.compliance)
+		}
+		if rank >= 0 {
+			prev = rank
+		}
+	}
 }
 
 // notYetBuilt is the shape of a spec binding that has not been executed.
