@@ -26,7 +26,7 @@ Run the eval four times, at case counts and on categories fixed before the run, 
 
 1. Re-run T1's and T2's acceptance commands and confirm both are green. A table taken through an instrument that has not passed its own tests is not evidence.
 2. Build the eval binary once, from a clean tree: `docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'go build -o /src/bin/agentsmemory ./cmd/server'`. All four runs use that one binary, so `vcs.revision` is the same in all four records. `go run` carries no VCS stamp and the gate below rejects a record without one.
-3. Name the mined wing once — the wing `mine-claude` writes into on this palace — and export it as `MINED_WING`. Every mined run uses that value; a run whose `wing` field disagrees with its sibling is not the same corpus.
+3. **Mine into a declared example wing, do not use the derived one.** Run `mine-claude --wing wing_acme` (the explicit flag wins over the wing derived from each session's working directory, `clients/claude-code/mineclaude.go:318`), then `export MINED_WING=wing_acme`. Both mined runs use that value; a run whose `wing` field disagrees with its sibling is not the same corpus. The derived wing is named after a real project and its `cells.json` cannot be committed — see the ⚠ bullet under Risks for why this step reads the way it does, and for what forcing one `--wing` deliberately mixes.
 4. Run the four evals. `--n` is fixed by the ADR before the run and is not adjusted afterwards:
    ```bash
    E=docs/adr/ADR-003-retire-the-closet-prior/evidence
@@ -62,21 +62,23 @@ docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v 
 
 - The curated wing is small (~103 drawers), so its cells may fall below their floors. That is recorded as `n/a` by Table 2's rules and changes only what T5 documents; it must not be written up as support for the prior.
 - The `real` category depends on recorded traffic and has been as small as n=4. Its floor (10 admitted cases) is in the ADR, so a small `real` run is a recorded `n/a`, not an argument.
-- A palace changes between runs — memories get filed, sources re-mined. Run the four back to back, and record the drawer count each `cells.json` reports so a corpus that moved mid-measurement is visible.
-- ⚠ **THIS TASK CANNOT NAME ITS OWN CORPUS ON A REAL PALACE, and two repo rules collide over it.**
-  Step 3 says to name the mined wing and use it in all four runs, and `writeCells`
-  (`cmd/server/eval.go`) puts `"wing": meta.Wing` into the `.cells.json` — the file step 5 commits.
-  But `mine-claude` derives a wing from each session's working directory, so on a real palace the
+- A palace changes between runs — memories get filed, sources re-mined. Run the four back to back. `corpus_drawers` in each `cells.json` is the SAMPLE size, capped by `--n` (and under `--style real` it counts queries, not drawers), so it shows a corpus that moved only when the corpus fell below `--n`. For anything else, take the wing's drawer count separately and put it in `evidence/README.md`.
+- ⚠ **TWO OF THE FOUR RUNS CANNOT NAME THEIR OWN CORPUS ON A REAL PALACE, and two repo rules
+  collide over it.** Step 4's two `--wing "$MINED_WING"` runs are the affected ones; the two
+  curated runs name `wing_agentmemories`, which is a declared example
+  (`internal/repohygiene/hygiene_test.go:263`) and commits as-is. `writeCells`
+  (`cmd/server/eval.go`) puts `"wing": meta.Wing` into every `.cells.json` — the file step 5 commits.
+  `mine-claude` derives a wing from each session's working directory, so on a real palace the
   mined wing is named after somebody's project, and `TestNoRealProjectNamesInWings`
   (`internal/repohygiene/hygiene_test.go:297`) fails on any `wing_*` in any tracked textual file that
   is not a declared example. Verified 2026-08-28 by planting
   `{"wing":"wing_<a real project>"}` in this evidence directory: the gate went red naming the file.
-  So the run completes and its evidence cannot be committed.
+  So those two runs complete and their evidence cannot be committed.
 
   This is the gate working, not a bug in it. **And the executor does not need a decision to get
   past it:** `mine-claude` takes an explicit `--wing` that wins over the derived name
-  (`clients/claude-code/mineclaude.go:318`), and `wing_acme` / `wing_alpha` are already declared
-  examples (`internal/repohygiene/hygiene_test.go:258`), so evidence mined into one of those commits
+  (`clients/claude-code/mineclaude.go:318`), and `wing_acme` (`hygiene_test.go:258`) and
+  `wing_alpha` (`:264`) are already declared examples, so evidence mined into either of them commits
   as-is. That also supplies the single mined corpus `--n 80` needs, since forcing one `--wing` mines
   every session into one wing — the two problems have one solution.
 

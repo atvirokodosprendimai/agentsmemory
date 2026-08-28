@@ -1695,10 +1695,13 @@ func buildStamp() (commit string, dirty bool) {
 //
 // ⚠ `wing` IS THE EXCEPTION THAT CARRIES AN IDENTITY, and the rule above
 // overstated itself until this was written down. It is not the only palace-derived
-// field — `corpus_drawers` is `len(drawers)` from the sampled palace — but a size
-// discloses no identity, and T3's own Risks require it recorded so a corpus that
-// moved mid-measurement is visible. The wing is different in kind: it names a
-// project. The wing name is an operator input rather than palace content,
+// field — `corpus_drawers` is a SAMPLE SIZE rather than a corpus size: it is
+// `len(drawers)` capped by `--n` (`SampleDrawers(…, c.Int("n"))`), and under
+// `--style real` it is not drawers at all but `len(queries)`. So it does not tell
+// a reader how big the palace was, and it cannot show a corpus that moved
+// mid-measurement unless the corpus fell BELOW `--n`. It is recorded because a
+// run that sampled fewer items than it asked for is worth seeing; a size discloses
+// no identity either way. The wing is different in kind: it names a project. The wing name is an operator input rather than palace content,
 // but it NAMES A PRIVATE PROJECT: `mine-claude` derives a wing from a session's
 // working directory, so on a real palace it is somebody's project name, and this
 // record is committed. `TestNoRealProjectNamesInWings` catches it — verified

@@ -1417,7 +1417,7 @@ defect `SupersessionGatedArmFor`'s doc comment says "is how the gate judged a pi
 Neither is a bug in shipped behaviour. Both are gates weaker than their names, which is the
 condition this repository's checks exist to remove.
 
-## ADR-003 T3 cannot commit its own evidence — 2026-08-28
+## ADR-003 T3's two mined runs cannot commit their evidence under the derived wing — 2026-08-28
 
 Found while starting T3, before any eval was run.
 
@@ -1440,8 +1440,8 @@ rule.
 
 **Option 1 needs no decision and is now written into T3.** `mine-claude` takes an explicit `--wing`
 that wins over the derived name (`clients/claude-code/mineclaude.go:318`), and `wing_acme` /
-`wing_alpha` are declared examples (`internal/repohygiene/hygiene_test.go:258`), so evidence mined
-into one commits as-is. It also supplies the single mined corpus `--n 80` needs, because forcing one
+`wing_alpha` are declared examples (`internal/repohygiene/hygiene_test.go:258` and `:264`), so
+evidence mined into either commits as-is. It also supplies the single mined corpus `--n 80` needs, because forcing one
 `--wing` mines every session into one wing. ⚠ That mixing is deliberate: `mineclaude.go:435-437`
 refuses `$AGENTSMEMORY_WING` for exactly this reason, so `--wing` opts into it — a judgement T3 now
 makes rather than leaving to the executor.
@@ -1450,8 +1450,11 @@ makes rather than leaving to the executor.
 already does for questions (preserves step 3's sibling check, discloses nothing); or drop the field
 and replace the check. Either changes what a published record means.
 
-**T3 is blocked on this**, not on the eval itself. The four runs also need a mined wing with enough
-drawers for `--n 80`, which this local palace may not have — check before building the binary.
+**T3 is NOT blocked on this any more** — that was the entry's own earlier reading, and Option 1
+retires it. What survives is a precondition rather than a block: `mine-claude --wing wing_acme` has
+to have run over enough sessions that the forced wing holds ≥80 drawers before the `--n 80` run
+means anything. Check that before building the binary. Only the hash-or-drop options still need the
+ADR owner, and neither gates T3.
 
 ## Four spellings of one entry point, and the served document teaches a fifth — 2026-08-28
 
