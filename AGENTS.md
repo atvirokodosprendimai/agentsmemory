@@ -322,7 +322,12 @@ hint offered `decision <ship|withdraw>`, two values, and the run reached a third
 `ship`, `withdraw` or `blocked` and requires the sibling README to carry the status
 it maps to. `TestASignOffThatSaysStopIsCaught` drives the same function over
 fixtures that are wrong, sharing the comparison rather than copying it — the first
-draft reimplemented it, and severing the real check then left the subtest green.
+draft reimplemented it, and severing the real check then left the subtest green. The same shape
+recurred one file over: `TestAHumanObservedSignOffAgreesWithTheIndex`'s first version pinned only its
+comparison helper, so severing the CALL to it left the suite at exit 0 while the gate printed that
+every sign-off agreed with its index — over a corpus where one did not. Both now route the verdict
+through a `testing.TB` the falsifiability half substitutes, which is the only form that catches a
+severed call site.
 
 The same principle covers the gates already in the tree: `internal/doclint`
 (a doc comment must document the declaration it sits on), `TestEveryDeclaredArmIsRegistered`

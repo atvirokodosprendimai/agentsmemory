@@ -104,7 +104,10 @@ not just this task"* and *"a gate that cannot fail authorises T4–T6 on a verdi
 nothing"*; its **Out of Scope** says T4/T5/T6 start only *"until this task's log holds a `ship`
 sign-off"*. The stop is stated three times in three sections and read by nothing.
 
-**The cause, verified in source** (`bin/adr-next:96-106`, identical in 2.19.0/2.21.0/2.23.0):
+**The cause, verified in source** (`bin/adr-next:96-106`; read on the authoring machine's plugin
+cache, where `adr-lint` on `PATH` resolves to 2.23.0 and the 2.19.0 and 2.21.0 copies present there
+are byte-identical here — ⚠ a reviewer carrying only one of those can confirm that one, and 2.19.0
+is the version everybody has):
 
 ```python
 VLOG_HUMAN_RE = re.compile(r"^- \d{4}-\d{2}-\d{2} · human-observed · .+$")
@@ -125,10 +128,24 @@ explicitly (`evidenced_task_ids`: `if inf.get("human"): continue`).
 free text because there was nowhere else for it to go.
 
 `TestAHumanObservedSignOffAgreesWithTheIndex` (`internal/repohygiene/humansignoff_test.go`) now
-requires every human sign-off to name its outcome from `ship` / `withdraw` / `blocked`, and requires
-the sibling README to carry the status that outcome maps to (`done` / `failed` / `blocked`). It
-derives its universe from the corpus — one human-observed task in 94 today, and the single use of
-the feature was the failure case. ADR-001 T3's row now reads `blocked`.
+requires every human sign-off to name its outcome from `ship` / `withdraw` / `blocked`, requires the
+sibling README to carry the status that outcome maps to (`done` / `failed` / `blocked`), and requires
+the task's own acceptance section to OFFER all three — because the defect was a template prescribing
+two values, and a gate demanding three beside a template offering two reproduces the dead end for
+the next operator. It derives its universe from the corpus. ADR-001 T3's row now reads `blocked` and
+its hint reads `decision <ship|withdraw|blocked>`.
+
+**And this is a class rather than a one-off, which answers "why gate for a single case".** ADR-004's
+supersession gate reached the identical third state on 2026-08-24 — recorded in the palace as
+*"REFUSED — NOT 'no' … the gate could not answer. Those are different facts"* — a run that completed,
+produced a third outcome, and had two slots to record it in. Issue #34 has been open on that
+ambiguity since, before this finding existed. Two ADRs, two routes, one missing value.
+
+⚠ **`blocked` now carries three meanings across three tools**, and `statusForDecision`'s doc comment
+is where that is written down: `adr-next --all` prints it for a task whose DEPENDENCIES are unmet,
+`adr-lint:636-646` treats it as externally blocked with a green fence, and this gate means the task
+RAN and its verdict was stop. No task is in two of those states today, so nothing conflicts — but a
+reader comparing tools should know the word is overloaded.
 
 ⚠ **What this does NOT fix, stated plainly: `adr-next` still prints `done T3` / `READY T1`.** The
 gate makes the corpus self-consistent and makes a future divergence fail a command; it cannot change
@@ -139,9 +156,12 @@ because where the two disagree the task files are supposed to win.
 **Still open for the harness owner:** count a human-observed entry as done only when it names a
 success outcome, and report a recorded stop as `blocked` rather than `done`. That is a four-line
 change to `is_done` plus a vocabulary. It shares the externality question with the entry *"The ADR
-evidence chain depends on a tool outside the repository"*, and with the `Depends-on` limitation
-filed under *"adr-lint cannot express a cross-record dependency"* — three findings now, all in the
-same tool, which is itself an argument the vendoring option deserves a decision.
+evidence chain depends on a tool outside the repository"*, which resolves in this file today. ⚠ The
+`Depends-on` limitation is a third finding in the same tool, but it lands with PR #91 and is NOT in
+this file yet — an earlier version of this sentence cited it by a heading that exists only in this
+paragraph, which is the pointer-to-nothing failure the corpus keeps producing. Once #91 merges,
+three findings in one external tool is itself an argument that the vendoring option deserves a
+decision.
 
 **Not taken here, because it is the owner's:** ADR-001 is `Accepted` and its own T3 said to stop the
 ADR. Whether that means re-running T3 against a corpus that is not saturated, or withdrawing the
