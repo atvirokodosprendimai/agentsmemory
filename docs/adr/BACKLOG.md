@@ -1578,10 +1578,26 @@ A third option was listed here before the warning shipped and is dropped on purp
 forgotten: **have `--socket` refuse to install hooks it knows cannot work.** The warning does the
 same job without the cost — a refusal removes every hook from a socket install, so an operator
 who wanted the MCP over a socket silently loses capabilities that have nothing to do with the
-transport — **six registered events** (Stop, SessionStart×2, SubagentStart, SubagentStop,
-SessionEnd, `installer.go:960-1005`) across **five** of the six scripts in `hooks/`; the sixth,
-`agentsmemory-stats.sh`, is SOURCED by the session-end hook rather than registered, so calling it a
-hook is loose. All of them contact the server, so the argument is if anything understated. Saying so and installing them is strictly more
+transport. On a Claude install that is **six registered events** (Stop, SessionStart×2,
+SubagentStart, SubagentStop, SessionEnd, `installer.go:960-1005`) across **five** of the six scripts
+in `hooks/`; the sixth, `agentsmemory-stats.sh`, is SOURCED by the session-end hook rather than
+registered, so calling it a hook is loose. ⚠ Six is CLAUDE-ONLY: `hookPlans` returns after the Stop
+plan for any other kit (`installer.go:963-965`), so a codex `--socket` install registers one event
+and pi registers none.
+
+Four of the five contact the server. `agentsmemory-subagent-start-hook.sh` deliberately does not —
+it reads stdin, `$AGENTSMEMORY_WING` and `.aiagentmemory`, then prints a fixed JSON envelope, with
+"no dependency on the binary, the server, or the network" and "deliberately NOT `am_status`: that is
+a network call on the dispatch path" in its own comments (`:39`, `:52`). Verified: no `curl`, no
+`http`, no invocation of the binary anywhere in it.
+
+**That hook is the argument, not an exception to it.** An earlier version of this paragraph said
+"all of them contact the server, so the argument is if anything understated" — which asserts every
+hook IS transport-coupled and therefore CONCEDES the premise it was meant to reinforce. The cleanest
+instance of a capability a `--socket` refusal would take away for no transport-related reason is the
+one hook that needs no transport at all. (`agentsmemory-stop-hook.sh` is a partial second: its
+primary job is the exit-2 persist nudge, which needs no server; the `/stats` call is an explicit
+optional extra, `:137`.) Saying so and installing them is strictly more
 recoverable than not installing them. Named here so the next reader does not re-propose it as new.
 
 **Whatever is chosen, the check must drive a GENERATED hook against a socket-only server.** The
