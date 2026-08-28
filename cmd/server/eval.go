@@ -1689,9 +1689,29 @@ func buildStamp() (commit string, dirty bool) {
 // repository, the palace it measures is private, and the case files and results
 // that DO hold queries and drawer ids stay untracked beside it.
 //
-// The case-set id is the one entry derived from palace content, and it is
-// admissible because it is a one-way hash: it identifies a question set to
-// anyone who already holds it and discloses nothing to anyone who does not.
+// The case-set id is admissible for that reason: it is a one-way hash, so it
+// identifies a question set to anyone who already holds it and discloses nothing
+// to anyone who does not.
+//
+// ⚠ `wing` IS THE EXCEPTION THAT CARRIES AN IDENTITY, and the rule above
+// overstated itself until this was written down.
+//
+// It is not the only palace-derived field. `corpus_drawers` is a SAMPLE size, not
+// a corpus size: `len(drawers)`, bounded by `--n` AND by how many distinct
+// `source_file` values the over-fetch reached, because ListRandom keeps at most
+// one drawer per source (repo.go:797). Under `--style real` it is not drawers at
+// all but `len(queries)`. It says how many items this run took and nothing about
+// how big the palace is. A size discloses no identity either way.
+//
+// The wing is different in kind: it names a project. The name is an operator
+// input rather than palace content, but it NAMES A PRIVATE PROJECT: `mine-claude` derives a wing from a session's
+// working directory, so on a real palace it is somebody's project name, and this
+// record is committed. `TestNoRealProjectNamesInWings` catches it — verified
+// 2026-08-28 by planting one in an evidence file and watching the gate go red —
+// which means an eval over a real mined wing produces evidence that cannot be
+// committed. ADR-003 T3 needs the field to prove two mined runs share a corpus,
+// so removing it removes a check; the tradeoff is filed in BACKLOG.md rather
+// than settled here.
 func writeCells(path string, report palace.EvalReport, meta caseFileMeta, cfg cellsConfig) error {
 	commit, dirty := buildStamp()
 

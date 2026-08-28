@@ -1492,6 +1492,67 @@ defect `SupersessionGatedArmFor`'s doc comment says "is how the gate judged a pi
 Neither is a bug in shipped behaviour. Both are gates weaker than their names, which is the
 condition this repository's checks exist to remove.
 
+## ADR-003 T3's two mined runs cannot commit their evidence under the derived wing — 2026-08-28
+
+Found while starting T3, before any eval was run.
+
+T3 step 4 runs four evals, and `$MINED_WING` appears in TWO of them (`T3:33-34`); the other two name
+`wing_agentmemories`, itself a declared example, and commit as-is. `writeCells` (`cmd/server/eval.go`)
+writes `"wing": meta.Wing` into the `.cells.json`, which step 5 commits. But `mine-claude` derives a
+wing from each session's working directory (`clients/claude-code/mineclaude.go:318`), so on a real
+palace the mined wing is named after somebody's project — and `TestNoRealProjectNamesInWings`
+(`internal/repohygiene/hygiene_test.go:297`) fails on any `wing_*` in any textual file the walk reaches — the filesystem minus `.gitignore`
+(`hygiene_test.go:303`), NOT `git ls-files` — unless the name is a declared example.
+
+**Verified 2026-08-28**: planting `{"wing":"wing_<a real project>"}` in
+`docs/adr/ADR-003-retire-the-closet-prior/evidence/` turned the gate red, naming the file. Removed
+immediately; nothing was committed and no `.cells.json` is tracked today, so nothing has leaked.
+
+**The gate is right.** The conflict is that T3 leans on the `wing` field to prove two mined runs share
+one corpus, so dropping it removes a real check, while keeping it makes the evidence uncommittable.
+`writeCells`'s own doc comment claimed the record "must carry nothing that came out of the palace" —
+which the `wing` field contradicted; the comment now names the exception rather than overstating the
+rule.
+
+**Option 1 needs no decision and is now written into T3.** `mine-claude` takes an explicit `--wing`
+that wins over the derived name (`clients/claude-code/mineclaude.go:318`), and `wing_acme` /
+`wing_alpha` are declared examples (`internal/repohygiene/hygiene_test.go:258` and `:264`), so
+evidence mined into either commits as-is. It also supplies the single mined corpus `--n 80` needs, because forcing one
+`--wing` mines every session into one wing. ⚠ That mixing is deliberate: `mineclaude.go:435-437`
+refuses `$AGENTSMEMORY_WING` for exactly this reason, so `--wing` opts into it — a judgement T3 now
+makes rather than leaving to the executor.
+
+**Options that DO need the owner:** replace the raw wing with a one-way hash, as `case_set_id`
+already does for questions (discloses nothing); or drop the field and replace the check. Either
+changes what a published record means.
+
+⚠ **Option 1 weakens the argument for keeping the field at all.** With `MINED_WING` pinned to the
+literal `wing_acme`, both mined records agree by construction, so "the `wing` field proves two runs
+share a corpus" now catches a typo and nothing else. The case for the status quo is thinner than
+this entry first stated it.
+
+**T3 is NOT blocked on this any more** — that was the entry's own earlier reading, and Option 1
+retires it. What survives is a precondition rather than a block.
+
+⚠ **And the precondition is counted in SOURCE FILES, not drawers — an earlier version of this
+paragraph said "≥80 drawers" and that is the wrong unit.** `ListRandom`
+(`internal/palace/repo.go:797`) over-fetches `limit*5` rows and keeps at most one drawer per
+`source_file`, on purpose: a mined session arrives as many chunk drawers sharing one source, and two
+eval cases from one session are not independent observations. So a wing holding 100 drawers across
+4 mined sessions yields **4** cases at `--n 80`, against D1's floor of 40 admitted cases
+(`ADR-003:93`) — and an executor who checked "≥80 drawers" would discover it after building the
+binary and running all four evals. `aiagentmemory mine-claude --wing wing_acme` has to have run over
+roughly 80 distinct mined session-parts, densely enough that a random `limit*5` over-fetch reaches
+80 of them.
+
+That the unit was wrong twice is itself the finding: **`SampleDrawers`/`ListRandom` had no test
+anywhere in the tree**, which is why two rounds of careful prose about `corpus_drawers` could both
+be wrong with every gate green. `TestSampleDrawersCountsSourcesNotDrawers`
+(`internal/palace/samplesize_test.go`) now pins it — mutant killed 2026-08-28 by disabling the
+dedup, which turns 2 of its 4 subtests red.
+
+Only the hash-or-drop options still need the ADR owner, and neither gates T3.
+
 ## Four spellings of one entry point, and the served document teaches a fifth — 2026-08-28
 
 **Fourth framing. The three before it each named a single CAUSE and each died to one more query;
