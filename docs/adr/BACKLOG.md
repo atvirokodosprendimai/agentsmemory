@@ -8,31 +8,59 @@ An entry leaves this file in one of two ways: it becomes an ADR, or it is re-tag
 `(permanent: <why>)` in its originating ADR because we decided it should never happen.
 
 
-## Cross-ADR ordering is unenforceable by this repository — 2026-08-28
+## adr-lint cannot express a cross-record dependency — 2026-08-28
 
-`adr-lint` builds its task DAG from `Depends-on` and `Consumes` **within one record**. It cannot see
-an edge between two ADRs, and it is not ours to change: it lives in the harness
-(`quality-harness/bin/adr-lint`), not in this tree.
+**The general finding stands; the instance I filed it with was refuted in review and is corrected
+below. Both halves are kept, because the way the instance was wrong is the more useful lesson.**
 
-**The live instance.** ADR-003's Decision states that ADR-002's normaliser comparison is read off
-exactly the sweep and adaptive arms the closet prior contaminates, so ADR-003 T3/T4 must land before
-ADR-002 T3 is measured. ADR-002 T3's header reads `Depends-on: T2` — no mention of ADR-003 — and
-`adr-next` reports it **ready** today. An executor who trusts the tooling runs it in the wrong order,
-takes evidence on a closet-ON pipeline while production ends up closet-OFF, and every gate stays
-green.
+**The limitation, verified in `quality-harness 2.21.0`.** It is stronger than "the DAG cannot see
+these edges" — the schema forbids writing one:
 
-**Half of this is now closed, and it is the half that lives here.** The constraint is written into
-ADR-002 T3's own Risks, where the executor reads it, with the check to run first (ADR-003 T3 and T4
-both `done` — both are `pending`, and T3 is itself blocked). That is the same move as the socket
-warning: when the mechanism cannot be enforced, put the fact where the reader already is.
+- `bin/adr-lint:272-276` validates every `Depends-on` entry against `all_stems`, the SIBLING task
+  files of that ADR, and emits *"Depends-on 'X' matches no sibling task file"*. So a cross-record
+  dependency is a hard lint error: the field designed to carry the constraint refuses it.
+- `bin/adr-next:136-160` builds the same edge set filtered to `if d in infos`, this ADR's tasks
+  only. A foreign T-id is discarded silently. Its docstring says this is deliberate — *"Same edge
+  set as adr-lint's DAG, so readiness here cannot disagree"*.
+- The failure direction is what matters: **an unseen edge reads as NO edge**, so `adr-next` prints
+  `ready` rather than `unknown`.
 
-**The other half is a harness change** — teach the DAG to resolve a `Depends-on` that names another
-record, or give a task a first-class cross-record prerequisite. Worth raising with the harness owner;
-the failure mode is general, not specific to these two ADRs.
+In this corpus **41 of 94 task files (44%) reference a foreign ADR** across 44 distinct pairs. Not
+all imply ordering, but none of them can be represented.
 
-⚠ **Prose in record A cannot govern record B.** ADR-003 states the constraint and ADR-002 executes
-the task, so the only reader who needs it is the one least likely to open ADR-003. Anywhere this
-pattern recurs, restate the constraint in the record that will be executed.
+**⚠ THE INSTANCE I USED WAS WRONG, and it is worth reading before reusing this entry.** I claimed
+ADR-002 T3 was gated on ADR-003 T3/T4, quoting ADR-003's Decision. That sentence sits inside a
+paragraph opening *"an earlier draft of this ADR was wrong"* (`ADR-003:68`) — it is **subjunctive**,
+describing a hazard that draft *would have* created and which the accepted design removed at source
+in **T1**, which is `done`. Four things say so, three of them pre-existing in files the change
+touched:
+
+- `T3-measure-both-normalizers.md:11-18` — *"the confound the control existed for is gone rather
+  than being controlled for"*, 55 lines above where I added the contradiction.
+- `ADR-014:51-53` and `BACKLOG.md:690` — T3 is *"a check on a shipped default rather than a gate
+  before one"*; the flip already happened, and `internal/config/config.go:374` ships
+  `ClosetBoost: 0`.
+- `ADR-002:157` — record B **already carried its own constraint**, and carried it better: scoped to
+  T4 alone and stated as a conditional, *"If T4 ships closet-ON after all"*. T4 shipped closet-OFF,
+  so the condition never fired.
+
+That last one cuts at the thesis I was arguing. I wrote that the constraint "exists only in ADR-003's
+prose"; ADR-002 had it, correctly, all along.
+
+**What survives, and it is not nothing.** Two rules, both earned here:
+
+1. **A quotation carries its mood.** Lifting a sentence out of a subjunctive paragraph turns a hazard
+   that was designed out into one that is live. Before citing a record's Decision, read the sentence
+   that opens its paragraph.
+2. **A record that states a cross-record constraint should state it as a CONDITION with its
+   trigger**, the way `ADR-002:157` does — not as a standing prerequisite. A conditional expires
+   visibly when its condition resolves; a prerequisite has to be remembered and retired by hand, and
+   nobody does.
+
+**Still open for the harness owner** (a different project, not ours to change): let `Depends-on`
+name a qualified foreign task, resolve it against the corpus, and make `adr-next` report
+`blocked: cannot evaluate X` rather than `ready` for an edge it could not evaluate. Cycle checking
+would then need to run over the union rather than per record.
 
 ## ADR-041 T2 — the recall-before-assertion baseline, measured 2026-08-28
 

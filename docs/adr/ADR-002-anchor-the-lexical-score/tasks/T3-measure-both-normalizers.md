@@ -64,21 +64,6 @@ docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v 
 
 ## Risks
 
-- ⚠ **THIS TASK HAS A CROSS-ADR PREREQUISITE THAT NO GATE CAN SEE.** ADR-003's Decision states that
-  this normaliser comparison is read off exactly the sweep and adaptive arms the closet prior
-  contaminates, so **ADR-003 T3/T4 must land before this measurement is taken** — otherwise the
-  evidence is gathered on a closet-ON pipeline while production ends up closet-OFF.
-
-  `adr-lint` builds its task DAG from `Depends-on` and `Consumes` **within one record** and cannot
-  see an edge between two ADRs. This task's own header reads `Depends-on: T2`, and `adr-next`
-  reports it ready today. So an executor who trusts the tooling runs it in the wrong order, takes
-  contaminated evidence, and **every gate stays green** — the constraint exists only in ADR-003's
-  prose and in this paragraph.
-
-  Check before running: ADR-003 T3 and T4 must both be `done` in
-  `docs/adr/ADR-003-retire-the-closet-prior/tasks/README.md`. Both are `pending` as of 2026-08-28,
-  and T3 is itself blocked. Teaching a gate to see cross-record edges belongs to the harness that
-  owns `adr-lint`, not to this repository; filed in `BACKLOG.md`.
 
 
 - A reranker outage mid-run degrades the reranked arms and `EvalReport.Warnings` records it; step 4 turns that from a thing to remember into a thing the gate refuses. Re-run instead.
