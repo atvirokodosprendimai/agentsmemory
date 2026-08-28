@@ -95,3 +95,4 @@ Stop if fewer than `supersessionMinCases` verified, non-vacuous pairs exist once
   the fence passed with the mechanism broken
   ```
 - 2026-08-28 · f1b7b0e* · mutant killed · exit 1 · `internal/palace/evalstats.go` · two defensible treatments of an unretrieved correction that DISAGREE must resolve to unresolved, not to whichever one was computed first — a gate that picks a side silently reports a verdict the evidence does not support · acceptance-sha256:1eb71064269a5192b2883e619203fcc25753f032f52eed87f9146683c046348b
+- 2026-08-28 · 6cab8e5 · mutant killed · exit 1 · `internal/palace/evalstats.go` · naming the nearest arm where none reconstructs the served ranking — the defect that survived this fence until it selected the gatedArm tests · acceptance-sha256:22e0cfc1f6908bda8c6f02977a6243837959d60ab0122c9fa5959e53ee0edf85
