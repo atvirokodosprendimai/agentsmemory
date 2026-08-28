@@ -200,10 +200,20 @@ useless: it restores exactly what compaction removed. The hook was shipped, mark
 three killed mutants — none of which could see this, because they all asked whether it *spoke*, not
 whether what it said was worth reading.
 
-**Fixed:** `room=decisions` and `max_distance=0.42`, both measured rather than chosen. The floor is
+**Fixed:** `room=decisions` and `max_distance=0.42`. The floor is
 a trade, not a boundary — the two classes overlap around 0.41–0.44 — set to exclude all 25 measured
 bare-identifier queries while keeping question-grade hits. On a weak query the hook now returns
 nothing and stays quiet, which is F-6 working.
+
+> ⚠ **Corrected 2026-08-28, same day, PR #95 — `room=decisions` was NOT measured, and this record
+> said it was.** Only the FLOOR was measured against the 25 bare-identifier queries; the room was
+> chosen by argument (scope away the transcript chunks) and never compared against the alternatives.
+> The row above recording `room=decisions` at floor 0.42 returning *"nothing; the hook stays silent"*
+> is labelled **F-6 working** here and it is not: it is the hook being mute, and it stayed mute on
+> every branch whose work was filed anywhere but `decisions`. The shipped room is now `diary`, on the
+> argument that a branch+files query asks "what was done here and why" and `diary` is where the
+> persist step writes that. See the hook's own comment for the evidence and for why the hit-COUNT
+> version of that argument does not survive a growing corpus.
 
 **The mutant needed the stub to assert the invocation.** These flags are arguments, not branches, so
 no assertion on the hook's output can see them: a stub that ignores its arguments returns a hit

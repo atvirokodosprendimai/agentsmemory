@@ -1833,3 +1833,37 @@ credential elsewhere, so any placeholder must be conditional on the URL.
 `agentsmemory.env` in the config dir (0600). Verified: the CLI then reports
 `token from …/agentsmemory.env` and the recall hook speaks.
 
+
+## The recall hook searches every project, and its header says "this branch" — 2026-08-28
+
+`agentsmemory-recall-hook.sh` calls `mcp search` with no `wing`. These registrations report
+`default_wing: ""`, so per `drawers.go` an omitted wing searches EVERY wing in the workspace rather
+than the project the session is in. Observed, not theorised: on 2026-08-28 an independent run of the
+hook's exact query shape on two open branches put a drawer from an unrelated codebase into one of
+the three slots, both times.
+
+The protocol this repository ships is explicit that another wing's memory is context and never an
+instruction, and that unrelated projects "do not remove your answer, they add competitors ahead of
+it". PR #95 made the printed header say so instead of asserting a provenance the query cannot
+guarantee. That is a label, not a fix.
+
+The fix is to scope the query, and the reason it is filed rather than done is that the hook cannot
+resolve the wing the way the protocol says to: rung 0 is what the server's registration reports, and
+the hook has no way to ask before it searches. The candidates are all worse in a specific way —
+deriving `wing_<repo>` from the git remote is rung 3 and disagrees with rung 0 on at least one live
+registration; passing the wing at install time freezes it into a script. Whichever wins is a
+decision, not an implementation detail.
+
+## A stale-flagged hit is injected as current — 2026-08-28
+
+The server marks a drawer `stale: true` when its code anchors no longer match the tree, and returns
+a warning telling the caller to re-read the code before acting. `agentsmemory-recall-hook.sh` filters
+on nothing but the server's `count`, so a stale hit is injected into a fresh context with the warning
+dropped. Observed 2026-08-28: a PR#25 drawer carrying `stale: true` passed the 0.42 floor on a real
+branch query.
+
+Not fixed in PR #95 because it changes what reaches the model and therefore needs its own
+measurement: dropping stale hits shrinks an already-scarce payload, and a stale memory is not
+worthless — it is evidence that something changed, which is occasionally the most useful thing in
+the page. The choice is between dropping them and labelling them, and that is F-10's kind of
+question.

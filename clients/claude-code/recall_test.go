@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -423,5 +424,59 @@ func TestNoCredentialIsSilentButABadOneSpeaks(t *testing.T) {
 	if !strings.Contains(out, "could not run") {
 		t.Errorf("a real failure was swallowed: %q\n"+
 			"Every failure looking like a clean empty recall is the defect this hook shipped once.", out)
+	}
+}
+
+// t4RecordPath is the record that owns the recall hook's shipped configuration.
+const t4RecordPath = "../../docs/adr/ADR-041-the-recall-that-does-not-depend-on-remembering/" +
+	"tasks/T4-recall-injection.md"
+
+// shippedRoomRE reads the ONE sentence in that record that names the room in a
+// machine-readable way. Prose around it may discuss any number of rooms — this is
+// the statement of what ships.
+var shippedRoomRE = regexp.MustCompile("The shipped room is now `([a-z_]+)`")
+
+// hookRoomRE reads the room the installed script actually asks for.
+var hookRoomRE = regexp.MustCompile(`-a room=([a-z_]+)`)
+
+// TestTheRecallHookAsksTheRoomItsRecordShips pins the room to the decision.
+//
+// ⚠ THIS IS THE RUNG THE STUB CANNOT REACH. TestF6AHookIsSilentInTheCommonCase
+// drives the hook through a stub whose matcher carries the same literal the hook
+// passes, so changing the room in both places keeps the suite green — verified by
+// an independent reviewer, who renamed `diary` to a room that does not exist in
+// both files and watched `go test ./...` exit 0. The room was wrong in production
+// for two repairs precisely because nothing outside the hook had an opinion about
+// it; the record does, so make the record the other end of the pin.
+//
+// Changing the room deliberately means changing the record's sentence too, which is
+// the change being reviewed rather than a line nobody reads.
+func TestTheRecallHookAsksTheRoomItsRecordShips(t *testing.T) {
+	script, err := assets.ReadFile("hooks/agentsmemory-recall-hook.sh")
+	if err != nil {
+		t.Fatalf("read embedded recall hook: %v", err)
+	}
+	asked := hookRoomRE.FindSubmatch(script)
+	if asked == nil {
+		t.Fatal("the recall hook passes no `-a room=` at all: unscoped, it recalls this " +
+			"session's own transcript chunks back into the context compaction just cleared")
+	}
+
+	record, err := os.ReadFile(t4RecordPath)
+	if err != nil {
+		t.Fatalf("read %s: %v", t4RecordPath, err)
+	}
+	shipped := shippedRoomRE.FindSubmatch(record)
+	if shipped == nil {
+		t.Fatalf("%s names no shipped room. The sentence \"The shipped room is now `<room>`\" is "+
+			"what pins the hook's room to a decision someone made; without it the hook's room is "+
+			"again a literal only the hook has an opinion about", t4RecordPath)
+	}
+
+	if string(asked[1]) != string(shipped[1]) {
+		t.Errorf("the recall hook asks room %q; %s says the shipped room is %q.\n"+
+			"  One of the two moved without the other. The room decides whether this hook can "+
+			"speak at all: `decisions` shipped for two repairs and was mute on every branch whose "+
+			"work was not filed there.", asked[1], t4RecordPath, shipped[1])
 	}
 }

@@ -54,7 +54,6 @@ func main() {
 		Commands: []*cli.Command{
 			installCommand(),
 			verifyCommand(),
-			doctorCommand(),
 			mineClaudeCommand(),
 			updateCommand(),
 			updateSkillCommand(),
