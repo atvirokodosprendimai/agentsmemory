@@ -429,6 +429,25 @@ splits the id that dedupes from the id that refers, so re-chunking no longer inv
 pointing at a drawer. It does NOT do the re-chunking; the open question it leaves is what happens to
 a reference pointing at a non-parent chunk that a re-chunk deletes. See `docs/adr/ADR-038-refer-by-the-id-and-end-instead-of-overwrite.md`.
 
+## `adr-next` announces a task the corpus records as impossible — 2026-08-28
+
+Scanned every ADR with a tasks directory, comparing what `adr-next --all` calls READY against the
+status its own `tasks/README.md` carries. **One live disagreement:** ADR-041 T3 is `blocked` in the
+README and READY to `adr-next`.
+
+The cause is that `adr-next` models two states — done and not-done — and derives done from a
+Verification Log entry whose `acceptance-sha256` matches the current fence. `blocked` is not a state
+it can represent, so a task recorded as impossible, with the evidence for that sitting in its own
+file, is announced as the next thing to do. T3's Stop Condition fired and was honoured; a session
+following the banner would rebuild against it.
+
+This is the same shape as the finding that 9 `done` tasks read as not-done for want of a digest, and
+it has the same consequence: **the corpus tells sessions to do work it has already settled.**
+
+`adr-next` is in quality-harness, not this repository, so this is filed under the entry below rather
+than fixed here. What IS repo-side, and is done: T3's stop is now a tool-written Verification Log
+entry rather than only prose, so the evidence chain carries it.
+
 ## The ADR evidence chain depends on a tool outside the repository
 
 Raised by review, and worth stating plainly rather than leaving implicit.

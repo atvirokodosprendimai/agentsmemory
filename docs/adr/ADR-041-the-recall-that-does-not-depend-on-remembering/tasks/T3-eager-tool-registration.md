@@ -117,3 +117,4 @@ Stop if the harness does not honour eager registration. Deferring the tool list 
 - Changing which tools exist
 
 ## Verification Log
+- 2026-08-28 · human-observed · STOPPED per this task's own Stop Condition, 2026-08-28: the harness defers EVERY MCP server regardless of size — a two-tool server is deferred — so eager registration is not the server's to perform and F-14 is not implementable as stated. decision blocked — the fact needs re-scoping or withdrawing by the owner, not an implementation. Evidence in this file's STOPPED section.
