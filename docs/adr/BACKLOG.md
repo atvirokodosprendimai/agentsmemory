@@ -113,6 +113,40 @@ different derivation, which is the only evidence any particular window is more t
 someone picked. `TestTheRecordedBaselineNamesTheVersionTheCodeStamps` pins the `classifier` row
 above to the constant the code stamps, so a future redefinition cannot ship without re-taking this.
 
+### T6's measurement window opened 2026-08-28
+
+T6 shipped — `serverInstructions` names the class of claim and carries no imperative — and was
+verified against the RUNNING server rather than the build log: the live handshake returns 1194 bytes
+carrying `WHAT SOURCE CANNOT SETTLE` and not `RECALL BEFORE YOU ACT`.
+
+**The before-state, re-taken with the shipped binary at the moment the window opened**, and it
+reproduces the baseline exactly, as it must — every transcript on disk predates T6 by minutes:
+
+| | |
+|---|---|
+| sessions with at least one assertion | 24 |
+| assertions | 341 |
+| preceded (since the last user turn) | 26 = **7.6%** |
+| made before ANY recall | 161 = 47.2% |
+| recall calls | 128 |
+| classifier | v3 |
+
+**The after-measurement does not exist and cannot be faked.** It needs real sessions run under the
+new handshake, and `minBaselineSessions = 20` is the floor. F-10 records the result whichever way it
+falls, including no effect.
+
+⚠ **AND THE STORE COULD NOT HAVE SEPARATED THE TWO WINDOWS.** Asked at the moment the window opened
+how the after-measurement would know which rows were after, the answer was: it would not. Every
+observation was UNDATED, so a store holding both windows answers "the rate over everything ever
+recorded" and nothing else — the delta F-10 requires is not computable from it. The whole
+before/ship-one/after design rested on a field that did not exist.
+
+`observed_at` (RFC3339 UTC) is on every observation now, pinned by
+`TestAnObservationCanBePlacedInAMeasurementWindow` with two mutants: the clock read from the wrong
+place, and a format nothing can parse. Additive, so `preceded_by_recall` and the v3 stamp are
+untouched. Rows written before today carry no `observed_at`, which is the correct reading — they are
+the pre-T6 window by construction.
+
 ### Superseded: the v2 baseline, 2026-08-28
 
 **27.6%** — of 221 no-change assertions across 46 sessions, 61 were preceded by a recall.

@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/urfave/cli/v3"
 )
@@ -135,6 +136,21 @@ type Observation struct {
 	PrecededSinceCompaction int `json:"preceded_since_compaction"`
 
 	Classifier string `json:"classifier_version"`
+
+	// ObservedAt is when this observation was taken, RFC3339 UTC.
+	//
+	// ⚠ WITHOUT IT THE STORE CANNOT SEPARATE ITS OWN MEASUREMENT WINDOWS, and that
+	// is the entire design: record a baseline, ship exactly one mechanism (F-9),
+	// measure the delta whichever way it falls (F-10). A store of undated rows can
+	// answer "what is the rate over everything ever recorded" and nothing else — the
+	// before-sessions and the after-sessions are indistinguishable in it. Found
+	// 2026-08-28 at the moment T6 shipped and the first window opened, by asking how
+	// the after-measurement would know which rows were after.
+	//
+	// It is the time the OBSERVATION was taken, not the session's own clock: the
+	// hook runs at session end, so it is a close proxy, and calling it what it is
+	// beats implying a precision the transcript was never asked for.
+	ObservedAt string `json:"observed_at,omitempty"`
 }
 
 // windowKey names a bucket in PrecededWithin, so the JSON is readable by a human
@@ -291,7 +307,11 @@ func Observe(transcriptPath string) (Observation, bool) {
 	}
 	defer func() { _ = f.Close() }()
 
-	obs := Observation{Classifier: classifierVersion, PrecededWithin: map[string]int{}}
+	obs := Observation{
+		Classifier:     classifierVersion,
+		ObservedAt:     time.Now().UTC().Format(time.RFC3339),
+		PrecededWithin: map[string]int{},
+	}
 	recalled := false
 	// calls counts every tool_use block seen so far; lastRecallAt is the call index
 	// of the most recent recall, or -1 when none has happened. Their difference is

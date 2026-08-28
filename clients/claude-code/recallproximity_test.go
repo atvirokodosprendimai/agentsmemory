@@ -4,7 +4,9 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"testing"
+	"time"
 )
 
 // TestPrecededCannotSeeProximityAndTheObservationCan is the check ADR-041's
@@ -257,5 +259,50 @@ func TestTheRecordedBaselineNamesTheVersionTheCodeStamps(t *testing.T) {
 			"  baseline must be re-taken under %s and re-recorded, or this version bump was\n"+
 			"  not one — a redefinition of what `preceded` means is exactly what the stamp\n"+
 			"  exists to make visible.", classifierVersion, got, classifierVersion)
+	}
+}
+
+// TestAnObservationCanBePlacedInAMeasurementWindow pins the field the whole
+// before/after design rests on.
+//
+// ⚠ THE STORE COULD NOT SEPARATE ITS OWN WINDOWS. ADR-041's design is: record a
+// baseline, ship exactly one mechanism (F-9), measure the delta whichever way it
+// falls (F-10). Every observation was undated, so a store holding both windows can
+// answer "the rate over everything ever recorded" and nothing else — the delta F-10
+// requires is not computable from it. Found 2026-08-28 at the moment T6 shipped and
+// the first window opened, by asking how the after-measurement would know which
+// rows were after.
+func TestAnObservationCanBePlacedInAMeasurementWindow(t *testing.T) {
+	o, ok := Observe(filepath.Join(fixtures, "recalled.jsonl"))
+	if !ok {
+		t.Fatal("fixture unreadable")
+	}
+	if o.ObservedAt == "" {
+		t.Fatal("the observation carries no time, so it cannot be placed before or after any " +
+			"mechanism: a store of undated rows makes every measurement window the same window")
+	}
+	ts, err := time.Parse(time.RFC3339, o.ObservedAt)
+	if err != nil {
+		t.Fatalf("observed_at %q is not RFC3339: %v — a timestamp nothing can parse is a "+
+			"string, and the window boundary has to be comparable", o.ObservedAt, err)
+	}
+	// A clock read from the wrong place is worse than none: it would silently sort
+	// every observation into one window.
+	if d := time.Since(ts); d < 0 || d > time.Hour {
+		t.Errorf("observed_at is %s away from now (%s); it is meant to be the moment the "+
+			"observation was taken", d, o.ObservedAt)
+	}
+
+	// Round-trips through the store, because that is where a window is read from.
+	store := filepath.Join(t.TempDir(), "obs.jsonl")
+	if err := AppendObservation(store, o); err != nil {
+		t.Fatalf("append: %v", err)
+	}
+	body, err := os.ReadFile(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), `"observed_at"`) {
+		t.Errorf("the stored row carries no observed_at key:\n  %s", body)
 	}
 }
