@@ -64,6 +64,22 @@ func hookScripts(t *testing.T) map[string]struct{ body, channel, reason string }
 	return out
 }
 
+// TestEveryHookScriptIsEmbedded closes the gap between the two universes these
+// checks use. hookScripts reads the SOURCE DIRECTORY; the installer writes what
+// is in the //go:embed list in assets.go. A script present in hooks/ but absent
+// from that list passes every channel check here and then ships as nothing at
+// all — the same unreachability one layer down, and the embed line is hand-edited
+// (it had to be, for this task's rename), so it is exactly the sort of list that
+// drifts.
+func TestEveryHookScriptIsEmbedded(t *testing.T) {
+	for name := range hookScripts(t) {
+		if _, err := assets.ReadFile("hooks/" + name); err != nil {
+			t.Errorf("hooks/%s is in the source tree but not in the //go:embed list in "+
+				"assets.go, so an install writes nothing for it: %v", name, err)
+		}
+	}
+}
+
 // TestEveryHookScriptDeclaresItsOutputChannel is the derivation the other two
 // checks stand on: an undeclared script is invisible to them, so silence here
 // would make the gate below pass for the wrong reason.

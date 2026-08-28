@@ -36,7 +36,7 @@ When a context starts fresh — most often just after a compaction — a recall 
 ## Acceptance
 
 ```bash
-docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'apk add --no-cache bash git >/dev/null && go test ./clients/claude-code/ -run "^(TestF6AHookIsSilentInTheCommonCase|TestRecallHookIsRegistered|TestEveryInjectingHookIsOnAnInjectingEvent|TestEveryHookScriptDeclaresItsOutputChannel|TestANonInjectedChannelIsJustified|TestTheQueryCarriesTheBranchWorkOnACleanTree|TestNoCredentialIsSilentButABadOneSpeaks)$" -count=1 -v 2>&1 | tee /tmp/acc.out; ! grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/acc.out'
+docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'apk add --no-cache bash git >/dev/null && go test ./clients/claude-code/ -run "^(TestF6AHookIsSilentInTheCommonCase|TestRecallHookIsRegistered|TestEveryInjectingHookIsOnAnInjectingEvent|TestEveryHookScriptDeclaresItsOutputChannel|TestANonInjectedChannelIsJustified|TestTheQueryCarriesTheBranchWorkOnACleanTree|TestNoCredentialIsSilentButABadOneSpeaks|TestEveryHookScriptIsEmbedded)$" -count=1 -v 2>&1 | tee /tmp/acc.out; ! grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/acc.out'
 ```
 
 ⚠ THE FENCE INSTALLS bash AND git, and that is not incidental. The acceptance image is
@@ -60,6 +60,7 @@ falls (F-10).
 | `TestANonInjectedChannelIsJustified` | `clients/claude-code/hookchannel_test.go` | a quieter channel carries a written reason | — |
 | `TestTheQueryCarriesTheBranchWorkOnACleanTree` | `clients/claude-code/recall_test.go` | the query names committed branch work, not just the branch | — |
 | `TestNoCredentialIsSilentButABadOneSpeaks` | `clients/claude-code/recall_test.go` | an unconfigured credential is silent; every other failure speaks | F-6 |
+| `TestEveryHookScriptIsEmbedded` | `clients/claude-code/hookchannel_test.go` | a script in the tree but not in the //go:embed list ships as nothing | — |
 
 ## The mechanism was registered on an event that discards its output — 2026-08-28
 
