@@ -77,7 +77,7 @@ func TestEveryHookScriptDeclaresItsOutputChannel(t *testing.T) {
 	}
 	for name, s := range hookScripts(t) {
 		if s.channel == "" {
-			t.Errorf("%s carries no `# hook-output:` line, so nothing can check that what it "+
+			t.Errorf("%s carries no \"# hook-output:\" line, so nothing can check that what it "+
 				"prints has anywhere to go", name)
 			continue
 		}
@@ -159,7 +159,7 @@ func TestANonInjectedChannelIsJustified(t *testing.T) {
 		}
 		if len(s.reason) < 20 {
 			t.Errorf("%s declares %q without saying why the model cannot or need not read its "+
-				"stdout; write the reason on the `# hook-output:` line", name, s.channel)
+				"stdout; write the reason on the \"# hook-output:\" line", name, s.channel)
 		}
 	}
 }
