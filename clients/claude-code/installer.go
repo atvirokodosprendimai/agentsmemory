@@ -872,6 +872,7 @@ func (i *Installer) registerStopHook() error {
 	hooksFile := filepath.Join(i.targetDir, i.kit.hooksFile)
 	plans := i.hookPlans()
 	i.warnIfRepointing(hooksFile)
+	i.warnSocketHooksCannotReachTheServer()
 
 	if i.dryRun {
 		for _, p := range plans {
@@ -1079,6 +1080,36 @@ func redactURL(raw string) string {
 		out += " (credentials removed)"
 	}
 	return out
+}
+
+// warnSocketHooksCannotReachTheServer says out loud that a --socket install
+// writes hooks which cannot talk to the server it just registered.
+//
+// ⚠ THE HOOKS ARE HTTP AND A SOCKET-ONLY SERVER HAS NO PORT. `--socket`
+// registers the agent's MCP over the stdio bridge and leaves `i.mcpURL` alone,
+// while `hookCommand` exports that URL — and only that URL — into every hook
+// command. `listenerFor` (cmd/server/listen.go) binds EITHER the socket OR the
+// TCP address, never both, so the endpoint those hooks carry is a port nothing
+// is listening on. The recall hook shells out to `aiagentmemory mcp`, which has
+// no socket flag at all; verify and stats use curl.
+//
+// This warns rather than fixes, and the distinction is deliberate. Making the
+// hooks work over a socket needs a transport the `mcp` subcommand does not have
+// — new capability, and a product decision about whether hooks should follow the
+// bridge or the server should also bind a loopback port. What is cheap and
+// correct today is to stop the failure being silent: a hook that cannot reach
+// its palace exits quietly, which is exactly what a hook with nothing to say
+// looks like.
+func (i *Installer) warnSocketHooksCannotReachTheServer() {
+	if i.socket == "" {
+		return
+	}
+	i.warn("the hooks this install writes CANNOT reach a socket-only server. They carry "+
+		"%s=%s, and a server started with --socket binds that socket instead of a TCP port, "+
+		"so every hook will fail to connect and go quiet — which looks identical to a hook "+
+		"with nothing to report. The MCP registration itself is fine: it reaches the server "+
+		"over the stdio bridge. Give the server a TCP address as well if you want the hooks.",
+		mcpURLEnvVar, i.mcpURL)
 }
 
 // shellQuote renders one literal POSIX-shell argument. Hook commands are stored

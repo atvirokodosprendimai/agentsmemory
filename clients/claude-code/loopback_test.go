@@ -295,3 +295,45 @@ func TestAWaivedCredentialDoesNotTravelThroughARedirect(t *testing.T) {
 		redirector.Close()
 	}
 }
+
+// TestASocketInstallSaysItsHooksCannotReachTheServer pins the one thing that was
+// missing from a documented install shape.
+//
+// ⚠ THE HOOKS ARE HTTP AND A SOCKET-ONLY SERVER HAS NO PORT. `--socket`
+// registers the MCP over the stdio bridge and leaves i.mcpURL alone;
+// `hookCommand` exports that URL, and only that URL, into every hook. And
+// `listenerFor` binds EITHER the socket OR the TCP address — never both. So the
+// endpoint every hook carries is a port nothing listens on.
+//
+// The failure is SILENT, which is why saying so is worth a test: a hook that
+// cannot connect exits quietly, and quiet is what a hook with nothing to report
+// looks like. PR #85 moved this failure from "no token" to "connection refused"
+// without making it visible.
+func TestASocketInstallSaysItsHooksCannotReachTheServer(t *testing.T) {
+	warn := func(t *testing.T, socket string) string {
+		t.Helper()
+		inst, _, _ := newTestInstaller(t, false)
+		inst.socket = socket
+		buf := &bytes.Buffer{}
+		inst.out = buf
+		inst.warnSocketHooksCannotReachTheServer()
+		return buf.String()
+	}
+
+	got := warn(t, "/tmp/agentsmemory.sock")
+	if !strings.Contains(got, "CANNOT reach") {
+		t.Errorf("a --socket install said nothing about its hooks: %q\n"+
+			"They carry an HTTP endpoint a socket-only server never binds, and a hook that "+
+			"cannot connect goes quiet — indistinguishable from one with nothing to say.", got)
+	}
+	if !strings.Contains(got, mcpURLEnvVar) {
+		t.Errorf("the warning does not name the variable the hooks actually carry: %q", got)
+	}
+
+	// The other half, and without it "warns" is satisfied by warning always. A
+	// TCP install's hooks reach the server perfectly well.
+	if quiet := warn(t, ""); quiet != "" {
+		t.Errorf("a non-socket install warned anyway: %q\n"+
+			"A warning that fires on every install is one people learn to skip.", quiet)
+	}
+}

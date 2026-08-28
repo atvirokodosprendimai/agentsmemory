@@ -1481,28 +1481,34 @@ expose the mismatch.
 
 ## A `--socket` install's hooks still speak HTTP — 2026-08-28
 
-Found by an independent review of PR #85, not by our own tests.
+Found by an independent review of PR #85; verified from source and made VISIBLE 2026-08-28, not
+fixed.
 
-`--socket` registers the agent's MCP over stdio against a Unix socket and "replaces `--mcp-url`"
-(`clients/claude-code/installer.go`, socket branch). It does not change `i.mcpURL`, and
-`hookCommand` exports that value into every hook command. So a socket-only install produces hooks
-that still talk HTTP: the recall hook shells out to `aiagentmemory mcp` and verify/stats use `curl`,
-all aimed at a TCP endpoint that a socket-only server never binds (`cmd/server/listen.go` binds only
-the socket when `SocketPath` is set).
+`--socket` registers the agent's MCP over the stdio bridge and does not change `i.mcpURL`.
+`hookCommand` (`clients/claude-code/installer.go:1102`) exports that URL — and only that URL — into
+every hook command; the socket is never written into one. `listenerFor` (`cmd/server/listen.go:33`)
+binds EITHER the socket OR the TCP address, never both. So every hook a socket-only install writes
+carries an endpoint nothing is listening on.
 
-**PR #85 changes the symptom without fixing this.** Before it, those hooks failed on token
-resolution; after it, loopback token resolution SUCCEEDS and they fail on connection instead. Either
-way a documented install shape produces hooks that cannot reach their palace — and because a hook's
-healthy state is silence, nothing reports it.
+**PR #85 changed the symptom, not the cause**: before it those hooks failed on token resolution,
+after it they fail on connection. Either way a documented install shape produces hooks that cannot
+reach their palace — and because a hook's healthy state is silence, nothing reported it.
 
-**Options.** Teach `hookCommand` to export the socket and give the recall/verify/stats paths a
-socket transport; or have `--socket` refuse to install hooks it knows cannot work, saying so; or
-register an HTTP listener alongside the socket. The first is the only one that leaves the install
-whole.
+**Now it says so.** `warnSocketHooksCannotReachTheServer` warns during a `--socket` install, naming
+the variable the hooks carry and why it cannot work, pinned by
+`TestASocketInstallSaysItsHooksCannotReachTheServer` (mutant killed). That is the cheap half: the
+failure is no longer silent.
 
-Whichever is chosen, the check must be a test that starts a socket-only server and drives a
-GENERATED hook — the existing socket tests assert the registration, which is the half that already
-works.
+**The real fix is new capability and a product decision, so it stays here.** The `socket` flag
+belongs to `install`; the `mcp` subcommand has NO socket flag and only dials HTTP (`dialMCP`), while
+verify and stats use `curl`. Making hooks work over a socket means either giving `mcp` a
+unix-socket transport and exporting the socket into hook commands, or having a socket-served server
+also bind a loopback port. Which one is right depends on whether hooks should follow the bridge or
+the server should always be reachable over TCP — nobody has decided that.
+
+**Whatever is chosen, the check must drive a GENERATED hook against a socket-only server.** The
+existing socket tests assert the registration, which is the half that already works; the new warning
+test asserts the warning, which is not the same as asserting the hook connects.
 
 ## A `--local` install gives its hooks no credential — 2026-08-28
 
