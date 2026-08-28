@@ -35,7 +35,7 @@ Make ADR-004's acceptance criterion executable: one command that reads a report 
 ## Acceptance
 
 ```bash
-docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'go vet ./... && go test ./internal/palace/ ./cmd/server/ -run "TestSupersessionGate" -count=1'
+docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'go vet ./... && go test ./internal/palace/ ./cmd/server/ -run "TestSupersessionGate|TestGatedArm|TestServiceReportsItsOwnGatedArm" -count=1'
 ```
 
 ## Tests
@@ -61,6 +61,14 @@ docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v 
 - A single-number bar invites arguing after the fact. Mitigation: the constant, its doc comment and this ADR all carry the same number, so moving it shows up as a diff in review rather than as a judgement call in a meeting.
 - At the floor a verdict can flip on one label — 10/30 is `unresolved`, 11/30 is `justified`. Mitigation: the command prints that distance beside the verdict, so nobody reads a one-case margin as a settled answer; the fix is more verified pairs, never a different rule.
 - The non-inferiority margin is set by the instrument, so a band that costs up to 0.05 MRR reads as free. Mitigation: the measured delta prints beside the verdict, and the ADR carries a follow-up to re-derive the margin when the case set can resolve less.
+
+- ⚠ **THE FENCE SELECTED ONLY HALF THIS TASK'S MECHANISM UNTIL 2026-08-28.** It ran
+  `TestSupersessionGate*`, which drives `SupersessionVerdict` and never reaches `Service.gatedArm` —
+  so returning a named arm where none reconstructs the served ranking, the exact defect
+  `SupersessionGatedArmFor`'s doc comment says "is how the gate judged a pipeline nobody runs",
+  passed this task's gate. Verified: mutating `case closetOn: return ""` to `return ArmHybridCloset`
+  SURVIVED the old fence and is killed by `TestGatedArmReconstructsTheServedRanking`, which already
+  existed in `internal/palace/gatedarm_test.go` and was simply not selected. The fence now names it.
 
 ## Stop Condition
 
