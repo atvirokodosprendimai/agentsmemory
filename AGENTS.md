@@ -255,9 +255,11 @@ vet` does not know what a record is, and a rename passes every test in the tree.
 `TestEveryCitedADRResolves` walks the same view of the tree the other hygiene checks
 read and fails naming file, line and number. It judges resolution and nothing else —
 comment length and presence were measured and rejected in ADR-037's Alternatives.
-Its falsifiability is a subtest rather than a sibling, because with 287 citations and
-zero unresolved the corpus cannot exercise the branch that reports one, and the
-acceptance fence runs one test name.
+Its falsifiability is a subtest rather than a sibling, because a corpus with zero
+unresolved citations cannot exercise the branch that reports one, and the acceptance
+fence runs one test name. That subtest drives the verdict through a substitutable
+`testing.TB`: a test cannot pin its own reporting, and without the shim a disabled
+gate stayed green and announced "all resolved" over a tree carrying a real offender.
 
 The same principle covers the gates already in the tree: `internal/doclint`
 (a doc comment must document the declaration it sits on), `TestEveryDeclaredArmIsRegistered`

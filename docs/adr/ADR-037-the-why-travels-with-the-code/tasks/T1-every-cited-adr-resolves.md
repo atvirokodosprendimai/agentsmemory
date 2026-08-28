@@ -66,7 +66,7 @@ fence cannot pass on an empty match the way a bare `-run` filter would.
 
 | Risk | Mitigation |
 |------|------------|
-| A future archive directory moves records out of `docs/adr/` and the gate goes red corpus-wide | The corpus glob is one named constant; the ADR's Rollback section records that an archive move re-scopes it deliberately |
+| A future archive directory moves records out of `docs/adr/` and the gate goes red corpus-wide | The corpus glob is one named constant; the ADR's Decision records that an archive move re-scopes it deliberately |
 | The regex over-matches (e.g. `ADR-9999` truncating to `ADR-999`) | Bound the match: three digits not followed by another digit |
 
 ## Out of Scope
