@@ -633,7 +633,7 @@ func (i *Installer) writeAssets() error {
 	// its input fields, stdout feedback envelope, and exit-2 retry behaviour have
 	// not been captured. Ship no script until a live Codex dispatch proves those
 	// details; this audit made no claim about the other session events.
-	if i.kit.name == "claude" {
+	if i.kit.shipsCompanionHooks {
 		verifyHook, err := i.source().ReadFile(verifyHookAsset)
 		if err != nil {
 			return err

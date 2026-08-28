@@ -208,3 +208,79 @@ func TestDoctorRefusesAnUnparseableSettingsFile(t *testing.T) {
 			"is a false alarm on an install that may be fine:\n%s", report)
 	}
 }
+
+// TestDoctorRefusesAnUnreadableSettingsFile is the other half of the parse
+// refusal, and it was missing.
+//
+// ⚠ A MISSING FILE IS THE FINDING; AN UNREADABLE ONE IS NOT. The first version
+// swallowed EVERY os.ReadFile error and returned an empty registration map, so an
+// operator whose settings.json was correct but root-owned, or a directory, was told
+// every hook was registered nowhere and advised to re-run `install` — the exact
+// false alarm the parse branch refuses to produce, four lines away in the same
+// function.
+//
+// ⚠ THE FIXTURE IS A DIRECTORY, NOT chmod 000. Tests here also run as root inside
+// the acceptance container, where mode 000 is still readable — the check would have
+// passed vacuously in exactly the environment that gates the merge. EISDIR fails for
+// every user.
+func TestDoctorRefusesAnUnreadableSettingsFile(t *testing.T) {
+	dir := doctorEnv(t, map[string]string{"agentsmemory-recall-hook.sh": injectingHookBody}, nil)
+	settings := filepath.Join(dir, claudeKit.hooksFile)
+	if err := os.Remove(settings); err != nil && !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(settings, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	report, err := runDoctor(t, dir)
+	if err == nil {
+		t.Fatalf("an unreadable settings file passed:\n%s", report)
+	}
+	if strings.Contains(report, "UNREGISTERED") {
+		t.Errorf("an unreadable settings file was reported as a registration finding. The hooks "+
+			"may be registered perfectly; this command cannot tell, and saying so is the only "+
+			"honest answer:\n%s", report)
+	}
+	if !strings.Contains(err.Error(), "refuses to guess") {
+		t.Errorf("the error does not say why it declined: %v", err)
+	}
+}
+
+// TestDoctorSaysWhenAKitShipsNoInjectingHook covers the fourth empty state.
+//
+// ⚠ THE COMMENT ON THE EMPTY-UNIVERSE GUARD CLAIMED THERE WERE THREE. A kit that
+// ships no injecting hook has an empty universe BY DESIGN — the companion hooks are
+// Claude-only because codex's execution contract for those events was never
+// captured — so `doctor --agent codex` fired that guard on a healthy install and
+// advised re-running `install`, which could not have changed the outcome. The path
+// is advertised in this command's own `--agent` usage and in the README.
+func TestDoctorSaysWhenAKitShipsNoInjectingHook(t *testing.T) {
+	if !claudeKit.shipsCompanionHooks {
+		t.Fatal("the claude kit no longer ships companion hooks; this test's premise is gone " +
+			"and doctor's whole universe with it")
+	}
+	if codexKit.shipsCompanionHooks {
+		t.Skip("codex now ships companion hooks; this state no longer exists")
+	}
+
+	// An empty dir is right: the point is that nothing is expected there.
+	dir := t.TempDir()
+	var buf bytes.Buffer
+	root := rootCommand()
+	root.Writer = &buf
+	err := root.Run(context.Background(), []string{
+		"aiagentmemory", "doctor", "--agent", "codex", "--target-dir", dir,
+	})
+	if err == nil {
+		t.Fatal("doctor reported success for a kit whose universe is empty by design; it should " +
+			"say which state it is in")
+	}
+	if strings.Contains(err.Error(), "nothing is installed") ||
+		strings.Contains(err.Error(), "the declaration changed") {
+		t.Errorf("doctor reported a broken install for a kit that ships no injecting hook. "+
+			"Neither disjunct is true and the advised fix cannot change the outcome: %v", err)
+	}
+	if !strings.Contains(err.Error(), "designed state") {
+		t.Errorf("the message does not say this is the designed state: %v", err)
+	}
+}

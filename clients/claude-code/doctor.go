@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -105,6 +107,18 @@ func runHookDoctor(ctx context.Context, c *cli.Command, out io.Writer) error {
 	kit := kits[0]
 	if kit.hooksFile == "" {
 		return fmt.Errorf("%s has no hooks file, so there is no registration to check", kit.name)
+	}
+	// ⚠ THE FOURTH EMPTY STATE, AND THE COMMENT BELOW USED TO CLAIM THERE WERE
+	// THREE. A kit that ships no injecting hook has an empty universe BY DESIGN, so
+	// the guard further down fired on a perfectly healthy codex install and advised
+	// re-running `install`, which could not have changed the outcome. `--agent` is
+	// advertised as claude | codex | pi in this command's own usage string, so the
+	// path was reachable and documented.
+	if !kit.shipsCompanionHooks {
+		return fmt.Errorf("the %s kit ships no hook that declares `# hook-output: %s`, so there "+
+			"is nothing here for this check: %s receives the Stop hook and nothing else, because "+
+			"its execution contract for the other events was never captured. This is the designed "+
+			"state, not a broken install", kit.name, channelStdoutInjected, kit.name)
 	}
 
 	dir := c.String("target-dir")
@@ -249,7 +263,16 @@ func injectingScriptsIn(dir string) (map[string]string, error) {
 func registeredHookEvents(settingsPath string) (map[string][]string, error) {
 	raw, err := os.ReadFile(settingsPath)
 	if err != nil {
-		return map[string][]string{}, nil
+		// ⚠ ONLY A MISSING FILE IS THE FINDING. Swallowing EVERY read error told an
+		// operator with a correct, root-owned or unreadable settings.json that their
+		// hooks were registered nowhere — the exact false alarm the parse branch
+		// below refuses to produce, four lines away, in the same function.
+		if errors.Is(err, fs.ErrNotExist) {
+			return map[string][]string{}, nil
+		}
+		return nil, fmt.Errorf("read %s: %w — this command refuses to guess at a file it cannot "+
+			"read, because reporting \"registered nowhere\" over an unreadable file would be a "+
+			"false alarm on an install that may be fine", settingsPath, err)
 	}
 	var doc struct {
 		Hooks map[string][]struct {
