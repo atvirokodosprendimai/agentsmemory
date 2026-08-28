@@ -1,0 +1,10 @@
+{
+  "data": {
+    "account": {
+      "orders": {
+        "totalCount": 0,
+        "nodes": []
+      }
+    }
+  }
+}

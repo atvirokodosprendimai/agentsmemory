@@ -14,6 +14,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 )
 
 // newOpenCollectiveProvider builds the provider when at least one plan has a
@@ -48,11 +49,38 @@ type openCollectiveProvider struct {
 // Service.StartCheckout (ErrUnknownPlan); the guard keeps the provider safe for
 // direct callers too.
 func (p *openCollectiveProvider) createCheckout(_ context.Context, in checkoutInput) (string, error) {
-	url := p.checkoutURLs[in.PlanCode]
-	if url == "" {
+	raw := p.checkoutURLs[in.PlanCode]
+	if raw == "" {
 		return "", fmt.Errorf("billing: no opencollective checkout for plan %q", in.PlanCode)
 	}
-	return url, nil
+	u, err := url.Parse(raw)
+	if err != nil {
+		return "", fmt.Errorf("billing: opencollective checkout URL for plan %q is not a URL: %w", in.PlanCode, err)
+	}
+	// Carry who is buying, so the contribution can be attributed when it is read
+	// back from the API (ADR-042). These are Open Collective's own contribution-flow
+	// parameters, read 2026-08-28 from opencollective-frontend's contribution flow,
+	// which accepts amount, interval, contributeAs, email, name, legalName,
+	// paymentMethod, tags and redirect.
+	//
+	// The existing query is preserved rather than replaced: an operator may have
+	// pinned an interval or an amount on the configured tier URL, and clobbering it
+	// would silently change what the contributor is asked to pay.
+	q := u.Query()
+	if in.TeamID != "" {
+		q.Set("tags", intentTag(in.TeamID))
+	}
+	if in.CustomerEmail != "" {
+		q.Set("email", in.CustomerEmail)
+	}
+	// `redirect` is validated by Open Collective before it is followed; if it
+	// rejects ours the contributor simply stays on their site, which is the
+	// behaviour before this parameter existed.
+	if in.SuccessURL != "" {
+		q.Set("redirect", in.SuccessURL)
+	}
+	u.RawQuery = q.Encode()
+	return u.String(), nil
 }
 
 // createPortalSession has no provider API to call: OpenCollective has no

@@ -217,13 +217,20 @@ templ WingTransferCard(d WingTransferVM) {
 }
 
 // UpgradeCard is the per-workspace upgrade-to-Pro CTA, shown only to an admin of
-// a free-plan workspace when Stripe is configured (gated by ProjectVM.CanUpgrade;
-// the server re-checks on POST). It is fully backend-driven: a segmented control
-// writes the chosen plan code into the $proInterval signal, the price block reacts
-// to it, and Upgrade posts that signal — the handler opens a Stripe Checkout
-// session and redirects the browser. The two prices mirror the seeded Pro catalog
-// rows (€50 / month, €500 / year = two months free). $upgrading drives the
-// in-flight spinner/disabled state so a double-click can't open two sessions.
+// a free-plan workspace when a payment provider is configured (gated by
+// ProjectVM.CanUpgrade; the server re-checks on POST). It is fully backend-driven:
+// a segmented control writes the chosen plan code into the $proInterval signal,
+// the price block reacts to it, and Upgrade posts that signal — the handler opens
+// the active provider's hosted checkout and redirects the browser. The two prices
+// mirror the seeded Pro catalog rows (€50 / month, €500 / year = two months free).
+// $upgrading drives the in-flight spinner/disabled state so a double-click can't
+// open two sessions.
+//
+// The hint copy names NO provider and promises NO return to this page, because one
+// template serves both backends and neither claim is true under OpenCollective —
+// its contribution checkout has no success redirect. TestUpgradeCardDoesNotNameA-
+// ProviderItMayNotUse holds that; a "de-Stripe" pass once edited the surrounding
+// handler comments and missed this string because nothing asserted on it (ADR-042).
 templ UpgradeCard(p ProjectVM) {
 	<section class="card upgrade-card" aria-labelledby="upgrade-h" data-signals="{proInterval:'pro_monthly', upgrading:false}">
 		<p class="eyebrow">Plan</p>
@@ -277,7 +284,7 @@ templ UpgradeCard(p ProjectVM) {
 				<span data-show="!$upgrading">Upgrade to Pro</span>
 				<span class="spinner" data-show="$upgrading" style="display:none" aria-hidden="true"></span>
 			</button>
-			<span class="hint">Secure checkout via Stripe — you'll confirm payment on Stripe, then land back here. Cancel anytime.</span>
+			<span class="hint">You'll complete payment on our payment provider's secure checkout. Your plan updates once the payment is confirmed. Cancel anytime.</span>
 		</div>
 	</section>
 }
@@ -288,7 +295,14 @@ templ UpgradeCard(p ProjectVM) {
 // rather than the ember "buy now" urgency — and its one action hands the browser to
 // the provider's hosted customer portal to update payment, view invoices, or cancel.
 // $managing drives the in-flight spinner/disabled state so a double-click can't open
-// two sessions. The actual plan change from any cancellation is webhook-driven.
+// two sessions.
+//
+// CanManage requires a RECORDED provider relationship, not merely a paid plan: a
+// workspace can hold a paid plan with no subscriptions row (operator set-plan, or
+// any OpenCollective workspace before ADR-042), and this card's handler can only
+// return ErrNoSubscription for one. The plan change from any cancellation is applied
+// by the provider path — a Stripe webhook, or OpenCollective order reconciliation —
+// never by this card.
 templ ManageCard(p ProjectVM) {
 	<section class="card manage-card" aria-labelledby="manage-h" data-signals="{managing:false}">
 		<p class="eyebrow">Plan</p>
