@@ -110,3 +110,90 @@ func TestAnAssertionBeforeAnyRecallIsCountedAsSuch(t *testing.T) {
 		t.Errorf("a session with no recall credited %v to a proximity window", o.PrecededWithin)
 	}
 }
+
+// TestABoundaryIsWhereNewWorkStarts covers the two definitions of "preceded" that
+// are not a tool-call count: a recall since the last user turn, and one since the
+// last compaction. Both are candidates only — nothing here decides which wins.
+func TestABoundaryIsWhereNewWorkStarts(t *testing.T) {
+	obs := func(name string) Observation {
+		t.Helper()
+		o, ok := Observe(filepath.Join(fixtures, name))
+		if !ok {
+			t.Fatalf("%s unreadable", name)
+		}
+		if o.Assertions != 1 {
+			t.Fatalf("%s holds %d assertions, want 1 — the fixture stopped demonstrating "+
+				"anything and every assertion below would be vacuous", name, o.Assertions)
+		}
+		return o
+	}
+
+	t.Run("a recall after the user turn counts", func(t *testing.T) {
+		if o := obs("recall-after-user-turn.jsonl"); o.PrecededSinceUserMessage != 1 {
+			t.Errorf("preceded_since_user_message = %d, want 1 — the agent was asked for "+
+				"something and then asked the palace about it", o.PrecededSinceUserMessage)
+		}
+	})
+
+	t.Run("a recall before the user turn does not", func(t *testing.T) {
+		o := obs("recall-before-user-turn.jsonl")
+		if o.PrecededSinceUserMessage != 0 {
+			t.Errorf("preceded_since_user_message = %d, want 0 — the recall happened before "+
+				"this work was asked for, which is the whole distinction", o.PrecededSinceUserMessage)
+		}
+		// The shipped field cannot see the difference, which is why this one exists.
+		if o.Preceded != 1 {
+			t.Errorf("preceded_by_recall = %d, want 1 — the latch is meant to score this "+
+				"session, and the divergence is the finding", o.Preceded)
+		}
+	})
+
+	// ⚠ THE CANARY, AND IT ALREADY FIRED ONCE. Claude Code records every TOOL RESULT
+	// as a `"type": "user"` line — 11,055 of 11,704 in one real transcript. Taking
+	// those for user turns reset the boundary after nearly every tool call, so a
+	// recall could almost never be after one, and the whole corpus measured a clean
+	// 0.0%. A rate of exactly zero over a corpus that yields 52.8% by another reading
+	// is an instrument fault until proven otherwise.
+	t.Run("a tool result is not a user turn", func(t *testing.T) {
+		if o := obs("tool-results-are-not-user-turns.jsonl"); o.PrecededSinceUserMessage != 1 {
+			t.Errorf("preceded_since_user_message = %d, want 1. Two tool results sit between "+
+				"the recall and the claim; if those count as user turns this reads 0 and the "+
+				"metric silently reports that nobody ever recalls", o.PrecededSinceUserMessage)
+		}
+	})
+
+	t.Run("a recall before a compaction does not survive it", func(t *testing.T) {
+		o := obs("recall-before-compaction.jsonl")
+		if o.PrecededSinceCompaction != 0 {
+			t.Errorf("preceded_since_compaction = %d, want 0 — a fresh context inherits a task "+
+				"queue and no palace, which is the failure ADR-041 was opened for",
+				o.PrecededSinceCompaction)
+		}
+		if o.Preceded != 1 {
+			t.Errorf("preceded_by_recall = %d, want 1 — the latch survives the compaction it "+
+				"is meant to be measuring the cost of", o.Preceded)
+		}
+	})
+}
+
+// TestAStringContentLineIsNotSkipped pins the parsing fix the boundary work needed.
+//
+// Content arrives as an array of blocks OR as a bare string on a plain user turn.
+// Decoding straight into the array made every string-content line fail to unmarshal
+// and be dropped — 600 of them in one real transcript, all genuine user turns, and
+// the drop was silent because a malformed line is skipped by design (F-5).
+func TestAStringContentLineIsNotSkipped(t *testing.T) {
+	o, ok := Observe(filepath.Join(fixtures, "recall-after-user-turn.jsonl"))
+	if !ok {
+		t.Fatal("fixture unreadable")
+	}
+	// The user turn in that fixture carries a bare string. If it were skipped, the
+	// boundary would never be set and the recall would count against a boundary of
+	// -1 — passing for the wrong reason.
+	if o.PrecededSinceUserMessage != 1 {
+		t.Errorf("preceded_since_user_message = %d, want 1", o.PrecededSinceUserMessage)
+	}
+	if o.SessionID == "" {
+		t.Error("no session id: the fixture's lines are not being parsed at all")
+	}
+}

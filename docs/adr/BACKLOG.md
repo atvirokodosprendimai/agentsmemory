@@ -1616,17 +1616,34 @@ never counted.
 Measured 2026-08-28 over 48 local session transcripts — 24 carrying at least one assertion, 341
 assertions, classifier v2. Re-run it rather than trusting these numbers; the corpus grows daily:
 
+All three candidate definitions are measured, not just the tool-call windows:
+
 | reading of "preceded" | rate |
 |---|---|
 | the latched field — *"this session touched the palace at some earlier point"* | **52.8%** |
+| a recall since the last COMPACTION | 43.4% |
 | nearest recall within 100 tool calls | 28.7% |
 | within 50 | 17.6% |
 | within 25 | 12.3% |
+| **a recall since the last USER TURN** | **7.6%** |
 | within 10 | 7.3% |
 | within 5 | 5.3% |
-| **within 1 — the claim made immediately after asking** | **1.8%** |
+| within 1 — the claim made immediately after asking | 1.8% |
 
 47.2% of assertions are made before ANY recall in the session.
+
+⚠ **The user-turn reading first measured a clean 0.0%, and the zero was the instrument.**
+Claude Code records every TOOL RESULT as a `"type": "user"` line — 11,055 of 11,704 in one real
+transcript — so taking those for user turns reset the boundary after nearly every tool call and a
+recall could almost never be after one. A rate of exactly zero over a corpus yielding 52.8% by
+another reading is an instrument fault until proven otherwise, and it is a fixture now
+(`tool-results-are-not-user-turns.jsonl`). The same investigation found that a line whose content is
+a bare STRING — a plain user turn — failed to unmarshal and was silently dropped by the
+malformed-line skip: 600 of them in that transcript.
+
+**Comparability was checked rather than asserted.** Re-running the whole corpus before and after the
+parsing fix leaves `assertions` at 341, `preceded_by_recall` at 180 and the session count at 24,
+byte-identical — so the shipped field, and T2's baseline with it, is untouched under F-16.
 
 Two things follow, and they are why this mattered rather than being tidy-up:
 
@@ -1638,9 +1655,17 @@ Two things follow, and they are why this mattered rather than being tidy-up:
    faithfully recorded four nulls under F-10. Against a 1.8-12% proximity rate they have somewhere
    to move.
 
-**Still a decision, and deliberately left open here:** which window, if any, becomes the definition.
+**Still a decision, and deliberately left open here:** which reading becomes the definition.
 Choosing one voids every rate taken under another. The table above is what that choice should be
 made from; this entry does not make it.
+
+What the table shows, said once so the next reader does not have to re-derive it: the three
+boundary-free tool-call windows spread across an order of magnitude with no natural break, which is
+what a proxy looks like. The two BOUNDARY readings do have meanings — "did the agent ask about the
+work it was just given" (7.6%) and "did it ask after its context was replaced" (43.4%) — and the
+first of those lands almost exactly on the within-10-calls window, from a completely different
+derivation. That agreement is the only evidence here that any particular window is more than a
+number someone picked.
 
 ## Two tests name a property their fixtures never drive — 2026-08-28
 

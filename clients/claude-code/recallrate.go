@@ -95,6 +95,23 @@ type Observation struct {
 	// start and a hundred claims later, versus a recall before each claim.
 	PrecededWithin map[string]int `json:"preceded_within,omitempty"`
 
+	// PrecededSinceUserMessage counts assertions with a recall after the most recent
+	// USER MESSAGE — "did I ask about this piece of work", where a piece of work
+	// begins when someone asks for something.
+	//
+	// ⚠ IT IS HERE BECAUSE "A TOOL-CALL WINDOW MEASURES THE WRONG THING" IS AN
+	// ARGUMENT, so it is measured rather than asserted. Forty Bash calls in a tight
+	// loop do not put a claim further from its recall than three do; they inflate the
+	// denominator. Tool-call volume is also what varies most between sessions, which
+	// makes a count-based window the least comparable candidate — and comparability
+	// across sessions is the entire purpose of having a baseline.
+	PrecededSinceUserMessage int `json:"preceded_since_user_message"`
+
+	// PrecededSinceCompaction counts assertions with a recall after the most recent
+	// compaction boundary. This is the failure ADR-041 was opened for, stated
+	// exactly: a fresh context inherits a task queue and no palace.
+	PrecededSinceCompaction int `json:"preceded_since_compaction"`
+
 	Classifier string `json:"classifier_version"`
 }
 
@@ -174,13 +191,64 @@ func stripQuoted(s string) string {
 type recallTranscriptLine struct {
 	Type      string `json:"type"`
 	SessionID string `json:"sessionId"`
-	Message   struct {
-		Content []struct {
-			Type string `json:"type"`
-			Text string `json:"text"`
-			Name string `json:"name"`
-		} `json:"content"`
+
+	// Subtype carries `compact_boundary` on the line Claude Code writes where a
+	// context was replaced. Read from a real transcript 2026-08-28 rather than
+	// assumed: one long session carried 32 of them, each paired with
+	// isCompactSummary.
+	Subtype string `json:"subtype"`
+
+	// Message holds the line's content raw, because a transcript line carries two
+	// shapes: an array of blocks, and a bare STRING on a plain user turn. Decoding
+	// straight into the array made every string-content line fail to unmarshal and be
+	// skipped entirely — 600 of them in one real transcript, all genuine user turns,
+	// and silently, because a malformed line is skipped by design (F-5).
+	Message struct {
+		Content json.RawMessage `json:"content"`
 	} `json:"message"`
+}
+
+// recallBlock is one element of a transcript line's content array. Named apart from
+// mineclaude.go's contentBlock, which is the same shape minus the tool name: two
+// readers of one transcript format that have never needed the same fields.
+type recallBlock struct {
+	Type string `json:"type"`
+	Text string `json:"text"`
+	Name string `json:"name"`
+}
+
+// blocks decodes the content array. A bare-string content yields none, which is
+// correct: a plain user turn carries no blocks.
+func (l recallTranscriptLine) blocks() []recallBlock {
+	if len(l.Message.Content) == 0 {
+		return nil
+	}
+	var out []recallBlock
+	if json.Unmarshal(l.Message.Content, &out) != nil {
+		return nil
+	}
+	return out
+}
+
+// isUserTurn reports whether this line is a person asking for something.
+//
+// ⚠ A `"type": "user"` LINE IS USUALLY NOT A USER TURN, and taking it for one
+// produced a clean 0.0% that looked like a finding. Claude Code records every TOOL
+// RESULT as a user-typed line: 11,055 of 11,704 in one real transcript. Treating
+// those as boundaries reset "the last user message" after nearly every tool call,
+// so a recall could almost never be after one. The canary was the perfect zero —
+// a rate that is exactly 0% over a corpus that produces 52.8% by another reading is
+// an instrument fault until proven otherwise.
+func (l recallTranscriptLine) isUserTurn() bool {
+	if l.Type != "user" {
+		return false
+	}
+	for _, b := range l.blocks() {
+		if b.Type == "tool_result" {
+			return false
+		}
+	}
+	return true
 }
 
 // Observe scans a transcript in order and returns its counts.
@@ -207,6 +275,10 @@ func Observe(transcriptPath string) (Observation, bool) {
 	// of the most recent recall, or -1 when none has happened. Their difference is
 	// the distance the latch throws away.
 	calls, lastRecallAt := 0, -1
+	// The two boundaries, as call indices. -1 means the boundary has not occurred, so
+	// any recall is after it: a session that was never compacted has its whole history
+	// "since the last compaction", which is the correct reading.
+	lastUserAt, lastCompactAt := -1, -1
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 0, 64*1024), 8*1024*1024) // transcript lines are large
 	for sc.Scan() {
@@ -217,7 +289,16 @@ func Observe(transcriptPath string) (Observation, bool) {
 		if obs.SessionID == "" && line.SessionID != "" {
 			obs.SessionID = line.SessionID
 		}
-		for _, block := range line.Message.Content {
+		// Boundaries are recorded at the call index they occur AT, so a recall made
+		// afterwards has a strictly greater index. Neither line carries a tool_use, so
+		// this cannot disturb the call count.
+		switch {
+		case line.Subtype == "compact_boundary":
+			lastCompactAt = calls
+		case line.isUserTurn():
+			lastUserAt = calls
+		}
+		for _, block := range line.blocks() {
 			switch block.Type {
 			case "tool_use":
 				calls++
@@ -248,6 +329,16 @@ func Observe(transcriptPath string) (Observation, bool) {
 						if distance <= w {
 							obs.PrecededWithin[windowKey(w)]++
 						}
+					}
+					// The boundary readings. Strictly greater, so a recall made in the
+					// same breath as the boundary does not count as being after it — the
+					// question is whether the agent asked once the new work arrived, not
+					// whether a call sits exactly on the line.
+					if lastRecallAt > lastUserAt {
+						obs.PrecededSinceUserMessage++
+					}
+					if lastRecallAt > lastCompactAt {
+						obs.PrecededSinceCompaction++
 					}
 				}
 			}
