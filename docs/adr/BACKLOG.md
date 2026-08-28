@@ -82,6 +82,70 @@ a decision, not a foregone no.
 *(Found by a reviewer who first "corrected" the count from two to one and then retracted the
 correction: the second precedent implements the same pattern under different identifiers, so a grep
 for the first one's names missed it. Ask which entries exist, not which files contain this string.)*
+## A human sign-off that said STOP reads to every routing tool as PROCEED — 2026-08-28
+
+Found by checking what ADR-001 T3 decided before executing anything downstream of it.
+
+**The observation.** `docs/adr/ADR-001-recall-answers-or-abstains/tasks/T3-run-the-gate.md` holds
+one human-observed sign-off ending *"eval --calibrate --gate exit 1; no threshold on the curve
+clears both bars … decision BLOCKED — neither ship nor withdraw, because the preflight names this
+corpus unfit to decide; T4/T5/T6 not started"*. Against that:
+
+- `adr-next ADR-001 --all` prints **`done T3`** and **`READY T1`**.
+- `tasks/README.md` said **`pending`** for the same task, so the index and the router disagreed and
+  neither said `blocked`.
+- `adr-lint ADR-001` **PASSES** over that divergence. Its README↔evidence check is one-directional:
+  it rejects `done` without evidence, never `pending` with it.
+- `work-next` named ADR-001's remaining tasks as the next work in the whole repository.
+
+So every tool that routes work pointed an executor at T1 — the first step of the sequence T3 had
+just forbidden. The record is not vague about this. T3's **Stop Condition** says *"Stop the ADR —
+not just this task"* and *"a gate that cannot fail authorises T4–T6 on a verdict that means
+nothing"*; its **Out of Scope** says T4/T5/T6 start only *"until this task's log holds a `ship`
+sign-off"*. The stop is stated three times in three sections and read by nothing.
+
+**The cause, verified in source** (`bin/adr-next:96-106`, identical in 2.19.0/2.21.0/2.23.0):
+
+```python
+VLOG_HUMAN_RE = re.compile(r"^- \d{4}-\d{2}-\d{2} · human-observed · .+$")
+...
+if human and VLOG_HUMAN_RE.match(line):
+    return True
+```
+
+A human sign-off is counted done by its **grammar**: date, marker, and `.+`. Every other acceptance
+route reports a verdict the tooling reads — a tool-written entry carries an exit code and a fence
+digest, and a task is done only when both match. The human route carries neither, so any text after
+the marker reads as success, including text that says to stop. `adr-lint` skips the same path
+explicitly (`evidenced_task_ids`: `if inf.get("human"): continue`).
+
+**The half that is ours, and it is the more useful half.** The schema had no representation for
+*"ran, and the answer is stop"*. T3's own acceptance hint prescribes `decision <ship|withdraw>` —
+**two** values — and the run reached a third. The executor recorded it correctly and it landed in
+free text because there was nowhere else for it to go.
+
+`TestAHumanObservedSignOffAgreesWithTheIndex` (`internal/repohygiene/humansignoff_test.go`) now
+requires every human sign-off to name its outcome from `ship` / `withdraw` / `blocked`, and requires
+the sibling README to carry the status that outcome maps to (`done` / `failed` / `blocked`). It
+derives its universe from the corpus — one human-observed task in 94 today, and the single use of
+the feature was the failure case. ADR-001 T3's row now reads `blocked`.
+
+⚠ **What this does NOT fix, stated plainly: `adr-next` still prints `done T3` / `READY T1`.** The
+gate makes the corpus self-consistent and makes a future divergence fail a command; it cannot change
+what a tool in another tree computes from the task file. An executor who trusts `adr-next` over the
+README is still routed into forbidden work — and `/adr-execute`'s own instructions tell them to,
+because where the two disagree the task files are supposed to win.
+
+**Still open for the harness owner:** count a human-observed entry as done only when it names a
+success outcome, and report a recorded stop as `blocked` rather than `done`. That is a four-line
+change to `is_done` plus a vocabulary. It shares the externality question with the entry *"The ADR
+evidence chain depends on a tool outside the repository"*, and with the `Depends-on` limitation
+filed under *"adr-lint cannot express a cross-record dependency"* — three findings now, all in the
+same tool, which is itself an argument the vendoring option deserves a decision.
+
+**Not taken here, because it is the owner's:** ADR-001 is `Accepted` and its own T3 said to stop the
+ADR. Whether that means re-running T3 against a corpus that is not saturated, or withdrawing the
+record, is a decision this entry files rather than makes.
 
 ## ADR-041 T2 — the recall-before-assertion baseline, measured 2026-08-28
 

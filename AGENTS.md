@@ -307,6 +307,22 @@ reimplemented the loop, and severing the real resolution check then left it gree
 with the whole suite at exit 0: a falsifiability half that shares nothing with the
 gate pins nothing. It resolves a subtest binding on its PARENT only, which the
 declaration says out loud rather than leaving a reader to assume otherwise.
+**AN ACCEPTANCE THAT REPORTS ITS VERDICT IN PROSE IS READ BY NOTHING.** Every acceptance
+route here reports a verdict a tool can act on — an exit code plus a fence digest,
+and a task is done only when both match. The human-observed route carries neither:
+`adr-next` counts such an entry done on its GRAMMAR, date and marker and `.+`, so
+any text after the marker reads as success. Measured 2026-08-28: ADR-001 T3 signed
+off *"decision BLOCKED — neither ship nor withdraw … T4/T5/T6 not started"* and
+every routing tool answered `done T3` / `READY T1`, with `adr-lint` passing over a
+README that still said `pending`. T3's Stop Condition says *"Stop the ADR — not
+just this task"*; the stop is stated in three sections and read by none of them.
+The half that is ours was a missing vocabulary, not a lax regex — T3's acceptance
+hint offered `decision <ship|withdraw>`, two values, and the run reached a third.
+`TestAHumanObservedSignOffAgreesWithTheIndex` requires each human sign-off to name
+`ship`, `withdraw` or `blocked` and requires the sibling README to carry the status
+it maps to. `TestASignOffThatSaysStopIsCaught` drives the same function over
+fixtures that are wrong, sharing the comparison rather than copying it — the first
+draft reimplemented it, and severing the real check then left the subtest green.
 
 The same principle covers the gates already in the tree: `internal/doclint`
 (a doc comment must document the declaration it sits on), `TestEveryDeclaredArmIsRegistered`
