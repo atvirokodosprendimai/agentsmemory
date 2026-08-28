@@ -1473,6 +1473,130 @@ as the deferral so the pointer has a receiving end.
   softened to "end the loser and keep going", `merge_wing` becomes an ending operation performed by
   an agent and the surface question reopens.
 
+## ADR-041's instrument cannot measure what ADR-041 is trying to change — 2026-08-28
+
+Found by running the instrument on the session that built it.
+
+`Observe` (`clients/claude-code/recallrate.go:166`) sets `recalled := false` ONCE PER SESSION and
+flips it true at the first recall tool call. It is never reset. So every assertion after that point
+counts as "preceded by a recall", for the rest of the session, however far away the recall was and
+whatever it was about.
+
+**Measured on this session:** 109 assertions, 109 preceded — a perfect 100% against T2's 27.6%
+baseline. The latching call was `am_search` at tool_use **#172 of 8,277**, and every assertion after
+it inherited the flag. The number is an artifact, not an achievement.
+
+*(Two corrections, and the second is the same error one layer further out. First: an earlier version
+said "#3 of 8,256", which was the first PALACE call — `am_skillset` — not the first RECALL call.
+Second: the correction then claimed the latch "cannot flip on a wake-up call". `recallTools` is
+`am_search` and `am_get_drawer` (`recallrate.go:51`), and `AGENTS.md:370` mandates
+`am_get_drawer(id, whole:true)` once per `must.*` edge AS PART OF the wake-up sequence — dozens of
+edges, before the task search. So a protocol-following wake-up flips the latch almost immediately.
+`am_skillset` and `am_status` cannot flip it — nor can `am_bootstrap` (`AGENTS.md:345`),
+`am_list_drawers` (`:368`) or `am_kg_query` (`:369`), none of which are in `recallTools`; an
+earlier version of this sentence said "only" of the first two and was over-precise.
+
+⚠ **That premise has an expiry the entry should name.** The wake-up flips the latch *because*
+`AGENTS.md:357-362` records `am_bootstrap` returning `unknown_term` for this wing, which is what
+makes the manual `am_get_drawer` traversal mandatory today. Once that backfill runs, a compliant
+session may make no `am_get_drawer` call at wake-up and this consequence evaporates. The mis-measurement is the same class as the
+defect being reported, now twice over.)*
+
+**What the metric actually answers** is "had this session touched the palace at any earlier point",
+not "was this claim grounded in a recall". Those are different questions, and the second is the one
+ADR-041 exists to move.
+
+**Three consequences:**
+
+1. **T2's 27.6% baseline measures the weaker thing.** Across 46 sessions it is approximately the
+   share of assertions made in sessions that had called a recall tool at all, weighted by how many
+   assertions each session made — not a rate of grounded claims.
+2. **The metric has a ceiling any protocol-following session hits trivially.** `AGENTS.md:370`
+   mandates `am_get_drawer(id, whole:true)` once per `must.*` edge as part of the wake-up sequence —
+   dozens of edges, before the task search — and `am_get_drawer` IS a recall tool. So a compliant
+   session flips the latch almost immediately and scores 100% before it has recalled anything
+   relevant to what it then asserts. It is not vacuous: `am_skillset` and `am_status` cannot flip
+   it, so a session that only woke up and never fetched would score zero.
+
+   ⚠ **RETRACTED, and the truth is worse.** An earlier version of this bullet said subagent records
+   share the parent's transcript, so a subagent's recall flips the parent's latch. That is false:
+   subagent records live in SEPARATE FILES. The repo's own captured payload proves it —
+   `clients/claude-code/hooks_test.go:274-280` is a real `SubagentStop` event carrying both
+   `transcript_path` (the parent) and `agent_transcript_path`
+   (`…/<session>/subagents/agent-<id>.jsonl`). Measured on this machine 2026-08-28: 48 top-level
+   transcripts, **0** containing `"isSidechain":true`; 17 `subagents/` directories holding 1,844
+   files that do. What was conflated is `session_id` sharing — real, and documented at
+   `agentsmemory-stop-hook.sh:76-83` — with TRANSCRIPT sharing, which is not.
+
+   **The real finding is this repo's own characteristic defect.** `Observe` deliberately does not
+   filter `isSidechain` (`recallrate.go:153-157`), for a reason it argues well: excluding subagents
+   would silently drop "the population most likely to skip recall" from the measurement of skipping
+   recall. That decision is **inert in production**, for two independent reasons:
+
+   - `agentsmemory-stop-hook.sh` takes the `SubagentStop` branch at `:59` and `exit 2`s at `:117` —
+     **before** `agentsmemory_recall_observe` at `:155`.
+   - `agentsmemory-stats.sh:16` parses `TRANSCRIPT` from `"transcript_path"` only, never
+     `agent_transcript_path`, and `:72` is the sole caller of `recall-observe`.
+
+   So every line the instrument is ever handed comes from a parent transcript, which contains no
+   sidechain lines. The non-filtering is finished, argued for in a comment, tested against a
+   hand-made fixture (`recallrate_spec_test.go:86-92`), and **unreachable** — a capability that
+   works and that nothing can select. Found in review after the reviewer retracted the transcript
+   claim above.
+3. **Therefore it cannot detect the improvement the ADR is for.** A mechanism that makes recall
+   *proximate and relevant* — which is what T4, T5 and T6 are all about — moves this number by zero.
+   ADR-041 T1's whole purpose was to create the measurement before any requirement claiming an
+   improvement; the measurement it created is insensitive to that improvement.
+
+★ **AND THE FLAGSHIP MECHANISM IS INVISIBLE TO THE INSTRUMENT — a stronger version of this entry's
+thesis than the latch, and checkable from the tree by anyone.** T4's hook does not encourage a
+recall, it PERFORMS one, as a CLI subprocess:
+`HITS="$(aiagentmemory "$@" …)"` (`clients/claude-code/hooks/agentsmemory-recall-hook.sh:118`). `Observe` counts only
+`tool_use` blocks by name (`recallrate.go:177-182`), and a subprocess emits no `tool_use`. So a
+hook-performed recall is **not counted at all**.
+
+Two consequences, and the second is the one that matters:
+
+- T4 cannot register as an improvement however well it works.
+- **If the injected recall does its job — the agent already has the answer and therefore does NOT
+  call `am_search` — T4 measures as a DECREASE.** An instrument that scores a working mechanism
+  negatively is worse than one that is merely insensitive to it.
+
+**The spec DECIDED one thing in its flow and MITIGATED THE OPPOSITE in its Risks, and nothing
+reconciled them.** Main flow step 2 (`docs/specs/2026-08-27-recall-before-asserting.md:33`) says to
+determine whether an `am_search` (or `am_get_drawer`) call "preceded it **in the same session**",
+and `## Domain` (`:155-157`) fixes what a recall is. `Observe` implements that faithfully.
+
+But the Risks table of the same spec (`:184`) records a mitigation the code never implemented:
+*"Count searches that preceded an assertion, not searches; **a search on an unrelated subject is not
+a recall**."* So neither "the spec forgot" nor "the spec decided cleanly" is accurate — it decided a
+session-wide window in one section and promised subject-relatedness in another, and neither the ADR
+nor the implementation noticed.
+
+That changes the remedy and makes the claim harder to wave away. This is not an underspecification
+an implementer may fill — it is **a specified decision whose consequence was not drawn out**, so
+changing what "preceded" means is an AMENDMENT TO AN ACCEPTED RECORD and the owner's call. "The spec
+chose a session-wide window and the choice is insensitive" is a stronger statement than "the spec
+forgot".
+
+F-4 guards one route to a vacuous perfect rate (a classifier that matches nothing) and does not
+guard this one, which arrives from the opposite side: a numerator that counts everything after the
+first ask.
+
+**Not fixed here, because the fix is a spec decision.** What counts as "preceded" — within N tool
+calls, since the last user message, since the last compaction, or a recall whose query is related to
+the assertion's subject — changes what the number means. Options, cheapest first:
+
+- Record more without deciding: also emit `recalls`, `assertions_before_first_recall`, and the
+  distance in tool calls from each assertion back to the nearest preceding recall. Additive, it
+  re-reads existing transcripts, and it lets the window be chosen from data rather than guessed.
+- Reset the latch at a boundary (user message, or compaction) and re-take the baseline.
+- Bind "preceded" to subject relatedness — the honest reading of the spec's intent, and much the
+  hardest to implement.
+
+**The baseline must be re-taken under whatever definition wins.** A rate is only comparable with
+another measured the same way; T2's number cannot be carried over.
+
 ## Two tests name a property their fixtures never drive — 2026-08-28
 
 Found by mutation while re-recording the corpus; both mutants SURVIVED first and the survivals are
