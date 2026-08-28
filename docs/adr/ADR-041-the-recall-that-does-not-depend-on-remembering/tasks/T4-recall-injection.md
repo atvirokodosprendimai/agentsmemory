@@ -213,6 +213,7 @@ better than a mechanism that appears to work by injecting noise.
   the fence passed with the mechanism broken
   ```
 - 2026-08-28 · 0159db0 · mutant killed · exit 1 · `clients/claude-code/hooks/agentsmemory-precompact-hook.sh` · the relevance floor: without it the hook injects the nearest neighbour, measured as this session own transcript · acceptance-sha256:1ca9f7ca6761a677b0e7390dc80ac05c8471a18eeab4ce7fbf66f584663846fc
+- 2026-08-28 · f4c9324 · mutant killed · exit 1 · `clients/claude-code/installer.go` · the event IS the mechanism: on PreCompact the recall runs and its output goes to the debug log · acceptance-sha256:ecb7966c9934d73b7f50a2e67b482e85f83b531ae12612d376f8d492c557f00e
 
 ## Invariants
 
