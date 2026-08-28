@@ -21,7 +21,7 @@ The `am_*` tools are reachable on the first call, with no schema round-trip in f
 |------|--------|-----|
 | `internal/mcpserver/server.go` | edit | Registration; its body is pinned by `classifyToolMutationPatch` |
 | `internal/mcptest/mcp_contract_axis_test.go` | edit | Re-cut the stored mutant patch this edit invalidates |
-| `internal/mcpserver/recallcue_spec_test.go` | edit | `TestF14…` turns green |
+| ~~`internal/mcpserver/recallcue_spec_test.go`~~ | none | `TestF14…` was DELETED with F-14, withdrawn 2026-08-28. This row is kept struck through rather than removed, because the premise it recorded — that this server could change the outcome — is the thing the task disproved |
 | `tasks/README.md` | edit | The ordering is recorded here BEFORE this ships (F-13) |
 
 ## Ordered Steps
@@ -94,7 +94,7 @@ before shipping precisely so a mechanism that fails cannot be quietly promoted p
 
 | Rung | How this task shows it |
 |------|------------------------|
-| 1 — exists | `TestF14…` |
+| 1 — exists | nothing; `TestF14…` was deleted with F-14. **No rung applies:** the mechanism is not this server's to build, which is the finding rather than a gap in it |
 | 2 — something selects it | registration is the selection; the contract axis drives the live surface |
 | 3 — the caller can discover it | the client sees schemas at connect — that IS the change |
 | 4 — it is used | the rate after this ships, against T2 |

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -155,7 +156,7 @@ type Observation struct {
 
 // windowKey names a bucket in PrecededWithin, so the JSON is readable by a human
 // choosing a window rather than a magic index.
-func windowKey(n int) string { return fmt.Sprintf("%d", n) }
+func windowKey(n int) string { return strconv.Itoa(n) }
 
 // sentenceSplit is deliberately crude: transcript prose is markdown, not paragraphs
 // of formal English, and a sentence tokenizer would be a dependency for no gain.

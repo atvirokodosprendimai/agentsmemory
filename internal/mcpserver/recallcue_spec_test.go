@@ -47,22 +47,6 @@ func statusOfTask(t *testing.T, id string) string {
 	return ""
 }
 
-// skipWhileBlocked skips only while the owning task is recorded blocked, and
-// fails the moment it is recorded done without the real assertion being written.
-func skipWhileBlocked(t *testing.T, task, fact, recorded string) {
-	t.Helper()
-	switch st := statusOfTask(t, task); st {
-	case "blocked", "pending":
-		t.Skipf("%s is unbound because %s is recorded %q: %s", fact, task, st, recorded)
-	case "done":
-		t.Fatalf("%s is recorded done, so the mechanism SHIPPED — but %s is still a stub. "+
-			"Write the real assertion: a mechanism that ships without its spec binding is "+
-			"exactly the untested capability this spec exists to prevent", task, fact)
-	default:
-		t.Fatalf("%s is recorded %q, which this binding does not know how to read", task, st)
-	}
-}
-
 // TestF11InstructionsNameTheClassOfClaimNotTheDuty is ADR-041 T6's gate: the
 // handshake names the CLASS OF CLAIM that needs a recall, and gives no bare order
 // to recall.
@@ -94,7 +78,11 @@ func TestF11InstructionsNameTheClassOfClaimNotTheDuty(t *testing.T) {
 
 	// The class itself, in the three shapes F-2 defines it by. These are what an
 	// agent has to recognise itself about to write.
-	for _, shape := range []string{"still", "does not", "never"} {
+	// ⚠ EACH SHAPE MUST BE UNIQUE TO THE CUE. "never" alone is credited by the
+	// pre-existing "never a safe default" in the unchanged scope paragraph — the
+	// substring-credit class AGENTS.md names, where a check passes on text it is not
+	// about. The phrase from the cue is what is asserted.
+	for _, shape := range []string{"still works a given way", "does not do something", "never decided"} {
 		// Case-insensitive: the handshake may emphasise a shape in caps, and a gate that
 		// fails on capitalisation is a gate about typography.
 		if !strings.Contains(strings.ToLower(serverInstructions), shape) {

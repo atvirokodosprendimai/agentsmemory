@@ -5,7 +5,7 @@
 ⚠ **Was T5, changed 2026-08-28.** T5 is STOPPED on a measured, disqualifying finding — at PreToolUse
 time the only query available is a bare grep pattern, and 0 of 25 such patterns reached canary-grade
 relevance against the live palace. A task that can never complete cannot gate the one mechanism
-left, which is the same correction F-14'''s withdrawal forced on the T3 edge. The ordering F-13 froze
+left, which is the same correction F-14's withdrawal forced on the T3 edge. The ordering F-13 froze
 is unchanged: T6 is still last by compliance-dependence, and the three before it are recorded
 stopped rather than reordered around.
 **Covers:** F-7, F-8, F-11, UC2-S1, UC2-S2

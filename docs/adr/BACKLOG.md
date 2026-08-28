@@ -113,7 +113,7 @@ different derivation, which is the only evidence any particular window is more t
 someone picked. `TestTheRecordedBaselineNamesTheVersionTheCodeStamps` pins the `classifier` row
 above to the constant the code stamps, so a future redefinition cannot ship without re-taking this.
 
-### T6's measurement window opened 2026-08-28
+### T6 shipped 2026-08-28, into a window it shares with T4
 
 T6 shipped — `serverInstructions` names the class of claim and carries no imperative — and was
 verified against the RUNNING server rather than the build log: the live handshake returns 1194 bytes
@@ -131,9 +131,19 @@ reproduces the baseline exactly, as it must — every transcript on disk predate
 | recall calls | 128 |
 | classifier | v3 |
 
-**The after-measurement does not exist and cannot be faked.** It needs real sessions run under the
-new handshake, and `minBaselineSessions = 20` is the floor. F-10 records the result whichever way it
-falls, including no effect.
+⚠ **AND IT IS NOT A CLEAN WINDOW — F-9 IS VIOLATED IN FACT.** Raised in review and confirmed against
+source: T4's recall hook is registered on `SessionStart` UNCONDITIONALLY, so on a hosted install it
+went live the same day, hours before T6. T4's record reads `blocked`, but that describes the record
+rather than the deployment — it is `blocked` only because it is mute on a `--local` install. Two
+mechanisms went live after the 7.6% baseline was taken, so **no delta from this window is
+attributable to either of them.**
+
+Nothing is un-shipped to manufacture a window that is already spent. The next clean one needs a
+fresh JOINT baseline taken with both live — which `observed_at` now makes computable — and then
+exactly one further mechanism. F-10 records what happened, and this is what happened.
+
+**The after-measurement therefore cannot be a T6 delta.** What it can be is a joint after-state, and
+it still needs real sessions with `minBaselineSessions = 20` as the floor.
 
 ⚠ **AND THE STORE COULD NOT HAVE SEPARATED THE TWO WINDOWS.** Asked at the moment the window opened
 how the after-measurement would know which rows were after, the answer was: it would not. Every

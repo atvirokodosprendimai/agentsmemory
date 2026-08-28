@@ -107,16 +107,37 @@ Additive throughout. T1's store is a file — delete it. T3 reverts to deferred 
 
 ## Follow-ups
 
-- [x] **The baseline is 27.6%** — 61/221 over 46 sessions, classifier v2, precision 48%, window
-      2026-08-01..28, in `docs/adr/BACKLOG.md`. It carries its precision because at 48% roughly half
+- [x] **The baseline is 7.6%** — 26/341 over 24 sessions, classifier **v3**, in `docs/adr/BACKLOG.md`.
+      RE-TAKEN 2026-08-28 when the owner defined "preceded" as a recall since the last USER TURN;
+      the v2 figure below is kept because it is what the earlier evidence proved, and the two are
+      not comparable across counting rules (F-16). The v2 baseline was **27.6%** — 61/221 over 46
+      sessions, classifier v2, precision 48%, window 2026-08-01..28. It carries its precision because at 48% roughly half
       the denominator is not the class. The classifier did NOT match nothing; the first held-out set
       that suggested it had was 3,000 characters of prose across four abandoned sessions.
-- [ ] **ELAPSED TIME IS THE ONLY THING BLOCKING THE REST.** T4 is shipped and needs a measurement
-      window of real compactions before T6 may ship (F-9). Record the delta whichever way it falls,
-      including "no effect" — the outcome that retires T4 rather than extending it (F-10).
-- [ ] **F-14 needs re-scoping or withdrawing by the owner.** T3 measured deferral as a harness-wide
-      policy over MCP tools as a class — a two-tool server is deferred — so the fact asserts an
-      outcome this system cannot produce. Its binding stays red until the owner rules.
+- [ ] ⚠ **F-9 IS VIOLATED IN FACT AND THE RECORD SAID OTHERWISE.** This obligation read "T4 is
+      shipped and needs a measurement window before T6 may ship", and T6 shipped 2026-08-28 anyway.
+      The defence would be that T4 reads `blocked` — but `blocked` describes the RECORD, not the
+      deployment. `installer.go` registers the recall hook on `SessionStart` unconditionally, and on
+      a hosted install it fires every session; T4 reads `blocked` only because it is mute on a
+      `--local` install. So T4 went live 2026-08-28 and T6 went live the same evening, both after
+      the 7.6% baseline was taken, and **no delta from this window is attributable to either.**
+      Raised in review, confirmed against source rather than argued.
+      **Consequence, recorded rather than repaired:** this window is spent. The next clean one needs
+      a fresh joint baseline taken with BOTH live — which `observed_at` now makes computable — and
+      then exactly one further mechanism. Nothing is un-shipped to manufacture a window that has
+      already been contaminated; F-10 records what happened, and this is what happened.
+- [ ] ⚠ **AND THE GATE FOR F-9 READS THE RECORD, NOT THE WORLD.**
+      `TestF9OneMechanismPerMeasurementWindow` counts README rows whose status string is `done`, so
+      a mechanism that is live in the installer while recorded `blocked` is invisible to it. Its
+      killed mutant — "recording two mechanisms `done` turns it red" — proves it reads the record
+      and says nothing about whether the record is true. That is this repository's signature defect
+      inside its own gate, and it is why the violation above was not caught by anything. Closing it
+      means deriving liveness from the artifact each mechanism ships.
+- [x] **F-14 was WITHDRAWN by the owner, 2026-08-28.** T3 measured deferral as a harness-wide policy
+      over MCP tools as a class — a two-tool server is deferred — so the fact asserted an outcome
+      this system cannot produce. Re-scoping was considered and rejected: the only non-deferred
+      surface is the handshake, which is already F-11's. The fact row is gone, its binding removed,
+      and the reasoning is in the spec's `## Withdrawn facts`.
 - [ ] **F-12's binding stays red with T5.** A bare grep pattern is not a question: 0 of 25 subjects
       reached canary-grade distance. Reopening needs a different trigger, not a tighter bound.
 - [ ] **F-2's narrowing is decided and unimplemented**, with two measured dead ends recorded. The
