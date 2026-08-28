@@ -15,14 +15,23 @@ import (
 // them is the text the operator supplied, which is where the outcome lands.
 var humanEntryRE = regexp.MustCompile(`(?m)^- (\d{4}-\d{2}-\d{2}) · human-observed · (.+)$`)
 
-// decisionRE finds the outcome word a human sign-off is required to name.
+// decisionRE finds candidate outcome words in a human sign-off.
 //
-// ⚠ THE LAST MATCH WINS, NOT THE FIRST. A realistic entry mentions the word
-// "decision" more than once — T3's own template pairs the verdict with "recorded
-// in evidence/…", giving `…the decision is recorded in evidence/x.md; decision
-// ship`. Taking the first match captures "is" and REJECTS A VALID SIGN-OFF, and a
-// false alarm is the worst failure mode a hygiene gate has: it is how a gate gets
-// switched off. The verdict is the clause an author writes last, so read the last.
+// ⚠ NEITHER THE FIRST NOR THE LAST MATCH IS THE VERDICT — THE LAST ONE IN THE
+// VOCABULARY IS. A realistic entry says "decision" several times and only some of
+// those are the verdict:
+//
+//	"…the decision is recorded in evidence/x.md; decision ship"   first match → "is"
+//	"decision ship; the decision will be revisited later"         last match  → "will"
+//	"decision blocked — saturated; the decision is in evidence/"  last match  → "is"
+//
+// Reading the first rejects the shape T3's own template produces; reading the last
+// rejects the mirror of it. Both are FALSE ALARMS, which is the worst failure mode
+// a hygiene gate has — it is how a gate gets switched off. So collect every
+// candidate and take the last one that is actually an outcome word. An earlier
+// version of this comment claimed "the verdict is the clause an author writes
+// last"; the corpus's only real sign-off falsifies that, with ~90 characters after
+// its verdict.
 var decisionRE = regexp.MustCompile(`(?i)\bdecision[:\s]+([a-z]+)`)
 
 // readmeRowRE pulls a task's id and status cell out of a tasks/README.md row.
@@ -134,10 +143,35 @@ func checkHumanSignOffs(tb testing.TB, root string) {
 		// state, so the honest outcome had nowhere to go. A gate requiring three
 		// values beside a template offering two reproduces the dead end for the next
 		// operator, and nothing connected the two until this check.
+		// ⚠ THE FENCED TEMPLATE, NOT THE FILE AND NOT EVEN THE SECTION. An operator
+		// copies the command out of the code fence; prose around it is not something
+		// they paste. Two earlier versions of this check missed the defect it exists
+		// to prevent — reverting ONLY the template line to two values left the gate
+		// green, first because the whole file was searched, then because the
+		// explanatory paragraph THIS TEST'S OWN PR added lives inside the very
+		// section the search was narrowed to. A mechanism reporting success while
+		// the thing it guards is broken, twice, which is the shape of the blocker it
+		// fixes one layer out. Measured both times by reverting line 39 alone.
+		//
+		// ⚠ AND ON A WORD BOUNDARY, for the reason AGENTS.md already records about
+		// `stale` and "staleness": a substring check credits "withdrawn" to
+		// `withdraw`, and `T3-run-the-gate.md` says "the ADR is withdrawn" in prose
+		// that has nothing to do with the sign-off template.
+		acceptance := fencedIn(sectionOf(text, "Acceptance"))
+		if strings.TrimSpace(acceptance) == "" {
+			problems++
+			tb.Errorf("%s (%s): declares human-observed acceptance but its `## Acceptance` section "+
+				"holds no fenced command\n"+
+				"The fence is the sign-off template an operator copies; without one there is nothing "+
+				"telling them what to write.", rel, tid)
+		}
 		for word := range statusForDecision {
-			if !strings.Contains(text, word) {
+			if acceptance == "" {
+				break // already reported above; do not pile three more onto one cause
+			}
+			if !regexp.MustCompile(`(?i)\b` + word + `\b`).MatchString(acceptance) {
 				problems++
-				tb.Errorf("%s (%s): its acceptance section never mentions %q, but the sign-off gate "+
+				tb.Errorf("%s (%s): its Acceptance section never offers %q, but the sign-off gate "+
 					"requires one of %s\n"+
 					"An operator writes what the template shows them. If the template cannot express "+
 					"the outcome they reached, it goes into free text where no tool reads it.",
@@ -211,11 +245,20 @@ func signOffProblem(entry, status string) string {
 	if len(all) == 0 {
 		return "names no decision"
 	}
-	decision := strings.ToLower(all[len(all)-1][1])
-	want, known := statusForDecision[decision]
-	if !known {
-		return fmt.Sprintf("decision %q is not one of %s", decision, decisionVocabulary())
+	decision, known := "", false
+	for _, m := range all {
+		if w := strings.ToLower(m[1]); statusForDecision[w] != "" {
+			decision, known = w, true // last in-vocabulary candidate wins
+		}
 	}
+	if !known {
+		var saw []string
+		for _, m := range all {
+			saw = append(saw, strings.ToLower(m[1]))
+		}
+		return fmt.Sprintf("names no decision from %s (saw %q)", decisionVocabulary(), strings.Join(saw, ", "))
+	}
+	want := statusForDecision[decision]
 	if status != want {
 		return fmt.Sprintf("decision %q requires status %q, index reads %q", decision, want, status)
 	}
@@ -248,6 +291,13 @@ func TestASignOffThatSaysStopIsCaught(t *testing.T) {
 			// template produces, and the first-match version rejected it as decision "is".
 			{"a valid ship after the word decision appears earlier", "gate exit 0; the decision is recorded in evidence/abstain-gate.md; decision ship", "done", false},
 			{"a stop after an earlier mention", "the decision is in the log below; decision blocked", "blocked", false},
+			// ⚠ The MIRROR of the case above: a valid verdict followed by a later
+			// "decision" that is not one. Last-match alone rejects these, which is a
+			// false alarm on a correct sign-off — so the reader takes the last
+			// IN-VOCABULARY candidate, not simply the last.
+			{"a ship followed by a later mention", "decision ship; the decision will be revisited once the corpus grows", "done", false},
+			{"a ship followed by a passive mention", "decision ship — T4 may start; this decision was taken with the reranker live", "done", false},
+			{"a stop wrapped on both sides", "the decision is recorded in evidence/x.md; decision blocked — saturated; the decision is final", "blocked", false},
 		}
 		for _, c := range cases {
 			t.Run(c.name, func(t *testing.T) {
@@ -267,8 +317,9 @@ func TestASignOffThatSaysStopIsCaught(t *testing.T) {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatal(err)
 		}
-		task := "# Task T1: a fixture\n\nAcceptance is human-observed: nothing hermetic can stand in " +
-			"for it. Sign off with `decision <ship|withdraw|blocked>`.\n\n" +
+		task := "# Task T1: a fixture\n\n## Acceptance\n\nAcceptance is human-observed: nothing " +
+			"hermetic can stand in for it. Sign-off step —\n\n" +
+			"```text\nadr-verify T1-fixture.md --human \"...; decision <ship|withdraw|blocked>\"\n```\n\n" +
 			"## Verification Log\n- 2026-08-28 · human-observed · gate exit 1; decision BLOCKED — neither ship nor withdraw\n"
 		if err := os.WriteFile(filepath.Join(dir, "T1-fixture.md"), []byte(task), 0o644); err != nil {
 			t.Fatal(err)
@@ -299,7 +350,56 @@ func TestASignOffThatSaysStopIsCaught(t *testing.T) {
 			t.Errorf("an index agreeing with its sign-off was reported anyway (%d error(s)) — "+
 				"a gate that fires on everything is one people switch off", clean.errors)
 		}
+
+		// ⚠ THE VOCABULARY CHECK NEEDS ITS OWN CELL, AND IT RUNS LAST ON PURPOSE. Its
+		// first version was exercised only by the live corpus, so no-opping it left
+		// `go test ./...` at exit 0 — "a test for X must fail when X is removed", and
+		// it did not. This cell runs after the index is made to AGREE, so a
+		// disagreement cannot supply the error and make the cell pass for the wrong
+		// reason; the first draft of it did exactly that.
+		twoValues := strings.Replace(task, "<ship|withdraw|blocked>", "<ship|withdraw>", 1)
+		if err := os.WriteFile(filepath.Join(dir, "T1-fixture.md"), []byte(twoValues), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		short := &recordingTB{}
+		checkHumanSignOffs(short, root)
+		if short.errors == 0 {
+			t.Error("a template offering two of the three outcome words was not reported.\n" +
+				"That is the original defect: an operator writes what the template shows them, so a " +
+				"template that cannot express the outcome they reached sends it into free text.")
+		}
+		if err := os.WriteFile(filepath.Join(dir, "T1-fixture.md"), []byte(task), 0o644); err != nil {
+			t.Fatal(err)
+		}
+
 	})
+}
+
+// fencedIn returns only the fenced code blocks of a section, joined. It is what an
+// operator COPIES, as opposed to the prose explaining it — and prose is exactly
+// what let two earlier versions of the vocabulary check pass over a template that
+// had lost a value.
+func fencedIn(section string) string {
+	var out []string
+	for _, m := range regexp.MustCompile("(?s)```[a-zA-Z]*\n(.*?)```").FindAllStringSubmatch(section, -1) {
+		out = append(out, m[1])
+	}
+	return strings.Join(out, "\n")
+}
+
+// sectionOf returns the body of one `## <name>` section, so a check about what a
+// TEMPLATE offers cannot be satisfied by prose elsewhere in the file.
+func sectionOf(text, name string) string {
+	head := regexp.MustCompile(`(?m)^##+\s+` + regexp.QuoteMeta(name) + `\s*$`)
+	loc := head.FindStringIndex(text)
+	if loc == nil {
+		return ""
+	}
+	rest := text[loc[1]:]
+	if next := regexp.MustCompile(`(?m)^##+\s+\S`).FindStringIndex(rest); next != nil {
+		return rest[:next[0]]
+	}
+	return rest
 }
 
 func decisionVocabulary() string {

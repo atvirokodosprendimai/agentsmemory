@@ -47,7 +47,7 @@ the Docker invocation this repo builds under, and `adr-verify` runs that one.
 | T1 | population labels + per-case top-1 score/presence + absent-verification provenance | T2 | T1 before T2 |
 | T2 | `eval --calibrate --gate` | T3 | T2 before T3 |
 | T2 | `palace.Calibration` (thresholds + fingerprint + id) | T4, T6 | T2 before T4 |
-| T3 | the `ship` / `withdraw` decision | T4 | T3 before T4 |
+| T3 | the `ship` / `withdraw` / `blocked` decision | T4 | T3 before T4 |
 | T4 | `palace.Service.WithCalibration` + the confirmed canary | T5 | T4 before T5 |
 | T5 | `palace.Confidence` populated by `Search` | T6 | T5 before T6 |
 

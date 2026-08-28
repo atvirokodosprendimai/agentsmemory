@@ -155,13 +155,16 @@ because where the two disagree the task files are supposed to win.
 
 **Still open for the harness owner:** count a human-observed entry as done only when it names a
 success outcome, and report a recorded stop as `blocked` rather than `done`. That is a four-line
-change to `is_done` plus a vocabulary. It shares the externality question with the entry *"The ADR
-evidence chain depends on a tool outside the repository"*, which resolves in this file today. ⚠ The
-`Depends-on` limitation is a third finding in the same tool, but it lands with PR #91 and is NOT in
-this file yet — an earlier version of this sentence cited it by a heading that exists only in this
-paragraph, which is the pointer-to-nothing failure the corpus keeps producing. Once #91 merges,
-three findings in one external tool is itself an argument that the vendoring option deserves a
-decision.
+change to `is_done` plus a vocabulary. It shares the externality question with two entries that both
+resolve in this file: *"The ADR evidence chain depends on a tool outside the repository"* and
+*"adr-lint cannot express a cross-record dependency"*. Three findings in one external tool is itself
+an argument that the vendoring option deserves a decision.
+
+*(This sentence has now been wrong in both directions. It first cited the third entry by a heading
+that existed only in its own paragraph — a pointer to nothing. The correction said the entry "lands
+with PR #91 and is NOT in this file yet", which went false the moment #91 merged, nine lines above
+the heading it claimed was absent. A cross-reference written in the future tense expires; one
+written by quoted heading does not, which is the rule this file already carries.)*
 
 **Not taken here, because it is the owner's:** ADR-001 is `Accepted` and its own T3 said to stop the
 ADR. Whether that means re-running T3 against a corpus that is not saturated, or withdrawing the
