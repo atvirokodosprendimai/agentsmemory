@@ -1398,6 +1398,56 @@ as the deferral so the pointer has a receiving end.
   softened to "end the loser and keep going", `merge_wing` becomes an ending operation performed by
   an agent and the surface question reopens.
 
+## ADR-041's instrument cannot measure what ADR-041 is trying to change — 2026-08-28
+
+Found by running the instrument on the session that built it.
+
+`Observe` (`clients/claude-code/recallrate.go:166`) sets `recalled := false` ONCE PER SESSION and
+flips it true at the first recall tool call. It is never reset. So every assertion after that point
+counts as "preceded by a recall", for the rest of the session, however far away the recall was and
+whatever it was about.
+
+**Measured on this session:** 109 assertions, 109 preceded — a perfect 100% against T2's 27.6%
+baseline. The first palace call was tool_use **#3 of 8,256**, 0.0% of the way in. The latch flipped
+almost immediately and every subsequent assertion inherited it. The number is an artifact, not an
+achievement.
+
+**What the metric actually answers** is "had this session touched the palace at any earlier point",
+not "was this claim grounded in a recall". Those are different questions, and the second is the one
+ADR-041 exists to move.
+
+**Three consequences:**
+
+1. **T2's 27.6% baseline measures the weaker thing.** Across 46 sessions it is approximately the
+   share of assertions made in sessions that had called a recall tool at all, weighted by how many
+   assertions each session made — not a rate of grounded claims.
+2. **The metric has a ceiling any protocol-following session hits trivially.** `AGENTS.md` mandates
+   `am_status` at wake-up and the SessionStart hooks encourage it, so a compliant session scores
+   100% before it has recalled anything relevant.
+3. **Therefore it cannot detect the improvement the ADR is for.** A mechanism that makes recall
+   *proximate and relevant* — which is what T4, T5 and T6 are all about — moves this number by zero.
+   ADR-041 T1's whole purpose was to create the measurement before any requirement claiming an
+   improvement; the measurement it created is insensitive to that improvement.
+
+**The spec has the gap, not just the code.** F-2 defines the countable UNIT precisely and nothing
+defines what PRECEDED means — no window, no proximity, no reset. F-4 guards one route to a vacuous
+perfect rate (a classifier that matches nothing) and misses this one, which arrives from the
+opposite side: a numerator that counts everything.
+
+**Not fixed here, because the fix is a spec decision.** What counts as "preceded" — within N tool
+calls, since the last user message, since the last compaction, or a recall whose query is related to
+the assertion's subject — changes what the number means. Options, cheapest first:
+
+- Record more without deciding: also emit `recalls`, `assertions_before_first_recall`, and the
+  distance in tool calls from each assertion back to the nearest preceding recall. Additive, it
+  re-reads existing transcripts, and it lets the window be chosen from data rather than guessed.
+- Reset the latch at a boundary (user message, or compaction) and re-take the baseline.
+- Bind "preceded" to subject relatedness — the honest reading of the spec's intent, and much the
+  hardest to implement.
+
+**The baseline must be re-taken under whatever definition wins.** A rate is only comparable with
+another measured the same way; T2's number cannot be carried over.
+
 ## Two tests name a property their fixtures never drive — 2026-08-28
 
 Found by mutation while re-recording the corpus; both mutants SURVIVED first and the survivals are
