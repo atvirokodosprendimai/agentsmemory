@@ -161,7 +161,13 @@ func TestF6AHookIsSilentInTheCommonCase(t *testing.T) {
 	broken := place(t)
 	brokenBin := t.TempDir()
 	if err := os.WriteFile(filepath.Join(brokenBin, "aiagentmemory"),
-		[]byte("#!/usr/bin/env bash\necho 'no workspace token found' >&2\nexit 1\n"), 0o755); err != nil {
+		// ⚠ THE MESSAGE IS LOAD-BEARING NOW. It used to read "no workspace token
+		// found", which is the one failure the hook deliberately keeps quiet about:
+		// a Claude hosted install has no credential, and saying so at every session
+		// start is noise nobody can act on. A genuine fault must still speak, and
+		// that is what this case is for — TestNoCredentialIsSilentButABadOneSpeaks
+		// owns the other half.
+		[]byte("#!/usr/bin/env bash\necho 'transport error: connection refused' >&2\nexit 1\n"), 0o755); err != nil {
 		t.Fatalf("stub: %v", err)
 	}
 	for _, args := range [][]string{{"init"}, {"config", "user.email", "t@example.test"},
