@@ -82,6 +82,7 @@ a decision, not a foregone no.
 *(Found by a reviewer who first "corrected" the count from two to one and then retracted the
 correction: the second precedent implements the same pattern under different identifiers, so a grep
 for the first one's names missed it. Ask which entries exist, not which files contain this string.)*
+
 ## A human sign-off that said STOP reads to every routing tool as PROCEED — 2026-08-28
 
 Found by checking what ADR-001 T3 decided before executing anything downstream of it.
@@ -128,9 +129,10 @@ explicitly (`evidenced_task_ids`: `if inf.get("human"): continue`).
 free text because there was nowhere else for it to go.
 
 `TestAHumanObservedSignOffAgreesWithTheIndex` (`internal/repohygiene/humansignoff_test.go`) now
-requires every human sign-off to name its outcome from `ship` / `withdraw` / `blocked`, requires the
-sibling README to carry the status that outcome maps to (`done` / `failed` / `blocked`), and requires
-the task's own acceptance section to OFFER all three — because the defect was a template prescribing
+requires every human sign-off to name EXACTLY ONE outcome from `ship` / `withdraw` / `blocked`,
+requires the sibling README to carry the status that outcome maps to (`done` / `failed` / `blocked`),
+and requires the FENCED TEMPLATE in the task's Acceptance section — the command an operator copies,
+not the prose around it — to offer all three — because the defect was a template prescribing
 two values, and a gate demanding three beside a template offering two reproduces the dead end for
 the next operator. It derives its universe from the corpus. ADR-001 T3's row now reads `blocked` and
 its hint reads `decision <ship|withdraw|blocked>`.
@@ -140,6 +142,13 @@ supersession gate reached the identical third state on 2026-08-24 — recorded i
 *"REFUSED — NOT 'no' … the gate could not answer. Those are different facts"* — a run that completed,
 produced a third outcome, and had two slots to record it in. Issue #34 has been open on that
 ambiguity since, before this finding existed. Two ADRs, two routes, one missing value.
+
+⚠ **Exactly one, because no position rule works.** Three were tried: first match rejected a valid
+sign-off ("…the decision is recorded in evidence/x.md; decision ship" → "is"), last match rejected
+its mirror, and last-in-vocabulary admitted a FALSE PASS on the very failure this entry is about — a
+verdict of BLOCKED indexed `done` passed the gate because a later "do not record decision ship"
+clause won. Position was standing in for grammar. Counting refuses to guess instead: two outcome
+words is an entry no reader can resolve either, so it is reported rather than resolved.
 
 ⚠ **`blocked` now carries three meanings across three tools**, and `statusForDecision`'s doc comment
 is where that is written down: `adr-next --all` prints it for a task whose DEPENDENCIES are unmet,
