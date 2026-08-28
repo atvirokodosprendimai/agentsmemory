@@ -150,7 +150,7 @@ the instance.**
 
 **Three records have already deferred to the primitive this ADR adds.** This is the part that makes it a decision rather than a cleanup:
 
-- **ADR-015** — *"Making `DrawerID` independent of the wing so a merge does not invalidate anything derived from the id"* (Out of Scope, deferred; receipted at `docs/adr/BACKLOG.md:665`).
+- **ADR-015** — *"Making `DrawerID` independent of the wing so a merge does not invalidate anything derived from the id"* (Out of Scope, deferred; receipted in `docs/adr/BACKLOG.md` under the heading *"From ADR-015 (a wing merge must correct the search index it invalidates)"* — cited by heading rather than by line, because every insertion above a line number invalidates it, and this citation had already drifted from `:665` to `:778` before anyone read it).
 - **ADR-027** — *"Make `Update` re-chunk … it changes which ids exist, and the open question — what happens to a reference pointing at a **non-parent** chunk — is unanswered."*
 - **ADR-010** — rejects event sourcing partly because *"the store already has a working row model with vectors, chunking and anchors hanging off drawer identity."*
 - **ADR-019** — rejected smaller chunks because *"it changes ids, invalidating every anchor, tunnel and knowledge-graph pointer."*

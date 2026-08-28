@@ -289,6 +289,25 @@ more than it covers is worse than a narrower one.
 `TestUndescribedOnPurposeIsJustified` refuses an exemption with no written reason,
 one naming a field nothing emits, and one that is no longer needed.
 
+**A SPEC BINDING IS A POINTER TOO, AND THE SPEC'S OWN GATE NEVER FOLLOWS IT.** A Facts
+row binds an assertion to a `<file>::<test function>` string, and that string is the
+only route from a requirement to its proof. `spec-verify` parses the table and checks the binding is
+PRESENT — it never opens the file. Renaming a bound test, or deleting the stub,
+leaves `spec-verify --draft` at `[PASS]` while the document goes on claiming a fact
+is proved by a test nothing runs. Demonstrated 2026-08-28: renaming one binding in
+`docs/specs/2026-08-28-a-read-as-cheap-as-a-grep.md` kept spec-verify green.
+`TestEverySpecBindingNamesATestThatExists` walks `docs/specs/` and resolves every
+binding with `go/parser` rather than by running anything, so a deliberately-red
+binding parked behind a build tag is checked exactly like a green one — which is
+the property that matters, because during `@spec` no bound test passes by
+definition. `TestASpecBindingThatNamesNothingIsCaught` drives `unresolvedBindings` — the same
+function, not a copy — over fixtures that ARE broken, since a corpus with zero
+broken bindings cannot exercise the branch that reports one. Its first draft
+reimplemented the loop, and severing the real resolution check then left it green
+with the whole suite at exit 0: a falsifiability half that shares nothing with the
+gate pins nothing. It resolves a subtest binding on its PARENT only, which the
+declaration says out loud rather than leaving a reader to assume otherwise.
+
 The same principle covers the gates already in the tree: `internal/doclint`
 (a doc comment must document the declaration it sits on), `TestEveryDeclaredArmIsRegistered`
 (an eval arm that no code path registers appears in no table, silently), and
