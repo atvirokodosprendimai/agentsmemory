@@ -147,10 +147,33 @@ And it is not described as directionally correct
 | F-11 | The MCP instructions name the CLASS OF CLAIM that requires a recall, and contain no bare instruction to recall before acting. | `internal/mcpserver/recallcue_spec_test.go::TestF11InstructionsNameTheClassOfClaimNotTheDuty` | @spec | Binding is a SELF-RETIRING SKIP: T6 is recorded `blocked`, so the mechanism does not exist and there is nothing to assert. The moment T6 reads `done` the skip becomes a failure demanding the real assertion. The premise F-11 rests on — the bare imperative still being in `serverInstructions` — IS asserted, before the skip, because after it the check would be unreachable. |
 | F-12 | Each candidate mechanism declares which failure it addresses; a mechanism that cannot name one is not a candidate. | `clients/claude-code/recallrate_spec_test.go::TestF12EachMechanismNamesTheFailureItAddresses` | @implemented | Mutant killed — removing the distinct-failure line from any mechanism task turns it red. |
 | F-13 | Candidate mechanisms are ordered by how little they depend on the agent choosing to comply, and the ordering is recorded before any of them ships. | `clients/claude-code/recallrate_spec_test.go::TestF13MechanismsAreOrderedByComplianceDependence` | @implemented | Mutant killed — putting the highest-compliance mechanism first turns it red. |
-| F-14 | The `am_*` tools are registered so that no schema lookup is required before the first call. | `internal/mcpserver/recallcue_spec_test.go::TestF14NoSchemaLookupBeforeTheFirstCall` | @spec | NOT IMPLEMENTABLE AS STATED, measured 2026-08-28: deferral is a property of the HARNESS, not the server — a two-tool MCP server is deferred just the same, so no registration choice removes the lookup. T3 records the finding. Binding is a self-retiring skip; it fails if T3 is ever recorded `done`. |
 | F-15 | An observation records COUNTS and identifiers only. No transcript text leaves the machine that produced it. | `clients/claude-code/recallrate_spec_test.go::TestF15AnObservationCarriesCountsNotContent` | @implemented | |
 | F-16 | Every observation carries the version of the classifier that produced it, and rates from different classifier versions are never compared. | `clients/claude-code/recallrate_spec_test.go::TestF16AnObservationCarriesItsClassifierVersion` | @implemented | |
 | F-17 | A miss is representable. The store records sessions in which NO recall preceded an assertion, not only sessions in which one did. | `clients/claude-code/recallrate_spec_test.go::TestF17AMissIsRepresentable` | @implemented | |
+
+## Withdrawn facts
+
+**F-14 — withdrawn 2026-08-28 by Zy.** *"The `am_*` tools are registered so that no schema lookup is
+required before the first call."*
+
+It asserts an outcome this system cannot produce. Measured in a live session and recorded by ADR-041
+T3, whose Stop Condition fired: every MCP server present is deferred regardless of size — including
+a TWO-TOOL connector — so deferral is a harness-wide policy over MCP tools as a class, there is no
+field in the protocol to opt out of it, and no registration choice this server makes removes the
+lookup. Re-scoping was considered and rejected for the same reason: the only surface that reaches an
+agent without a lookup is the handshake's `instructions` field, and that is already F-11's and T6's,
+so a re-scoped F-14 would be a second name for an existing fact.
+
+Grill Log rows 10 and 15 carry the history: 10 accepted eager loading as candidate #1 precisely
+because it asks nothing of the agent, and 15 records the measurement that killed it.
+
+**The consequence is kept, because it changes an ordering rather than just closing a fact.** The
+handshake is the only mechanism guaranteed to ARRIVE. F-13 ranked T6 last by compliance-dependence
+and that ordering stands — it was frozen before shipping precisely so a failed mechanism could not
+quietly promote another — but a reader should know that last-by-ranking is also first-by-certainty.
+
+ADR-041 T3 remains, minus F-14: it still carries F-9, F-10, F-12, F-13, UC3-S1 and UC3-S2, which are
+the process facts governing every mechanism window.
 
 ## Domain
 
@@ -205,8 +228,8 @@ spec-verify --spec docs/specs/2026-08-27-recall-before-asserting.md
 | 7 | Should hooks get louder? | F-6 | non-behavioral in effect; the verify hook's own comment settles it. |
 | 8 | Accept the cue-shaped instructions rewrite? | F-11 | Yes (Zy). It names the class of claim, not the duty — but it is candidate #4, the MOST compliance-dependent, and F-8 still applies to it. |
 | 9 | Which trigger does pushed recall use? | F-12, F-13 | All four are in scope (Zy: "depends on what we want to achieve"). Resolved against F-9 by separating BUILD from SHIP: build all, ship one per measurement window, ordered by compliance-dependence. Each must name the distinct failure it addresses or it is not a candidate. |
-| 10 | Is eager MCP tool loading in scope? | F-14 | Yes (Zy). It is candidate #1 precisely because it asks nothing of the agent — it removes an activation cost rather than adding a cue. |
-| 15 | Can the server make its tools load eagerly? | F-14 | NO — measured 2026-08-28 in a live session and T3 stopped. Every MCP server present is deferred regardless of size, including a TWO-TOOL connector, so deferral is a harness-wide policy over MCP tools as a class and no field in the protocol opts out. F-14 asserts an outcome this system cannot produce and needs re-scoping or withdrawing by the owner; its binding stays red. Consequence worth keeping: the `instructions` field on the handshake is the only surface that reaches an agent without a lookup, which raises T6's standing — it is last by compliance-dependence and first by guaranteed arrival. |
+| 10 | Is eager MCP tool loading in scope? | non-behavioral | Yes (Zy). It is candidate #1 precisely because it asks nothing of the agent — it removes an activation cost rather than adding a cue. | ⚠ Re-cited `non-behavioral` on 2026-08-28: this question decided SCOPE, and the fact it minted (F-14) is withdrawn — see `## Withdrawn facts`. The row is kept because the history of a reversed decision is the part worth having.
+| 15 | Can the server make its tools load eagerly? | non-behavioral | NO — measured 2026-08-28 in a live session and T3 stopped. Every MCP server present is deferred regardless of size, including a TWO-TOOL connector, so deferral is a harness-wide policy over MCP tools as a class and no field in the protocol opts out. F-14 asserts an outcome this system cannot produce and needs re-scoping or withdrawing by the owner; its binding stays red. Consequence worth keeping: the `instructions` field on the handshake is the only surface that reaches an agent without a lookup, which raises T6's standing — it is last by compliance-dependence and first by guaranteed arrival. | ⚠ Re-cited `non-behavioral` on 2026-08-28: the measurement decided that no behavioural fact was available here, and F-14 is withdrawn — see `## Withdrawn facts`.
 | 14 | Does indexing the CONSTRUCTED surface implement it? | F-2 | NO, measured 2026-08-28 and rejected; narrowing stops. v4 indexed tool names from `newTool("x")` literals and wire fields from json tags — 2,507 symbols, and the canary that failed v3 passed. It kept 54% against v3's 25% and still discarded ~12 of 15 sampled genuine claims. The premise is what fails, not the index: agents write about a system in prose that does not token-match its declarations, so widening the index chases instances and never converges. F-2 stands as the decision with two dead ends recorded; T2 runs at v2 with precision reported beside the rate. |
 | 13 | Does a symbol index implement F-2's "resolves"? | F-2 | NO, measured 2026-08-28 and rejected. An index over filenames and Go declarations discarded ~two-thirds of the true class, including *"`am_kg_query` does not fail open"* — the canonical instance — because a tool name is assembled at runtime and appears in no declaration. Precision rose 48%→67% while recall collapsed to 25%: the instrument got worse while the headline number got better. F-2 stands as the decision; "resolves" needs a resolver that sees the CONSTRUCTED surface (tool names, wire fields, predicates), not a walk of the tree. Classifier left at v2. |
 | 12 | Can ~50% precision carry the baseline, or must the unit narrow first? | F-2 | NARROW FIRST, amended 2026-08-28 after T1's held-out run. Measured over 46 transcripts: the rejected-noise class sits at 15% preceded against 27% for the kept class, so the noise is directionally adverse rather than neutral — it attenuates roughly by half, which roughly quadruples the sessions each measurement window needs, across four windows. Decisive: F-16 voids a baseline when the classifier changes, so narrowing AFTER T2 discards the baseline it took real sessions to collect. The narrowing is declaration-anchored — the subject must RESOLVE in the working tree — which is what `wing_craft` says to prefer over a prose rule. |

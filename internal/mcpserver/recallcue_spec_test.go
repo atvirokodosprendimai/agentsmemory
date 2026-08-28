@@ -85,11 +85,3 @@ func TestF11InstructionsNameTheClassOfClaimNotTheDuty(t *testing.T) {
 			"this spec. It is candidate #4 of four, the MOST compliance-dependent, so F-8's "+
 			"caveat applies and it ships last")
 }
-
-func TestF14NoSchemaLookupBeforeTheFirstCall(t *testing.T) {
-	skipWhileBlocked(t, "T3", "F-14",
-		"the am_* tools would be registered so no schema lookup is needed before the first call. "+
-			"MEASURED 2026-08-28 and NOT IMPLEMENTABLE AS STATED: deferral is a property of the "+
-			"HARNESS, not of the server — a two-tool MCP server is deferred just the same, so no "+
-			"registration choice this server makes can remove the lookup. T3 records the finding")
-}
