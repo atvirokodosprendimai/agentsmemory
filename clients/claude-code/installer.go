@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/url"
@@ -1007,7 +1006,10 @@ func (i *Installer) hookPlans() []hookPlan {
 
 // hookCommandURL is the endpoint baked into an installed hook command, or "" when
 // the command carries none.
-var hookCommandURL = regexp.MustCompile(`^` + regexp.QuoteMeta(mcpprotocol.MCPURLEnvVar) + `='([^']*)'`)
+// ⚠ NOT ANCHORED. It used to carry a leading ^ from when it was handed one command
+// string at a time; scanning the raw hooks file, nothing sits at position 0, so the
+// anchored form matched nothing and warned nobody — on every agent.
+var hookCommandURL = regexp.MustCompile(regexp.QuoteMeta(mcpprotocol.MCPURLEnvVar) + `='([^']*)'`)
 
 // warnIfRepointing says so out loud when this install is about to send the hooks
 // at a DIFFERENT server than the one they currently talk to.
@@ -1028,27 +1030,17 @@ func (i *Installer) warnIfRepointing(hooksFile string) {
 	if err != nil {
 		return // no existing hooks file: nothing to repoint, and a fresh install says enough
 	}
-	var doc struct {
-		Hooks map[string][]struct {
-			Hooks []struct {
-				Command string `json:"command"`
-			} `json:"hooks"`
-		} `json:"hooks"`
-	}
-	if err := json.Unmarshal(raw, &doc); err != nil {
-		return
-	}
+	// ⚠ THE RAW TEXT, NOT A PARSED DOCUMENT. This first unmarshalled JSON, which
+	// made it silently useless for codex — whose hooks live in config.toml, so the
+	// unmarshal failed and the function returned having warned nobody. A warning
+	// that exists for one agent and quietly not for another is the reachability
+	// defect this repository is named for. The assignment we are looking for has
+	// the same shape in every format because WE wrote it, so match that instead of
+	// the container around it.
 	seen := map[string]bool{}
-	for _, entries := range doc.Hooks {
-		for _, entry := range entries {
-			for _, h := range entry.Hooks {
-				if !strings.Contains(h.Command, i.kit.name) && !strings.Contains(h.Command, mcpName) {
-					continue
-				}
-				if m := hookCommandURL.FindStringSubmatch(h.Command); m != nil && m[1] != "" {
-					seen[m[1]] = true
-				}
-			}
+	for _, m := range hookCommandURL.FindAllStringSubmatch(string(raw), -1) {
+		if m[1] != "" {
+			seen[m[1]] = true
 		}
 	}
 	for existing := range seen {
@@ -1058,8 +1050,35 @@ func (i *Installer) warnIfRepointing(hooksFile string) {
 		i.warn("this install REPOINTS your hooks: they currently talk to %s, and will now talk "+
 			"to %s. If that is not what you meant, re-run with --mcp-url %s (or --local for "+
 			"a server on this machine) — a hook pointed at a server it cannot authenticate "+
-			"to goes silent rather than failing loudly.", existing, i.mcpURL, existing)
+			"to goes silent rather than failing loudly.",
+			redactURL(existing), redactURL(i.mcpURL), redactURL(existing))
 	}
+}
+
+// redactURL renders an endpoint for display with anything secret removed.
+//
+// ⚠ THE WARNING PRINTS A URL THAT CAME OUT OF A USER-CONTROLLED FILE. An endpoint
+// may legitimately carry credentials — userinfo, or a signed query — and this
+// message goes to a terminal and very often into a log or a pasted bug report.
+// Control characters are stripped too: the source is a file anyone can edit, and
+// a warning is the wrong place to let it drive a terminal.
+func redactURL(raw string) string {
+	clean := strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f {
+			return -1
+		}
+		return r
+	}, raw)
+	u, err := url.Parse(clean)
+	if err != nil || u.Host == "" {
+		return "(an endpoint that does not parse)"
+	}
+	shown := url.URL{Scheme: u.Scheme, Host: u.Host, Path: u.Path}
+	out := shown.String()
+	if u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+		out += " (credentials removed)"
+	}
+	return out
 }
 
 // shellQuote renders one literal POSIX-shell argument. Hook commands are stored

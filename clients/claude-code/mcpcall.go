@@ -26,6 +26,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -153,9 +154,31 @@ func dialMCP(ctx context.Context, url, token string, timeout time.Duration) (*cl
 	if token != "" {
 		headers["Authorization"] = "Bearer " + token
 	}
+
+	// ⚠ A REDIRECT CAN MOVE THE REQUEST OFF THE HOST THE AUTH DECISION WAS MADE
+	// ABOUT. resolveWorkspaceToken waives the credential because the ENDPOINT is
+	// loopback, but mcp-go builds a bare &http.Client{} with no CheckRedirect, so
+	// Go follows redirects by default: a loopback server answering 307 sends the
+	// MCP request BODY on to whatever host it names. The waiver was for this
+	// machine, and without this it silently extends to any host a redirect picks.
+	//
+	// Enforced only on the waived path, which is the one this change opened. With
+	// a token, Go already strips Authorization across hosts.
+	httpClient := &http.Client{}
+	if token == "" {
+		httpClient.CheckRedirect = func(req *http.Request, _ []*http.Request) error {
+			if !isLoopbackEndpoint(req.URL.String()) {
+				return fmt.Errorf("refusing a redirect to %s: this request carries no credential "+
+					"because %s is on this machine, and that waiver does not travel", req.URL.Host, url)
+			}
+			return nil
+		}
+	}
+
 	c, err := client.NewStreamableHttpClient(url,
 		transport.WithHTTPHeaders(headers),
 		transport.WithHTTPTimeout(timeout),
+		transport.WithHTTPBasicClient(httpClient),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("connect %s: %w", url, err)

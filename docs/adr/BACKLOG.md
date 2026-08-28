@@ -1398,6 +1398,31 @@ as the deferral so the pointer has a receiving end.
   softened to "end the loser and keep going", `merge_wing` becomes an ending operation performed by
   an agent and the surface question reopens.
 
+## A `--socket` install's hooks still speak HTTP — 2026-08-28
+
+Found by an independent review of PR #85, not by our own tests.
+
+`--socket` registers the agent's MCP over stdio against a Unix socket and "replaces `--mcp-url`"
+(`clients/claude-code/installer.go`, socket branch). It does not change `i.mcpURL`, and
+`hookCommand` exports that value into every hook command. So a socket-only install produces hooks
+that still talk HTTP: the recall hook shells out to `aiagentmemory mcp` and verify/stats use `curl`,
+all aimed at a TCP endpoint that a socket-only server never binds (`cmd/server/listen.go` binds only
+the socket when `SocketPath` is set).
+
+**PR #85 changes the symptom without fixing this.** Before it, those hooks failed on token
+resolution; after it, loopback token resolution SUCCEEDS and they fail on connection instead. Either
+way a documented install shape produces hooks that cannot reach their palace — and because a hook's
+healthy state is silence, nothing reports it.
+
+**Options.** Teach `hookCommand` to export the socket and give the recall/verify/stats paths a
+socket transport; or have `--socket` refuse to install hooks it knows cannot work, saying so; or
+register an HTTP listener alongside the socket. The first is the only one that leaves the install
+whole.
+
+Whichever is chosen, the check must be a test that starts a socket-only server and drives a
+GENERATED hook — the existing socket tests assert the registration, which is the half that already
+works.
+
 ## A `--local` install gives its hooks no credential — 2026-08-28
 
 **CORRECTED the same day, and the correction is the point.** This entry first claimed the CLI does
