@@ -1024,19 +1024,39 @@ func (s *Service) Get(ctx context.Context, teamID, id string) (d Drawer, err err
 		// The successor clause only when there IS one. A retraction replaces
 		// nothing, and "or read , which replaced it" is the shape of a bug — it
 		// reads as a lost id rather than as an absence that is meant.
-		successor := ""
-		if d.SupersededBy != "" {
-			successor = fmt.Sprintf(", or read %s, which replaced it", short12(d.SupersededBy))
-		}
-		return Drawer{}, fmt.Errorf("%w: drawer %s was ended on %s (%q). Pass include_history to "+
-			"read it%s",
-			ErrNotFound, short12(id), d.ValidTo, truncateReason(d.EndedReason), successor)
+		return Drawer{}, endedRefusal(id, d)
 	}
 	one := []Drawer{d}
 	if err := s.attachSupersedes(ctx, teamID, one); err != nil {
 		return Drawer{}, err
 	}
 	return one[0], nil
+}
+
+// endedRefusal is the answer for a drawer that exists and has been ended.
+//
+// ⚠ IT IS SHARED BY BOTH READ PATHS ON PURPOSE. Get had it and GetMemory did not,
+// so `am_get_drawer(id)` refused an ended drawer with the date, the reason and the
+// successor, while `am_get_drawer(id, whole: true)` on the SAME id answered a bare
+// "drawer not found". Reported 2026-08-29 with a same-id, same-second, one-variable
+// proof.
+//
+// That is the worst possible flag to lose it on: the protocol tells readers to
+// pass whole:true whenever they mean to READ a memory rather than confirm it
+// exists, so the flag we recommend for real reading was the one that hid the
+// correction. And the degraded message is not merely less useful, it is a
+// DIFFERENT CLAIM — "not found" reads as never existed, not as was corrected, so a
+// reader chasing a citation concludes the pointer was bad and moves on.
+func endedRefusal(id string, d Drawer) error {
+	// The successor clause only when there IS one. A retraction replaces nothing,
+	// and "or read , which replaced it" is the shape of a bug — it reads as a lost
+	// id rather than as an absence that is meant.
+	successor := ""
+	if d.SupersededBy != "" {
+		successor = fmt.Sprintf(", or read %s, which replaced it", short12(d.SupersededBy))
+	}
+	return fmt.Errorf("%w: drawer %s was ended on %s (%q). Pass include_history to read it%s",
+		ErrNotFound, short12(id), d.ValidTo, truncateReason(d.EndedReason), successor)
 }
 
 // GetMemory returns every chunk of the memory the given drawer belongs to, in
@@ -1080,7 +1100,10 @@ func (s *Service) GetMemory(ctx context.Context, teamID, id string) (chunks []Dr
 		}
 	}
 	if len(current) == 0 {
-		return nil, ErrNotFound
+		// Every chunk is ended, so the memory was corrected or retracted — which is
+		// a different answer from "no such id", and the caller is holding an id it
+		// got from somewhere. Refuse the way Get does.
+		return nil, endedRefusal(id, chunks[0])
 	}
 	// Lineage on this route too. get_drawer whole=true is how an agent reads a long
 	// memory as it was written, and a reader who cannot see that this text replaced
