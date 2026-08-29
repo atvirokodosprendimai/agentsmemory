@@ -14,10 +14,17 @@
 package mcpserver
 
 import (
+	"encoding/json"
 	"fmt"
 	"math"
+	"regexp"
+	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/atvirokodosprendimai/agentsmemory/internal/mcpprotocol"
+
+	"github.com/mark3labs/mcp-go/mcp"
 )
 
 // Bindings for docs/specs/2026-08-28-a-read-as-cheap-as-a-grep.md — the facts
@@ -184,12 +191,158 @@ func TestF4ChunkingCreatesNoReassemblyObligation(t *testing.T) {
 }
 
 func TestF7APageReportsWhatItWithheld(t *testing.T) {
-	t.Fatalf(readCostNotYetBuilt, "F-7 (UC1-S4): a page must report how many hits it withheld. "+
-		"`am_search` has limit but no offset or cursor (drawers.go:786-800, M-10) and the spec "+
-		"declines to add one (Non-Goals, Grill Log 8), so the count is the ONLY evidence a withheld "+
-		"hit existed — without it a page cut short by the response budget is indistinguishable from "+
-		"an exhausted corpus. This is a NEW obligation restored from old F-2, kept as its own fact so "+
-		"the scope increase is visible rather than folded into an existing binding. Kill it by "+
-		"reporting zero withheld on a page that was cut, or by counting hits dropped for relevance "+
-		"as withheld — the count is about the BUDGET, not about ranking, which this spec does not touch")
+	// F-7 (UC1-S4). The count is the ONLY evidence a withheld hit existed:
+	// `am_search` has limit but no offset or cursor, and the spec declines to add
+	// one (Non-Goals, Grill Log 8), so without it a page cut short by the response
+	// budget is indistinguishable from an exhausted corpus.
+	//
+	// ⚠ THE RECORD'S DEFINITION DOES NOT MATCH THIS CODE, and the deviation is
+	// written into the task file. T5's Affected Files says "a withheld hit is not
+	// on the page". The render loop never DROPS a hit: past the budget
+	// `headWithin` returns the empty string with cut=true, so the hit arrives with
+	// its id, its metadata and ZERO runes of the memory. Withheld therefore means
+	// ON THE PAGE CARRYING NOTHING — which is already house vocabulary, since
+	// am_list_drawers' own description says "as much of their opening as the
+	// budget still allows — possibly none".
+	//
+	// ⚠ DRIVEN THROUGH THE REGISTERED HANDLER, not through a helper. A test of a
+	// counting helper stays green while the call site in registerSearch reverts to
+	// reporting nothing, which is the "implemented, tested and unreachable" shape
+	// this repository is named for.
+	// The key is spelled out rather than referencing the production constant: a
+	// test that imports the name it is checking goes red by failing to COMPILE,
+	// which proves the symbol is missing and nothing about the behaviour.
+	const withheldByBudget = "budget"
+
+	srv, ctx := budgetTestServer(t)
+	const tool = mcpprotocol.ToolPrefix + "search"
+	st := srv.GetTool(tool)
+	if st.Handler == nil {
+		t.Fatalf("%s is not registered — this check has stopped checking anything", tool)
+	}
+
+	search := func(args map[string]any) f7Page {
+		t.Helper()
+		res, err := st.Handler(ctx, mcp.CallToolRequest{Params: mcp.CallToolParams{
+			Name: tool, Arguments: args,
+		}})
+		if err != nil {
+			t.Fatalf("search: %v", err)
+		}
+		var page f7Page
+		body := resultText(res)
+		if err := json.Unmarshal([]byte(body), &page); err != nil {
+			t.Fatalf("decode search result: %v\n%s", err, body[:min(len(body), 400)])
+		}
+		return page
+	}
+
+	// snippet_chars past any memory's length asks for all of every hit, so the
+	// budget is spent by the third memory and the tail arrives empty. This is the
+	// branch that produces a zero-rune hit at all; a fixture that never reaches it
+	// makes every assertion below vacuous, which the counts guard against.
+	page := search(map[string]any{
+		"query": "budget probe memory content", "wing": budgetWing,
+		"limit": 10, "snippet_chars": 100000,
+	})
+
+	empty, trimmed := 0, 0
+	for _, h := range page.Hits {
+		switch {
+		case len([]rune(h.Content)) == 0:
+			empty++
+		case h.Truncated:
+			trimmed++
+		}
+	}
+	if empty == 0 {
+		sizes := make([]int, len(page.Hits))
+		for i, h := range page.Hits {
+			sizes[i] = len([]rune(h.Content))
+		}
+		t.Fatalf("no hit came back empty, so this fixture never exhausted the %d-rune budget "+
+			"and the assertions below cannot fail: %d hit(s), per-hit runes %v",
+			responseBudget, page.Count, sizes)
+	}
+	if trimmed == 0 {
+		t.Fatalf("no hit was trimmed-but-nonempty, so this page cannot distinguish the two " +
+			"counters and the conflation the record warns about would pass here")
+	}
+
+	if page.Withheld == nil {
+		t.Fatalf("a page that delivered %d hit(s) carrying nothing reported no withheld count "+
+			"— it is indistinguishable from an exhausted corpus, which is the whole of F-7", empty)
+	}
+	if got := page.Withheld[withheldByBudget]; got != empty {
+		t.Errorf("withheld[%q] = %d against %d hit(s) that arrived carrying nothing",
+			withheldByBudget, got, empty)
+	}
+
+	// THE CONFLATION, as an assertion rather than a warning. The note's number is
+	// the trimmed count an agent actually reads; a hit that was first counted
+	// over-budget and then emptied must appear in exactly one of the two.
+	if n := f7NoteCount(t, page.Note); n != trimmed {
+		t.Errorf("the note reports %d trimmed hit(s) against %d that are on the page with "+
+			"less than the whole memory — a hit counted as both trimmed and withheld makes "+
+			"both numbers wrong while each looks plausible.\n  note=%q", n, trimmed, page.Note)
+	}
+
+	// The remedy has to be nameable. A withheld hit IS resumable by id, which is
+	// better than Grill Log 8 assumed when it declined a cursor.
+	if !strings.Contains(page.Note, "am_get_drawer") {
+		t.Errorf("hits were withheld and the note does not name the call that retrieves "+
+			"them: note=%q", page.Note)
+	}
+
+	t.Run("hits dropped by limit are not withheld", func(t *testing.T) {
+		// The kill-case the binding names: the count is about the BUDGET, not about
+		// ranking. Four of the six fixture memories never reach this page, and none
+		// of them is withheld.
+		page := search(map[string]any{
+			"query": "budget probe memory content", "wing": budgetWing, "limit": 2,
+		})
+		if page.Count != 2 {
+			t.Fatalf("limit=2 returned %d hits; the negative case needs the limit to bite",
+				page.Count)
+		}
+		for _, h := range page.Hits {
+			if len([]rune(h.Content)) == 0 {
+				t.Fatal("a windowed hit came back empty; this page cannot isolate the limit")
+			}
+		}
+		if page.Withheld != nil {
+			t.Errorf("withheld = %v on a page the budget never cut — hits excluded by limit, "+
+				"by relevance or by the history filter are not withheld, and counting them "+
+				"makes the number mean nothing", page.Withheld)
+		}
+	})
+}
+
+// f7Page is the am_search response as F-7 reads it.
+type f7Page struct {
+	Count    int            `json:"count"`
+	Note     string         `json:"note"`
+	Withheld map[string]int `json:"withheld"`
+	Hits     []struct {
+		Content    string `json:"content"`
+		Truncated  bool   `json:"content_truncated"`
+		FullLength int    `json:"content_length"`
+	} `json:"hits"`
+}
+
+// f7NoteCount reads the trimmed-hit count out of the page note, which is the
+// number an agent actually sees. Reading the prose rather than a second field is
+// deliberate: the note is the surface, and a note that drifts from the counter is
+// the same defect as a wrong counter.
+func f7NoteCount(t *testing.T, note string) int {
+	t.Helper()
+	m := regexp.MustCompile(`last (\d+) hit`).FindStringSubmatch(note)
+	if m == nil {
+		t.Fatalf("the note does not report how many hits were trimmed: %q", note)
+	}
+	n, err := strconv.Atoi(m[1])
+	if err != nil {
+		t.Fatalf("note count %q is not a number: %v", m[1], err)
+	}
+	return n
 }
