@@ -198,10 +198,15 @@ func registerAddDrawer(reg *registrar, drawers *palace.Service, usageSvc *usage.
 		mcp.WithString("source_file", mcp.Description("Optional provenance of the content (a path or label).")),
 		mcp.WithString("content_date", mcp.Description("Optional date the memory is about (e.g. 2026-06-26).")),
 		mcp.WithArray("code_anchors", mcp.Description(
-			"Optional: pin this memory to the code it is about, as [{\"path\":\"internal/x/y.go\",\"snippet\":\"<verbatim lines>\",\"repo\":\"<optional label>\"}]. "+
+			"Optional: pin this memory to the code it is about, as [{\"path\":\"internal/x/y.go\",\"snippet\":\"<verbatim lines>\",\"repo\":\"<repository name>\"}]. "+
 				"Paste the exact code, NOT a line number — line numbers move on every edit above them. When the snippet later "+
 				"disappears from the file, search marks this memory STALE instead of letting the next session act on a fact "+
-				"that stopped being true. Anchor whenever a memory explains a specific piece of code.")),
+				"that stopped being true. Anchor whenever a memory explains a specific piece of code. "+
+				"ALWAYS SEND repo — the basename of your git remote. Anchors are workspace-wide but verification runs in "+
+				"one checkout, so repo is the only thing that tells a verifying session whether an anchor is even about "+
+				"the tree in front of it. Without it the anchor can never report drift from anywhere: a path like "+
+				"internal/x/y.go looks checkable from any directory, so an unlabelled anchor is left UNCHECKED rather "+
+				"than reported missing — the safe reading, and a permanently silent one.")),
 		mcp.WithBoolean("confirm_new_wing", mcp.Description(
 			"Set true to file an inbox item into a wing that holds no memories yet. Without it that "+
 				"combination is refused, because it is what an undeliverable handoff looks like: a "+
@@ -531,7 +536,8 @@ func registerUpdateDrawer(reg *registrar, drawers *palace.Service, usageSvc *usa
 		mcp.WithString("wing", mcp.Description("Move the memory to this wing. With content, the correcting record is filed here.")),
 		mcp.WithString("room", mcp.Description("Move the memory to this room. With content, the correcting record is filed here.")),
 		mcp.WithArray("code_anchors", mcp.Description(
-			"REPLACE this memory's code anchors, as [{\"path\":\"internal/x/y.go\",\"snippet\":\"<verbatim lines>\",\"repo\":\"<optional label>\"}]. "+
+			"REPLACE this memory's code anchors, as [{\"path\":\"internal/x/y.go\",\"snippet\":\"<verbatim lines>\",\"repo\":\"<repository name>\"}]. "+
+				"Send repo — the basename of your git remote; an anchor without it is left unchecked forever, because nothing can confirm which tree it belongs to. "+
 				"Send [] to remove them all. Omit the field to leave them untouched. "+
 				"With content, these are applied to the CORRECTING record, not the one being ended. "+
 				"A correction carries the old record's anchors forward as unchecked, so send this only "+
