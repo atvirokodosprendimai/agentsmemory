@@ -130,6 +130,113 @@ This decision is valid for the two deployments named — the local self-hosted s
 SaaS workspace. It says nothing about a third-party palace built from an older served document; those
 are covered by the served document's correction going forward, not retroactively.
 
+## Amendment 2026-08-29 — the address layer is undecided, and the record must decide it
+
+**Status of this amendment: the Decision above is UNCHANGED and the choice below is the OWNER'S.**
+This section adds measurements taken after the record was written, and states what they rule out. It
+does not pick a winner, because the three options were named in the Risks table as open and one of
+them (PR #75) is another record's business.
+
+### What changed since 2026-08-28
+
+**1. The rot has a measured rate, and it is faster than the record assumed.** The Risks table calls
+the drawer-id staleness "observed, not hypothetical" and stops there. Measured since:
+`llm_open_threads` has had **four ids in three days** — `800303b3…` → `8df48310…` (08-27) →
+`a94e9134…` (08-29 07:29) → `1e89870b…` (08:41) → `57787198…` (09:27). Four of those five name ENDED
+rows. The `llm_index` key-list drawer's pointer to it was corrected three times in one day and was
+dead again within the hour, each time silently, because a retired row reads exactly like a live one
+unless the caller passes `include_history` and checks `valid_to`.
+
+**The room that changes most often is the resume point, BECAUSE it is the resume point.** So the
+pointer most worth having is the one most likely to be dead. That is a property of the corpus, not
+an accident of one week.
+
+**2. The rot already reached the measurement layer.** The eval's `--cases` replay pins gold by drawer
+id. On 2026-08-29 it reported *"no arm retrieved: where did we finish"* and advised raising `--pool`
+because *"the embedding is not placing those memories near their question"* — when the gold was
+`800303b3…`, the first id above, ended hours earlier. `am_search` returns the current drawer at rank
+1. A stale address did not merely fail; it produced a confident, actionable, wrong diagnosis about
+retrieval quality.
+
+**3. T4 has not run, so there is no entry point at all.** Measured 2026-08-29 against the local
+palace: `am_bootstrap(wing_agentmemories)` returns `entry_point.resolution: "unknown_term"` with
+`eager`, `on_demand` and `corrections` all `null`; `am_entry_point` returns
+`{edges: null, node: "", resolution: "unknown_term"}`.
+
+**4. And the documented fallback was removed while T4 was still unrun.** PR #109 merged 2026-08-29
+and correctly deleted `AGENTS.md`'s restatement of the entry protocol — it had drifted, teaching a
+traversal that returns 62,952 bytes and naming a room this palace has never held. It replaced it
+with *"call `am_skillset`, load `start-here`, and follow it"*. ⚠ **`start-here` does not exist on the
+local instance** — `am_load_skill("start-here")` returns `skill: not found`; the catalogue holds six
+skills and that is not one of them. It exists on the HOSTED instance at v13, where
+`memory-orchestration` is a retirement stub merged into it.
+
+So on the local instance, as of today, **a session following the merged protocol has zero documented
+routes into the wing.** Before #109 it had two, both broken. This is not #109's defect — the file it
+removed was wrong — but it changes this record's urgency from "the entry point is unseeded" to "the
+entry point is unseeded and nothing else is documented either".
+
+**5. One route works, and no document outside the palace names it.**
+`am_kg_query(entity: "must", direction: "outgoing")` → **8 current facts, `resolution: "matched"`**:
+five `must_load` to LABELS (`llm_index`, `llm_index_keys`, `llm_open_threads`, `llm_corrections`,
+`human_decisions`) and three `must_load_skill`. The `llm_index` drawer resolves those labels to ids
+and says so in its own first line. It is documented only inside the palace — findable only by a
+session that is already in.
+
+### What the measurements rule out, and what they do not
+
+**They do not overturn ADR-038, and the tension is worth stating precisely.** ADR-038 is right: an id
+minted once and never recomputed is the correct IDENTITY, and ending rather than overwriting is what
+preserves the rejected alternative. The consequence nobody had written down is that **the same
+property makes a drawer id a poor ADDRESS.** An identity answers "is this the same record"; an
+address answers "where do I find the current one". ADR-038 gave this corpus a stable, MORTAL
+identity — stable because it never changes, mortal because a correction mints a new one and ends the
+old. A long-lived pointer needs the second thing, and the record chose the first.
+
+That is the whole disagreement, and it is not a defect in either record. `must` → `must_load` →
+*label* survives a correction precisely because the label is resolved through a drawer at read time;
+the indirection absorbs the churn. `<root id>` → `must.*` → `<drawer id>` has no such layer.
+
+**What is now ruled out on evidence rather than argument:** shipping T4 as written, with no resolver
+and no gate, would create 5+ pointers into the fastest-rotting room in the corpus, with the eval
+incident above as the demonstration of what a stale one costs. The Risks table already rated this
+High and unmitigated; the rate measurement is what turns "unmitigated" into "do not ship it that
+way".
+
+**What is NOT ruled out:** the `llm_init` room decision itself. One spelling for the entry room is
+orthogonal to how the tier is addressed, and nothing measured here bears on it.
+
+### The three options, restated with what is now known
+
+The Risks table named these. Each is stated with its cost so the owner is choosing rather than
+ratifying.
+
+| Option | What it costs | What the measurements say |
+|---|---|---|
+| **A. Ship T4 as written, plus a gate** that resolves every `must.*` object and fails on an ended one | A gate that runs where? `doctor --corpus` is the only route an operator has, and a corpus check catches rot AFTER it lands. The pointer is dead between the correction and the next run | Bounds the damage, does not remove it. The eval incident happened inside one working day |
+| **B. Keep the label indirection and give it a resolver** — `must.*` objects stay labels, `Bootstrap` resolves label → current drawer at read time | A resolution step on every bootstrap, and a rule for what a label means when two drawers claim it | The only scheme with survival evidence: it absorbed four corrections in three days with no maintenance. Its resolver already exists as a drawer (`llm_index`); this makes it code |
+| **C. PR #75's name-addressing** — a store addressed by name rather than id | Unmerged and unreviewed; scope is a store, not an entry point | A third answer to the same problem. Its existence strengthens the case that the address layer is the real subject, and weakens the case for solving it twice |
+
+**The author's recommendation is B**, on the narrow ground that it is the only option with three days
+of measured survival while A's target has three days of measured failure — and that B's resolver is
+not new work so much as promoting a drawer that already does the job. **This is a recommendation, not
+a decision.** A and C are defensible; C in particular may make B redundant, and that is a sequencing
+question only the owner can settle.
+
+⚠ **A fourth option was considered and is rejected on evidence:** doing nothing until PR #75 lands.
+That leaves the state measured in (3) and (4) — no entry point, no documented route on the local
+instance — for an unbounded period, and today's six independent sessions establish that new sessions
+arrive constantly.
+
+### One constraint that binds whichever option wins
+
+**A skill catalogue is INSTANCE-SCOPED, and any route a document names must exist on both.** The
+local and hosted palaces both report six skills and their CONTENTS DIFFER — verified 2026-08-29 by
+two sessions comparing catalogues. `AGENTS.md` now names `start-here`, which is hosted-only. Whatever
+this record settles, the artifact that teaches it must either name a route present on every instance,
+or say which instance it is describing. An absence claim about a skill needs the instance named, the
+same way a defect needs the ref it is relative to.
+
 ## Alternatives Considered
 
 - **Adopt `llm_index` as the entry room** (change `EntryRoom`, `AGENTS.md`, `model/draf1.md`, and
@@ -248,7 +355,7 @@ task breaks every reference to it, and `Depends-on` is the source of truth.
 | T2's change to `Bootstrap` inflates the response past the budget ADR-036 T8 measured | Med | Med | `must.*` only, `ref.*` stays on demand; T2's Acceptance asserts the truncation report is populated rather than the tier being silently cut |
 | A backfill is applied instead of T4's seeding, producing false reachability | Med | High | Named as a rejected Alternative and forbidden in T4's Stop Condition; T2's test fails when the tier is unreachable, so the cheap fix cannot pass the gate |
 | T1's gate is written to match the document rather than the constant, so correcting the document is not what turns it green | Med | Med | The gate's universe is `palace.EntryRoom` parsed from source; T1's mutation is changing the constant and watching the gate follow it |
-| **Drawer-id `must.*` edges go stale on the next correction of any target, and nothing notices** | **High** | **Med** | ⚠ Observed 2026-08-29, not hypothetical. ADR-038 mints an id once and never recomputes it — but `am_update_drawer` with content does not EDIT a row, it writes a new one and ends the old, so every correction mints a new id and silently invalidates every pointer to the previous one. The `llm_index` key-list drawer carried a two-generations-stale pointer to `llm_open_threads` and nothing reported it, because a retired row reads exactly like a live one unless the caller passes `include_history` and checks `valid_to`. **This is the strongest surviving argument FOR the label scheme this record replaces:** `must` → `must_load` → *label* survives a correction because the label is resolved through a drawer, and the indirection absorbs the churn. T4 writes `<root id>` → `must.*` → `<drawer id>`, which does not. Not mitigated here, and named rather than argued away — the honest options are a gate that resolves every `must.*` object and fails on an ended one, or keeping the label indirection and giving it a resolver. Both are larger than this record, and PR #75's name-addressing is a third answer to the same problem, which strengthens its case rather than this one's |
+| **Drawer-id `must.*` edges go stale on the next correction of any target, and nothing notices** | **High** | **Med** | ⚠ Observed 2026-08-29, not hypothetical. ADR-038 mints an id once and never recomputes it — but `am_update_drawer` with content does not EDIT a row, it writes a new one and ends the old, so every correction mints a new id and silently invalidates every pointer to the previous one. The `llm_index` key-list drawer carried a two-generations-stale pointer to `llm_open_threads` and nothing reported it, because a retired row reads exactly like a live one unless the caller passes `include_history` and checks `valid_to`. **This is the strongest surviving argument FOR the label scheme this record replaces:** `must` → `must_load` → *label* survives a correction because the label is resolved through a drawer, and the indirection absorbs the churn. T4 writes `<root id>` → `must.*` → `<drawer id>`, which does not. Not mitigated here, and named rather than argued away — the honest options are a gate that resolves every `must.*` object and fails on an ended one, or keeping the label indirection and giving it a resolver. Both are larger than this record, and PR #75's name-addressing is a third answer to the same problem, which strengthens its case rather than this one's. ⚠ **UPDATED 2026-08-29 — see the Amendment above: the rate is now measured at four ids in three days, the rot has already produced a false eval diagnosis, and shipping T4 as written is ruled out on evidence. The three options are restated there with their costs; the choice is the owner's and is still open** |
 | ADR-036 T7's 25-node claim is simply wrong, and there is no hosted corpus either | Low | Low | T3 records the answer whichever way it falls; a refutation makes the migration smaller, not larger |
 
 ## Rollback
