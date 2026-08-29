@@ -2999,3 +2999,58 @@ The absence-class probes left two rows in `am_recall_stats`: one search against 
 which will appear in `unanswered` and `suggestions` for 24h and reads like a real project to anyone
 scanning the list cold, and one deliberately over-filtered query that reads as unanswered. Both are
 noise from this exercise. Discount them, or remove them if a route exists that is not destructive.
+
+## The corpus holds ONE `mutant killed` whose exit code contradicts its own detection path — 2026-08-29
+
+Swept after a quality-harness session found a FALSE KILL in its own tool: a fence pointed at
+`nosuchrunner` exited 127, matched no build-broken pattern, and fell through to
+`mutant killed · a test went red`. An absent runner recorded as evidence that a suite noticed a
+broken mechanism — and it predated the report. Their fix routes it to `environment_failure`.
+
+**The retroactive consequence is what made this worth sweeping: a `killed` row is worse than no row,
+because the tool-written stamp is what makes it trusted.** Every mutation-log entry written on a
+machine with a missing or misnamed runner is suspect.
+
+**This corpus is clean of the 127 signature.** Measured 2026-08-29 on `main`:
+
+```
+grep -rho 'mutant [a-z]* · exit [0-9]*' docs/adr --include='*.md' | sort | uniq -c
+  195  mutant killed · exit 1
+   39  mutant survived · exit 0
+    6  mutant inconclusive · exit 1
+    1  mutant killed · exit 2
+grep -rn 'exit 127' docs/adr --include='*.md'   →  no matches
+```
+
+**But the single exit-2 row does not survive reading, and exit 2 is the ambiguous code** — from a
+gate it can mean "I refuse this" or "I could not run".
+
+`ADR-021-.../tasks/T3-does-the-instruction-change-the-answer.md:98` —
+`2026-08-25 · 8c3167d* · mutant killed · exit 2 · README.md`, for a typo mutation that should make
+`TestReadmeNamesEveryInstallableAgent` fail.
+
+Its fence is a `docker run … sh -c 'set -e; …'` whose detection works like this:
+
+```
+go test … -run "TestReadmeNamesEveryInstallableAgent" … | tee /tmp/a21t3.out
+grep -q -- "--- PASS: TestReadmeNamesEveryInstallableAgent" /tmp/a21t3.out
+```
+
+The `go test` is PIPED, so its status is `tee`'s and `set -e` does not fire there. **The detection is
+the `grep -q` finding no PASS line — and `grep` exits 1 on no-match.** So a genuine kill by this
+fence exits **1**, which is what the other 195 rows show. `grep` exits **2** on a FILE ERROR. The one
+row at exit 2 therefore carries an exit code inconsistent with the path it claims to have taken.
+
+**NOT established: that it is a false kill.** The tree was dirty at the time (`8c3167d*`), the fence
+also runs `apk add`, `go vet`, a second `grep` against `internal/web/windows-guide.md` and a full
+`go test ./...`, and any of those could produce a 2 by a route not reconstructed here. What is
+established is that the row deserves the second look the other 195 do not, and that nobody has given
+it one.
+
+**Cheap resolution, not yet run:** re-run that mutation and see which code it takes now. ADR-021 T3
+is still pending on its human-observed half, so the task is live rather than archived.
+
+**The general rule, worth more than this row:** a fence's detection path has a KNOWN exit code, and
+an entry whose code differs took a different path. `exit 127` is the signature to grep for first;
+`exit 2` from a gate is the one that needs reading rather than grepping.
+
