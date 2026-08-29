@@ -2763,3 +2763,239 @@ keys off the registration wing rather than the checkout. That guess is NOT confi
 confirmed cause is the empty repo label — but if both surfaces resolve scope from the registration,
 they may share a root worth fixing once.
 
+# Cross-session probe, 2026-08-29 — findings from six sessions given adversarial axes
+
+Six Claude sessions in six unrelated repositories were each asked to stress ONE axis of the palace
+and report measurements rather than impressions, read-mostly, writing only into their own wings.
+Every entry below carries the reporter's own control. **Not one of these was found by our test
+suite**, and several are in tools our suite exercises heavily — the difference is that a probe
+asks "can I make this lie", and a test asks "does this still do what it did".
+
+## ⚠ FUSION: two distinct memories with no `source_file` become ONE, and nothing marks the seam
+
+**The worst finding of the day, and it upgrades an entry already in this file.** Reported with a
+non-degenerate fixture: a shared ~1750-rune preamble of genuinely varied prose (a shared standard
+preamble is an ordinary way to write) plus a short unique tail.
+
+- **With different `source_file`** — no collapse. Byte-identical chunk 0, different ids,
+  `whole:true` returns each memory correctly. **So ids are not content hashes and cross-memory
+  chunk dedupe does not happen on that path** — which RETRACTS the framing of the older entry above.
+- **With the same `source_file`** — collapse, handled CORRECTLY: the loser's tail is ENDED with
+  `ended_reason: "dropped from <source> on re-file"` and stays readable. That is identity-by-source
+  working. (Though `am_add_drawer` returned `chunks: 2, ok: true` and said nothing about having
+  superseded an existing memory.)
+- **With NO `source_file` at all — FUSION.** `source_file` is optional and most callers omit it.
+  The second write reused the first's chunk-0 id, but the first's tail was **not ended** — no
+  `valid_to`, no `ended_reason` — it was orphaned. `am_get_drawer(root, whole:true)` then returns
+  **3 chunks, two of them carrying `chunk_index: 1`**: one ending in the first memory's subject, one
+  in the second's. Two memories about different things, written seconds apart by separate calls,
+  returned as one memory whose body says two unrelated things in sequence.
+
+Arithmetic: 2 memories x 2 chunks = 4 rows expected, 3 stored, both writes reported `ok: true`.
+
+**Why it is worse than loss:** nothing is missing, so nothing prompts a search. A memory that reads
+continuously and contains two claims prompts nothing at all, and a reader cannot tell the second
+half came from a different call about a different subject. *A write that reports success while
+inventing a memory nobody wrote.*
+
+### RESOLVED 2026-08-29: it is WRITE TIME, the parentage is wrong ON DISK, and a reader-side fix
+recovers nothing
+
+Reproduced in-process with two sourceless memories sharing a preamble, reading the table directly
+rather than through any read path:
+
+```
+E ids: [5ff5c2a5 4d6d85fc]
+F ids: [5ff5c2a5 38f30303]        <- chunk 0 id REUSED at write
+
+rows stored: 3   (4 expected for two 2-chunk memories)
+  id=5ff5c2a5  chunk_index=0  parent=(none)    tail="…preamble…"
+  id=38f30303  chunk_index=1  parent=5ff5c2a5  tail=" PART F about an index"
+  id=4d6d85fc  chunk_index=1  parent=5ff5c2a5  tail="…PART E about a gate"
+```
+
+Two rows carrying `chunk_index: 1`, both parented to one root, in the STORED ROWS. So `whole:true`
+and `am_search` are reporting the table faithfully — the reporter's arithmetic tell
+(`content_length: 3170` against controls of 2401/2486/2273, and `chunks_matched: 3`) is measuring
+real data rather than a lookup artefact. Searching for either memory's subject lands on the same
+`memory_id`, and neither result says the body contains the other.
+
+**THE CAUSE IS ONE EXPRESSION.** `Add` computes a per-chunk content key as
+`contentKeyOf(team, wing, room, SOURCE_FILE, chunk_index, content)` and reuses the id of any CURRENT
+row already holding that key — a deliberate feature, so re-filing unchanged text keeps every anchor
+and provenance pointer pinned to it. **With `source_file` empty that key is identical across two
+different memories whose chunk 0 is identical**, so the second write's chunk 0 resolves to the
+first's row, and its chunk 1 is then parented to it because parentage is "the id of chunk 0 of this
+write". `purgeSource` — which correctly ENDS the loser when a source IS named — is gated on a
+non-empty source, so nothing is ended. All three reported cases fall out of that single expression.
+
+**WHY A MIGRATION AND NOT A READER FIX.** The first memory no longer has a root of its own: its
+identity was consumed, not shadowed. Nothing in the rows records that the orphaned chunk was ever
+part of a different write, so a repair must infer the split from `chunk_index` collisions under one
+parent — recoverable in this fixture because the tails differ, and not obviously recoverable in
+general.
+
+**THE REMEDY IS AN IDENTITY QUESTION AND ADR-038 OWNS IDENTITY** — whether a chunk id may be reused
+across memories at all, or whether reuse must require the WHOLE memory to match rather than one
+chunk. That is a record to write, not a patch to apply, and `doctor --corpus` is the natural place
+for the detection half (a `chunk_index` collision under one parent is mechanically findable).
+
+Still open: whether an explicit `source_file` is meant to be REQUIRED for a multi-chunk write.
+
+Fixture drawers were left in place in the reporter's wing.
+
+## `am_diary_read` returns CHUNKS as ENTRIES, and `total`/`showing` make it look complete
+
+Confirmed in source: `repo.Diary` selects drawer ROWS, each becomes a `DiaryEntry`, `DiaryCount`
+counts rows, and `last_n` limits rows. Every doc comment on the path says "entries".
+
+Measured: one diary entry of ~4.4k characters stored as 3 chunks. `last_n: 1` returned
+`entries: [1 object], total: 3, showing: 1` — content was chunk 0 only, **ending mid-word**, with no
+`content_truncated`, no `content_length`, no `chunk_index`, no ellipsis. `last_n: 3` returned three
+"entries" with the SAME timestamp: the three chunks of the one entry.
+
+**The fields make it worse rather than better.** `total: 3, showing: 1` reads exactly like paging
+over entries — which is what a reader who passed `last_n: 1` expects — so the number CONFIRMS they
+got what they asked for. An unmarked truncation leaves you uncertain; this leaves you confidently
+wrong. Composite failure: an agent with five genuine entries asks for `last_n: 3` and can receive
+three chunks of the newest one, with entries two and three never appearing and nothing saying they
+were displaced.
+
+The contrast that makes it a defect rather than house style: `am_search`'s `snippet_chars` is
+well-behaved at both edges — `snippet_chars: 1` gave `content_coverage: 0.00246` (honest for what
+was returned) and `snippet_chars: <exact length>` gave the whole memory with `content_truncated`
+correctly ABSENT. One read path marks partial answers with three fields and a match count; the other
+marks nothing and mislabels its count.
+
+## THE ABSENCE CLASS: four tools answer a clean zero where two siblings say "I could not look"
+
+The system has the concept in TWO forms already, which is what makes this a leak rather than a
+missing feature: `am_traverse` REFUSES (`room "x" not found`), and `am_search` emits an excellent
+note — *"the wing X holds no memories, so this is not a miss: there is nothing there to match. Wings
+that do hold memories: …"*, which even lets a typo self-correct. Second control, proving the note is
+not always-on: `am_search` with `max_distance: 0.02` (everything filtered out) returns `count: 0` and
+NO note. So the distinction is drawn correctly, in one tool out of five.
+
+The four that do not:
+- **`am_diary_read`** — a real agent queried against a wing it never wrote to is BYTE-IDENTICAL to
+  an agent that never existed: `{"entries":[],"total":0,"showing":0}` both times. Worse, the response
+  ECHOES THE AGENT NAME BACK, which reads as confirmation the agent resolved. The tool must know the
+  difference — the unfiltered call finds the entries — but the wing filter discards them without
+  recording that a filter ran.
+- **`am_list_drawers`** on a nonexistent wing, and on a nonexistent room of a real wing: `count: 0`.
+  This is the call our own inbox hint recommends, so a typo'd wing reads as an empty inbox.
+- **`am_list_rooms`** on a nonexistent wing: `count: 0, rooms: null`.
+- **`am_follow_tunnels`** on a wing and room that both do not exist: `{"connections":null,"count":0}`.
+
+## `am_recall_stats` manufactures a to-write task from a typo
+
+One search against a nonexistent wing came back minutes later as
+`suggestions: [{Query: …, Wing: "a wing that does not exist"}]`, beside a hint reading *"each entry is
+one memory this team looked for and does not have, with which wing to file it in."*
+
+So a wing that does not exist is recommended as the destination for a memory somebody should write.
+This is past the absence class: it is not a confident nothing, it is **a task manufactured from a
+mistyped argument**, and the task is undoable.
+
+The same response already holds the disproof: that wing's row carries `drawers: 0, writes: 0,
+last_filed: ""`. A query against a wing with zero drawers and zero writes is a typo or a probe, not
+an unmet need. `rerank_skips: {"empty": 1}` is in the same payload, so the empty-corpus case is
+already detected one layer down.
+
+## FIVE MORE COUNTS count rows and count the dead, and one new axis: rooms outlive their contents
+
+Method: one memory (3 chunks) filed into a NEW room in a wing no other session writes, sampled
+before, after filing, and after retracting. Correct behaviour is +1 then 0.
+
+| tool / field | before | after file | after retract |
+|---|---|---|---|
+| `am_list_rooms` (that room) | absent | 3 | 3 |
+| `am_list_wings` (that wing) | 82 | 85 | 85 |
+| `am_recall_stats.drawers` | 82 | 85 | 85 |
+| `am_memories_filed_away` | — | +3 | stays |
+
+`am_list_wings` and `am_list_rooms` are fixed in the wake-up-counts PR. **`am_recall_stats.drawers`
+and `am_memories_filed_away` are not** — and the latter is the worst, because the defect is in its
+name and in the sentence it emits: *"N memories filed across 17 wings and 27 rooms"*. It is rows, and
+it counts retracted ones, so a headline number is inflated on two independent multipliers. Its count
+equals the sum of `am_list_wings` drawers, so they are one aggregation with two names.
+
+The contrast, same room, same instant: `am_list_drawers` → `count: 0`; `am_list_rooms` → `3 drawers`.
+The correct filter exists and the aggregates do not use it, which suggests one shared fix.
+
+**THE NEW AXIS: an empty room is still advertised, and cannot be un-created.** After retraction the
+room still appears in `am_list_rooms`, `am_list_wings`, `am_graph_stats` (`total_rooms` and
+`rooms_per_wing`) and `am_memories_filed_away`. Rooms are created implicitly by first write and there
+is no un-create — so a mistyped room name (`decisons`, a stray capital) is a permanent addition to a
+palace's taxonomy that no agent can remove, only an operator with the database. The reporter created
+exactly such a room writing the report and could not remove it.
+
+Excluding rooms with no live memories from room counts closes both halves: the empty room stops being
+advertised, and a typo self-heals the moment its contents are retracted.
+
+**Deliberately clean, do not "fix" on the strength of the pattern:** `am_kg_stats` reports
+`triples / current_facts / expired_facts` — the total is stated AND the split is stated, so a reader
+cannot be misled. That is the shape the others should copy: not "hide the dead" but "say which number
+you are giving". And `am_status.coverage.expected` is a ROW count correctly, because the search index
+stores chunks and comparing memories to indexed chunks would compare unlike things.
+
+## A drawer correction does not reach the FACTS derived from it
+
+`am_kg_query` returns facts with `current: true` whose `source_drawer_id` names a drawer that has
+since been superseded, with no marker that the provenance was corrected. `status: "all"` returns no
+ended twin, so nothing is auto-invalidated.
+
+The composition is what makes it sharp: a single `am_search` returned, in one payload, the stale
+fact (`current: true`, citing the ended drawer) and the correcting drawer (carrying `supersedes` and
+`superseded_reason`) — side by side, linked by nothing but an id the reader would have to notice
+matches.
+
+**The design is not obviously wrong** — our docs are explicit that a fact records what was believed
+then, and a fact can outlive its source. What is wrong is that the correction primitive is
+DRAWER-SHAPED and the graph is downstream of it, and nothing tells the person holding the context
+that dependent facts exist. A cheap version: have `am_update_drawer` name, in its result, the facts
+whose `source_drawer_id` it just ended — not auto-invalidating them, but making the sweep visible to
+whoever can judge it. Reported by the session that had filed the facts, corrected the drawers, and
+was never prompted to connect the two.
+
+## `am_bootstrap` returns `corrections: null` for a wing that has five, indistinguishably from none
+
+A wing with five corrections filed the same day returned `{"corrections": null, "eager": null,
+"on_demand": null, "entry_point": {"resolution": "unknown_term"}}`. The sweep appears gated behind an
+entry point that wing does not have, so it is inert — and `null` is what a wing with genuinely no
+corrections would return. That is the absence class in the one call whose selling point is that it
+sweeps corrections server-side. May share a root with the entry-point backfill already filed.
+
+## The knowledge graph's entity axis is effectively write-only for natural keys
+
+`am_kg_query(entity: "ADR-013")` → `unknown_term`. `entity: "<a project name>"` → `unknown_term`.
+Yet facts about both exist, under stored keys that are long descriptive sentences — 704 entities are
+sentences rather than names, findable only by predicate query. `resolution: unknown_term` is honest,
+but honest `unknown_term` on every natural key makes the axis unusable. This plausibly explains why
+the graph is the least-used half of the palace.
+
+Related, same reporter:
+- **Two paths disagree about one fact's subject.** A case-insensitive entity match echoes the
+  CALLER's casing in the returned fact; the same fact via predicate query and `am_kg_timeline`
+  carries the stored form. A diffing consumer sees two entities.
+- **`am_entry_point` breaks its own distinguishability promise.** Identical
+  `{edges: null, node: "", resolution: "unknown_term"}` for a wing that exists with no entry point,
+  another that exists, and one that does not exist. Its doc says a wing with no entry point "says so,
+  distinguishably from an error". Wants `no_entry_point` vs `unknown_wing`.
+- **Tunnel activation is never recorded.** Following a tunnel returned its target, and an immediate
+  re-list showed `access_count: 0` and `last_activated == created_at`, unchanged. All five tunnels
+  touching that wing show `access_count: 0` since creation. Either the counter is dead or following
+  is not activation; either way listing and usage disagree.
+- **A read result recommends a mutation.** `am_graph_stats` and `am_traverse` embed a note ending
+  "Run `am_recompute_graph`" — a workspace-wide write, suggested to every reader with no mention of
+  the blast radius.
+- **A documented example points at nothing.** `predicate: "retracts"` → `unknown_term`. The deployed
+  relation is `retracted_because`. Our own protocol uses `retracts` as the canonical audit example,
+  so the example and the data have drifted.
+
+## Probe hygiene, recorded because it is now in the data
+
+The absence-class probes left two rows in `am_recall_stats`: one search against a nonexistent wing,
+which will appear in `unanswered` and `suggestions` for 24h and reads like a real project to anyone
+scanning the list cold, and one deliberately over-filtered query that reads as unanswered. Both are
+noise from this exercise. Discount them, or remove them if a route exists that is not destructive.
