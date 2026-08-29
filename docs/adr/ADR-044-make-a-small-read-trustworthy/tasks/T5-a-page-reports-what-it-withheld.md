@@ -22,6 +22,53 @@ Make a page cut short by the response budget say how many hits it dropped, so a 
 | `internal/mcpserver/bootstrap.go` | edit or record | `am_bootstrap` already carries a truncation report of its own via `res.WireShape()`. Either extend it to the same vocabulary, or record why its report already satisfies F-7. The ADR names this as a required decision, not an optional one |
 | `internal/mcpserver/readcost_spec_test.go` | edit | Turn `TestF7APageReportsWhatItWithheld` green. **Tag STAYS** — F-4 is still red in this file |
 
+## Deviations recorded during execution
+
+**1. "Withheld" had to be REDEFINED, and Affected Files above is wrong about this code.**
+The row says *"a withheld hit is not on the page and is otherwise invisible."* It is not: the
+render loop never DROPS a hit. Past the budget `headWithin` returns the empty string with
+`cut=true`, so the hit arrives with its id, its metadata, its `content_truncated` marking — and
+zero runes of the memory. **Withheld therefore means ON THE PAGE CARRYING NOTHING.** That is
+already this repository's vocabulary rather than an invention: `am_list_drawers`' own description
+says a bounded listing carries *"as much of their opening as the budget still allows — possibly
+none"*. The definition is narrower than the record assumed and strictly checkable, which the
+alternative — a hit that never appears — is not.
+
+**2. The Stop Condition did NOT fire, and this is not a dodge of it.** It stops the task if *"the
+candidate set is truncated before the budget is applied"*, because then the count is unknowable.
+The opposite holds: every candidate reaches the loop and the loop knows exactly which ones it
+emptied. The redefinition is about what withholding LOOKS like on this wire, not about a number
+the code cannot compute.
+
+**3. Rung 3 is UNENFORCED, and the Reachability table above overstates it.** That row says the
+description must name `withheld` *"or `TestEveryOmitemptyWireKeyInThisPackageIsDescribed` fails"*.
+It does not. Measured 2026-08-29 by deleting the word from the description: the gate stayed green
+and the whole package passed. Its own doc comment predicts this — *"A THIRD population is invisible
+to any struct-tag scan: conditional `map[string]any` keys, set inside `if` blocks… Out of scope
+here"* — and `withheld` is exactly that, as is `kg.go`'s. The description names `withheld` anyway,
+because the obligation is real; what is absent is a gate over it. Widening that universe is the
+follow-up the gate already names, not this task.
+
+**4. `am_bootstrap` — RECORDED, NOT EXTENDED (step 5).** `internal/mcpserver/bootstrap.go` emits
+`res.WireShape()` verbatim and applies **no rune budget at all** — no `responseBudget`, no
+`headWithin`. So the failure F-7 exists to remove cannot occur there: no bootstrap record is ever
+rendered to zero. Its only loss mode is record-level, and `BootstrapTruncation` already reports it
+*unconditionally* with `omitted`, `reason` and `how_to_fetch` — a stronger contract than
+`withheld`, since it is present even at zero and `parityTruncation` fails the response when
+`omitted > 0` carries no `how_to_fetch`. Adding a second name for the same fact on that surface
+would make the vocabulary worse, not more consistent. **Decision: bootstrap's existing truncation
+report satisfies F-7; no change.**
+
+**5. Shape, against `kg.go:223`.** Kept: a count keyed by what withheld it,
+`map[string]int{"budget": n}`. `kg_query` keys by status because status is its axis; there is one
+withholder here, and the key names it so a second could join without changing a shape callers
+parse. Differences from that precedent, both deliberate: `int` not `int64` (the count is bounded by
+`MaxSearchLimit`), and the remedy is appended to the existing `note` rather than given a `hint` key
+of its own, because a page can be trimmed AND cut and two competing keys would each tell half the
+story. **The old note went false and was fixed in the same commit** — it said the tail was
+*"windowed instead"*, which is untrue of a hit carrying nothing and would teach a caller the memory
+is short.
+
 ## Ordered Steps
 
 1. Confirm `TestF7APageReportsWhatItWithheld` is red for the right reason. Verified 2026-08-29; the binding names the trap explicitly — *"counting hits dropped for relevance as withheld — the count is about the BUDGET, not about ranking, which this spec does not touch"*.
@@ -63,6 +110,18 @@ requirement no gate can see.
 
 <!-- Tool-written by `adr-verify --mutant`. Empty at authoring. -->
 
+Three mutants, all killed, 2026-08-29 — each restored before the next:
+
+| Mutant | Result |
+|--------|--------|
+| Report a constant zero (`map[string]int{withheldByBudget: 0}`) — the Reachability table's rung-2 mutation | RED: *"withheld[\"budget\"] = 0 against 2 hit(s) that arrived carrying nothing"* |
+| Sever the back-out so a hit is counted as trimmed AND withheld (`overBudget -= 0`) | RED: *"the note reports 3 trimmed hit(s) against 1…"* — the conflation the Risks section names, caught by the note count rather than by a second field |
+| Widen the classifier to `if views[i].Truncated` — every trimmed hit becomes withheld | RED in the `hits_dropped_by_limit_are_not_withheld` subtest: *"withheld = map[budget:2] on a page the budget never cut"* |
+
+The first draft of mutant 2 (deleting the `if trimmedHere` block outright) did not compile, so it
+graded nothing. A mutant that fails to build proves the symbol is referenced and says nothing about
+what the test observes.
+
 ## Invariants
 
 - `withheld` counts hits the BUDGET excluded. Never hits excluded by `limit`, by relevance, or by `survivorsFrom`'s history filter.
@@ -94,5 +153,18 @@ Stop if the render loop cannot know how many hits it withheld — if the candida
       readcost_spec_test.go:187: not built yet — F-7 (UC1-S4): a page must report how many hits it withheld. `am_search` has limit but no offset or cursor (drawers.go:786-800, M-10) and the spec declines to add one (Non-Goals, Grill Log 8), so the count is the ONLY evidence a withheld hit existed — without it a page cut short by the response budget is indistinguishable from an exhausted corpus. This is a NEW obligation restored from old F-2, kept as its own fact so the scope increase is visible rather than folded into an existing binding. Kill it by reporting zero withheld on a page that was cut, or by counting hits dropped for relevance as withheld — the count is about the BUDGET, not about ranking, which this spec does not touch
   FAIL
   FAIL	github.com/atvirokodosprendimai/agentsmemory/internal/mcpserver	0.018s
+  FAIL
+  ```
+- 2026-08-29 · 519e640 · exit 1 · `set -o pipefail …` · acceptance-sha256:5fe6e1cecd6abe6feeb64f750d59d22df30310df028f3d8b1b020c4ae0bbbfd7
+  ```
+  2026/08/29 18:43:45 OK   00033_drawers_superseded_by_idx.sql (277.75µs)
+  2026/08/29 18:43:45 OK   00034_billing_checkout_intents.sql (348.08µs)
+  2026/08/29 18:43:45 OK   00035_billing_applied_orders.sql (242.46µs)
+  2026/08/29 18:43:45 OK   00036_drawer_fetches.sql (316.96µs)
+  2026/08/29 18:43:45 goose: successfully migrated database to version: 36
+  --- FAIL: TestF7APageReportsWhatItWithheld (0.09s)
+      readcost_spec_test.go:273: a page that delivered 2 hit(s) carrying nothing reported no withheld count — it is indistinguishable from an exhausted corpus, which is the whole of F-7
+  FAIL
+  FAIL	github.com/atvirokodosprendimai/agentsmemory/internal/mcpserver	0.102s
   FAIL
   ```

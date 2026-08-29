@@ -77,6 +77,12 @@ func registerDrawers(reg *registrar, drawers *palace.Service, usageSvc *usage.Se
 // record says so and carries its full length.
 const responseBudget = 40_000
 
+// withheldByBudget keys the search page's withheld count by the thing that
+// withheld the hits. One cause exists today; the key is there so a second one
+// could join without changing a shape callers already parse, which is the same
+// reason kg_query keys its withheld count by status.
+const withheldByBudget = "budget"
+
 // headWithin returns the opening of content bounded by BOTH a preferred head size
 // and whatever is left of the response budget, and reports whether it had to cut.
 //
@@ -837,7 +843,7 @@ type anchorView struct {
 // re-ranked by a vector+BM25 blend (closet boost joins with the mining phase).
 func registerSearch(reg *registrar, drawers *palace.Service, usageSvc *usage.Service, scopeSearchToWing bool) {
 	tool := newTool("search",
-		mcp.WithDescription("Semantically recall distinct memories most similar to a query. Optionally filter by wing/room and a max cosine distance. Each hit carries blended_score: the value the page was actually ordered by, combining the cross-encoder and the fused lexical/vector score. It is POOL-RELATIVE — comparable between hits on one page, meaningless across pages, and not to be averaged. A page is often not monotonic in rerank_score, which is the blend working rather than a reranker that failed. content_coverage is always present and reports how much of the memory you are seeing: the primary window AND every region rendered beside it, counted once where they overlap. It changed meaning on 2026-08-29 — it used to count the window alone and under-reported, so a threshold calibrated before then is comparing against a different number. Fields that appear only when they apply: content_truncated with content_length when a memory was trimmed; regions, the other windows of the same memory that matched, when more than one did; chunks_matched, how many of its chunks did; content_date when the memory is about a different day than it was filed; code_anchors with a status when the memory pins source that may have drifted; stale on a hit whose code anchors no longer match the code they pin — the one summary to branch on, because a recalled sentence about changed code reads as knowledge either way; and stale_index on the page when the search index is behind the store, which means the answer may be missing recent writes rather than that nothing was written."),
+		mcp.WithDescription("Semantically recall distinct memories most similar to a query. Optionally filter by wing/room and a max cosine distance. Each hit carries blended_score: the value the page was actually ordered by, combining the cross-encoder and the fused lexical/vector score. It is POOL-RELATIVE — comparable between hits on one page, meaningless across pages, and not to be averaged. A page is often not monotonic in rerank_score, which is the blend working rather than a reranker that failed. content_coverage is always present and reports how much of the memory you are seeing: the primary window AND every region rendered beside it, counted once where they overlap. It changed meaning on 2026-08-29 — it used to count the window alone and under-reported, so a threshold calibrated before then is comparing against a different number. Fields that appear only when they apply: content_truncated with content_length when a memory was trimmed; regions, the other windows of the same memory that matched, when more than one did; chunks_matched, how many of its chunks did; content_date when the memory is about a different day than it was filed; code_anchors with a status when the memory pins source that may have drifted; stale on a hit whose code anchors no longer match the code they pin — the one summary to branch on, because a recalled sentence about changed code reads as knowledge either way; and stale_index on the page when the search index is behind the store, which means the answer may be missing recent writes rather than that nothing was written. A page cut short by the response budget reports withheld: how many of its hits arrived carrying NO content at all, keyed by what withheld them. There is no cursor, so that count is the only evidence such a hit existed — a page without it is indistinguishable from an exhausted corpus — and each one is still completed by am_get_drawer with its own id."),
 		mcp.WithString("query", mcp.Required(), mcp.Description("What to recall (max 250 chars).")),
 		mcp.WithBoolean("include_history", mcp.Description("Also return memories that have been RETRACTED or superseded (default false). Off by default because an ended record keeps its embedding: without the filter a withdrawn claim competes with the correction that replaced it, and can outrank it. Turn it on to audit what a wing used to say. Every returned record carries valid_to and ended_reason, so history is never mistaken for current, plus superseded_by when something replaced it — and a CURRENT record carries supersedes and superseded_reason naming what it replaced and why, so a session about to redo a rejected thing sees that without asking for history.")),
 		mcp.WithNumber("limit", mcp.Description("Max distinct memories after chunk collapse in the legacy control (before ranking in the memory-level treatment), 1-100 (default 5).")),
@@ -886,10 +892,21 @@ func registerSearch(reg *registrar, drawers *palace.Service, usageSvc *usage.Ser
 		hits := page.Hits
 		snippetChars := req.GetInt("snippet_chars", palace.DefaultSnippetChars)
 		// spent/overBudget bound the WHOLE-memory expansion. See responseBudget.
-		spent, overBudget := 0, 0
+		//
+		// withheld is overBudget's SIBLING, not a rename of it, and the two are
+		// deliberately disjoint: a trimmed hit is on the page with less of the
+		// memory than it holds; a withheld hit is on the page with NONE of it. The
+		// second is the one a caller cannot infer, because with no cursor the count
+		// is the only evidence such a hit existed at all — without it a page cut
+		// short by the budget reads as an exhausted corpus.
+		spent, overBudget, withheld := 0, 0, 0
 		views := make([]searchHitView, len(hits))
 		ids := make([]string, len(hits))
 		for i, h := range hits {
+			// Whether THIS hit was already counted as trimmed, so the classification
+			// below can take it back when the budget went on to empty it. Without it
+			// the same hit is counted in both totals and each number looks plausible.
+			trimmedHere := false
 			views[i] = newSearchHitView(h)
 			ids[i] = h.MemoryID
 			fullContent := h.MemoryContent
@@ -948,6 +965,7 @@ func registerSearch(reg *registrar, drawers *palace.Service, usageSvc *usage.Ser
 				views[i].Truncated = true
 				views[i].FullLength = len([]rune(fullContent))
 				overBudget++
+				trimmedHere = true
 			}
 
 			// ⚠ THE BOUND APPLIES ON EVERY PATH, not only to whole memories, and it
@@ -963,11 +981,29 @@ func registerSearch(reg *registrar, drawers *palace.Service, usageSvc *usage.Ser
 					views[i].Truncated = true
 					views[i].FullLength = len([]rune(fullContent))
 					overBudget++
+					trimmedHere = true
 				}
 				// Regions are a second copy of matching passages. Once the budget is
 				// gone they are the first thing to drop: content is the answer, regions
 				// are only how to find more of it.
 				views[i].Regions = nil
+			}
+			// CLASSIFY ONCE, after both bounds have run. The render loop never DROPS
+			// a hit: past the budget headWithin returns the empty string with cut=true,
+			// so the hit arrives with its id, its metadata and zero runes of the
+			// memory. That — on the page, carrying nothing — is what withheld means
+			// here, and it is already the house reading: am_list_drawers' own
+			// description says a bounded listing carries "as much of their opening as
+			// the budget still allows — possibly none".
+			//
+			// The hit stays marked content_truncated with content_length: it IS
+			// partial, and F-2's marking is what makes it fetchable. Only the page's
+			// two counters are exclusive.
+			if len(views[i].Content) == 0 && len(fullContent) > 0 {
+				if trimmedHere {
+					overBudget--
+				}
+				withheld++
 			}
 			spent += len([]rune(views[i].Content))
 			for _, r := range views[i].Regions {
@@ -1048,6 +1084,28 @@ func registerSearch(reg *registrar, drawers *palace.Service, usageSvc *usage.Ser
 					"or narrow the search — a larger response spends context you did not ask "+
 					"budget is a context bound: a page this size is most of a session's context, and "+
 					"most of it is text you did not ask for.", overBudget)
+		}
+		// A page that ran out of budget entirely must SAY the tail arrived empty.
+		// The previous note claimed those hits were "windowed instead", which is
+		// false about a hit carrying zero runes — and a caller reading it would
+		// conclude the memory is short rather than that it received none of it.
+		//
+		// Emitted only when something was actually withheld, which is what makes its
+		// presence informative — the same reading kg_query's withheld block gets, and
+		// the shape is borrowed from it: a count keyed by WHAT withheld it. There is
+		// one withholder here rather than kg_query's status axis, and the key names it
+		// so a second cause could join without changing the shape.
+		//
+		// Note the remedy is real, which Grill Log 8 did not assume when it declined a
+		// cursor: a withheld hit still carries its id, so am_get_drawer completes it.
+		if withheld > 0 {
+			telemetry.Annotate(ctx, attribute.Int("am.hits_withheld", withheld))
+			out["withheld"] = map[string]int{withheldByBudget: withheld}
+			out["note"] = fmt.Sprintf(
+				"%s the last %d hit(s) exhausted the size budget and arrived carrying NO content "+
+					"at all — they are not short memories, they are memories you received none "+
+					"of. Read each with am_get_drawer(id, whole=true), or narrow the search.",
+				strings.TrimSpace(fmt.Sprint(out["note"])), withheld)
 		}
 		// A zero-hit page from a wing that holds nothing is not a miss, and the two
 		// were indistinguishable: same count, same empty list, same sub-second
