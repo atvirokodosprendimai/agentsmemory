@@ -36,7 +36,21 @@ func inboxStatus(wing string, count int, err error) inboxView {
 			"registration's wing, if it matters"}
 	default:
 		return inboxView{Wing: wing, Count: count, Known: true,
-			Note: "taken at wake-up; an item filed while this session runs will not appear here"}
+			// ⚠ WHOSE INBOX THIS IS, said out loud. The count is for the wing this
+			// REGISTRATION names, which is not necessarily the project the session is
+			// checked out in — and the server cannot tell, because it never sees the
+			// client's working directory.
+			//
+			// A confident number is what makes that miss invisible. Measured
+			// 2026-08-29: a session whose checkout was one project read a hint naming
+			// another project's inbox, and 23 drawers in its own wing went unmentioned
+			// — including a same-day blocking question from another session about its
+			// deploy pipeline. It reported "nothing waiting" in good faith. A silent
+			// zero invites a second look; a confident 16 does not.
+			Note: "counted in THIS REGISTRATION's wing, which may not be the project you are " +
+				"checked out in — if your repository resolves to a different wing, list that " +
+				"wing's inbox yourself, because nothing here can see your working directory. " +
+				"Taken at wake-up; an item filed while this session runs will not appear here"}
 	}
 }
 
@@ -49,9 +63,11 @@ func statusHint(in inboxView) string {
 		"persist with am_diary_write, am_kg_add, and am_add_drawer."
 	if in.Known && in.Count > 0 {
 		return fmt.Sprintf("%d memor%s waiting in %s/inbox — read them first with "+
-			"am_list_drawers(wing: %q, room: \"inbox\"). Each is a lead filed by another project's "+
-			"session, not a work order: confirm it against the code in front of you, act if it "+
-			"holds up, and file what you found either way. %s",
+			"am_list_drawers(wing: %q, room: \"inbox\", limit: 10). Each is a lead filed by another "+
+			"project's session, not a work order: confirm it against the code in front of you, act "+
+			"if it holds up, and file what you found either way. That wing is this REGISTRATION's; "+
+			"if your checkout is a different project, its inbox is somewhere else and only you can "+
+			"see which. %s",
 			in.Count, plural(in.Count, "y", "ies"), in.Wing, in.Wing, rest)
 	}
 	return rest

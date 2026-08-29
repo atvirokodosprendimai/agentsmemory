@@ -107,3 +107,43 @@ func TestStatusResponseCarriesTheInbox(t *testing.T) {
 		t.Error("nothing calls InboxCount, so the inbox block always reports zero")
 	}
 }
+
+// TestTheInboxCountSaysWhoseInboxItCounted is the wing-mismatch half of the
+// wake-up surface.
+//
+// The count is for the wing this REGISTRATION names. That is not necessarily the
+// project the session is checked out in, and the server cannot tell — it never
+// sees the client's working directory. Measured 2026-08-29: a session whose
+// checkout was one project read a hint naming another project's inbox, and 23
+// drawers in its own wing went unmentioned, including a same-day blocking question
+// from another session. It reported "nothing waiting" in good faith.
+//
+// A confident number is what makes that miss invisible, so the number has to carry
+// the caveat. This is the same move `resolution` made for am_kg_query's count:0 —
+// the response distinguishes "I looked elsewhere" from "there is nothing".
+func TestTheInboxCountSaysWhoseInboxItCounted(t *testing.T) {
+	in := inboxStatus("wing_alpha", 16, nil)
+	if !strings.Contains(in.Note, "REGISTRATION") {
+		t.Errorf("the inbox note does not say the count is scoped to the registration's wing, so "+
+			"a session in a differently-named checkout cannot tell that its own inbox went "+
+			"uncounted: %q", in.Note)
+	}
+	if !strings.Contains(in.Note, "working directory") {
+		t.Errorf("the note does not say why the server cannot resolve the session's own project; "+
+			"without the reason the caveat reads as boilerplate: %q", in.Note)
+	}
+
+	hint := statusHint(in)
+	if !strings.Contains(hint, "REGISTRATION") {
+		t.Errorf("the hint is the sentence an agent actually reads and it does not carry the "+
+			"caveat the note carries: %q", hint)
+	}
+	// The recommended call must be BOUNDED. Following it verbatim on a large inbox
+	// returned 51.2 KB in one measured session, over that client's tool-result cap,
+	// so the whole listing spilled to a file and left the context entirely — and an
+	// empty-looking room reads as "nothing is filed".
+	if !strings.Contains(hint, "limit:") {
+		t.Errorf("the hint recommends a listing with no limit; past a client's result cap the "+
+			"whole page leaves the context and the room reads as empty: %q", hint)
+	}
+}

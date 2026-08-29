@@ -49,17 +49,27 @@ func (drawerRow) TableName() string { return "drawers" }
 // drawers and distinct rooms it holds. The json tags keep the MCP wire shape
 // snake_case, matching the drawer views (the struct is returned to agents as-is).
 type WingStat struct {
-	Wing    string `gorm:"column:wing" json:"wing"`
-	Drawers int    `gorm:"column:drawers" json:"drawers"`
-	Rooms   int    `gorm:"column:rooms" json:"rooms"`
+	Wing string `gorm:"column:wing" json:"wing"`
+	// Drawers counts CURRENT rows — chunks. A retracted drawer is not something
+	// a session can read and am_list_drawers already excludes it, so counting it
+	// here made the two surfaces disagree about the same room in the same minute.
+	Drawers int `gorm:"column:drawers" json:"drawers"`
+	// Memories counts what a reader would call an item: one per memory, however
+	// many chunks it was stored as. am_search reports a memory-level unit and
+	// this surface was the last one still speaking in rows, so a four-chunk
+	// handoff outranked two short ones purely by length.
+	Memories int `gorm:"column:memories" json:"memories"`
+	Rooms    int `gorm:"column:rooms" json:"rooms"`
 }
 
 // RoomStat is one row of the list_rooms aggregation: a room (within its wing)
 // and its drawer count.
 type RoomStat struct {
-	Wing    string `gorm:"column:wing" json:"wing"`
-	Room    string `gorm:"column:room" json:"room"`
-	Drawers int    `gorm:"column:drawers" json:"drawers"`
+	Wing string `gorm:"column:wing" json:"wing"`
+	Room string `gorm:"column:room" json:"room"`
+	// Drawers counts CURRENT rows (chunks); Memories counts items. See WingStat.
+	Drawers  int `gorm:"column:drawers" json:"drawers"`
+	Memories int `gorm:"column:memories" json:"memories"`
 }
 
 // Repo is the gorm-backed persistence for drawer metadata. It owns only the
@@ -632,14 +642,20 @@ func (r *Repo) DatedDrawers(ctx context.Context, teamID, wing string, limit int)
 	return out, nil
 }
 
-// Wings aggregates a team's drawers by wing — the list_wings backend. The
+// memoryKeyExpr collapses a chunk to the memory it belongs to: a root chunk
+// carries an empty parent_id and stands for itself, every other chunk names its
+// root. Counting DISTINCT over it is the difference between "how many rows" and
+// "how many things a reader would call items".
+const memoryKeyExpr = "CASE WHEN parent_id = '' THEN id ELSE parent_id END"
+
+// Wings aggregates a team's CURRENT drawers by wing — the list_wings backend. The
 // GROUP BY rides idx_drawers_team_wing, keeping it cheap as the palace grows.
 func (r *Repo) Wings(ctx context.Context, teamID string) ([]WingStat, error) {
 	var stats []WingStat
 	if err := r.db.WithContext(ctx).
 		Model(&drawerRow{}).
-		Select("wing, COUNT(*) AS drawers, COUNT(DISTINCT room) AS rooms").
-		Where("team_id = ?", teamID).
+		Select("wing, COUNT(*) AS drawers, COUNT(DISTINCT "+memoryKeyExpr+") AS memories, COUNT(DISTINCT room) AS rooms").
+		Where("team_id = ? AND valid_to = ''", teamID).
 		Group("wing").
 		Order("wing").
 		Scan(&stats).Error; err != nil {
@@ -653,8 +669,8 @@ func (r *Repo) Wings(ctx context.Context, teamID string) ([]WingStat, error) {
 func (r *Repo) Rooms(ctx context.Context, teamID, wing string) ([]RoomStat, error) {
 	q := r.db.WithContext(ctx).
 		Model(&drawerRow{}).
-		Select("wing, room, COUNT(*) AS drawers").
-		Where("team_id = ?", teamID)
+		Select("wing, room, COUNT(*) AS drawers, COUNT(DISTINCT "+memoryKeyExpr+") AS memories").
+		Where("team_id = ? AND valid_to = ''", teamID)
 	if wing != "" {
 		q = q.Where("wing = ?", wing)
 	}
@@ -957,9 +973,19 @@ func (r *Repo) WingNames(ctx context.Context, teamID string) ([]string, error) {
 // project's session, which are only read if something makes the reader look.
 func (r *Repo) InboxCount(ctx context.Context, teamID, wing, room string) (int, error) {
 	var n int64
+	// LIVE MEMORIES, not rows. Both halves of that were wrong and each was wrong
+	// on its own: retracted drawers were counted, so closing an inbox item never
+	// moved the number that greets the next session; and chunks were counted while
+	// the hint called them "memories", so the figure scaled with how long the
+	// sender wrote. One room reported eight for two live memories.
+	//
+	// Counting ROOT chunks is exact rather than approximate: a retraction ends
+	// every chunk of a memory (InvalidateDrawer and Supersede both do the whole
+	// memory), so a live root implies live siblings and there is no half-ended
+	// memory to miscount.
 	if err := r.db.WithContext(ctx).
 		Model(&drawerRow{}).
-		Where("team_id = ? AND wing = ? AND room = ?", teamID, wing, room).
+		Where("team_id = ? AND wing = ? AND room = ? AND valid_to = '' AND parent_id = ''", teamID, wing, room).
 		Count(&n).Error; err != nil {
 		return 0, err
 	}
