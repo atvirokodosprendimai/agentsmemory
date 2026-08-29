@@ -433,154 +433,28 @@ review it and also quickly fix what I find" is the gate's case, not this one.
 
 Normal operation. Recall before you act, persist before you stop.
 
-**Recall, in this order:**
+**How to recall and persist is NOT this file's business.** Call `am_skillset`, load
+`start-here`, and follow it. That skill carries the entry protocol, the correction
+checks and the write-back contract, and it is maintained where the palace is
+maintained — so it is right when the palace changes, and this file cannot be.
 
-1. `am_skillset` — the server's own wake-up playbook and live tool catalogue.
-2. `am_status` — workspace identity (`mode` + `workspace`), palace shape, quota.
-   This repo's wing is **`wing_agentmemories`**; if it is not in the list yet,
-   this is the first session here and your first write creates it.
-3. **Try `am_bootstrap` first — it does steps 3 and 4 in one call, server-side.**
+⚠ **This file used to restate that protocol, and it drifted.** On 2026-08-29 it was
+still teaching a traversal that returns 62,952 bytes and spills to a file — three
+independent reproductions that day — and still instructing sessions to load a skill
+that had been merged away. **A second copy of a protocol is a second thing to get
+wrong, and the copy nobody maintains is the one that stays wrong.**
 
-   ```
-   am_bootstrap(wing:"wing_agentmemories")
-   ```
+**What is project scope, and stays in this file:**
 
-   It resolves the wing's entry node, inlines its first records, returns pointers
-   to the rest, and sweeps the corrections attached to any of them — the whole
-   hand-executed protocol below, without the hardcoded root id and without the
-   three predicate queries.
+- **This repo's wing is `wing_agentmemories`.** If `am_status` does not list it yet,
+  this is the first session here and your first write creates it.
+- **Craft goes to `wing_craft`, not here.** If a lesson would still be true in a
+  repository that shares no code with this one, it is not this project's memory.
+- **`docs/adr/`, specs, README and `BACKLOG.md` are authoritative and the palace does
+  NOT index them.** Silence from `am_search` proves nothing about what was decided.
+  Name the sources you searched; a list of one establishes nothing.
+- The gate above, the reachability defect below, and the read-only review exception
+  are project policy and belong here.
 
-   ⚠ **It can honestly return nothing, and you must read that correctly.**
-   `resolution: "unknown_term"` means the wing has no entry point — not that the
-   call failed and not that the wing is empty. The entry node is a derived edge
-   written when a drawer is written, so a wing whose `llm_init` drawers predate
-   that mechanism has none, and **`wing_agentmemories` is currently such a wing**
-   (verified 2026-08-26 against the live server: `unknown_term`). Backfilling
-   existing corpora is filed in `BACKLOG.md` and has not run.
-
-   **So until that backfill runs, the traversal below is still how you get in.**
-   Do not read the one-call path as permission to skip it.
-
-   **The manual traversal** — the only address you have to know is the root,
-   and everything else resolves from it **by traversal, not by search**:
-
-   ```
-   am_list_drawers(wing:"wing_agentmemories", room:"llm_init")  # several drawers; see below
-   am_kg_query(entity:"<the root drawer's own id>", direction:"outgoing")
-   am_get_drawer(id, whole:true)                                # once per must.* edge
-   ```
-
-   **Fetch EVERY `must.*` edge — all of them, not the ones that look relevant to
-   your task.** That selection is made with exactly the knowledge the tier exists to
-   supply, and skipping is silent: nothing reports the drawer you did not read.
-   `am_get_drawer` is a by-id row read — no embedding, no search, no ranking — so
-   the whole tier costs less than one confident wrong assumption. Measured
-   2026-08-25: two sessions each found load-bearing material inside a `must.*`
-   drawer whose label sounded unrelated to their task, and would have cherry-picked
-   it away. `ref.*` edges are on demand.
-
-   ⚠ **The room holds several drawers and the listing does not flag which is the
-   root.** It is the one whose **content** opens `WHAT MUST I LOAD AT THE START OF A
-   SESSION?`. Use the content line, not the filename: a sibling is called
-   `INIT FLOOR PLAN — …`, so an `INIT` prefix match picks the wrong drawer and the
-   siblings are themselves `must.*` targets. Traversing from one of them returns zero
-   edges, which this file teaches you to read as a failed query — silent, at the step
-   where silence is indistinguishable from breakage.
-
-   ⚠ **Zero edges means the query failed open, not that nothing is filed** —
-   `am_kg_query` returns `count: 0` with no error for an unrecognised entity.
-
-   ⚠ **`llm_init` is the one room small enough to list.** `am_list_drawers` caps at
-   ~22-25 chunks and silently spills the rest to a file that never enters your
-   context, so it is never how you load anything else.
-
-   **Then sweep the retractions — one call, and it is not optional:**
-
-   ```
-   am_kg_query(predicate: "retracts")     # then "supersedes", then "qualifies"
-   ```
-
-   ⚠ **A correction attaches to the drawer it corrects, as an INCOMING edge, and
-   nothing above would ever show it to you.** `am_search` does not check
-   supersession either. So a session that executes the traversal perfectly still
-   reads whatever the tier got wrong and believes it. This is not hypothetical: on
-   2026-08-25 a `must.*` drawer asserted that production served pre-memory-ranking
-   code and that nothing had been tagged in a release — both retracted, both still
-   read as current by anyone following the steps above alone.
-
-   Predicate-without-entity is an entry point in its own right, so **one call
-   returns every retraction in the workspace** — a few hundred bytes.
-
-   ⚠ **Read every row's `source_file`; do NOT just match objects against the ids you
-   fetched.** Matching is the obvious reading and it misses the corrections that
-   matter most: on 2026-08-25 the only datastar correction in the palace hung off a
-   `wing_craft/examples` drawer that is in no tier at all, so an id-match returned
-   nothing while the row itself named the problem. Each row's `source_file` says what
-   was corrected and how narrowly.
-
-   ⚠ **Run all three predicates.** The one that mattered that day was a `qualifies`,
-   and a session that ran only `retracts` shipped a pointer to an ADR that is not on
-   `main`.
-
-   Cross-check anything that disagrees against the artifact, never against whichever
-   drawer you happen to like.
-4. `am_search(<task>, wing: …)` — past decisions and rationale for the work in front
-   of you. This is the *only* source of cross-session *why*; don't reconstruct from
-   code what memory explains.
-
-   ⚠ **Pass the wing explicitly.** `am_status` reports `default_wing: ""` for the
-   registrations used here, and an unscoped recall then spans EVERY wing in the
-   workspace — thousands of drawers from unrelated projects. They do not remove
-   your answer; they add competitors ahead of it.
-
-   ⚠ **But WHICH wing depends on the question, and getting this wrong looks like
-   silence rather than an error:**
-   - *"why is this code shaped this way", "what did we decide here", "what is
-     open"* → `wing: "wing_agentmemories"`.
-   - *"how do we write X"* — datastar, Go, git, testing, any craft or library
-     question → **`wing: "wing_craft"`**. Measured 2026-08-25: **every** datastar
-     drawer lives in `wing_craft`, so a session that scoped this step to the project
-     wing searched 1,722 drawers holding none of the answer, got silence, and — per
-     the failure this protocol keeps naming — would have written the idiom it
-     already knew. Two searches are cheap; a wrong one is indistinguishable from
-     "nothing is filed".
-
-   ⚠ Search the **task**, never the **entry point**: the root is reached by the
-   address in step 3, and a note that quotes a query outranks the thing it
-   describes.
-
-   ⚠ **Silence here proves nothing about `docs/adr/`.** ADRs, specs, README and
-   BACKLOG are a separate, authoritative source this palace does not index. Before
-   reporting anything as undecided, name the sources you searched — a list of one
-   establishes nothing.
-5. `am_list_skills` → `am_load_skill(<name>)` — the team's centralised
-   conventions for the stack you're touching. This repo is Go, so `effective-go`
-   at minimum; add `cqrs` when the work is live/realtime or fans out across
-   subagents.
-
-   ⚠ **Load the BODIES of `human-decisions` and `memory-orchestration` every
-   session, both of them, whatever your task is.** A description is not a body.
-   The descriptions here are unusually dense, which makes substituting them feel
-   sufficient — a session on 2026-08-25 did exactly that, having just resisted the
-   identical shortcut on the `must.*` tier, and only noticed afterwards. It is the
-   same error one layer over: you are judging what you can skip using the knowledge
-   you skipped.
-
-**Recall mid-session too, not just at the start.** Before any broad grep over
-unfamiliar code, `am_search` for the symbol or subsystem first and grep only the
-gap. Same for tools: if your hand hesitates on a tool's parameters, that
-hesitation is the cue to `am_search` for its usage before guessing.
-
-**Persist before you stop:**
-
-- `am_diary_write` — an AAAK session entry (what you built, decided, learned, and
-  any open thread) under a stable `agent_name` so the journal threads.
-- `am_kg_add` — durable facts as `subject → predicate → object`.
-- `am_add_drawer` — notable decisions and code, verbatim, into the right
-  wing/room.
-- `am_create_tunnel` — when the work connects to another project; check
-  `am_find_tunnels` / `am_follow_tunnels` first so you reinforce rather than
-  duplicate.
-
-A verified change that isn't written back is memory lost. Skip only when the
-session produced nothing worth recalling — and say so.
+A verified change that isn't written back is memory lost. Skip only when the session
+produced nothing worth recalling — and say so.
