@@ -28,6 +28,61 @@ Make a hit that does not carry its whole memory report that fact, its full rune 
 4. Assert the reported length is the memory's full rune length, not the chunk's and not the rendered window's. The off-by-one is the binding's named kill-case.
 5. Confirm the description names any new key.
 
+## Step 2 — the shapes the render path actually produces, measured
+
+Probed 2026-08-29 through the real transport (`internal/mcptest`), on a 60,238-rune memory stored as
+47 chunks, against `responseBudget = 40_000`:
+
+| Call | `content_truncated` | `content_length` | content returned |
+|------|--------------------|------------------|------------------|
+| `am_search`, `snippet_chars: 400` | `true` | 60237 | 401 runes |
+| `am_search`, `snippet_chars: 0` | `true` | 60237 | 401 runes |
+| `am_search`, `snippet_chars: 100000` | `true` | 60237 | 40000 runes |
+| **`am_get_drawer(id)`, no `whole`** | **absent** | **absent** | **1600 runes — one chunk of 47** |
+
+**The search path already marks every partial it produces, and that is the finding.** All three
+snippet shapes come back marked with the memory's full length, including the caller-supplied
+unclamped `snippet_chars` that was the suspected hole. So F-2's search half is largely already met,
+and unifying the three marking sites is a tidy-up rather than a fix.
+
+**The live silent fragment is `am_get_drawer` without `whole: true`.** It returns one chunk of a
+47-chunk memory with `content_truncated` and `content_length` both ABSENT, `chunk_index: 0` and
+`parent_id` absent — byte-for-byte indistinguishable, to a caller, from a complete 1,600-rune memory.
+This is the exact defect the team's own operating protocol patches in PROSE: *"⚠ `am_get_drawer`
+RETURNS ONE CHUNK, AND IT LOOKS COMPLETE. Nothing marks the fragment as partial."* A warning an agent
+must have read is what F-2 exists to replace with a field.
+
+**Why this is F-2 and not F-4, given T3 routed `am_bootstrap`'s identical-looking residual to T6.**
+The distinction is whether the vocabulary exists. `am_get_drawer` renders through `toView`, which
+already HAS `Truncated` and `FullLength` — they are simply never set on this path, so F-2's remedy is
+"apply the existing marking to the case it does not cover". `am_bootstrap` renders through
+`WireShape()` and has no per-record partial vocabulary at all, so marking it means deciding whether a
+row is a memory, which is F-4's question. Stated here because two identical-looking residuals routed
+to different tasks is exactly the kind of split that reads as inconsistency a year later.
+
+**NOT a finding, checked and dismissed:** `content_length` read 60237 against a 60238-rune fixture.
+That is `add_drawer` trimming the fixture's trailing space at write, not a reporting off-by-one —
+verified by fetching the memory whole. The binding names an off-by-one as a kill-case, so it is worth
+recording that the corpus was checked for one and does not have it.
+
+## OPEN — the cost question this task must answer before it can be finished
+
+Marking `am_get_drawer`'s chunk needs the memory's full rune length, and **nothing on the row carries
+it**. Reassembly removes chunk overlap, so it is not the sum of the stored chunk lengths; computing
+it exactly means loading every chunk — which is precisely what `whole: true` already does. So the
+honest options are:
+
+1. Load the chunks to compute the length, making an unmarked cheap read into a read that costs what
+   the expensive one costs. Defeats the record's own purpose.
+2. Mark `content_truncated` and omit `content_length`, against `drawerView`'s standing comment:
+   *"Both fields or neither: 'truncated' without the original length tells a caller something is
+   missing and not how much, which is not enough to decide whether to fetch it."*
+3. Add a cheap metadata query (chunk count, and a stored length if one can be maintained) — a
+   `palace` change, outside this task's declared Affected Files.
+
+Unresolved. Recorded rather than decided quietly, because option 2 silently repeals a comment that
+exists to forbid it.
+
 ## Acceptance
 
 ```bash
@@ -82,3 +137,11 @@ Stop if the fetch id available at render time does not address the whole memory 
 ## Verification Log
 
 <!-- Tool-written by `adr-verify`. -->
+- 2026-08-29 · e17db6a · exit 1 · `set -o pipefail …` · acceptance-sha256:1ac2b0e23e0901ac96a0fc051401bb605073cf9484260276d8d8c0328cd03bcb
+  ```
+  --- FAIL: TestF2NoHitIsSilentlyPartial (0.00s)
+      readcost_spec_test.go:135: not built yet — F-2 (UC1-S2): a hit that does not carry its whole memory must say so, report the full length, and carry the id that fetches the rest — never a fragment a caller cannot tell is a fragment. Note `am_search` has limit but no cursor (drawers.go:786-800), so 'fetch the rest' means am_get_drawer, not paging. Kill it by restoring a silent fragment, or by an off-by-one in the reported length
+  FAIL
+  FAIL	github.com/atvirokodosprendimai/agentsmemory/internal/mcpserver	0.019s
+  FAIL
+  ```
