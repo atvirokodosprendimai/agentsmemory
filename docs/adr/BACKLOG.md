@@ -2639,3 +2639,127 @@ Follow-ups with unrelated work is how an open count stops meaning anything.
 next edit to that description can drop it silently, and every gate stays green — which is the defect
 the gate exists to catch, one level up.
 
+## ⚠ An anchor with an EMPTY repo label is checked against whatever tree is open, and the hook then tells that session to re-file good memories — 2026-08-29
+
+**Confirmed in source, reported independently by four sessions in four different repositories on one
+day.** This is the highest-severity item in this file: it does not merely fail to help, it recruits
+an unrelated session into destroying correct memories.
+
+**THE PROOF** (from the infrastructure session, same file, same working tree, same day):
+
+```
+status=missing   path=internal/palace/service.go   repo=""             (their Ansible tree)
+status=verified  path=internal/palace/service.go   repo="agentsmemory" line 693
+```
+
+One file, two opposite verdicts, differing only by whether the anchor carries a repo label. Their
+tree's remote is an Ansible repository with zero `.go` files.
+
+**THE CAUSE**, read in `clients/claude-code/verify.go`: every guard that protects an unknown from
+being reported as an absence is conditioned on `a.Repo != ""` — the elsewhere check, the
+not-found branch, and the snippet-non-match branch. So an anchor with an EMPTY label in a KNOWN
+tree passes all three and falls through to `statusMissing`.
+
+The guards were written for an unknown TREE. The unknown ANCHOR is the case nobody had. The file's
+own comment already states the principle it is violating: *"calling it MISSING is not a small
+inaccuracy: the honest response to 'the file is gone' is to delete the memory, so a check that
+cannot see a file destroys the memory pinned to it. A session did exactly that … Unknown is not
+absent."* An unlabelled anchor is an unknown; the code treats it as checkable-here.
+
+**WHY IT IS WORSE THAN A WRONG COUNT.** The verdicts are RECORDED, so the damage is durable, and
+`am_search` then flags those memories STALE. The session-start hook prints *"Re-read the code and
+re-file whichever are wrong."* A session that complies rewrites correct records — including a
+2026-08-25 OTel wiring decision — on evidence from a repository that has never contained that code.
+
+**BOTH HALVES NEED FIXING, and they are different bugs:**
+- **Read side:** `missing` must require a POSITIVE repo-label match against the current tree. An
+  unattributable anchor joins the "not checked from here" set. This is the same
+  could-not-look versus is-gone distinction this corpus keeps re-deriving.
+- **Write side, the root:** those anchors were filed WITHOUT a label. If `am_add_drawer`
+  (`code_anchors:`) does not default `repo` from the writing session's git remote, every anchor
+  filed by a session that omits the field becomes a future false positive somewhere else. Not yet
+  checked which, if either, happens today.
+
+Also unverified and worth one command: whether the recorded false verdicts should be swept and
+reset, since `doctor --corpus` already reports reference states.
+
+## The wake-up surface counts rows and calls them memories, and counts retracted ones — 2026-08-29
+
+Reported first-hand by a depozitas session; **not yet reproduced here**, so the cause is unverified
+and the measurements are theirs.
+
+1. **`am_status` counts RETRACTED drawers; `am_list_drawers` does not.** Same room, same minute:
+   `am_list_drawers(<a peer project's wing>, inbox)` → 6, `am_status().wings[…].rooms[inbox]` → 8.
+   The difference was exactly the 2 chunks they had just invalidated. The protocol asks sessions to
+   close out inbox items so a stale lead is not rediscovered monthly — but the count that greets the
+   next session never falls, so closing appears to do nothing.
+2. **The inbox count counts CHUNKS and the hint calls them "memories".** 6 rows, 3 memories, pairing
+   cleanly by `parent_id`. It scales with how long the sender wrote rather than with how much is
+   waiting. Compounds with (1): that room reported 8 for 2 live memories, 4x. The word "memories" is
+   what makes it a defect rather than an implementation detail — `am_status`'s own ranking line says
+   `unit=memory`, so the wake-up surface is the one place still speaking in rows.
+3. **`am_recall_stats` suggestions are polluted by machine-generated recalls.** Four of five entries
+   were a git branch name concatenated with changed filenames, and a run of commit subjects — a hook
+   issuing recalls keyed on branch plus dirty files. They land in `(unscoped)`, drag that bucket to
+   67% answered, and `suggestions` is documented as a to-write list, so following it means writing
+   memories to satisfy filenames no human will search for. A to-write list that should be empty.
+
+## `am_status`'s hint recommends an unbounded listing, and `am_list_drawers` has no projection — 2026-08-29
+
+Reported by an infrastructure session, credited. `am_status` composes
+*"30 memories waiting in <that session's wing>/inbox — read them first with am_list_drawers(...)"* with
+a count and **no `limit`**. Following it verbatim returned **51.2 KB**, over that harness's
+tool-result cap, so it spilled to a file and had to be recovered with `jq`.
+
+The documented bound did not save them: past a client's cap the whole result leaves the context, and
+an empty-looking room reads as "nothing is filed" — the confusion this palace exists to remove.
+
+The root is the missing projection. For triage a caller wants `id, source_file, content_date,
+first-line` and nothing else; today the only way is to fetch everything and discard most of it. With
+a projection the hint is safe as written. A proportional `limit` is the weaker fix: it still leaves
+a bounded page indistinguishable from an exhausted room, which is the same defect one size down.
+
+⚠ `am_search(room:"inbox", snippet_chars:0)` is NOT the workaround — `snippet_chars:0` means WHOLE
+memories, so it is strictly worse. Two sessions read that parameter as its own opposite today.
+
+## Anchor verification is mostly unverifiable from any one checkout — 2026-08-29
+
+One observation, offered as data rather than a rate, and the session that reported it named the
+confound itself. An infrastructure session was shown **66 anchors: 0 verified, 0 drifted, 7 missing
+(all false, see above), 59 elsewhere**. So ~89% of what it was shown could not be checked from where
+it sat.
+
+Anchors are workspace-wide while verification is necessarily per-checkout, so most sessions can only
+ever verify a minority of what they are handed. Nobody has measured what fraction of anchors are
+checkable by the session that reads them. **Confound, stated by the reporter:** one very large wing
+(`wing_agentmemories`) that most sessions are never checked out against plausibly skews this toward
+"elsewhere", so it is one observation with a known bias, not a rate. They offered to report the same
+three numbers from subsequent sessions, which would turn it into one.
+
+## `am_status`'s inbox hint answers for the REGISTRATION's wing, and its confident count hides the miss — 2026-08-29
+
+Reported first-hand by a front-end session; **not reproduced here**, so the cause is unverified.
+
+Their cwd's git remote basename was their own project; the registration's `default_wing` named a
+DIFFERENT project. Step 0c already says rung 0 wins, and they correctly did not fight it. The damage
+is downstream of the naming: `am_status`'s `hint` and `inbox` block both answered for the
+registration's wing — a confident *"16 items waiting, read them first"* — while **their own
+project's wing held 23 inbox drawers that `am_status` never mentioned**, including a same-day item
+from another session asking that repo a direct, blocking question about its deploy pipeline. They
+found it only by listing their wing by hand.
+
+**The count is what makes this dangerous.** A silent zero invites a second look; a confident 16
+does not. A session that trusts the wake-up hint reads another project's inbox and honestly reports
+"nothing waiting" for its own — and the handoff convention this palace is built on quietly stops
+delivering.
+
+**Their proposed shape, and it is better than either wing winning:** when the registration's wing
+and the checkout's resolved wing disagree, SAY SO — *"registration wing X; cwd resolves to Y;
+Y/inbox holds N"* — rather than silently answering for X. That turns an invisible miss into a
+decision a human can make, which is the same move `resolution` made for `am_kg_query`'s `count: 0`.
+
+Related: the same session hit the unlabelled-anchor defect above, and guessed the anchor scoping
+keys off the registration wing rather than the checkout. That guess is NOT confirmed — the
+confirmed cause is the empty repo label — but if both surfaces resolve scope from the registration,
+they may share a root worth fixing once.
+
