@@ -2171,9 +2171,12 @@ type Taxonomy struct {
 
 // TaxonomyWing is one wing in the taxonomy: its totals and the rooms inside it.
 type TaxonomyWing struct {
-	Wing    string     `json:"wing"`
-	Drawers int        `json:"drawers"`
-	Rooms   []RoomStat `json:"rooms"`
+	Wing string `json:"wing"`
+	// Drawers is current rows; Memories is items. See WingStat for why both are
+	// reported rather than one replacing the other.
+	Drawers  int        `json:"drawers"`
+	Memories int        `json:"memories"`
+	Rooms    []RoomStat `json:"rooms"`
 }
 
 // GetTaxonomy assembles the wing -> rooms tree from the two indexed
@@ -2194,9 +2197,10 @@ func (s *Service) GetTaxonomy(ctx context.Context, teamID string) (Taxonomy, err
 	tax := Taxonomy{Wings: make([]TaxonomyWing, 0, len(wings))}
 	for _, w := range wings {
 		tax.Wings = append(tax.Wings, TaxonomyWing{
-			Wing:    w.Wing,
-			Drawers: w.Drawers,
-			Rooms:   byWing[w.Wing],
+			Wing:     w.Wing,
+			Drawers:  w.Drawers,
+			Memories: w.Memories,
+			Rooms:    byWing[w.Wing],
 		})
 	}
 	return tax, nil
