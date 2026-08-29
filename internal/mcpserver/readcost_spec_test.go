@@ -1,19 +1,21 @@
-//go:build readcostspec
-
-// These bindings are DELIBERATELY RED and gated behind a build tag, so `go test
-// ./...` — which CI runs on every push to main (.github/workflows/build.yml:65) —
-// stays green while they wait for their ADR. Collect them with:
+// Bindings for docs/specs/2026-08-28-a-read-as-cheap-as-a-grep.md, in the DEFAULT
+// LANE — the build tag came off in ADR-044 T6, the last task in this file.
 //
-//	go test -tags readcostspec ./...
+// They were gated behind `//go:build readcostspec` while they were deliberately
+// red, so `go test ./...` (which CI runs on every push to main,
+// .github/workflows/build.yml:65) stayed readable. Gating rather than deleting is
+// what @spec means: the test exists and fails, it just is not in the lane that
+// gates merges. All four are green now, so the tag would only hide them.
 //
-// The repository already uses this shape for `contractaxis`. Gating rather than
-// deleting keeps them collectable, which is what @spec means: the test exists and
-// fails, it just is not in the default lane. Remove the tag in the commit that
-// turns them green.
+// ⚠ THE TAG IS THE SELECTION, and until it came off none of these ran where it
+// counts. A binding green only under a tag is not green — it is a test CI has
+// never executed, which is this repository's signature defect wearing a test's
+// clothes.
 
 package mcpserver
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -22,9 +24,15 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/atvirokodosprendimai/agentsmemory/internal/auth"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/mcpprotocol"
+	"github.com/atvirokodosprendimai/agentsmemory/internal/palace"
+	"github.com/atvirokodosprendimai/agentsmemory/internal/store/sqlitevec"
+	"github.com/atvirokodosprendimai/agentsmemory/internal/tenant"
+	"github.com/atvirokodosprendimai/agentsmemory/internal/usage"
 
 	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/mark3labs/mcp-go/server"
 )
 
 // Bindings for docs/specs/2026-08-28-a-read-as-cheap-as-a-grep.md — the facts
@@ -182,12 +190,161 @@ func TestF2NoHitIsSilentlyPartial(t *testing.T) {
 // mcptest imports this package, so a binding in package mcpserver can exercise
 // the marking but never the handler that selects it.
 
+// f4Team/f4Wing hold the one memory this binding needs: several chunks long, with
+// a needle that appears ONLY in the last of them.
+const (
+	f4Team = "team-f4"
+	// Reuses the neutral example this package already uses. A fixture wing named
+	// for the task would be a project name in the corpus, which
+	// TestNoRealProjectNamesInWings refuses — correctly, and it caught this one.
+	f4Wing = budgetWing
+	f4Room = "decisions"
+	// The needle is nonsense on purpose. A phrase that also occurs in the opening
+	// would make the test pass on a fixture that never exercised a later chunk.
+	f4Needle = "zarquon threadbare palimpsest"
+	// The marker proves the OPENING came back too. Together with the needle it is
+	// what separates "the memory" from "the chunk that matched".
+	f4Opening = "OPENING MARKER lodestar vestibule"
+)
+
+// f4Memory builds a memory several times ChunkSize, opening with f4Opening and
+// closing with f4Needle, and varied line by line in between.
+//
+// ⚠ VARIED, NOT REPEATED. `strings.Repeat` of one sentence produces byte-identical
+// chunks that collapse under content-addressed dedupe, so the memory comes back a
+// fraction of its stored size and the test asserts against a corpus that does not
+// exist. That is a property of the fixture, not of the code, and it cost this
+// repository an hour on 2026-08-29.
+func f4Memory() string {
+	var b strings.Builder
+	b.WriteString(f4Opening + ": this memory is deliberately longer than several chunks. ")
+	for line := 0; b.Len() < palace.ChunkSize*5; line++ {
+		fmt.Fprintf(&b, "filler line %d carrying distinct wording so overlap removal finds the real seam "+
+			"rather than an early false match. ", line)
+	}
+	b.WriteString(" " + f4Needle + " appears here and nowhere else in this memory.")
+	return b.String()
+}
+
+// TestF4ChunkingCreatesNoReassemblyObligation is F-4 (UC1-S3): a caller never joins
+// chunks to obtain a memory's content.
+//
+// ⚠ THIS TASK PINS A GUARANTEE RATHER THAN BUILDING ONE, and that is the honest
+// outcome T6 step 2 names in advance. ADR-013 collapses a page to one hit per
+// memory and ADR-024 ranks memories rather than chunks, so the render loop already
+// reads h.MemoryContent with h.Drawer.Content only as a fallback
+// (drawers.go, the `fullContent` assignment). These assertions went green the
+// moment they were written — no behaviour changed, and inventing a change to
+// justify the task would have been the wrong repair.
+//
+// So the evidence that they BIND is not a red-then-green pair. It is the mutant the
+// binding names: render h.Drawer.Content in place of the memory's content and watch
+// this go red. That mutant is in the Mutation Log, tool-written.
 func TestF4ChunkingCreatesNoReassemblyObligation(t *testing.T) {
-	t.Fatalf(readCostNotYetBuilt, "F-4 (UC1-S3): a caller never joins chunks to obtain a memory's "+
-		"content. Chunk metadata MAY remain as diagnostics — ADR-024 keeps memory_id and "+
-		"chunks_matched for compatibility and this fact does not remove them. Kill it by rendering "+
-		"h.Drawer.Content in place of the memory's content, so a match in a later chunk returns only "+
-		"that chunk")
+	gdb := graphTestDB(t)
+	drawers := palace.NewService(palace.NewRepo(gdb), graphTestEmbedder{}, sqlitevec.New(gdb), budgetDim)
+	ctx := auth.WithTenant(context.Background(), tenant.Tenant{
+		TeamID: f4Team, UserID: "u1", Role: tenant.RoleAdmin,
+	})
+
+	stored := f4Memory()
+	added, err := drawers.Add(ctx, f4Team, palace.AddInput{
+		Wing: f4Wing, Room: f4Room, SourceFile: "f4-memory", Content: stored,
+	})
+	if err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	// A one-chunk memory cannot exercise this fact at all: "the chunk" and "the
+	// memory" would be the same string and every assertion below would pass on a
+	// fixture that never posed the question.
+	if len(added.Drawers) < 3 {
+		t.Fatalf("fixture stored %d chunk(s) against ChunkSize %d — F-4 is about a match in a "+
+			"LATER chunk, so a memory this short cannot exercise it", len(added.Drawers), palace.ChunkSize)
+	}
+
+	srv := server.NewMCPServer("test", "0.0.0", server.WithToolCapabilities(true))
+	registerDrawers(&registrar{srv: srv}, drawers,
+		usage.NewService(usage.NewRepo(gdb), graphTestCaps{}), false)
+	const tool = mcpprotocol.ToolPrefix + "search"
+	st := srv.GetTool(tool)
+	if st.Handler == nil {
+		t.Fatalf("%s is not registered — this check has stopped checking anything", tool)
+	}
+
+	// snippet_chars=0 asks for the whole memory, which is the request that makes
+	// "did I receive the memory or the chunk" a question with a checkable answer.
+	res, err := st.Handler(ctx, mcp.CallToolRequest{Params: mcp.CallToolParams{
+		Name: tool, Arguments: map[string]any{
+			"query": f4Needle, "wing": f4Wing, "limit": 5, "snippet_chars": 0,
+		}}})
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	var page struct {
+		Count int `json:"count"`
+		Hits  []struct {
+			Content       string `json:"content"`
+			MemoryID      string `json:"memory_id"`
+			ParentID      string `json:"parent_id"`
+			ChunkIndex    int    `json:"chunk_index"`
+			ChunksMatched int    `json:"chunks_matched"`
+		} `json:"hits"`
+	}
+	body := resultText(res)
+	if err := json.Unmarshal([]byte(body), &page); err != nil {
+		t.Fatalf("decode search result: %v\n%s", err, body[:min(len(body), 400)])
+	}
+	if page.Count == 0 {
+		t.Fatalf("the needle matched nothing; this page proves nothing about reassembly\n%s",
+			body[:min(len(body), 400)])
+	}
+
+	// ONE hit per memory. Several chunks matching must not become several hits the
+	// caller has to recognise as siblings and stitch — that recognition IS the
+	// reassembly obligation this fact removes.
+	if page.Count != 1 {
+		t.Errorf("a match inside one memory returned %d hits; a caller now has to work out "+
+			"they are chunks of one record and join them", page.Count)
+	}
+
+	hit := page.Hits[0]
+	// The content is the MEMORY's, which is checkable in both directions: the
+	// needle proves the matching chunk is present, and the opening proves the
+	// chunks BEFORE it came too. Either alone passes on the chunk.
+	if !strings.Contains(hit.Content, f4Needle) {
+		t.Errorf("the hit that matched %q does not contain it", f4Needle)
+	}
+	if !strings.Contains(hit.Content, f4Opening) {
+		t.Errorf("a match in a LATER chunk returned content without the memory's opening — " +
+			"the caller received the chunk that matched, and obtaining the memory would mean " +
+			"fetching and joining its siblings")
+	}
+	if got, want := len([]rune(hit.Content)), len([]rune(stored)); got != want {
+		t.Errorf("content is %d runes against %d stored; a whole-memory request must return "+
+			"the memory, not a chunk of it and not a lossy rejoin", got, want)
+	}
+
+	t.Run("chunk metadata survives as diagnostics", func(t *testing.T) {
+		// F-4 removes the OBLIGATION to join chunks; it does not remove the
+		// evidence that chunking happened. ADR-024 keeps these for compatibility
+		// and internal/mcptest/regions_test.go reads chunk_index over the real
+		// transport, so dropping them here would break a consumer to satisfy a
+		// fact that never asked for it.
+		if hit.MemoryID == "" {
+			t.Error("memory_id is absent; the id that groups a memory's chunks is the one " +
+				"diagnostic a caller cannot reconstruct")
+		}
+		if hit.ChunksMatched < 1 {
+			t.Errorf("chunks_matched = %d; it reports how many of a memory's chunks matched "+
+				"and is retained by ADR-024", hit.ChunksMatched)
+		}
+		// chunk_index is retained rather than asserted non-zero: which chunk won is
+		// a ranking outcome, and pinning it here would make this binding fail on a
+		// ranking change it does not govern.
+		if hit.ChunkIndex < 0 {
+			t.Errorf("chunk_index = %d, which is not a chunk position", hit.ChunkIndex)
+		}
+	})
 }
 
 func TestF7APageReportsWhatItWithheld(t *testing.T) {

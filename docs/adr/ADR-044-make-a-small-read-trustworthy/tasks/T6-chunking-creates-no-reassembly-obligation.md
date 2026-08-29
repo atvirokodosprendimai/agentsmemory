@@ -20,6 +20,60 @@ Guarantee that a recall matching text inside a later chunk returns one hit whose
 | `internal/mcpserver/readcost_spec_test.go` | edit | Turn `TestF4ChunkingCreatesNoReassemblyObligation` green **and remove `//go:build readcostspec`**. T6 is the last task in this file, so F-1, F-2, F-4 and F-7 enter the default lane together |
 | `internal/mcptest/regions_test.go` | read only | `:193-199` reads `hit["chunk_index"]` over the real MCP transport. F-4 retains chunk metadata as diagnostics, so this test must keep passing — it is the evidence that retention is real rather than asserted |
 
+## Deviations recorded during execution
+
+**1. STEP 2 RESOLVED: the guarantee ALREADY HOLDS, so this task PINS it and no behaviour changed.**
+`registerSearch`'s render loop assigns `fullContent := h.MemoryContent` and falls back to
+`h.Drawer.Content` only when the memory content is empty — so ADR-013's collapse and ADR-024's
+memory-level ranking already deliver the memory rather than the matching chunk. The assertions went
+GREEN the moment they were written. Step 2 named that outcome as acceptable in advance, and
+inventing a change to justify the task would have been the wrong repair.
+
+**Consequence for evidence: there is no red-then-green pair here, and there cannot be.** What proves
+the binding is the mutant it names — render `h.Drawer.Content` in place of the memory's content —
+which is in the Mutation Log, tool-written, killed. A test written against already-correct code is
+exactly the shape that proves nothing without one.
+
+**2. THE FIXTURE POSES THE QUESTION, verified rather than assumed.** Measured 2026-08-29: the memory
+stores at 8,137 runes across **7 chunks**, the query matched `chunk_index=4` with
+`chunks_matched=7`, and the hit returned all 8,137 runes. A one- or two-chunk fixture would make
+"the chunk" and "the memory" the same string and every assertion would pass without ever asking
+F-4's question, so the test fails fast below three chunks. The needle appears in the LAST chunk and
+the opening marker in the first; asserting both is what makes the check two-directional, since
+either alone passes on the chunk that matched.
+
+**3. THE TAG-RESTORATION MUTANT COULD NOT BE TOOL-WRITTEN — `adr-verify` refuses it as
+comment-only, and that refusal is a FALSE POSITIVE worth reporting upstream.** `//go:build
+readcostspec` is lexically a comment and semantically a build constraint: restoring it removes four
+tests from the lane CI runs. Verified by hand instead, both directions:
+
+```
+$ # tag restored
+$ go test ./internal/mcpserver/ -run 'TestF4ChunkingCreatesNoReassemblyObligation' -count=1
+ok  github.com/atvirokodosprendimai/agentsmemory/internal/mcpserver  0.018s [no tests to run]
+$ echo $?
+0
+```
+
+**Exit 0 over a suite that executed nothing** — which is precisely why this task's Acceptance greps
+for `no tests to run` rather than trusting the exit code, and why rung 2 calls the tag removal "the
+selection". `adr-verify`'s guard is right in general (a comment-only mutant tests nothing) and wrong
+for the directive family — `//go:build`, `//go:generate`, `//go:embed`, `//nolint`. Reported to the
+quality-harness session.
+
+**4. A REPO GATE CAUGHT THE FIXTURE'S WING NAME, correctly — TWICE.** The first draft named the
+fixture wing after this task. `TestNoRealProjectNamesInWings` refused it: a wing name is a project
+name, and an undeclared one in the tree is either somebody's real project or an example nobody
+declared. Fixed by reusing `budgetWing`, the neutral example this package already carries, rather
+than widening `exampleWings` — an allowlist should not grow to accommodate a fixture that had no
+reason to be named after its task.
+
+Then it fired a SECOND time, on this very paragraph: the gate reads `docs/` as well as `.go`, so
+writing the rejected name here to explain the fix reintroduced it. That is the gate working — the
+name is as much a leak in prose as in source — and it is recorded rather than worked around,
+because the reflex it corrects (quote the bad value when documenting the fix) is one every
+deviation note invites.
+
 ## Ordered Steps
 
 1. Confirm `TestF4ChunkingCreatesNoReassemblyObligation` is red for the right reason. Verified 2026-08-29.
@@ -58,6 +112,7 @@ which is what catches a removal that exposes a test CI cannot reproduce.
 ## Mutation Log
 
 <!-- Tool-written by `adr-verify --mutant`. Empty at authoring. -->
+- 2026-08-29 · 089323d · mutant killed · exit 1 · `internal/mcpserver/drawers.go` · the binding's named kill-case: render the matching CHUNK's content in place of the memory's, so a match in a later chunk returns only that chunk and the caller must fetch and join its siblings to obtain the memory · acceptance-sha256:846eb0d04b9d69f3dd82c48954953bd4db3630c3059570f6c8ba07b31a48d9e6
 
 ## Invariants
 
@@ -82,3 +137,17 @@ Stop if removing the tag makes any of the four bindings fail in the default lane
 ## Verification Log
 
 <!-- Tool-written by `adr-verify`. -->
+- 2026-08-29 · 089323d* · exit 1 · `set -o pipefail …` · acceptance-sha256:846eb0d04b9d69f3dd82c48954953bd4db3630c3059570f6c8ba07b31a48d9e6
+  ```
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/store/qdrant	0.024s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/store/sqlitevec	0.453s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/store/storetest	0.013s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/telemetry	0.020s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/tenant	0.447s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/usage	0.020s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/web	0.122s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/web/views	0.018s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/wingbundle	0.018s
+  FAIL
+  ```
+- 2026-08-29 · 089323d* · exit 0 · `set -o pipefail …` · acceptance-sha256:846eb0d04b9d69f3dd82c48954953bd4db3630c3059570f6c8ba07b31a48d9e6
