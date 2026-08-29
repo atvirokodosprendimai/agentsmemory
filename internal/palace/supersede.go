@@ -3,9 +3,13 @@ package palace
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
+	"github.com/atvirokodosprendimai/agentsmemory/internal/telemetry"
+
+	"go.opentelemetry.io/otel/attribute"
 	"gorm.io/gorm"
 )
 
@@ -81,11 +85,25 @@ func (s *Service) supersedeInto(ctx context.Context, teamID, id, content, reason
 			"record that replaced it, not the one it replaced", ErrInvalidInput, short12(id), head.ValidTo, head.EndedReason)
 	}
 
-	// The successor is written FIRST, so a failure leaves the old memory current
-	// rather than leaving the team with nothing. An ended record with no
-	// replacement is the worse half-state: recall goes quiet on a subject the
-	// palace still knows about.
-	added, err := s.Add(ctx, teamID, AddInput{
+	// ⚠ THE ORDER HERE WAS DELIBERATE AND IS NOW REJECTED. This path used to write
+	// the successor first, "so a failure leaves the old memory current rather than
+	// leaving the team with nothing" — an ended record with no replacement being
+	// the worse half-state, because recall goes quiet on a subject the palace still
+	// knows about.
+	//
+	// ADR-044 §Decision rejects that trade explicitly. The state it protects is
+	// predecessor-current AND successor-current, which is precisely the
+	// two-competing-records state that produced four framings of one finding on one
+	// page. The half of the old rationale that SURVIVES is its premise: an ending
+	// with no successor is genuinely bad. What changed is that we no longer have to
+	// choose — both halves commit together or neither does, so the failure leaves
+	// the predecessor current and nothing else, which is the pre-correction state
+	// rather than a fork.
+	//
+	// Embedding happens HERE, before the transaction opens, because it is a network
+	// call: KGSupersede records what holding one inside SQLite's single write
+	// transaction costs — "a slow embedder becomes a locked database".
+	prepared, err := s.prepareWrite(ctx, teamID, AddInput{
 		Wing:        wing,
 		Room:        room,
 		SourceFile:  head.SourceFile,
@@ -95,32 +113,93 @@ func (s *Service) supersedeInto(ctx context.Context, teamID, id, content, reason
 	if err != nil {
 		return SupersedeResult{}, fmt.Errorf("file the correcting record: %w", err)
 	}
-	if len(added.Drawers) == 0 {
+	if len(prepared.drawers) == 0 {
 		return SupersedeResult{}, fmt.Errorf("the correcting record produced no rows")
 	}
-	newID := added.Drawers[0].ID
+	newID := prepared.drawers[0].ID
 
-	if err := s.carryAnchors(ctx, teamID, head.ID, newID); err != nil {
-		return SupersedeResult{}, fmt.Errorf("carry anchors to the correcting record: %w", err)
+	// Vectors before the transaction, for the reason persistRows documents: the
+	// vector store shares the service's database handle, so writing through it
+	// inside the transaction is a second connection to a locked file. A vector
+	// whose row never lands is harmless — search skips ids it cannot resolve.
+	if prepared.vectors != nil {
+		if err := s.upsertDrawerVectors(ctx, teamID, prepared.drawers, prepared.vectors); err != nil {
+			return SupersedeResult{}, fmt.Errorf("file the correcting record: %w", err)
+		}
+	}
+
+	// The chunks observed OPEN, which is what the compare-and-swap is against.
+	// Counting these rather than len(chunks) is the difference between "somebody
+	// raced me" and "one of these was already ended before I looked", which the
+	// loop below used to silently skip.
+	open := make([]string, 0, len(chunks))
+	for _, c := range chunks {
+		if c.ValidTo == "" {
+			open = append(open, c.ID)
+		}
+	}
+	if len(open) == 0 {
+		return SupersedeResult{}, fmt.Errorf("%w: every chunk of drawer %s is already ended",
+			ErrInvalidInput, short12(id))
 	}
 
 	endedAt := time.Now().UTC().Format(time.RFC3339)
-	for _, c := range chunks {
-		if c.ValidTo != "" {
-			continue
-		}
-		err := s.repo.db.WithContext(ctx).Model(&drawerRow{}).
-			Where("team_id = ? AND id = ?", teamID, c.ID).
+	err = s.repo.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// ENDINGS FIRST, INSIDE THE TRANSACTION, and this order matters for a
+		// reason that is not obvious: persistRows re-files under the predecessor's
+		// SOURCE, and a re-file ends every current row of that source whose content
+		// key left it — which is every chunk of the predecessor. Running it before
+		// the swap would end them with the generic re-file reason, and the swap
+		// would then find nothing current and report a race that never happened.
+		res := tx.Model(&drawerRow{}).
+			Where("team_id = ? AND id IN ? AND valid_to = ''", teamID, open).
 			Updates(map[string]any{
 				"valid_to":      endedAt,
 				"ended_at":      endedAt,
 				"ended_reason":  reason,
 				"superseded_by": newID,
-			}).Error
-		if err != nil {
-			return SupersedeResult{}, fmt.Errorf("end chunk %s of the superseded memory: %w", short12(c.ID), err)
+			})
+		if res.Error != nil {
+			return fmt.Errorf("end the superseded memory: %w", res.Error)
 		}
+		// THE COMPARE-AND-SWAP. RowsAffected is the answer, not a diagnostic — the
+		// same discard that made am_kg_invalidate report success for a fact it never
+		// touched (#73). A short count means someone ended at least one of these
+		// chunks between our read and this write, so a second correction is already
+		// in flight; applying ours too is how one subject ends up with two current
+		// successors.
+		if res.RowsAffected != int64(len(open)) {
+			return fmt.Errorf("%w: %d of %d chunks of drawer %s were still current when this "+
+				"correction was written; another correction of the same record is in flight. "+
+				"Nothing was changed — re-read the memory and correct the record that replaced it",
+				ErrConcurrentCorrection, res.RowsAffected, len(open), short12(id))
+		}
+		return s.persistRows(ctx, &Repo{db: tx}, teamID, prepared)
+	})
+	if err != nil {
+		return SupersedeResult{}, err
 	}
+
+	// AFTER the commit, both of them, and both FAIL OPEN — because by this point
+	// the correction is durable and returning an error would report a write that
+	// succeeded as one that failed.
+	//
+	// The first draft called both "repairable follow-ups" and then made one of them
+	// fatal, which is the comment describing the code the author meant to write. A
+	// caller that read that error and did the obvious thing — retry — landed on the
+	// already-ended refusal, recovering from something that had already worked.
+	//
+	// This is the choice am_get_drawer's MemorySize lookup already makes ("fails
+	// OPEN and says so in the trace"), and it applies with more force here: there
+	// the read was still in flight, here the write is committed. Anchors are scarce
+	// enough to be worth a loud trace and not worth a false failure.
+	if err := s.carryAnchors(ctx, teamID, head.ID, newID); err != nil {
+		telemetry.Annotate(ctx, attribute.Bool("am.anchors_not_carried", true))
+		slog.Warn("correction committed but its anchors were not carried forward",
+			"error", err, "superseded", short12(head.ID), "successor", short12(newID))
+	}
+	s.attachDerivedEdgeTo(ctx, teamID, prepared.drawers)
+
 	return SupersedeResult{ID: newID, Supersedes: head.ID, Reason: reason, EndedAt: endedAt}, nil
 }
 

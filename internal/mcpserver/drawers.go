@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/atvirokodosprendimai/agentsmemory/internal/palace"
@@ -75,6 +76,12 @@ func registerDrawers(reg *registrar, drawers *palace.Service, usageSvc *usage.Se
 // head rather than the page being cut. Nothing is ever dropped silently: a trimmed
 // record says so and carries its full length.
 const responseBudget = 40_000
+
+// withheldByBudget keys the search page's withheld count by the thing that
+// withheld the hits. One cause exists today; the key is there so a second one
+// could join without changing a shape callers already parse, which is the same
+// reason kg_query keys its withheld count by status.
+const withheldByBudget = "budget"
 
 // headWithin returns the opening of content bounded by BOTH a preferred head size
 // and whatever is left of the response budget, and reports whether it had to cut.
@@ -416,7 +423,7 @@ func recordFetchJoin(ctx context.Context, drawers *palace.Service, teamID string
 // registerGetDrawer: fetch one drawer by id.
 func registerGetDrawer(reg *registrar, drawers *palace.Service, usageSvc *usage.Service) {
 	tool := newTool("get_drawer",
-		mcp.WithDescription("Fetch a drawer by its id. A memory longer than ~1600 characters is stored as several chunks and a search returns the ONE that matched; pass whole=true to get every chunk of that memory, in order, so you can read the note as it was written."),
+		mcp.WithDescription("Fetch a drawer by its id. A memory longer than ~1600 characters is stored as several chunks and a search returns the ONE that matched; pass whole=true to get every chunk of that memory, in order, so you can read the note as it was written. A response you did NOT ask to be whole says whether it is one: content_truncated is set with content_length, the whole memory's rune count, whenever the drawer you asked for is a chunk of a longer memory — so a fragment is never mistakable for a complete short memory. Complete it by calling this tool again with the same id and whole=true; that is the only completion path, and no cursor or offset exists."),
 		mcp.WithString("id", mcp.Required(), mcp.Description("The drawer id returned by am_add_drawer or am_search.")),
 		mcp.WithBoolean("whole", mcp.Description("Return every chunk of the memory this drawer belongs to, in order, instead of just this one. Any chunk's id works — you do not need the first.")),
 		mcp.WithString("search_id", mcp.Description("Optional: the search_id of the am_search page that led you to this memory. It is recorded on the request's trace span AND, since ADR-028 T3, durably against the drawer this call returned — so the recall that sent you here becomes a relevance signal. Nothing changes in what you get back. A fetch that does not resolve records nothing, and an id that is not the shape am_search mints is refused rather than stored.")),
@@ -477,7 +484,30 @@ func registerGetDrawer(reg *registrar, drawers *palace.Service, usageSvc *usage.
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 		recordFetchJoin(ctx, drawers, t.TeamID, req, d.ID, false)
-		return jsonResult(toView(d)), nil
+		v := toView(d)
+		// ADR-044 F-2: a fragment a caller cannot tell is a fragment.
+		//
+		// Without whole:true this returns ONE chunk, and until now it said nothing
+		// about that — content_truncated and content_length both absent, which is
+		// byte-for-byte what a complete short memory looks like. The team's own
+		// operating protocol had to warn about it in prose ("it looks complete"),
+		// and a warning an agent must have read is what this field replaces.
+		//
+		// Keyed on the chunk COUNT, never on ParentID: the root chunk of a
+		// multi-chunk memory has no parent and chunk_index 0, so a parent test
+		// leaves exactly the case this exists for unmarked.
+		//
+		// Fails OPEN and says so in the trace: a size lookup that errors must not
+		// turn a working read into an error, but an UNMARKED fragment is the defect
+		// itself, so it cannot pass silently either.
+		if full, n, err := drawers.MemorySize(ctx, t.TeamID, d.ID); err != nil {
+			telemetry.Annotate(ctx, attribute.Bool("am.memory_size_failed", true))
+			slog.Warn("memory size lookup failed; drawer returned without its partial marking",
+				"error", err, "drawer", d.ID)
+		} else if n > 1 {
+			partialWithFetchID(&v, full)
+		}
+		return jsonResult(v), nil
 	})
 }
 
@@ -489,7 +519,7 @@ func registerGetDrawer(reg *registrar, drawers *palace.Service, usageSvc *usage.
 // at it in exchange for nothing.
 func registerUpdateDrawer(reg *registrar, drawers *palace.Service, usageSvc *usage.Service) {
 	tool := newTool("update_drawer",
-		mcp.WithDescription("Correct or relocate a memory. Sending content is a CORRECTION: it writes a NEW record, ends the old one with your reason, and links them — so the id changes and the old text stays readable by its own id, because the version that was replaced is the thing nothing else can recover. Sending only wing/room is a relocation and keeps the id. Only supplied fields are modified."),
+		mcp.WithDescription("Correct or relocate a memory. Sending content is a CORRECTION: it writes a NEW record, ends the old one with your reason, and links them — so the id changes and the old text stays readable by its own id, because the version that was replaced is the thing nothing else can recover. Sending only wing/room is a relocation and keeps the id. Only supplied fields are modified. A correction and its predecessor's ending commit together, so a failure leaves the memory exactly as it was rather than leaving two current records on one subject. ⚠A SECOND CORRECTION OF THE SAME MEMORY IS REFUSED, not queued: if another writer corrected it between your read and your write, this returns a concurrent-correction error and changes NOTHING. Do not retry the same call — it will be refused again for a different reason. Re-read the memory and correct the record that replaced it, which the error names."),
 		mcp.WithString("id", mcp.Required(), mcp.Description("The drawer id to correct or move. Any chunk's id: a correction replaces the WHOLE memory.")),
 		mcp.WithString("content", mcp.Description(fmt.Sprintf(
 			"New verbatim content, at most %d characters, which SUPERSEDES the record rather than editing it: "+
@@ -663,8 +693,7 @@ func registerListDrawers(reg *registrar, drawers *palace.Service, usageSvc *usag
 			// opening line is what its author wrote to say what the memory is.
 			if head, cut := headWithin(d.Content, palace.DefaultSnippetChars, responseBudget-spent); cut {
 				views[i].Content = head
-				views[i].Truncated = true
-				views[i].FullLength = len([]rune(d.Content))
+				partialWithFetchID(&views[i], len([]rune(d.Content)))
 				trimmed++
 			}
 			spent += len([]rune(views[i].Content))
@@ -814,7 +843,7 @@ type anchorView struct {
 // re-ranked by a vector+BM25 blend (closet boost joins with the mining phase).
 func registerSearch(reg *registrar, drawers *palace.Service, usageSvc *usage.Service, scopeSearchToWing bool) {
 	tool := newTool("search",
-		mcp.WithDescription("Semantically recall distinct memories most similar to a query. Optionally filter by wing/room and a max cosine distance. Each hit carries blended_score: the value the page was actually ordered by, combining the cross-encoder and the fused lexical/vector score. It is POOL-RELATIVE — comparable between hits on one page, meaningless across pages, and not to be averaged. A page is often not monotonic in rerank_score, which is the blend working rather than a reranker that failed. content_coverage is always present and reports how much of the memory you are seeing. Fields that appear only when they apply: content_truncated with content_length when a memory was trimmed; regions, the other windows of the same memory that matched, when more than one did; chunks_matched, how many of its chunks did; content_date when the memory is about a different day than it was filed; code_anchors with a status when the memory pins source that may have drifted; stale on a hit whose code anchors no longer match the code they pin — the one summary to branch on, because a recalled sentence about changed code reads as knowledge either way; and stale_index on the page when the search index is behind the store, which means the answer may be missing recent writes rather than that nothing was written."),
+		mcp.WithDescription("Semantically recall distinct memories most similar to a query. Optionally filter by wing/room and a max cosine distance. Each hit carries blended_score: the value the page was actually ordered by, combining the cross-encoder and the fused lexical/vector score. It is POOL-RELATIVE — comparable between hits on one page, meaningless across pages, and not to be averaged. A page is often not monotonic in rerank_score, which is the blend working rather than a reranker that failed. content_coverage is always present and reports how much of the memory you are seeing: the primary window AND every region rendered beside it, counted once where they overlap. It changed meaning on 2026-08-29 — it used to count the window alone and under-reported, so a threshold calibrated before then is comparing against a different number. Fields that appear only when they apply: content_truncated with content_length when a memory was trimmed; regions, the other windows of the same memory that matched, when more than one did; chunks_matched, how many of its chunks did; content_date when the memory is about a different day than it was filed; code_anchors with a status when the memory pins source that may have drifted; stale on a hit whose code anchors no longer match the code they pin — the one summary to branch on, because a recalled sentence about changed code reads as knowledge either way; and stale_index on the page when the search index is behind the store, which means the answer may be missing recent writes rather than that nothing was written. A page cut short by the response budget reports withheld: how many of its hits arrived carrying NO content at all, keyed by what withheld them. There is no cursor, so that count is the only evidence such a hit existed — a page without it is indistinguishable from an exhausted corpus — and each one is still completed by am_get_drawer with its own id."),
 		mcp.WithString("query", mcp.Required(), mcp.Description("What to recall (max 250 chars).")),
 		mcp.WithBoolean("include_history", mcp.Description("Also return memories that have been RETRACTED or superseded (default false). Off by default because an ended record keeps its embedding: without the filter a withdrawn claim competes with the correction that replaced it, and can outrank it. Turn it on to audit what a wing used to say. Every returned record carries valid_to and ended_reason, so history is never mistaken for current, plus superseded_by when something replaced it — and a CURRENT record carries supersedes and superseded_reason naming what it replaced and why, so a session about to redo a rejected thing sees that without asking for history.")),
 		mcp.WithNumber("limit", mcp.Description("Max distinct memories after chunk collapse in the legacy control (before ranking in the memory-level treatment), 1-100 (default 5).")),
@@ -863,10 +892,21 @@ func registerSearch(reg *registrar, drawers *palace.Service, usageSvc *usage.Ser
 		hits := page.Hits
 		snippetChars := req.GetInt("snippet_chars", palace.DefaultSnippetChars)
 		// spent/overBudget bound the WHOLE-memory expansion. See responseBudget.
-		spent, overBudget := 0, 0
+		//
+		// withheld is overBudget's SIBLING, not a rename of it, and the two are
+		// deliberately disjoint: a trimmed hit is on the page with less of the
+		// memory than it holds; a withheld hit is on the page with NONE of it. The
+		// second is the one a caller cannot infer, because with no cursor the count
+		// is the only evidence such a hit existed at all — without it a page cut
+		// short by the budget reads as an exhausted corpus.
+		spent, overBudget, withheld := 0, 0, 0
 		views := make([]searchHitView, len(hits))
 		ids := make([]string, len(hits))
 		for i, h := range hits {
+			// Whether THIS hit was already counted as trimmed, so the classification
+			// below can take it back when the budget went on to empty it. Without it
+			// the same hit is counted in both totals and each number looks plausible.
+			trimmedHere := false
 			views[i] = newSearchHitView(h)
 			ids[i] = h.MemoryID
 			fullContent := h.MemoryContent
@@ -925,6 +965,7 @@ func registerSearch(reg *registrar, drawers *palace.Service, usageSvc *usage.Ser
 				views[i].Truncated = true
 				views[i].FullLength = len([]rune(fullContent))
 				overBudget++
+				trimmedHere = true
 			}
 
 			// ⚠ THE BOUND APPLIES ON EVERY PATH, not only to whole memories, and it
@@ -940,11 +981,29 @@ func registerSearch(reg *registrar, drawers *palace.Service, usageSvc *usage.Ser
 					views[i].Truncated = true
 					views[i].FullLength = len([]rune(fullContent))
 					overBudget++
+					trimmedHere = true
 				}
 				// Regions are a second copy of matching passages. Once the budget is
 				// gone they are the first thing to drop: content is the answer, regions
 				// are only how to find more of it.
 				views[i].Regions = nil
+			}
+			// CLASSIFY ONCE, after both bounds have run. The render loop never DROPS
+			// a hit: past the budget headWithin returns the empty string with cut=true,
+			// so the hit arrives with its id, its metadata and zero runes of the
+			// memory. That — on the page, carrying nothing — is what withheld means
+			// here, and it is already the house reading: am_list_drawers' own
+			// description says a bounded listing carries "as much of their opening as
+			// the budget still allows — possibly none".
+			//
+			// The hit stays marked content_truncated with content_length: it IS
+			// partial, and F-2's marking is what makes it fetchable. Only the page's
+			// two counters are exclusive.
+			if len(views[i].Content) == 0 && len(fullContent) > 0 {
+				if trimmedHere {
+					overBudget--
+				}
+				withheld++
 			}
 			spent += len([]rune(views[i].Content))
 			for _, r := range views[i].Regions {
@@ -954,12 +1013,7 @@ func registerSearch(reg *registrar, drawers *palace.Service, usageSvc *usage.Ser
 			// Coverage is set for EVERY hit, including snippet_chars=0. Otherwise
 			// "the caller requested and received the whole memory" reports the same
 			// zero as "the caller saw none of it".
-			if full := len([]rune(fullContent)); full > 0 {
-				views[i].Coverage = float64(len([]rune(views[i].Content))) / float64(full)
-				if views[i].Coverage > 1 {
-					views[i].Coverage = 1 // the head join adds runes the memory does not have
-				}
-			}
+			views[i].Coverage = coveredRunes(views[i].Content, views[i].Regions, fullContent)
 		}
 		// Staleness travels WITH the memory. A recalled sentence about code that
 		// has since changed is the one failure mode a confident agent cannot catch
@@ -1017,19 +1071,51 @@ func registerSearch(reg *registrar, drawers *palace.Service, usageSvc *usage.Ser
 		// hits it did not ask to have truncated. A silent cap on a "give me
 		// everything" request is the shape that teaches an agent the palace is
 		// missing content it actually holds.
+		// ⚠ A PAGE MAY HAVE SEVERAL THINGS TO SAY ABOUT ITSELF, so they are COLLECTED
+		// and joined once rather than assigned.
+		//
+		// Four sites wrote out["note"] by assignment, so the last one won and a page
+		// with two degradations reported one. Worse, the withheld sentence built
+		// itself by formatting whatever note already held — and on a page with no
+		// trimmed hits that value is nil, so it shipped the literal "<nil>" as the
+		// first word of prose an agent reads. Each writer had a test; the interaction
+		// between them had none.
+		var notes []string
 		if overBudget > 0 {
 			// The caller is told (below) and now so is the trace. A page that
 			// silently delivered less than was asked for is the same shape as the
 			// anchor failure a few lines down: honoured request, degraded answer,
 			// span still `ran`.
 			telemetry.Annotate(ctx, attribute.Int("am.whole_memory_over_budget", overBudget))
-			out["note"] = fmt.Sprintf(
+			notes = append(notes, fmt.Sprintf(
 				"whole memories were requested and the last %d hit(s) exceeded this response's "+
 					"size budget, so they are windowed instead (content_truncated carries "+
 					"content_length). Fetch any of them in full with am_get_drawer(id, whole=true), "+
 					"or narrow the search — a larger response spends context you did not ask "+
 					"budget is a context bound: a page this size is most of a session's context, and "+
-					"most of it is text you did not ask for.", overBudget)
+					"most of it is text you did not ask for.", overBudget))
+		}
+		// A page that ran out of budget entirely must SAY the tail arrived empty.
+		// The previous note claimed those hits were "windowed instead", which is
+		// false about a hit carrying zero runes — and a caller reading it would
+		// conclude the memory is short rather than that it received none of it.
+		//
+		// Emitted only when something was actually withheld, which is what makes its
+		// presence informative — the same reading kg_query's withheld block gets, and
+		// the shape is borrowed from it: a count keyed by WHAT withheld it. There is
+		// one withholder here rather than kg_query's status axis, and the key names it
+		// so a second cause could join without changing the shape.
+		//
+		// Note the remedy is real, which Grill Log 8 did not assume when it declined a
+		// cursor: a withheld hit still carries its id, so am_get_drawer completes it.
+		if withheld > 0 {
+			telemetry.Annotate(ctx, attribute.Int("am.hits_withheld", withheld))
+			out["withheld"] = map[string]int{withheldByBudget: withheld}
+			notes = append(notes, fmt.Sprintf(
+				"The last %d hit(s) exhausted the size budget and arrived carrying NO content "+
+					"at all — they are not short memories, they are memories you received none "+
+					"of. Read each with am_get_drawer(id, whole=true), or narrow the search.",
+				withheld))
 		}
 		// A zero-hit page from a wing that holds nothing is not a miss, and the two
 		// were indistinguishable: same count, same empty list, same sub-second
@@ -1037,8 +1123,11 @@ func registerSearch(reg *registrar, drawers *palace.Service, usageSvc *usage.Ser
 		// failure in the sample.
 		if len(views) == 0 {
 			if note, _ := emptyWingNote(ctx, drawers, t.TeamID, wing); note != "" {
-				out["note"] = note
+				notes = append(notes, note)
 			}
+		}
+		if len(notes) > 0 {
+			out["note"] = strings.Join(notes, " ")
 		}
 		if stale > 0 {
 			out["stale_hits"] = stale
@@ -1173,4 +1262,169 @@ func registerReconnect(reg *registrar, drawers *palace.Service, usageSvc *usage.
 		}
 		return jsonResult(map[string]any{"ok": true, "note": "vector namespace ready, backend reachable"}), nil
 	})
+}
+
+// disclosedRange is one half-open rune range of a memory that a response
+// actually put in front of its caller.
+type disclosedRange struct{ start, end int }
+
+// coveredRunes reports the fraction of a memory a response disclosed: the
+// primary window AND every region rendered beside it, counted once where they
+// overlap.
+//
+// It replaces `len(content) / len(fullContent)`, which counted the window alone
+// while the regions sat rendered next to it in the same response. Measured
+// 2026-08-29 on a live 5,331-rune memory at snippet_chars=700: 13.2% reported
+// against 24.7% actually disclosed. A caller comparing that figure against a
+// threshold to decide "do I need a second call?" was deciding on a number that
+// under-reported what it already held, which is the defect this whole record is
+// about — not the price of a read, but whether a small one can be trusted.
+//
+// De-duplication is not an optimisation, it is the arithmetic: SnippetRegions
+// and SnippetWithHead choose independently and the best-matching region routinely
+// falls inside the window, so a naive sum reports coverage ABOVE the truth. On
+// that same live memory the naive sum reads 26.8% against a true 24.7% — 108
+// runes disclosed once and counted twice. That is the same defect inverted and
+// worse, because it reads as completeness.
+//
+// full is the memory, not its length, because the primary window arrives as
+// rendered text and its offsets have to be recovered from it. The task file
+// declared `full int`; the signature moved rather than the arithmetic guessing.
+func coveredRunes(content string, regions []regionView, full string) float64 {
+	total := len([]rune(full))
+	if total == 0 {
+		return 0
+	}
+	ranges := primaryRanges(content, full)
+	for _, r := range regions {
+		n := len([]rune(r.Text))
+		if n == 0 || r.Start < 0 {
+			continue
+		}
+		ranges = append(ranges, disclosedRange{r.Start, r.Start + n})
+	}
+	covered := unionLen(ranges, total)
+	c := float64(covered) / float64(total)
+	if c > 1 {
+		// Kept from the arithmetic it replaces. The union should never exceed the
+		// memory now that join markers are excluded by construction — but a clamp
+		// that never fires costs nothing, while a removed clamp that should have
+		// fired reports coverage above 1.0, which is precisely the over-report the
+		// de-duplication above exists to prevent.
+		c = 1
+	}
+	return c
+}
+
+// primaryRanges maps the rendered `content` window back to rune ranges in the
+// memory it was cut from.
+//
+// SnippetWithHead has exactly three shapes and this handles all of them without
+// asking which one ran: the whole memory (no markers), one contiguous window
+// anchored at rune 0 with a trailing "…", and the head joined to a later body by
+// " … ". Splitting on the join marker and locating each piece verbatim covers
+// all three, because renderSnippet only ever ADDS markers around slices it took
+// unchanged.
+func primaryRanges(content, full string) []disclosedRange {
+	// ⚠ TRY THE WINDOW WHOLE FIRST, because the separator is STRUCTURE in a
+	// rendered snippet and CONTENT in a memory that quotes an elision — and this
+	// corpus is full of memories that quote one: review notes, adr-debt output,
+	// transcripts. Splitting first cut one contiguous slice in two and gave the
+	// separator's runes to neither piece, so a memory returned WHOLE reported
+	// 0.98. Nothing about the split was wrong except that it ran unconditionally.
+	//
+	// A verbatim hit is unambiguous: renderSnippet only ever slices, so text found
+	// intact in the memory IS a disclosed slice of it, whatever markers it contains.
+	if at := strings.Index(full, content); content != "" && at >= 0 {
+		start := len([]rune(full[:at]))
+		return []disclosedRange{{start, start + len([]rune(content))}}
+	}
+	var out []disclosedRange
+	// The pieces arrive in the order they appear in the memory, so each is located
+	// AFTER the one before it. strings.Index alone takes the first occurrence, which
+	// put a later window at an earlier copy of its own text and made the two ranges
+	// overlap — under-reporting, never over, but wrong for a knowable reason.
+	cursor := 0
+	for _, piece := range strings.Split(content, snippetJoin) {
+		// Only the ellipsis, never surrounding whitespace: a space at the edge of a
+		// window IS a rune of the memory that was disclosed, and trimming it
+		// under-reports by one rune per edge — small, but in the direction of the
+		// defect this function exists to remove.
+		piece = strings.Trim(piece, "…")
+		if piece == "" {
+			continue
+		}
+		rel := strings.Index(full[cursor:], piece)
+		at := -1
+		if rel >= 0 {
+			at = cursor + rel
+		}
+		if at < 0 {
+			// Not provable as a slice of this memory, so not claimed. Reachable
+			// only if a render path starts rewriting text rather than slicing it,
+			// which ADR-019 forbids — and the honest failure is a coverage figure
+			// that is too LOW, matching what the field meant before this change,
+			// rather than one that overstates what the caller received.
+			continue
+		}
+		start := len([]rune(full[:at]))
+		out = append(out, disclosedRange{start, start + len([]rune(piece))})
+		cursor = at + len(piece)
+	}
+	return out
+}
+
+// snippetJoin is the separator SnippetWithHead puts between a memory's opening
+// and the later window that matched.
+const snippetJoin = " … "
+
+// unionLen is the total length of the given ranges with overlaps counted once,
+// bounded to [0, total].
+func unionLen(ranges []disclosedRange, total int) int {
+	if len(ranges) == 0 {
+		return 0
+	}
+	sort.Slice(ranges, func(a, b int) bool { return ranges[a].start < ranges[b].start })
+	sum, cur := 0, ranges[0]
+	flush := func(r disclosedRange) {
+		if r.start < 0 {
+			r.start = 0
+		}
+		if r.end > total {
+			r.end = total
+		}
+		if r.end > r.start {
+			sum += r.end - r.start
+		}
+	}
+	for _, r := range ranges[1:] {
+		if r.start <= cur.end {
+			if r.end > cur.end {
+				cur.end = r.end
+			}
+			continue
+		}
+		flush(cur)
+		cur = r
+	}
+	flush(cur)
+	return sum
+}
+
+// partialWithFetchID marks a view as carrying less than its whole memory.
+//
+// One marking, so the three sites that set these fields by hand cannot drift
+// apart. Both fields together, which drawerView's own comment requires:
+// "truncated" without the original length tells a caller something is missing and
+// not how much, which is not enough to decide whether to fetch it.
+//
+// The fetch id is the view's OWN id and is deliberately not a new wire key.
+// am_get_drawer(id, whole: true) completes the memory from any chunk's id, so the
+// caller already holds the pointer it needs — and ADR-044's primitives audit says
+// not to invent a second vocabulary for an idea the response already carries.
+// What was missing was never the id; it was the statement that the id is worth
+// using.
+func partialWithFetchID(v *drawerView, full int) {
+	v.Truncated = true
+	v.FullLength = full
 }

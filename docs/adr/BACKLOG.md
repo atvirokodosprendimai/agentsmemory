@@ -2493,3 +2493,273 @@ next thing. If it is low, the constraint is not retrieval quality at all — it 
 material nobody will read, and every read-side improvement optimises retrieval over a corpus that
 should be smaller. That would promote the entry above and demote the spec, and it is the only
 measurement on this page that can do that.
+
+## From ADR-044 (make a small read trustworthy)
+
+Filed 2026-08-29 with ADR-044, in the same commit as the deferrals that point here. Written at the
+destination rather than pointed at, because a pointer to a real file that never received anything
+passes every check there is.
+
+- **ADR-021 T3's Claude Desktop measurement, still not taken.** ADR-044's read paths travel to every
+  MCP client, and exactly one client is confirmed to surface `server.WithInstructions` — a Claude Code
+  session, verified 2026-08-22 as an "MCP Server Instructions" block. Desktop is unmeasured, and the
+  ADR-021 T3 live measurement has been listed as PENDING since that date. Related and separately
+  recorded: `mcp-stdio` takes `--socket/--url/--token` and no `--wing`, so a Desktop registration
+  cannot scope itself to a project and falls through to every wing. Deferred from ADR-044 §Out of
+  Scope. The cheap experiment is one restart and one question.
+
+- **Retention or pruning of ended records.** ADR-044 T7 makes a correction end its predecessor
+  atomically, which means the corpus accumulates ended rows at whatever rate corrections are filed.
+  Nothing prunes them and nothing decides whether they should be pruned — `include_history` already
+  keeps them out of default reads, so this is a storage question rather than a correctness one.
+  Deferred from ADR-044 T7 §Out of Scope. Note ADR-028 T3/T4 defer the same question for
+  `drawer_fetches` and `search_events`; if any of the three is answered, answer all three together,
+  because a retention story for one table and not its siblings is the shape that gets rediscovered.
+
+## `CorrectionsFor` scans every correction edge on every recall — 2026-08-29
+
+Found by Mindaugas by reading `internal/palace/kg.go`, and confirmed in the source the same day.
+Filed here rather than fixed, and deliberately NOT appended to ADR-044's Follow-ups: it is a
+performance defect on a path ADR-044 touches, not an obligation ADR-044 took on.
+
+`CorrectionsFor` is the server-side sweep that replaced the three predicate queries this repo's own
+protocol tells agents to run by hand. It is consumed by both the search path
+(`internal/palace/memory_search.go`) and the bootstrap (`internal/palace/bootstrap.go`), so it runs on
+**every `am_search` and every `am_bootstrap`**. Its body loops the three correction predicates and,
+for each, calls `KGTriplesByPredicate(teamID, pred, KGStatusCurrent)` — which returns every current
+row of that predicate for the team — then discards the ones it did not ask for with an in-Go
+`if !want[row.Object] { continue }`.
+
+So the cost is three full predicate scans per recall, independent of how many record ids the caller
+actually cares about (a page's roots: on the order of ten). At today's corpus — roughly 150
+correction edges — that is invisible, which is why nothing noticed. It grows with the number of
+corrections ever filed, not with page size, and this repository's whole supersession story is an
+instruction to file MORE of them: ADR-038 ends records instead of overwriting, ADR-044 T7 makes an
+atomic correction end its predecessor. The table this scans is the one we are actively encouraging
+to grow.
+
+**The fix is reuse, not new code, and it is already in the same file.** `KGTriplesForEntities` sits
+directly below `CorrectionsFor` and does exactly the needed thing — `WHERE team_id = ? AND (subject
+IN ? OR object IN ?)`, one statement per direction, cost independent of entity count. Its doc comment
+records that it was written for precisely this shape of defect one layer over (`factsFor` issuing a
+full `KGQuery` per candidate entity). What is wanted is the same batching keyed on OBJECT and
+filtered by predicate, so the `want` map becomes a SQL `IN` rather than a Go `continue`.
+
+Two things to preserve when it is done, both of which the current shape gets right by accident:
+
+- The direction. A correction attaches to the record it corrects as an INCOMING edge, so the
+  filtered column is `object` and the id exposed as `ReplacementID` is `subject`. The doc comment
+  says this is easy to get backwards; a rewrite is exactly when it would be.
+- The authorization. `policy.Place` is called on `row.Subject`, never on `row.SourceDrawerID` —
+  `targetauth_test.go` exists because checking provenance instead both disclosed foreign
+  replacements and suppressed local ones. Any batched version must keep the check on the correcting
+  record.
+
+Not measured, and it should be before it is fixed: the claim above is read off the code, and the
+sensible before-figure is the statement count and latency of `CorrectionsFor` at current corpus size
+against a seeded one. `ADR-029`'s span vocabulary already covers the search path.
+
+## RETRACTED, then narrowed: identical chunks across DISTINCT memories dedupe, and the loser cannot be read whole — 2026-08-29
+
+**The entry that stood here was wrong and is retracted rather than deleted, because the way it was
+wrong is the useful part.** It reported that `am_search` returns `content_coverage: 1.000` while
+carrying one chunk of fourteen, and named `collapseCandidatesToMemories` as the suspect on the
+strength of an anchor-drift coincidence. The symptom was real and reproducible. The cause was **the
+fixture**, and the entry should not have been filed before that was excluded.
+
+The fixture built 25 memories as `strings.Repeat("filler prose about other matters entirely. ", 400)`
+with only a short unique prefix, so chunks 1..13 of every memory were BYTE-IDENTICAL. Re-run with
+per-memory filler, all five memories reassemble correctly — 16 chunks, 19,641 runes each — and
+`content_coverage` is right. **The search path's marking was never at fault**, and the correction
+this produced in ADR-044 T4's task file has itself been corrected.
+
+### What is real, and it is narrower
+
+Identical chunk CONTENT across distinct memories collapses to one row, and the memory that loses the
+row can no longer be read whole. Measured with the degenerate fixture:
+
+    5 memories x 14 chunks       am_add_drawer reported 14 drawers EACH time
+    drawer rows actually stored  18, not 70
+    MemoryChunks(root of #0)     1 chunk, not 14
+    MemoryChunksByRoots          1 chunk for four roots, 14 for the LAST one written
+
+So the last writer keeps the shared chunks and the earlier memories are left holding their opening
+chunk alone. `am_get_drawer(root, whole: true)` then returns 1 of 14 and reports no error, which is
+the read path this repository added specifically so that a long memory COULD be read as written.
+
+**Two things make it worth an entry even though the trigger is artificial.** `Add` returns
+`chunks: 14` for a write that stored one new row, so the write path reports a success it did not
+achieve. And the loss is invisible from either end — nothing errors, and the shortened memory reads
+as a memory that was always short.
+
+### What has NOT been established
+
+Whether this is reachable on non-degenerate content. A 1,600-rune byte-identical chunk shared by two
+different memories is what boilerplate, templates and pasted log dumps look like, but no such case has
+been found in this corpus and none was looked for. **Do not price this from the fixture.** The next
+step is a corpus query for drawers sharing a `content_key` across different parents — `doctor --corpus`
+is the natural home, and it already reports reference classes rather than a single count.
+
+Also not established: whether chunk-level dedupe across memories is INTENDED. ADR-038 owns
+`content_key` and its partial unique index, and its diary exemption exists precisely because two
+identical entries must stay two records. Whether two identical CHUNKS OF DIFFERENT MEMORIES are the
+same case or the opposite one is a question for that record, not an obvious bug.
+
+### The lesson that generalises, and the reason this entry keeps its history
+
+A fixture built from `strings.Repeat` of one sentence is not a scaled-up version of real content — in
+a content-addressed store it is a different regime, and it manufactured a defect that looked like a
+serious product failure for the better part of an hour. The tell was there in the first measurement
+and was read past: `chunks_matched: 1` on a 14-chunk memory says the retrieval saw ONE chunk, which a
+correct corpus of 14 sibling chunks would not produce. Vary the fixture before naming a suspect.
+
+## The `omitempty` description gate cannot see a conditional map key, and `withheld` is now one — 2026-08-29
+
+`TestEveryOmitemptyWireKeyInThisPackageIsDescribed` (`internal/mcpserver/wirekeys_test.go`) enumerates
+Go struct tags. It has never covered the third population its own doc comment names — *"conditional
+`map[string]any` keys, set inside `if` blocks. `out["stale_hits"]`, `out["warning"]`,
+`out["supersedes"]`, `out["reason"]`, `out["ended_at"]` and others are emitted where no tag exists to
+find. Out of scope here and named so the next reader knows it."*
+
+**ADR-044 T5 added `out["withheld"]` to that population.** Its task file asserted the gate would fail
+if the description omitted the key; measured 2026-08-29 by deleting the word, the gate stayed green and
+the package passed. Recorded as a deviation in
+`docs/adr/ADR-044-make-a-small-read-trustworthy/tasks/T5-a-page-reports-what-it-withheld.md` rather than
+by widening the gate, because widening it is its own change.
+
+What the gate's comment already proposes: *"a reflect walk from the registered view types, following
+embedding and field types"*. That would also close the two blind-spot fields it names in
+`internal/palace` — `replacement_id` and `elsewhere_wing` on `Correction`, the first of which is the
+field telling a reader the memory in front of them has been contradicted.
+
+Not filed as an ADR follow-up: the obligation is the gate's, not ADR-044's, and padding a record's
+Follow-ups with unrelated work is how an open count stops meaning anything.
+
+⚠ **Until it runs, the `withheld` sentence in `am_search`'s description is held up by nothing.** The
+next edit to that description can drop it silently, and every gate stays green — which is the defect
+the gate exists to catch, one level up.
+
+## ⚠ An anchor with an EMPTY repo label is checked against whatever tree is open, and the hook then tells that session to re-file good memories — 2026-08-29
+
+**Confirmed in source, reported independently by four sessions in four different repositories on one
+day.** This is the highest-severity item in this file: it does not merely fail to help, it recruits
+an unrelated session into destroying correct memories.
+
+**THE PROOF** (from the infrastructure session, same file, same working tree, same day):
+
+```
+status=missing   path=internal/palace/service.go   repo=""             (their Ansible tree)
+status=verified  path=internal/palace/service.go   repo="agentsmemory" line 693
+```
+
+One file, two opposite verdicts, differing only by whether the anchor carries a repo label. Their
+tree's remote is an Ansible repository with zero `.go` files.
+
+**THE CAUSE**, read in `clients/claude-code/verify.go`: every guard that protects an unknown from
+being reported as an absence is conditioned on `a.Repo != ""` — the elsewhere check, the
+not-found branch, and the snippet-non-match branch. So an anchor with an EMPTY label in a KNOWN
+tree passes all three and falls through to `statusMissing`.
+
+The guards were written for an unknown TREE. The unknown ANCHOR is the case nobody had. The file's
+own comment already states the principle it is violating: *"calling it MISSING is not a small
+inaccuracy: the honest response to 'the file is gone' is to delete the memory, so a check that
+cannot see a file destroys the memory pinned to it. A session did exactly that … Unknown is not
+absent."* An unlabelled anchor is an unknown; the code treats it as checkable-here.
+
+**WHY IT IS WORSE THAN A WRONG COUNT.** The verdicts are RECORDED, so the damage is durable, and
+`am_search` then flags those memories STALE. The session-start hook prints *"Re-read the code and
+re-file whichever are wrong."* A session that complies rewrites correct records — including a
+2026-08-25 OTel wiring decision — on evidence from a repository that has never contained that code.
+
+**BOTH HALVES NEED FIXING, and they are different bugs:**
+- **Read side:** `missing` must require a POSITIVE repo-label match against the current tree. An
+  unattributable anchor joins the "not checked from here" set. This is the same
+  could-not-look versus is-gone distinction this corpus keeps re-deriving.
+- **Write side, the root:** those anchors were filed WITHOUT a label. If `am_add_drawer`
+  (`code_anchors:`) does not default `repo` from the writing session's git remote, every anchor
+  filed by a session that omits the field becomes a future false positive somewhere else. Not yet
+  checked which, if either, happens today.
+
+Also unverified and worth one command: whether the recorded false verdicts should be swept and
+reset, since `doctor --corpus` already reports reference states.
+
+## The wake-up surface counts rows and calls them memories, and counts retracted ones — 2026-08-29
+
+Reported first-hand by a depozitas session; **not yet reproduced here**, so the cause is unverified
+and the measurements are theirs.
+
+1. **`am_status` counts RETRACTED drawers; `am_list_drawers` does not.** Same room, same minute:
+   `am_list_drawers(<a peer project's wing>, inbox)` → 6, `am_status().wings[…].rooms[inbox]` → 8.
+   The difference was exactly the 2 chunks they had just invalidated. The protocol asks sessions to
+   close out inbox items so a stale lead is not rediscovered monthly — but the count that greets the
+   next session never falls, so closing appears to do nothing.
+2. **The inbox count counts CHUNKS and the hint calls them "memories".** 6 rows, 3 memories, pairing
+   cleanly by `parent_id`. It scales with how long the sender wrote rather than with how much is
+   waiting. Compounds with (1): that room reported 8 for 2 live memories, 4x. The word "memories" is
+   what makes it a defect rather than an implementation detail — `am_status`'s own ranking line says
+   `unit=memory`, so the wake-up surface is the one place still speaking in rows.
+3. **`am_recall_stats` suggestions are polluted by machine-generated recalls.** Four of five entries
+   were a git branch name concatenated with changed filenames, and a run of commit subjects — a hook
+   issuing recalls keyed on branch plus dirty files. They land in `(unscoped)`, drag that bucket to
+   67% answered, and `suggestions` is documented as a to-write list, so following it means writing
+   memories to satisfy filenames no human will search for. A to-write list that should be empty.
+
+## `am_status`'s hint recommends an unbounded listing, and `am_list_drawers` has no projection — 2026-08-29
+
+Reported by an infrastructure session, credited. `am_status` composes
+*"30 memories waiting in <that session's wing>/inbox — read them first with am_list_drawers(...)"* with
+a count and **no `limit`**. Following it verbatim returned **51.2 KB**, over that harness's
+tool-result cap, so it spilled to a file and had to be recovered with `jq`.
+
+The documented bound did not save them: past a client's cap the whole result leaves the context, and
+an empty-looking room reads as "nothing is filed" — the confusion this palace exists to remove.
+
+The root is the missing projection. For triage a caller wants `id, source_file, content_date,
+first-line` and nothing else; today the only way is to fetch everything and discard most of it. With
+a projection the hint is safe as written. A proportional `limit` is the weaker fix: it still leaves
+a bounded page indistinguishable from an exhausted room, which is the same defect one size down.
+
+⚠ `am_search(room:"inbox", snippet_chars:0)` is NOT the workaround — `snippet_chars:0` means WHOLE
+memories, so it is strictly worse. Two sessions read that parameter as its own opposite today.
+
+## Anchor verification is mostly unverifiable from any one checkout — 2026-08-29
+
+One observation, offered as data rather than a rate, and the session that reported it named the
+confound itself. An infrastructure session was shown **66 anchors: 0 verified, 0 drifted, 7 missing
+(all false, see above), 59 elsewhere**. So ~89% of what it was shown could not be checked from where
+it sat.
+
+Anchors are workspace-wide while verification is necessarily per-checkout, so most sessions can only
+ever verify a minority of what they are handed. Nobody has measured what fraction of anchors are
+checkable by the session that reads them. **Confound, stated by the reporter:** one very large wing
+(`wing_agentmemories`) that most sessions are never checked out against plausibly skews this toward
+"elsewhere", so it is one observation with a known bias, not a rate. They offered to report the same
+three numbers from subsequent sessions, which would turn it into one.
+
+## `am_status`'s inbox hint answers for the REGISTRATION's wing, and its confident count hides the miss — 2026-08-29
+
+Reported first-hand by a front-end session; **not reproduced here**, so the cause is unverified.
+
+Their cwd's git remote basename was their own project; the registration's `default_wing` named a
+DIFFERENT project. Step 0c already says rung 0 wins, and they correctly did not fight it. The damage
+is downstream of the naming: `am_status`'s `hint` and `inbox` block both answered for the
+registration's wing — a confident *"16 items waiting, read them first"* — while **their own
+project's wing held 23 inbox drawers that `am_status` never mentioned**, including a same-day item
+from another session asking that repo a direct, blocking question about its deploy pipeline. They
+found it only by listing their wing by hand.
+
+**The count is what makes this dangerous.** A silent zero invites a second look; a confident 16
+does not. A session that trusts the wake-up hint reads another project's inbox and honestly reports
+"nothing waiting" for its own — and the handoff convention this palace is built on quietly stops
+delivering.
+
+**Their proposed shape, and it is better than either wing winning:** when the registration's wing
+and the checkout's resolved wing disagree, SAY SO — *"registration wing X; cwd resolves to Y;
+Y/inbox holds N"* — rather than silently answering for X. That turns an invisible miss into a
+decision a human can make, which is the same move `resolution` made for `am_kg_query`'s `count: 0`.
+
+Related: the same session hit the unlabelled-anchor defect above, and guessed the anchor scoping
+keys off the registration wing rather than the checkout. That guess is NOT confirmed — the
+confirmed cause is the empty repo label — but if both surfaces resolve scope from the registration,
+they may share a root worth fixing once.
+

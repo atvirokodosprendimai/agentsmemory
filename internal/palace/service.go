@@ -31,6 +31,11 @@ var (
 	// "drawer not found: no CURRENT fact matches …", contradicting itself in one
 	// line. Callers that only care about the class check both; nothing here does.
 	ErrFactNotFound = errors.New("fact not found")
+	// ErrConcurrentCorrection is returned when a second correction of the same
+	// memory reaches the compare-and-swap after the first has ended its chunks.
+	// It is a REFUSAL, not a failure: the loser changed nothing, and the caller's
+	// correction should be re-read and reapplied against the record that won.
+	ErrConcurrentCorrection = errors.New("concurrent correction")
 	// ErrSourceDrawerNotFound reports a fact whose source_drawer_id names no row in
 	// this team — provenance that resolves to nothing. Distinct from
 	// ErrFactNotFound because the caller's mistake is different: the fact is fine
@@ -635,11 +640,52 @@ func (s *Service) Add(ctx context.Context, teamID string, in AddInput) (result A
 	defer func() {
 		endStage(sp, err, attribute.Int("am.count", len(result.Drawers)), attribute.Bool("am.pending_embed", result.PendingEmbedding))
 	}()
+	prepared, err := s.prepareWrite(ctx, teamID, in)
+	if err != nil {
+		return AddResult{}, err
+	}
+	if err := s.persistWrite(ctx, s.repo, teamID, prepared); err != nil {
+		return AddResult{}, err
+	}
+	// The edge attaches on BOTH branches. An earlier version attached it only
+	// after the embedded path, so a memory filed while the embedder was down
+	// became a permanent orphan — precisely the memory a later session most needs
+	// to find, and the vector index it is waiting for is not what makes it
+	// reachable by traversal.
+	s.attachDerivedEdgeTo(ctx, teamID, prepared.drawers)
+	return AddResult{Drawers: prepared.drawers, PendingEmbedding: prepared.vectors == nil}, nil
+}
+
+// preparedWrite is a filing that has been chunked, EMBEDDED and turned into rows,
+// with nothing yet written to the database.
+//
+// The split exists so a correction can put the successor's rows and the
+// predecessor's endings under ONE transaction — see supersedeInto. Embedding is
+// the reason that cannot simply be done by wrapping Add: it is a network call,
+// and KGSupersede already records what happens when one is held inside SQLite's
+// single write transaction — "a slow embedder becomes a locked database".
+// Preparing first puts the slow, failable part outside the lock and leaves only
+// row writes inside it.
+type preparedWrite struct {
+	drawers []Drawer
+	// vectors is nil when the embedder was unavailable and the rows go to the
+	// background queue instead (see embedOrDefer). That is a degraded write, not
+	// an error, and persistWrite has a branch for it.
+	vectors            [][]float32
+	wing, room, source string
+	// keep is the set of content keys this filing still asserts, so a re-file of
+	// a NAMED source can end the chunks that left it.
+	keep []string
+}
+
+// prepareWrite does everything a filing needs before anything is persisted:
+// chunking, embedding, id resolution and row construction. It writes nothing.
+func (s *Service) prepareWrite(ctx context.Context, teamID string, in AddInput) (preparedWrite, error) {
 	wing := strings.TrimSpace(in.Wing)
 	room := strings.TrimSpace(in.Room)
 	content := strings.TrimSpace(in.Content)
 	if wing == "" || room == "" || content == "" {
-		return AddResult{}, fmt.Errorf("%w: wing, room and content are required", ErrInvalidInput)
+		return preparedWrite{}, fmt.Errorf("%w: wing, room and content are required", ErrInvalidInput)
 	}
 
 	chunks := ChunkText(content, ChunkSize, ChunkOverlap, ChunkMin)
@@ -659,7 +705,7 @@ func (s *Service) Add(ctx context.Context, teamID string, in AddInput) (result A
 	}
 	existing, err := s.repo.IDsByContentKeys(ctx, teamID, keys)
 	if err != nil {
-		return AddResult{}, fmt.Errorf("look up rows already holding these content keys: %w", err)
+		return preparedWrite{}, fmt.Errorf("look up rows already holding these content keys: %w", err)
 	}
 
 	drawers := make([]Drawer, len(chunks))
@@ -697,37 +743,62 @@ func (s *Service) Add(ctx context.Context, teamID string, in AddInput) (result A
 		}
 	}
 
-	// Re-filing a *named* source replaces it wholesale: purge the source's prior
-	// drawers (rows + vectors) before writing the new set, so shrinking the
-	// content cannot leave orphaned higher-index chunks behind. A source-less add
-	// is a standalone memory (deduped by its CONTENT KEY, not its id), so it is not purged.
-	if in.SourceFile != "" {
-		keep := make([]string, 0, len(drawers))
-		for _, d := range drawers {
-			keep = append(keep, d.ContentKey)
-		}
-		if err := s.purgeSource(ctx, teamID, wing, room, in.SourceFile, keep); err != nil {
-			return AddResult{}, err
-		}
-	}
+	return preparedWrite{
+		drawers: drawers,
+		vectors: vectors,
+		wing:    wing,
+		room:    room,
+		source:  in.SourceFile,
+		keep:    keys,
+	}, nil
+}
 
-	if vectors == nil {
-		if err := s.repo.SaveUnembedded(ctx, drawers); err != nil {
-			return AddResult{}, fmt.Errorf("save drawers (embedding deferred): %w", err)
+// persistWrite writes a prepared filing: its vectors, then its rows, through the
+// repo it is handed.
+//
+// ⚠ THE REPO IS A PARAMETER so a caller can pass one bound to a transaction —
+// that is what lets supersedeInto commit a successor and its predecessor's
+// endings together. Vectors are written FIRST and deliberately OUTSIDE any such
+// transaction: it keeps Add's existing invariant that a row never exists without
+// its embedding, and the inverse orphan is harmless because search skips ids it
+// cannot resolve.
+func (s *Service) persistWrite(ctx context.Context, r *Repo, teamID string, p preparedWrite) error {
+	if p.vectors != nil {
+		if err := s.upsertDrawerVectors(ctx, teamID, p.drawers, p.vectors); err != nil {
+			return err
 		}
-		// The edge attaches here TOO. This branch returns early, and the first
-		// version of T6 attached below it — so a memory filed while the embedder
-		// was down became a permanent orphan. That is precisely the memory a
-		// later session most needs to find, and the vector index it is waiting
-		// for is not what makes it reachable by traversal.
-		s.attachDerivedEdgeTo(ctx, teamID, drawers)
-		return AddResult{Drawers: drawers, PendingEmbedding: true}, nil
 	}
-	if err := s.storeDrawers(ctx, teamID, drawers, vectors); err != nil {
-		return AddResult{}, err
+	return s.persistRows(ctx, r, teamID, p)
+}
+
+// persistRows is persistWrite's row half, split out so a transactional caller can
+// write the VECTORS first and outside the transaction.
+//
+// ⚠ THAT SPLIT IS NOT TIDINESS. s.vectors was constructed with the service's own
+// *gorm.DB, and sqlitevec shares that handle — so calling upsertDrawerVectors
+// inside a transaction opens a SECOND connection to the file the transaction
+// already holds the write lock on, which is the deadlock KGSupersede's comment
+// warns about arriving by a different door.
+func (s *Service) persistRows(ctx context.Context, r *Repo, teamID string, p preparedWrite) error {
+	// Re-filing a *named* source replaces it wholesale: end the source's prior
+	// drawers whose content key LEFT the source, so shrinking the content cannot
+	// leave orphaned higher-index chunks behind. A source-less add is a standalone
+	// memory (deduped by its CONTENT KEY, not its id), so it is not purged.
+	if p.source != "" {
+		if err := s.purgeSourceOn(ctx, r, teamID, p.wing, p.room, p.source, p.keep); err != nil {
+			return err
+		}
 	}
-	s.attachDerivedEdgeTo(ctx, teamID, drawers)
-	return AddResult{Drawers: drawers}, nil
+	if p.vectors == nil {
+		if err := r.SaveUnembedded(ctx, p.drawers); err != nil {
+			return fmt.Errorf("save drawers (embedding deferred): %w", err)
+		}
+		return nil
+	}
+	if err := r.Save(ctx, p.drawers); err != nil {
+		return fmt.Errorf("save drawers: %w", err)
+	}
+	return nil
 }
 
 // attachDerivedEdgeTo makes a freshly written set of chunks reachable by
@@ -871,8 +942,11 @@ func (s *Service) upsertDrawerVectors(ctx context.Context, teamID string, drawer
 // purgeSource deletes every drawer (row + vector) previously filed from a source
 // within a (team, wing, room), so a re-add of that source replaces rather than
 // accumulates. Vectors are dropped by the ids the rows carry, then the rows.
-func (s *Service) purgeSource(ctx context.Context, teamID, wing, room, source string, keep []string) error {
-	rows, err := s.repo.CurrentBySource(ctx, teamID, wing, room, source)
+// purgeSourceOn takes the repo as a parameter for the same reason persistWrite
+// does: a correction runs this inside its transaction, so the endings it performs
+// commit or roll back with the successor's rows rather than separately.
+func (s *Service) purgeSourceOn(ctx context.Context, r *Repo, teamID, wing, room, source string, keep []string) error {
+	rows, err := r.CurrentBySource(ctx, teamID, wing, room, source)
 	if err != nil {
 		return fmt.Errorf("list source drawers: %w", err)
 	}
@@ -901,8 +975,18 @@ func (s *Service) purgeSource(ctx context.Context, teamID, wing, room, source st
 	// Now only the rows whose content key LEFT the source are touched, and they
 	// are ended rather than destroyed: a chunk a re-file dropped is a memory the
 	// team stopped asserting, which is a retraction, not an erasure.
+	// Ended through the SAME repo, not through s.EndDrawer: that method reads and
+	// writes on s.repo.db, so calling it from inside a transaction would use a
+	// second connection to the file the transaction already holds a write lock on.
+	// The rows here were just read as CURRENT, so EndDrawer's already-ended refusal
+	// has nothing to check that this query does not.
+	now := time.Now().UTC().Format(time.RFC3339)
+	reason := "dropped from " + source + " on re-file"
 	for _, id := range ids {
-		if err := s.EndDrawer(ctx, teamID, id, "dropped from "+source+" on re-file"); err != nil {
+		err := r.db.WithContext(ctx).Model(&drawerRow{}).
+			Where("team_id = ? AND id = ? AND valid_to = ''", teamID, id).
+			Updates(map[string]any{"valid_to": now, "ended_at": now, "ended_reason": reason}).Error
+		if err != nil {
 			return fmt.Errorf("end drawer %s dropped from the source: %w", short12(id), err)
 		}
 	}
@@ -2412,4 +2496,35 @@ func (s *Service) WingNames(ctx context.Context, teamID string) ([]string, error
 // InboxCount counts the drawers in one wing's room.
 func (s *Service) InboxCount(ctx context.Context, teamID, wing, room string) (int, error) {
 	return s.repo.InboxCount(ctx, teamID, wing, room)
+}
+
+// MemorySize reports the rune length of the whole logical memory a chunk belongs
+// to, and how many chunks it is stored in.
+//
+// It exists for ADR-044 F-2: am_get_drawer without whole:true hands back ONE
+// chunk, and a fragment a caller cannot tell is a fragment is the defect that
+// record is about. Marking it needs the memory's full length, and no row carries
+// one — reassembly removes chunk overlap, so the length is neither the chunk's
+// nor the sum of the chunks'. Measured 2026-08-29: a 60,237-rune memory is stored
+// as 47 chunks whose lengths sum to ~75,200, so the sum is an upper bound and
+// reporting it would be a wrong number rather than a missing one.
+//
+// So it reassembles, and that is a deliberate trade rather than an oversight. The
+// SEARCH path already reassembles every candidate memory on every recall
+// (memory_search.go, representative.MemoryContent), so this is parity with the
+// path already measured, not a new class of cost. What it buys is the asymmetry
+// ADR-044 rests on: server-side bytes are cheap and an agent's context is not, so
+// loading a memory to report ONE number while returning one chunk is the right
+// direction to spend in.
+//
+// The count is returned beside the length because a caller marking a fragment
+// must key on "this memory has more than one chunk" and NOT on ParentID: the ROOT
+// chunk of a 47-chunk memory has no parent and chunk_index 0, so a ParentID test
+// leaves exactly the case this was written for unmarked.
+func (s *Service) MemorySize(ctx context.Context, teamID, id string) (length, chunks int, err error) {
+	cs, err := s.GetMemory(ctx, teamID, id)
+	if err != nil {
+		return 0, 0, err
+	}
+	return len([]rune(reassembleMemory(cs))), len(cs), nil
 }
