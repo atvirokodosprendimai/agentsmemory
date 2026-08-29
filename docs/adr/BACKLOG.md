@@ -2493,3 +2493,25 @@ next thing. If it is low, the constraint is not retrieval quality at all — it 
 material nobody will read, and every read-side improvement optimises retrieval over a corpus that
 should be smaller. That would promote the entry above and demote the spec, and it is the only
 measurement on this page that can do that.
+
+## From ADR-044 (make a small read trustworthy)
+
+Filed 2026-08-29 with ADR-044, in the same commit as the deferrals that point here. Written at the
+destination rather than pointed at, because a pointer to a real file that never received anything
+passes every check there is.
+
+- **ADR-021 T3's Claude Desktop measurement, still not taken.** ADR-044's read paths travel to every
+  MCP client, and exactly one client is confirmed to surface `server.WithInstructions` — a Claude Code
+  session, verified 2026-08-22 as an "MCP Server Instructions" block. Desktop is unmeasured, and the
+  ADR-021 T3 live measurement has been listed as PENDING since that date. Related and separately
+  recorded: `mcp-stdio` takes `--socket/--url/--token` and no `--wing`, so a Desktop registration
+  cannot scope itself to a project and falls through to every wing. Deferred from ADR-044 §Out of
+  Scope. The cheap experiment is one restart and one question.
+
+- **Retention or pruning of ended records.** ADR-044 T7 makes a correction end its predecessor
+  atomically, which means the corpus accumulates ended rows at whatever rate corrections are filed.
+  Nothing prunes them and nothing decides whether they should be pruned — `include_history` already
+  keeps them out of default reads, so this is a storage question rather than a correctness one.
+  Deferred from ADR-044 T7 §Out of Scope. Note ADR-028 T3/T4 defer the same question for
+  `drawer_fetches` and `search_events`; if any of the three is answered, answer all three together,
+  because a retention story for one table and not its siblings is the shape that gets rediscovered.
