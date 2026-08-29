@@ -2559,44 +2559,56 @@ Not measured, and it should be before it is fixed: the claim above is read off t
 sensible before-figure is the statement count and latency of `CorrectionsFor` at current corpus size
 against a seeded one. `ADR-029`'s span vocabulary already covers the search path.
 
-## A search hit can report `content_coverage: 1.000` while carrying one chunk of fourteen — 2026-08-29
+## RETRACTED, then narrowed: identical chunks across DISTINCT memories dedupe, and the loser cannot be read whole — 2026-08-29
 
-Found while probing for ADR-044 T5, by measurement rather than by reading. Root cause NOT established
-and deliberately not guessed at; what follows is what was observed.
+**The entry that stood here was wrong and is retracted rather than deleted, because the way it was
+wrong is the useful part.** It reported that `am_search` returns `content_coverage: 1.000` while
+carrying one chunk of fourteen, and named `collapseCandidatesToMemories` as the suspect on the
+strength of an anchor-drift coincidence. The symptom was real and reproducible. The cause was **the
+fixture**, and the entry should not have been filed before that was excluded.
 
-Fixture, through the real transport (`internal/mcptest`): 25 memories, each 17,242 runes, each stored
-as **14 chunks** (confirmed from `am_add_drawer`'s own `chunks` count). One `am_search` with
-`limit: 25`. Every hit came back as:
+The fixture built 25 memories as `strings.Repeat("filler prose about other matters entirely. ", 400)`
+with only a short unique prefix, so chunks 1..13 of every memory were BYTE-IDENTICAL. Re-run with
+per-memory filler, all five memories reassemble correctly — 16 chunks, 19,641 runes each — and
+`content_coverage` is right. **The search path's marking was never at fault**, and the correction
+this produced in ADR-044 T4's task file has itself been corrected.
 
-    content            1600 runes  (one chunk)
-    content_coverage   1.000
-    content_length     absent, or 1600 when a snippet cut it
-    chunks_matched     1
-    memory_id == id, chunk_index 0, parent_id absent
+### What is real, and it is narrower
 
-So the response is **internally consistent and wrong together**: `fullContent` is the chunk, and
-every figure derived from it agrees with every other. Nothing is marked partial because nothing
-believes anything is missing.
+Identical chunk CONTENT across distinct memories collapses to one row, and the memory that loses the
+row can no longer be read whole. Measured with the degenerate fixture:
 
-**This is worse than the `am_get_drawer` fragment ADR-044 T4 fixed.** A marked fragment invites a
-second call. `content_coverage: 1.000` forbids one — it is the field an agent is told to compare
-against a threshold, and it is telling the agent it has everything. An agent that trusts it stops
-looking, and the thirteen chunks it never saw are indistinguishable from thirteen chunks that do not
-exist.
+    5 memories x 14 chunks       am_add_drawer reported 14 drawers EACH time
+    drawer rows actually stored  18, not 70
+    MemoryChunks(root of #0)     1 chunk, not 14
+    MemoryChunksByRoots          1 chunk for four roots, 14 for the LAST one written
 
-**What the trigger is NOT:** memory size. A single-memory probe the same afternoon, on a 60,237-rune
-memory of 47 chunks, reported `content_length: 60237` correctly — reassembly ran. The difference
-between the two probes is the number of candidate memories and the `limit`, so the suspect is the
-collapse/reassembly path, `collapseCandidatesToMemories` in `internal/palace/service.go` —
-**which the anchor sweep independently flagged as DRIFTED at the start of this session**, along with
-`searchCandidates` in `memory_search.go`. That coincidence is a lead, not a diagnosis.
+So the last writer keeps the shared chunks and the earlier memories are left holding their opening
+chunk alone. `am_get_drawer(root, whole: true)` then returns 1 of 14 and reports no error, which is
+the read path this repository added specifically so that a long memory COULD be read as written.
 
-**Before fixing, establish which it is**, because two very different repairs follow: reassembly not
-running for candidates beyond some pool bound (a cap interacting with `limit`), versus reassembly
-running and its result being dropped on one arm. The A/B ranking arms are live here — `am_status`
-reports `unit=memory` — so "which arm served this page" is part of the question.
+**Two things make it worth an entry even though the trigger is artificial.** `Add` returns
+`chunks: 14` for a write that stored one new row, so the write path reports a success it did not
+achieve. And the loss is invisible from either end — nothing errors, and the shortened memory reads
+as a memory that was always short.
 
-Filed rather than fixed, and NOT folded into ADR-044: T4's marking is correct and its mutants stand,
-and this is a defect in what `fullContent` IS rather than in whether a partial says so. It plausibly
-belongs to F-4 (*a memory is ONE UNIT to its caller*), which T6 owns — but that call should be made
-with the root cause known, not from the symptom.
+### What has NOT been established
+
+Whether this is reachable on non-degenerate content. A 1,600-rune byte-identical chunk shared by two
+different memories is what boilerplate, templates and pasted log dumps look like, but no such case has
+been found in this corpus and none was looked for. **Do not price this from the fixture.** The next
+step is a corpus query for drawers sharing a `content_key` across different parents — `doctor --corpus`
+is the natural home, and it already reports reference classes rather than a single count.
+
+Also not established: whether chunk-level dedupe across memories is INTENDED. ADR-038 owns
+`content_key` and its partial unique index, and its diary exemption exists precisely because two
+identical entries must stay two records. Whether two identical CHUNKS OF DIFFERENT MEMORIES are the
+same case or the opposite one is a question for that record, not an obvious bug.
+
+### The lesson that generalises, and the reason this entry keeps its history
+
+A fixture built from `strings.Repeat` of one sentence is not a scaled-up version of real content — in
+a content-addressed store it is a different regime, and it manufactured a defect that looked like a
+serious product failure for the better part of an hour. The tell was there in the first measurement
+and was read past: `chunks_matched: 1` on a 14-chunk memory says the retrieval saw ONE chunk, which a
+correct corpus of 14 sibling chunks would not produce. Vary the fixture before naming a suspect.
