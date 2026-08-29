@@ -3,9 +3,13 @@ package palace
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
+	"github.com/atvirokodosprendimai/agentsmemory/internal/telemetry"
+
+	"go.opentelemetry.io/otel/attribute"
 	"gorm.io/gorm"
 )
 
@@ -176,11 +180,23 @@ func (s *Service) supersedeInto(ctx context.Context, teamID, id, content, reason
 		return SupersedeResult{}, err
 	}
 
-	// AFTER the commit, both of them. carryAnchors and the derived edge are
-	// repairable follow-ups against a record that now exists; running them inside
-	// the transaction would put more work under the write lock for no invariant.
+	// AFTER the commit, both of them, and both FAIL OPEN — because by this point
+	// the correction is durable and returning an error would report a write that
+	// succeeded as one that failed.
+	//
+	// The first draft called both "repairable follow-ups" and then made one of them
+	// fatal, which is the comment describing the code the author meant to write. A
+	// caller that read that error and did the obvious thing — retry — landed on the
+	// already-ended refusal, recovering from something that had already worked.
+	//
+	// This is the choice am_get_drawer's MemorySize lookup already makes ("fails
+	// OPEN and says so in the trace"), and it applies with more force here: there
+	// the read was still in flight, here the write is committed. Anchors are scarce
+	// enough to be worth a loud trace and not worth a false failure.
 	if err := s.carryAnchors(ctx, teamID, head.ID, newID); err != nil {
-		return SupersedeResult{}, fmt.Errorf("carry anchors to the correcting record: %w", err)
+		telemetry.Annotate(ctx, attribute.Bool("am.anchors_not_carried", true))
+		slog.Warn("correction committed but its anchors were not carried forward",
+			"error", err, "superseded", short12(head.ID), "successor", short12(newID))
 	}
 	s.attachDerivedEdgeTo(ctx, teamID, prepared.drawers)
 

@@ -519,7 +519,7 @@ func registerGetDrawer(reg *registrar, drawers *palace.Service, usageSvc *usage.
 // at it in exchange for nothing.
 func registerUpdateDrawer(reg *registrar, drawers *palace.Service, usageSvc *usage.Service) {
 	tool := newTool("update_drawer",
-		mcp.WithDescription("Correct or relocate a memory. Sending content is a CORRECTION: it writes a NEW record, ends the old one with your reason, and links them — so the id changes and the old text stays readable by its own id, because the version that was replaced is the thing nothing else can recover. Sending only wing/room is a relocation and keeps the id. Only supplied fields are modified."),
+		mcp.WithDescription("Correct or relocate a memory. Sending content is a CORRECTION: it writes a NEW record, ends the old one with your reason, and links them — so the id changes and the old text stays readable by its own id, because the version that was replaced is the thing nothing else can recover. Sending only wing/room is a relocation and keeps the id. Only supplied fields are modified. A correction and its predecessor's ending commit together, so a failure leaves the memory exactly as it was rather than leaving two current records on one subject. ⚠A SECOND CORRECTION OF THE SAME MEMORY IS REFUSED, not queued: if another writer corrected it between your read and your write, this returns a concurrent-correction error and changes NOTHING. Do not retry the same call — it will be refused again for a different reason. Re-read the memory and correct the record that replaced it, which the error names."),
 		mcp.WithString("id", mcp.Required(), mcp.Description("The drawer id to correct or move. Any chunk's id: a correction replaces the WHOLE memory.")),
 		mcp.WithString("content", mcp.Description(fmt.Sprintf(
 			"New verbatim content, at most %d characters, which SUPERSEDES the record rather than editing it: "+
@@ -1071,19 +1071,29 @@ func registerSearch(reg *registrar, drawers *palace.Service, usageSvc *usage.Ser
 		// hits it did not ask to have truncated. A silent cap on a "give me
 		// everything" request is the shape that teaches an agent the palace is
 		// missing content it actually holds.
+		// ⚠ A PAGE MAY HAVE SEVERAL THINGS TO SAY ABOUT ITSELF, so they are COLLECTED
+		// and joined once rather than assigned.
+		//
+		// Four sites wrote out["note"] by assignment, so the last one won and a page
+		// with two degradations reported one. Worse, the withheld sentence built
+		// itself by formatting whatever note already held — and on a page with no
+		// trimmed hits that value is nil, so it shipped the literal "<nil>" as the
+		// first word of prose an agent reads. Each writer had a test; the interaction
+		// between them had none.
+		var notes []string
 		if overBudget > 0 {
 			// The caller is told (below) and now so is the trace. A page that
 			// silently delivered less than was asked for is the same shape as the
 			// anchor failure a few lines down: honoured request, degraded answer,
 			// span still `ran`.
 			telemetry.Annotate(ctx, attribute.Int("am.whole_memory_over_budget", overBudget))
-			out["note"] = fmt.Sprintf(
+			notes = append(notes, fmt.Sprintf(
 				"whole memories were requested and the last %d hit(s) exceeded this response's "+
 					"size budget, so they are windowed instead (content_truncated carries "+
 					"content_length). Fetch any of them in full with am_get_drawer(id, whole=true), "+
 					"or narrow the search — a larger response spends context you did not ask "+
 					"budget is a context bound: a page this size is most of a session's context, and "+
-					"most of it is text you did not ask for.", overBudget)
+					"most of it is text you did not ask for.", overBudget))
 		}
 		// A page that ran out of budget entirely must SAY the tail arrived empty.
 		// The previous note claimed those hits were "windowed instead", which is
@@ -1101,11 +1111,11 @@ func registerSearch(reg *registrar, drawers *palace.Service, usageSvc *usage.Ser
 		if withheld > 0 {
 			telemetry.Annotate(ctx, attribute.Int("am.hits_withheld", withheld))
 			out["withheld"] = map[string]int{withheldByBudget: withheld}
-			out["note"] = fmt.Sprintf(
-				"%s the last %d hit(s) exhausted the size budget and arrived carrying NO content "+
+			notes = append(notes, fmt.Sprintf(
+				"The last %d hit(s) exhausted the size budget and arrived carrying NO content "+
 					"at all — they are not short memories, they are memories you received none "+
 					"of. Read each with am_get_drawer(id, whole=true), or narrow the search.",
-				strings.TrimSpace(fmt.Sprint(out["note"])), withheld)
+				withheld))
 		}
 		// A zero-hit page from a wing that holds nothing is not a miss, and the two
 		// were indistinguishable: same count, same empty list, same sub-second
@@ -1113,8 +1123,11 @@ func registerSearch(reg *registrar, drawers *palace.Service, usageSvc *usage.Ser
 		// failure in the sample.
 		if len(views) == 0 {
 			if note, _ := emptyWingNote(ctx, drawers, t.TeamID, wing); note != "" {
-				out["note"] = note
+				notes = append(notes, note)
 			}
+		}
+		if len(notes) > 0 {
+			out["note"] = strings.Join(notes, " ")
 		}
 		if stale > 0 {
 			out["stale_hits"] = stale

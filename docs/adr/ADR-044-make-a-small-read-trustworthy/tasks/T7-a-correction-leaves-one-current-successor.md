@@ -37,14 +37,35 @@ suite passed before the correction path was changed at all.
 constructed with the service's own `*gorm.DB` and `sqlitevec` shares that handle, so writing
 through it inside the transaction opens a SECOND connection to the file the transaction already
 holds the write lock on — the same deadlock arriving by a different door. Vectors are written
-first, which keeps `Add`'s invariant that a row never exists without its embedding; the inverse
-orphan is harmless because search skips ids it cannot resolve.
+first, which keeps `Add`'s invariant that a row never exists without its embedding.
+
+⚠ **"The inverse orphan is harmless" was too broad, and review narrowed it. The accurate claim:
+harmless to SERVING, visible as an over-count in coverage, permanently, with no reclaim path.**
+Serving is genuinely unaffected — `am.dropped_orphan` in the search path is exactly the skip that
+makes it so. But `DriftReport` counts an orphan as `indexed > expected` in the coverage block, so
+it is a REPORTED signal rather than nothing; and this task changes orphans from a transient
+upsert-before-stamp window into the permanent residue of an EXPECTED failure path, because
+`ErrConcurrentCorrection` is a designed outcome and a retry mints new ids, so the losing attempt's
+vectors stay forever. `doctor --index` does not go red on them — `Clean()` is `Total == 0` and the
+drift walk is row-driven, so a point with no row never enters `Drifted` — which is what keeps this
+a claim to narrow rather than a defect to fix. No reclaim path exists; that is a follow-up nobody
+has taken.
 
 **3. THE ENDINGS RUN BEFORE `persistRows` INSIDE THE TRANSACTION, and the order is load-bearing in a
 way that is not obvious.** `persistRows` re-files under the predecessor's SOURCE, and a re-file ends
 every current row of that source whose content key left it — which is every chunk of the
 predecessor. Running it first would end them with the generic re-file reason and the swap would
 then find nothing current and report a race that never happened.
+
+**4a. THE POST-COMMIT WORK FAILS OPEN, both halves, and the first draft got this wrong.** It
+called `carryAnchors` and the derived edge "repairable follow-ups" in one sentence and then made
+the anchors a HARD ERROR returned after the transaction had already committed — the comment
+describing the code the author meant to write. A transient anchor failure reported a correction
+that succeeded as one that failed, and a caller doing the obvious thing (retry) landed on the
+already-ended refusal, recovering from something that had already worked. Both now annotate and
+continue, which is the choice `am_get_drawer`'s `MemorySize` lookup already makes — and it applies
+with more force here, because there the read was still in flight while here the write is durable.
+Found in review.
 
 **4. THE `:84-87` COMMENT IS REWRITTEN, and half of it survives.** The old rationale — successor
 first, *"so a failure leaves the old memory current rather than leaving the team with nothing"* — is

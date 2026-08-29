@@ -98,7 +98,7 @@ An agent reads from the palace without first deciding whether the read is worth 
 
 ## Scenarios
 
-### UC1-S1 [happy] A hit reports every range it disclosed [@spec] → `internal/mcpserver/readcost_spec_test.go::TestF1CoverageCountsEveryDisclosedRange`
+### UC1-S1 [happy] A hit reports every range it disclosed [@implemented] → `internal/mcpserver/readcost_spec_test.go::TestF1CoverageCountsEveryDisclosedRange`
 
 ```gherkin
 Given a memory long enough to be disclosed as a window plus regions
@@ -107,7 +107,7 @@ Then the reported coverage counts the primary window and every region returned
 And a caller comparing it against a threshold is comparing against the truth
 ```
 
-### UC1-S2 [failure] A partial hit says so, and says how to complete it [@spec] → `internal/mcpserver/readcost_spec_test.go::TestF2NoHitIsSilentlyPartial`
+### UC1-S2 [failure] A partial hit says so, and says how to complete it [@implemented] → `internal/mcpserver/readcost_spec_test.go::TestF2NoHitIsSilentlyPartial`
 
 ```gherkin
 Given a memory larger than the response budget allows to be disclosed whole
@@ -116,7 +116,7 @@ Then the hit is marked partial, reports the memory's full length
 And carries the id that fetches the remainder
 ```
 
-### UC1-S3 [happy] A caller never joins chunks [@spec] → `internal/mcpserver/readcost_spec_test.go::TestF4ChunkingCreatesNoReassemblyObligation`
+### UC1-S3 [happy] A caller never joins chunks [@implemented] → `internal/mcpserver/readcost_spec_test.go::TestF4ChunkingCreatesNoReassemblyObligation`
 
 ```gherkin
 Given a memory several times longer than the chunk size
@@ -125,7 +125,7 @@ Then one hit is returned whose content is the memory's content
 And no caller-side reassembly is required to obtain it
 ```
 
-### UC1-S4 [failure] A short page says it is short [@spec] → `internal/mcpserver/readcost_spec_test.go::TestF7APageReportsWhatItWithheld`
+### UC1-S4 [failure] A short page says it is short [@implemented] → `internal/mcpserver/readcost_spec_test.go::TestF7APageReportsWhatItWithheld`
 
 ```gherkin
 Given more matching memories than the response budget can carry whole
@@ -134,7 +134,7 @@ Then the page reports how many hits it withheld
 And a caller can tell a short page from an exhausted corpus without a second query
 ```
 
-### UC2-S1 [happy] A correction leaves one current successor [@spec] → `internal/palace/readcost_spec_test.go::TestF3ACorrectionLeavesOneCurrentSuccessor`
+### UC2-S1 [happy] A correction leaves one current successor [@implemented] → `internal/palace/readcost_spec_test.go::TestF3ACorrectionLeavesOneCurrentSuccessor`
 
 ```gherkin
 Given a memory that a later record corrects
@@ -143,7 +143,7 @@ Then exactly one record about that subject is current
 And it is linked to the ended predecessor
 ```
 
-### UC2-S2 [failure] A correction that fails part-way leaves no fork [@spec] → `internal/palace/readcost_spec_test.go::TestF3ACorrectionLeavesOneCurrentSuccessor`
+### UC2-S2 [failure] A correction that fails part-way leaves no fork [@implemented] → `internal/palace/readcost_spec_test.go::TestF3ACorrectionLeavesOneCurrentSuccessor`
 
 ```gherkin
 Given a correction whose predecessor spans several chunks
@@ -173,13 +173,13 @@ And the gate names the rule change rather than reporting a comparison
 
 | ID | Assertion (invariant / behavior) | Test (`path::name`) | Tag | Cmd (optional) |
 |----|----------------------------------|---------------------|-----|----------------|
-| F-1 | A hit's reported coverage counts every disclosed range — the primary window and every returned region — so a caller deciding whether it needs a second call decides on the truth. | `internal/mcpserver/readcost_spec_test.go::TestF1CoverageCountsEveryDisclosedRange` | @spec | |
-| F-2 | No hit is silently partial: a hit that does not carry its whole memory reports that, its full length, and the id that fetches the rest. A memory larger than the response budget is ALWAYS partial-with-fetch-id — never returned whole by growing the budget for it — and the completion path is `am_get_drawer`, never paging: `am_search` gains no cursor (resolved 2026-08-28, Grill Log 7 and 8). | `internal/mcpserver/readcost_spec_test.go::TestF2NoHitIsSilentlyPartial` | @spec | |
-| F-3 | An advertised correction leaves exactly ONE current successor, linked to the ended predecessor — including under partial failure and concurrent correction. ⚠ This constrains past a deliberate choice: `supersede.go:84-87` writes the successor FIRST *"so a failure leaves the old memory current rather than leaving the team with nothing"*. That trade is the two-current-records state this fact forbids; the ADR has to say which it wants, not assume. ⚠ The atomicity requirement is OWNED HERE and does not amend ADR-038, which owns identity rather than the write's atomicity (resolved 2026-08-28, Grill Log 9). And it is a WRITE-SIDE invariant only: nothing in this spec touches ordering, which stays behind ADR-004 issue #34's still-open `justified` verdict (Grill Log 10). | `internal/palace/readcost_spec_test.go::TestF3ACorrectionLeavesOneCurrentSuccessor` | @spec | |
-| F-4 | Chunking creates no reassembly obligation: a caller never has to join chunks to obtain a memory's content. Chunk metadata may remain as diagnostics. | `internal/mcpserver/readcost_spec_test.go::TestF4ChunkingCreatesNoReassemblyObligation` | @spec | |
-| F-5 | No mechanism ships before a baseline is recorded, and the baseline names the counting rule it was measured under by content, not by description. ⚠ The rule counts **reads ACTED ON WITHOUT A SECOND CALL**, not read FREQUENCY — fixed 2026-08-28, before any collection, per this fact's own requirement and Grill Log 13. Frequency is what the ADR-041 instrument already counts, it is not what F-1/F-2/F-7 deliver, and a mechanism that made every hit trustworthy could leave it unmoved. | `internal/repohygiene/readrule_spec_test.go::TestF5ABaselineNamesItsCountingRule` | @implemented | `go test -tags readcostspec ./internal/repohygiene/ -run TestF5ABaselineNamesItsCountingRule -count=1` |
-| F-6 | Changing the counting rule invalidates every baseline taken under the previous one; a rate quoted across a rule change is a defect. | `internal/repohygiene/readrule_spec_test.go::TestF6ARuleChangeInvalidatesItsBaselines` | @implemented |  `go test ./internal/repohygiene/ -run TestF6ARuleChangeInvalidatesItsBaselines -count=1` |
-| F-7 | A page reports how many hits it withheld. With no cursor (M-10) a withheld hit is unresumable, so the count is the only evidence it existed — a short page must be legible as short rather than read as "that is all there is". | `internal/mcpserver/readcost_spec_test.go::TestF7APageReportsWhatItWithheld` | @spec | |
+| F-1 | A hit's reported coverage counts every disclosed range — the primary window and every returned region — so a caller deciding whether it needs a second call decides on the truth. | `internal/mcpserver/readcost_spec_test.go::TestF1CoverageCountsEveryDisclosedRange` | @implemented | |
+| F-2 | No hit is silently partial: a hit that does not carry its whole memory reports that, its full length, and the id that fetches the rest. A memory larger than the response budget is ALWAYS partial-with-fetch-id — never returned whole by growing the budget for it — and the completion path is `am_get_drawer`, never paging: `am_search` gains no cursor (resolved 2026-08-28, Grill Log 7 and 8). | `internal/mcpserver/readcost_spec_test.go::TestF2NoHitIsSilentlyPartial` | @implemented | |
+| F-3 | An advertised correction leaves exactly ONE current successor, linked to the ended predecessor — including under partial failure and concurrent correction. ⚠ This constrains past a deliberate choice: `supersede.go:84-87` writes the successor FIRST *"so a failure leaves the old memory current rather than leaving the team with nothing"*. That trade is the two-current-records state this fact forbids; the ADR has to say which it wants, not assume. ⚠ The atomicity requirement is OWNED HERE and does not amend ADR-038, which owns identity rather than the write's atomicity (resolved 2026-08-28, Grill Log 9). And it is a WRITE-SIDE invariant only: nothing in this spec touches ordering, which stays behind ADR-004 issue #34's still-open `justified` verdict (Grill Log 10). | `internal/palace/readcost_spec_test.go::TestF3ACorrectionLeavesOneCurrentSuccessor` | @implemented | |
+| F-4 | Chunking creates no reassembly obligation: a caller never has to join chunks to obtain a memory's content. Chunk metadata may remain as diagnostics. | `internal/mcpserver/readcost_spec_test.go::TestF4ChunkingCreatesNoReassemblyObligation` | @implemented | |
+| F-5 | No mechanism ships before a baseline is recorded, and the baseline names the counting rule it was measured under by content, not by description. ⚠ The rule counts **reads ACTED ON WITHOUT A SECOND CALL**, not read FREQUENCY — fixed 2026-08-28, before any collection, per this fact's own requirement and Grill Log 13. Frequency is what the ADR-041 instrument already counts, it is not what F-1/F-2/F-7 deliver, and a mechanism that made every hit trustworthy could leave it unmoved. | `internal/repohygiene/readrule_spec_test.go::TestF5ABaselineNamesItsCountingRule` | @implemented | `go test ./internal/repohygiene/ -run TestF5ABaselineNamesItsCountingRule -count=1` |
+| F-6 | Changing the counting rule invalidates every baseline taken under the previous one; a rate quoted across a rule change is a defect. | `internal/repohygiene/readrule_spec_test.go::TestF6ARuleChangeInvalidatesItsBaselines` | @implemented | `go test ./internal/repohygiene/ -run TestF6ARuleChangeInvalidatesItsBaselines -count=1` |
+| F-7 | A page reports how many hits it withheld. With no cursor (M-10) a withheld hit is unresumable, so the count is the only evidence it existed — a short page must be legible as short rather than read as "that is all there is". | `internal/mcpserver/readcost_spec_test.go::TestF7APageReportsWhatItWithheld` | @implemented | |
 
 ## Domain
 
@@ -206,7 +206,7 @@ And the gate names the rule change rather than reporting a comparison
 - **Changing what matches.** Chunking may remain the embedding and matching unit; F-4 constrains what a caller receives, not how retrieval finds it.
 - **A cursor or offset on `am_search`.** Resolved 2026-08-28: `am_get_drawer` is the only completion path, so F-2's "the id that fetches the rest" is the whole contract and F-7's withheld count is the only thing a caller learns about hits it did not get. A second resumption contract for the same job is the cost this spec exists to avoid.
 - **ORDERING, in any form.** Resolved 2026-08-28 and stated as a boundary rather than an omission: ADR-004's gate on *"any RANKING use of a graph read"* survived its 2026-08-26 amendment intact, and issue #34's `justified` verdict is still open. F-3 is a write-side invariant; F-1, F-2 and F-7 are disclosure. Nothing here demotes, promotes or reorders anything, and the ADR this spec becomes may not introduce ordering without that verdict.
-- **Landing the bindings green in the same PR as the ADR.** Resolved 2026-08-28: the red lane stays behind `-tags readcostspec`, collected with `go test -tags readcostspec ./...`. CI runs `go test ./...` on every push to main, and a deliberately-red binding in the default lane makes the tree's own signal unreadable — the failure this repository has already paid for. The tag comes off in the commit that turns each binding green.
+- **Landing the bindings green in the same PR as the ADR.** Resolved 2026-08-28, and SPENT 2026-08-29 — every tag came off in ADR-044 T2, T6 and T7 as each file's last binding went green, so all seven facts now run in the default lane. The two mentions of the tag that remain in this document are historical, describing the decision rather than a command to run. The red lane stayed behind `-tags readcostspec`, collected with `go test -tags readcostspec ./...`. CI runs `go test ./...` on every push to main, and a deliberately-red binding in the default lane makes the tree's own signal unreadable — the failure this repository has already paid for. The tag comes off in the commit that turns each binding green.
 
 ## Risks
 
