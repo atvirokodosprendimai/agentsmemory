@@ -55,7 +55,7 @@ Four candidates. None serves, and the reasons differ:
 | Primitive | Shape | Why it does not serve |
 |---|---|---|
 | **Skills** (`00001_init.sql:61`) | `name` unique per team, `content`, `version` bumped on update — **a versioned KV keyed by name** | The closest existing thing. But a skill is a wake-up convention every session loads; filling it with bootstrap payloads pollutes `am_list_skills`, the surface agents read to learn how to work here. |
-| **KG** (`00010_kg.sql:22`) | `source_drawer_id` defaults `''`, so facts stand alone; `valid_from`/`valid_to` + `KGInvalidate` is real versioning | `MaxKGValueLen = 128` runes (`kg.go:35`). A store for labels, not payloads. |
+| **KG** (`00010_kg.sql:22`) | `source_drawer_id` defaults `''`, so facts stand alone; `valid_from`/`valid_to` + `KGInvalidate` is real versioning | Serves the ADDRESSING half **already**: entity labels are author-chosen and never validated, so property 1 holds today — and a three-level prefix tree over them was measured working 2026-08-29 (17 nodes, every one inline, built with `am_kg_add`/`am_kg_invalidate` alone, no schema change, no migration). Fails on the other two axes: `MaxKGValueLen = 128` runes (`kg.go:35`) makes it a store for labels, not payloads; and because subject and object are **never checked**, any project in the workspace can write into another's tier undetected. |
 | **Drawers** | verbatim, chunked, embedded, ranked | Content-hash id; `MaxEmbedRunes = 4000` refuses an update above it (`service.go:775`) — which is why the live root drawer must instruct "DO NOT GROW THIS DRAWER". |
 | **Artifacts** (upstream mempalace, HEAD `4c1e6d0`) | exact content, no chunk, no embed — the right blob semantics | `put` returns a **server-assigned id**; `get` takes that id. The create→get-id→remember-the-id dance again. |
 
@@ -165,6 +165,8 @@ specified exposed only version/time/size, so the row could not even be attribute
 is why property 4 now records `written_by`: a version whose origin is unrecoverable makes the
 interference undiagnosable as well as undetected.
 
+⚠ **And the graph makes the same failure worse, which is the sharpest available argument for enforcing this.** KG subject and object are entity labels in a schemaless graph and are **never checked** (`am_kg_add`'s own contract says so). So any project in the workspace can add an edge to another project's mandatory tier — no error, no review, no attribution — and every session traversing that tier then fetches it unconditionally. That is an unreviewed write path into the one thing every agent loads without judgement, and naming convention is the only thing standing in front of it.
+
 So `am_kv_write` and `am_kv_list` **require** a namespace segment. This costs no wing param and no
 resolution ladder, and the flat-dotted grammar survives intact.
 
@@ -254,12 +256,29 @@ it is the mitigation for the one axis above that is answered by discipline alone
   count is not a property of this palace. `doctor --corpus` reports "points at an ENDED row" as a
   distinct third state for this reason (`AGENTS.md:245`).
 
-  **(4) Pointing at an ADR-027-compliant spine reintroduces the cost the record exists to remove.**
-  The review's strongest form of this alternative is `(team, wing, name) → drawer_id` aimed at a
-  spine, which keeps ADR-027 satisfied. But then the entry point is 1 + N calls again, and F-16
-  already measured what that costs in practice: a bootstrap-led session came to the *same* call count
-  as the hand protocol because the payload stayed scattered across records reachable only by
-  traversal. The pointer fixes which id you must know; it does not fix how many calls follow.
+  **(4) ⚠ NARROWED BY MEASUREMENT — this leg no longer carries the rejection.** It read that pointing
+  at an ADR-027-compliant spine reintroduces `1 + N` calls, citing F-16, where a bootstrap-led session
+  reached the *same* call count as the hand protocol. Measured 2026-08-29 against the hosted palace,
+  one task run through both entry points: the flat production star took **23 calls and spilled
+  twice**; a prefix-path tree over KG entities took **26 calls and spilled once**; both returned the
+  correct answer. Call count barely moved. What moved was the spill — and a response over the budget
+  does not return a smaller answer, it returns **nothing to the model**, recoverable only with a shell
+  an MCP-only client does not have. So this leg measures a quantity that is close to free and misses
+  the one that binds. It is kept visible rather than deleted, as (1) was. **(2) and (3) carry the
+  rejection now.**
+
+  **(5) ⚠ A THIRD SHAPE, ABSENT FROM THIS LIST WHEN IT WAS WRITTEN, AND BUILT SINCE.** Both forms
+  above treat the named entity as *indirection* — a name pointing at one drawer. The variant never
+  considered is the named entity **carrying the tier's edges itself**, with the name as the path and
+  `child = parent + "." + segment`:
+  `<base>.root --must--> <base>.root.must --craft--> <base>.root.must.craft --deletion--> <drawer>`.
+  Built 2026-08-29 with `am_kg_add` and `am_kg_invalidate` only — no table, no tool, no migration —
+  it produced 17 nodes, **every one returning inline**, entry node at 3 edges and largest at 37,
+  against a flat star of 109 edges that spills at 63KB. Four read-only recall runs answered correctly
+  through it. **This is the strongest form of the alternative, and it defeats the addressing and
+  call-count arguments outright.** It leaves (2) and (3) untouched: the payload at the end is still a
+  chunked, ranked drawer, and nothing in the graph enforces a namespace. Those two legs alone are what
+  this record now rests on.
 
   ★ **The honest summary, and it is narrower than the first draft claimed: this alternative fixes the
   *address*, and this record is about the *address, the ranking and the call count together*.** It
