@@ -69,6 +69,11 @@ story. **The old note went false and was fixed in the same commit** — it said 
 *"windowed instead"*, which is untrue of a hit carrying nothing and would teach a caller the memory
 is short.
 
+**6. A mutant that fails to BUILD grades nothing.** The first draft of the conflation mutant deleted
+the `if trimmedHere { overBudget-- }` block outright and Go rejected it as `declared and not used`,
+which proves the symbol is referenced and says nothing about what the test observes. Re-run as
+`overBudget -= 0`, which compiles and leaves the hit counted in both totals.
+
 ## Ordered Steps
 
 1. Confirm `TestF7APageReportsWhatItWithheld` is red for the right reason. Verified 2026-08-29; the binding names the trap explicitly — *"counting hits dropped for relevance as withheld — the count is about the BUDGET, not about ranking, which this spec does not touch"*.
@@ -109,18 +114,9 @@ requirement no gate can see.
 ## Mutation Log
 
 <!-- Tool-written by `adr-verify --mutant`. Empty at authoring. -->
-
-Three mutants, all killed, 2026-08-29 — each restored before the next:
-
-| Mutant | Result |
-|--------|--------|
-| Report a constant zero (`map[string]int{withheldByBudget: 0}`) — the Reachability table's rung-2 mutation | RED: *"withheld[\"budget\"] = 0 against 2 hit(s) that arrived carrying nothing"* |
-| Sever the back-out so a hit is counted as trimmed AND withheld (`overBudget -= 0`) | RED: *"the note reports 3 trimmed hit(s) against 1…"* — the conflation the Risks section names, caught by the note count rather than by a second field |
-| Widen the classifier to `if views[i].Truncated` — every trimmed hit becomes withheld | RED in the `hits_dropped_by_limit_are_not_withheld` subtest: *"withheld = map[budget:2] on a page the budget never cut"* |
-
-The first draft of mutant 2 (deleting the `if trimmedHere` block outright) did not compile, so it
-graded nothing. A mutant that fails to build proves the symbol is referenced and says nothing about
-what the test observes.
+- 2026-08-29 · bf182e4* · mutant killed · exit 1 · `internal/mcpserver/drawers.go` · the Reachability table rung-2 mutation: report a constant zero. A page that emptied two hits still claims it withheld none, which is exactly the state F-7 exists to make impossible · acceptance-sha256:5fe6e1cecd6abe6feeb64f750d59d22df30310df028f3d8b1b020c4ae0bbbfd7
+- 2026-08-29 · bf182e4* · mutant killed · exit 1 · `internal/mcpserver/drawers.go` · sever the back-out so one hit is counted as trimmed AND withheld. The conflation the Risks section names: the whole-memory branch increments overBudget before headWithin can empty the hit, so both numbers go wrong while each looks plausible · acceptance-sha256:5fe6e1cecd6abe6feeb64f750d59d22df30310df028f3d8b1b020c4ae0bbbfd7
+- 2026-08-29 · bf182e4* · mutant killed · exit 1 · `internal/mcpserver/drawers.go` · widen the classifier so every trimmed hit counts as withheld — the binding kill-case, counting hits the budget merely shortened as hits it withheld. Caught by the limit subtest on a page the budget never cut · acceptance-sha256:5fe6e1cecd6abe6feeb64f750d59d22df30310df028f3d8b1b020c4ae0bbbfd7
 
 ## Invariants
 
@@ -168,3 +164,4 @@ Stop if the render loop cannot know how many hits it withheld — if the candida
   FAIL	github.com/atvirokodosprendimai/agentsmemory/internal/mcpserver	0.102s
   FAIL
   ```
+- 2026-08-29 · bf182e4 · exit 0 · `set -o pipefail …` · acceptance-sha256:5fe6e1cecd6abe6feeb64f750d59d22df30310df028f3d8b1b020c4ae0bbbfd7
