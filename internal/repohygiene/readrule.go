@@ -124,6 +124,44 @@ func Baselines(root string) ([]Baseline, error) {
 	return out, nil
 }
 
+// QuoteRate reports whether a rate may be quoted from this baseline, and refuses
+// with the reason when it may not.
+//
+// ⚠ IT NAMES THE RULE CHANGE RATHER THAN REPORTING A COMPARISON, which is the
+// whole of ADR-044 F-6. A baseline taken under one counting rule and a figure
+// taken under another are two different quantities, and comparing them produces a
+// number that looks exactly like a real one. The failure has to be loud at the
+// point of quoting, because there is nothing about the resulting percentage that
+// says it is meaningless.
+//
+// The two refusals are deliberately different sentences. "No citation" is a
+// baseline nobody bound; "cites a rule that is no longer current" is a baseline
+// the rule moved out from under. Collapsing them would report an observation the
+// gate did not make.
+func (b Baseline) QuoteRate(currentDigest string) error {
+	switch b.Resolve(currentDigest) {
+	case CitationResolves:
+		return nil
+	case CitationMissing:
+		return fmt.Errorf("%s names no counting rule, so there is no quantity to quote: "+
+			"add a rule-sha256 line naming %s", b.Path, RulePath)
+	default:
+		return fmt.Errorf("%s was measured under a counting rule that has since changed "+
+			"(baseline cites %s, %s is now %s) — the rule changed, so this baseline is invalid and "+
+			"no rate may be quoted from it; re-collect rather than re-cite",
+			b.Path, short(b.CitedDigest), RulePath, short(currentDigest))
+	}
+}
+
+// short renders a digest for a human-readable message without losing the ability
+// to tell two of them apart.
+func short(digest string) string {
+	if len(digest) <= 12 {
+		return digest
+	}
+	return digest[:12] + "…"
+}
+
 // Resolve reports how a baseline's citation stands against the current rule.
 func (b Baseline) Resolve(currentDigest string) CitationState {
 	switch {

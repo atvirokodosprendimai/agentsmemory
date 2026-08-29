@@ -1,31 +1,24 @@
-//go:build readcostspec
-
-// These bindings are DELIBERATELY RED and gated behind a build tag, so `go test
-// ./...` — which CI runs on every push to main (.github/workflows/build.yml:65) —
-// stays green while they wait for their ADR. Collect them with:
+// Bindings for ADR-044 (make a small read trustworthy), from
+// docs/specs/2026-08-28-a-read-as-cheap-as-a-grep.md — the facts about
+// MEASUREMENT PROVENANCE, which are properties of the records and the
+// counting-rule artifact rather than of palace behaviour.
 //
-//	go test -tags readcostspec ./...
-//
-// The repository already uses this shape for `contractaxis`. Gating rather than
-// deleting keeps them collectable, which is what @spec means: the test exists and
-// fails, it just is not in the default lane. Remove the tag in the commit that
-// turns them green.
+// The `//go:build readcostspec` tag these bindings shipped behind was removed in
+// ADR-044 T2, which is the LAST task in this file: F-5 and F-6 are both green, so
+// they belong in the lane CI runs on every push rather than in one collected by
+// hand. The sibling files keep their tag until their own last task — T6 for
+// internal/mcpserver, T7 for internal/palace — because removing it while a
+// binding in the same file is still red would put a deliberately-failing test
+// into the default lane.
 
 package repohygiene
 
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
-
-// Bindings for docs/specs/2026-08-28-a-read-as-cheap-as-a-grep.md — the facts
-// about MEASUREMENT PROVENANCE, which are properties of the records and the
-// counting-rule artifact rather than of palace behaviour.
-//
-// ⚠ DELIBERATELY RED. See the note in internal/mcpserver/readcost_spec_test.go.
-
-const readRuleNotYetBuilt = "not built yet — %s"
 
 // TestF5ABaselineNamesItsCountingRule binds ADR-044 F-5 (UC3-S1): a baseline
 // names the counting rule it was measured under BY CONTENT, not by description.
@@ -147,9 +140,99 @@ func writeFixtureCorpus(t *testing.T, baseline string) string {
 	return dir
 }
 
+// TestF6ARuleChangeInvalidatesItsBaselines binds ADR-044 F-6 (UC3-S2): changing
+// the counting rule invalidates every baseline taken under the previous one, the
+// way changing an acceptance fence invalidates its recorded evidence.
+//
+// The scenario is driven end to end rather than asserted on a field: a fixture
+// rule and a baseline citing it, then ONE BYTE of the rule altered, then the
+// quote attempted. Asserting that Resolve returns a particular constant would
+// prove the switch statement stores the value and nothing more — the behaviour
+// that matters is that quoting is REFUSED and the refusal names the rule change.
 func TestF6ARuleChangeInvalidatesItsBaselines(t *testing.T) {
-	t.Fatalf(readRuleNotYetBuilt, "F-6 (UC3-S2): changing the counting rule invalidates every "+
-		"baseline taken under the previous one, the way changing a fence invalidates its recorded "+
-		"evidence. Kill it by altering one byte of the active rule while a baseline still cites the "+
-		"old identity and watching a rate be quoted anyway")
+	dir := t.TempDir()
+	rulePath := filepath.Join(dir, RulePath)
+	if err := os.MkdirAll(filepath.Dir(rulePath), 0o755); err != nil {
+		t.Fatalf("fixture rule dir: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, BaselinesDir), 0o755); err != nil {
+		t.Fatalf("fixture baselines dir: %v", err)
+	}
+	if err := os.WriteFile(rulePath, []byte("# a fixture rule\n\ncounts: reads acted on\n"), 0o644); err != nil {
+		t.Fatalf("write fixture rule: %v", err)
+	}
+
+	before, err := RuleDigest(dir)
+	if err != nil {
+		t.Fatalf("digest before: %v", err)
+	}
+	baseline := filepath.Join(dir, BaselinesDir, "fixture.md")
+	if err := os.WriteFile(baseline, []byte("# a baseline\n\nrule-sha256: "+before+"\n"), 0o644); err != nil {
+		t.Fatalf("write fixture baseline: %v", err)
+	}
+
+	found, err := Baselines(dir)
+	if err != nil {
+		t.Fatalf("baselines: %v", err)
+	}
+	if len(found) != 1 {
+		t.Fatalf("fixture should hold exactly one baseline, got %d", len(found))
+	}
+	if err := found[0].QuoteRate(before); err != nil {
+		t.Fatalf("a baseline citing the rule it was measured under must be quotable: %v", err)
+	}
+
+	// One byte. Not a rewrite — the point is that any content change is a rule
+	// change, because the digest is the identity.
+	if err := os.WriteFile(rulePath, []byte("# a fixture rule\n\ncounts: reads acted ON\n"), 0o644); err != nil {
+		t.Fatalf("alter fixture rule: %v", err)
+	}
+	after, err := RuleDigest(dir)
+	if err != nil {
+		t.Fatalf("digest after: %v", err)
+	}
+	if after == before {
+		t.Fatalf("altering the rule's content must change its identity; both digests are %s", before)
+	}
+
+	err = found[0].QuoteRate(after)
+	if err == nil {
+		t.Fatal("a rate quoted across a rule change must be refused — this is the F-6 kill-case: " +
+			"one byte of the active rule altered while the baseline still cites the old identity, " +
+			"and the rate quoted anyway")
+	}
+	if !strings.Contains(err.Error(), "the rule changed") {
+		t.Errorf("the refusal must NAME the rule change rather than report a comparison, got: %v", err)
+	}
+
+	t.Run("a_reformat_that_changes_no_words_does_not_invalidate", func(t *testing.T) {
+		// The inverse failure, and the one that makes a gate get switched off: if
+		// trailing whitespace or a CRLF moved the digest, every baseline in the
+		// tree would go invalid on an editor setting.
+		if err := os.WriteFile(rulePath, []byte("# a fixture rule\r\n\r\ncounts: reads acted ON   \n"), 0o644); err != nil {
+			t.Fatalf("reformat fixture rule: %v", err)
+		}
+		reformatted, err := RuleDigest(dir)
+		if err != nil {
+			t.Fatalf("digest after reformat: %v", err)
+		}
+		if reformatted != after {
+			t.Errorf("a reformat that changes no words must not change the rule's identity: %s != %s",
+				short(reformatted), short(after))
+		}
+	})
+
+	t.Run("an_uncited_baseline_is_refused_differently", func(t *testing.T) {
+		// "No citation" and "stale citation" must stay distinguishable: a gate that
+		// reports one where the other happened is reporting an observation it did
+		// not make.
+		uncited := Baseline{Path: "docs/measurement/baselines/uncited.md"}
+		err := uncited.QuoteRate(after)
+		if err == nil {
+			t.Fatal("a baseline naming no rule must not be quotable")
+		}
+		if strings.Contains(err.Error(), "the rule changed") {
+			t.Errorf("an uncited baseline is not a rule change and must not be reported as one, got: %v", err)
+		}
+	})
 }

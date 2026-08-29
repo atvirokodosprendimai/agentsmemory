@@ -160,7 +160,7 @@ When a baseline is recorded
 Then the baseline names that rule by its content, not by description
 ```
 
-### UC3-S2 [failure] A rate quoted across a rule change is refused [@spec] → `internal/repohygiene/readrule_spec_test.go::TestF6ARuleChangeInvalidatesItsBaselines`
+### UC3-S2 [failure] A rate quoted across a rule change is refused [@implemented] → `internal/repohygiene/readrule_spec_test.go::TestF6ARuleChangeInvalidatesItsBaselines`
 
 ```gherkin
 Given a baseline recorded under one counting rule
@@ -178,7 +178,7 @@ And the gate names the rule change rather than reporting a comparison
 | F-3 | An advertised correction leaves exactly ONE current successor, linked to the ended predecessor — including under partial failure and concurrent correction. ⚠ This constrains past a deliberate choice: `supersede.go:84-87` writes the successor FIRST *"so a failure leaves the old memory current rather than leaving the team with nothing"*. That trade is the two-current-records state this fact forbids; the ADR has to say which it wants, not assume. ⚠ The atomicity requirement is OWNED HERE and does not amend ADR-038, which owns identity rather than the write's atomicity (resolved 2026-08-28, Grill Log 9). And it is a WRITE-SIDE invariant only: nothing in this spec touches ordering, which stays behind ADR-004 issue #34's still-open `justified` verdict (Grill Log 10). | `internal/palace/readcost_spec_test.go::TestF3ACorrectionLeavesOneCurrentSuccessor` | @spec | |
 | F-4 | Chunking creates no reassembly obligation: a caller never has to join chunks to obtain a memory's content. Chunk metadata may remain as diagnostics. | `internal/mcpserver/readcost_spec_test.go::TestF4ChunkingCreatesNoReassemblyObligation` | @spec | |
 | F-5 | No mechanism ships before a baseline is recorded, and the baseline names the counting rule it was measured under by content, not by description. ⚠ The rule counts **reads ACTED ON WITHOUT A SECOND CALL**, not read FREQUENCY — fixed 2026-08-28, before any collection, per this fact's own requirement and Grill Log 13. Frequency is what the ADR-041 instrument already counts, it is not what F-1/F-2/F-7 deliver, and a mechanism that made every hit trustworthy could leave it unmoved. | `internal/repohygiene/readrule_spec_test.go::TestF5ABaselineNamesItsCountingRule` | @implemented | `go test -tags readcostspec ./internal/repohygiene/ -run TestF5ABaselineNamesItsCountingRule -count=1` |
-| F-6 | Changing the counting rule invalidates every baseline taken under the previous one; a rate quoted across a rule change is a defect. | `internal/repohygiene/readrule_spec_test.go::TestF6ARuleChangeInvalidatesItsBaselines` | @spec | |
+| F-6 | Changing the counting rule invalidates every baseline taken under the previous one; a rate quoted across a rule change is a defect. | `internal/repohygiene/readrule_spec_test.go::TestF6ARuleChangeInvalidatesItsBaselines` | @implemented |  `go test ./internal/repohygiene/ -run TestF6ARuleChangeInvalidatesItsBaselines -count=1` |
 | F-7 | A page reports how many hits it withheld. With no cursor (M-10) a withheld hit is unresumable, so the count is the only evidence it existed — a short page must be legible as short rather than read as "that is all there is". | `internal/mcpserver/readcost_spec_test.go::TestF7APageReportsWhatItWithheld` | @spec | |
 
 ## Domain

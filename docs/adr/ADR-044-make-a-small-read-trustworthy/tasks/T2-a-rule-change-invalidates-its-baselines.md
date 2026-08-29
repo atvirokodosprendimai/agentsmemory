@@ -58,6 +58,8 @@ the fence proves the tag came off as well as that the behaviour works.
 ## Mutation Log
 
 <!-- Tool-written by `adr-verify --mutant`. Empty at authoring. -->
+- 2026-08-29 · bb19c82* · mutant killed · exit 1 · `internal/repohygiene/readrule.go` · a baseline whose cited rule has changed must not be quotable — F-6 kill-case: alter one byte of the active rule and watch a rate be quoted anyway · acceptance-sha256:feb20d104d7d6001146ed00a256b3cfab21a98ebbc69a61e4620d273f842976b
+- 2026-08-29 · bb19c82* · mutant killed · exit 1 · `internal/repohygiene/readrule.go` · the refusal must NAME the rule change rather than merely refuse — F-6 requires the gate to name the change instead of reporting a comparison · acceptance-sha256:feb20d104d7d6001146ed00a256b3cfab21a98ebbc69a61e4620d273f842976b
 
 ## Invariants
 
@@ -81,3 +83,8 @@ Stop if the rule's digest cannot be computed stably — trailing whitespace, lin
 ## Verification Log
 
 <!-- Tool-written by `adr-verify`. -->
+- 2026-08-29 · bb19c82 · exit 1 · `set -o pipefail …` · acceptance-sha256:feb20d104d7d6001146ed00a256b3cfab21a98ebbc69a61e4620d273f842976b
+  ```
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/repohygiene	0.005s [no tests to run]
+  ```
+- 2026-08-29 · bb19c82* · exit 0 · `set -o pipefail …` · acceptance-sha256:feb20d104d7d6001146ed00a256b3cfab21a98ebbc69a61e4620d273f842976b
