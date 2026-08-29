@@ -38,6 +38,47 @@ can fail. Each task carries its own mutant, graded by `adr-verify --mutant`. -->
 
 **Served-path change:** Every `am_search`, `am_get_drawer` and `am_list_drawers` response changes shape — `content_coverage` starts counting regions, a hit that is not whole says so with its full length and fetch id, a page says how many hits the budget made it withhold, and a correction filed through `am_update_drawer` can no longer leave two current records on one subject.
 
+**Amended 2026-08-29:** T3–T7 proceed against a baseline that could not be taken. The artifact half of the measurement group stands; the inherited "no mechanism ships before a baseline" does not, and is overridden on the record. See the Amendment below.
+
+## Amendment 2026-08-29 — the mechanism tasks proceed against a baseline that does not exist yet
+
+**What is NOT being overridden.** F-5 as this record states it — *"the counting rule is a committed
+file with an identity, fixed before any collection"* — is satisfied and stays satisfied. T1 shipped
+`docs/measurement/read-counting-rule.md`, the resolver in `internal/repohygiene/readrule.go` that
+selects it, and a baseline citing it by content digest; the falsifiability mutant was killed and the
+acceptance fence exited 0. F-6 is satisfied by T2. Nothing in the artifact half is being spent, and
+an amendment claiming otherwise would misdescribe what T1 delivered.
+
+**What IS being overridden.** The constraint this record inherits from
+`docs/adr/ADR-041-the-recall-that-does-not-depend-on-remembering.md` — no mechanism ships before a
+baseline is recorded — is not met, because what T1 recorded is not a baseline. Measured
+2026-08-29T10:53Z over a 24-hour window: **90 of 91 logged recalls acted on without a second call**,
+against **1** recorded fetch. `drawer_fetches` landed as migration 00036 the same morning, so the
+single fetch is that task's own canary. This is the case T1's Stop Condition names in advance —
+*"a degenerate distribution is a finding, not a baseline"* — and T1 correctly recorded the finding
+rather than dressing it as a floor (`docs/measurement/baselines/2026-08-29-read-rate.md`, §*Why this
+is not a baseline*). The Stop Condition fired. Proceeding past it is a decision, and this paragraph
+is where it is taken rather than assumed.
+
+**Why proceed.** F-1, F-2, F-4 and F-7 are corrections to statements the server makes about its own
+responses. A hit reporting 11–13% coverage where 23–27% was disclosed is wrong at a rate of one, and
+its wrongness is established by reading the arithmetic, not by measuring how often anyone acts on
+it. The baseline exists to test whether trustworthy hits change agent behaviour — a claim about
+effect — and no mechanism task here asserts that claim. F-3 is likewise an invariant on a write
+path, falsifiable by racing two corrections and not by any read rate. Holding four demonstrable
+disclosure defects for a distribution that needs days of accumulation would be the constraint
+protecting the instrument rather than the work.
+
+**What this costs, stated plainly.** The constraint is spent on the first record that ever satisfied
+its artifact half, which is the weakest possible precedent for it. Nothing here licenses a second
+override: a mechanism whose claim IS about effect on agent behaviour still may not ship before a
+non-degenerate baseline, and this amendment is not the citation for that.
+
+**The obligation that replaces it.** The re-take is a Follow-up on this record, so `adr-debt` carries
+it as an open obligation rather than leaving it to memory. Until it lands, **no task in this record
+may quote a read rate as an improvement**, and none needs to: every mechanism task's acceptance is a
+test, not a measurement. Owner sign-off for the override: Zy, 2026-08-29.
+
 ## Context
 
 The spec's Problem and Goal are the source; only the decision-relevant part is repeated here.
@@ -247,7 +288,7 @@ Inherited from `docs/specs/2026-08-28-a-read-as-cheap-as-a-grep.md` §Risks; del
 | T1 blocks on ADR-028 T4, which this record does not own, and the whole DAG stalls behind it | Med | High | T1 has an explicit fallback: record the rule against raw `drawer_fetches` rows and name T4 as the reporting half. The Stop Condition fires only if `drawer_fetches` itself proves insufficient |
 | The tag is removed early and four red bindings enter CI's default lane | Med | High | Fixed in Inter-task Contracts: removal happens only in T2, T6 and T7. Every earlier fence in a shared file carries `-tags readcostspec` |
 | F-3's concurrency half is untestable in practice, and the task claims coverage anyway | Med | High | T7's Stop Condition requires an interleaving the test can actually produce; if it cannot, the survived mutant stays in the log with a written reason rather than being papered over |
-| The baseline is taken over one session and quoted as a corpus rate | High | Med | T1's `Data dependency` is not hermetic and its sign-off line must record window and sample size. The one figure available today, 6 searches against 18 writes, is explicitly n=1 |
+| The baseline is taken over one session and quoted as a corpus rate | High | Med | **Materialised, and worse than forecast — see the Amendment.** T1 recorded 90 of 91 against 1 fetch on a one-day-old instrument and refused to call it a baseline. Its `Data dependency` is not hermetic and its sign-off records window and n. The residual risk is now that a mechanism task quotes the degenerate figure as a floor; the Amendment forbids quoting a read rate at all until the re-take lands |
 | `am_bootstrap` is silently left out because it does not use `toView` | Med | Med | Named in `Governs:` above and made a required decision in T3 and T5 rather than an omission |
 
 ## Rollback
@@ -269,5 +310,6 @@ Required — this changes a wire contract and a persistence-adjacent write path.
 ## Follow-ups
 
 - [x] Re-run `adr-debt docs/adr` as quality-harness shipped its fixes — **done 2026-08-29; the corpus now reads `230 deferred · 47 open follow-ups · 0 broken pointers`, exit 0**, from 15 broken. Three causes, and the split is the point. **13** were a false `BROKEN [malformed]` on a deferral followed by a trailing full stop, cleared by v2.31.2 with NO corpus edit (`215 deferred · 15 broken` → `228 deferred · 2 broken`; the 13 MOVED from broken to deferred, which is the arithmetic showing they were always well-formed). **1** was a deferral pointer leading with a resolvable ADR id followed by prose and resolved as one path — cleared by v2.31.3, which now resolves on the leading record id, the rule that project's own ADR template already stated for `Invalidates:`. **1 was genuinely ours**: ADR-027's Out of Scope bullet carried prose AFTER its disposition, so the bullet did not end with one; reflowed in this branch. Reading a disposition across a line wrap was also theirs and shipped in the same release
+- [ ] Re-take the read-rate baseline once `drawer_fetches` has accumulated fetches across more than one session, so `recalls_fetched` is a distribution rather than a canary — this is the obligation the Amendment substitutes for the inherited no-mechanism-before-baseline constraint, and it is open until either a non-degenerate baseline supersedes `docs/measurement/baselines/2026-08-29-read-rate.md` or the quantity is re-decided with the owner because it cannot discriminate
 - [ ] Reconcile `am_bootstrap`'s truncation report with `withheld` if T5 records a difference rather than extending it
 - [ ] Take ADR-021 T3's Claude Desktop measurement — still pending since 2026-08-22, and it decides whether protocol text reaches a client that has no hooks and no skills
