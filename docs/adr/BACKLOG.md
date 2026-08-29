@@ -2154,6 +2154,42 @@ Independent read by a different-lineage advisor found most of the evidence below
 **Verified locally:** `am_kg_query(entity:"room:wing_agentmemories/llm_init", status:"all")` returns
 `unknown_term`, `unresolved: "entity"` — so this workspace never held that node, not even ended.
 
+### Proposed 2026-08-28 by ADR-043 (NOT accepted) — take the `llm_init` layer; two obligations received here
+
+`docs/adr/ADR-043-one-spelling-for-the-entry-room.md` (Proposed, unassigned, unaccepted) PROPOSES for this entry: `llm_init` is the
+canonical entry room, the served onboarding document is the outlier and is corrected, and `llm_index`
+keeps ADR-027's job as a routing drawer filed UNDER the root rather than instead of it.
+
+**A second local read, taken 2026-08-28 with a different call than the one this entry retracts.**
+`am_list_drawers(wing:"*", room:"llm_init", include_history:true)` → **0**. Not one drawer in any
+wing, and not one ended drawer either — so the two derivations agree, and the room has never existed
+in this palace rather than merely lost its derived edges. `am_list_drawers(wing_agentmemories,
+room:"llm_index")` → 2 drawers citing `setup.md §4.3` and `§6`; `am_kg_query(entity:"must",
+direction:"outgoing")` → 8 facts, `matched`, objects are LABELS.
+
+**Two things this entry did not name, found the same day:**
+
+- `AGENTS.md`'s documented traversal opens with `am_list_drawers(wing:"wing_agentmemories",
+  room:"llm_init")` and the comment `# several drawers`. Against this palace it returns zero, so the
+  repo's own protocol ends before the step that teaches you to distrust a zero. ADR-043 fixes this by
+  populating the room rather than by editing `AGENTS.md`, which already names the right one.
+- `README.md:167` explains `am_bootstrap`'s `unknown_term` as `llm_init` drawers filed before the
+  derived room edges shipped. There are no such drawers here. The documented cause cannot be this
+  palace's cause, and an operator reading it goes looking for a backfill that would not help.
+
+**Received from ADR-043 (deferred, receipted here per the deferral rule):** backfilling corpora on
+deployments other than the local and hosted ones named in ADR-043 T3 — a third-party palace built
+from the old served document keeps the old shape, and this record does not reach it. Also received:
+whether the entry point's data should have a producer in the product at all, rather than a procedure
+the served document instructs an agent to run by hand; that is the deeper cause of all four spellings
+and ADR-043 does not fix it.
+
+⚠ **ADR-036 T7's 25-node claim is unresolved and ADR-043 T3's first step is to resolve it.**
+`docs/adr/ADR-036-a-recall-that-answers/tasks/T7-a-wing-names-its-entry.md` records a live
+`wing_agentmemories` `llm_init` root of 25 nodes verified 2026-08-26. That cannot be this palace. It
+was the hosted deployment or a fixture, and which one decides whether adopting `llm_init` strands an
+existing corpus or none at all.
+
 ⚠ **My earlier discriminator was wrong.** I claimed one `am_entry_point` call against production
 settles it. It does not: `unknown_term` cannot distinguish "no `llm_init` room" from "`llm_init`
 drawers that predate derived containment edges". The right call is
@@ -2162,6 +2198,13 @@ its drawers were ever stamped. If it returns drawers, follow with
 `am_kg_query(entity:"<root drawer id>", direction:"outgoing")` and check the subject/predicate/object
 shapes — that is what separates the canonical root-ID/`must.*`/drawer-ID protocol from this corpus's
 `must`/`must_load*`/label one.
+
+⚠ **SUPERSEDED 2026-08-29 BY THE SECTION BELOW, WHICH IS A PROPOSAL AND NOT YET AN ACCEPTANCE.** The
+paragraph that follows was written while nothing had decided this, and it is kept because the options
+it lays out are still the options. What has changed is that ADR-043 now PROPOSES one of them; the
+record is `Proposed` with no owner assigned, and two competing records are open on PRs #75 and #79, so
+the decision remains open until somebody signs it. Read the heading below as "proposed by ADR-043",
+never as "decided".
 
 **The product decision, unmade:** which layer is canonical. Adopting the served document contradicts
 `EntryRoom`, `AGENTS.md`, `model/draf1.md` and ADR-027. Adopting the model leaves the served document
