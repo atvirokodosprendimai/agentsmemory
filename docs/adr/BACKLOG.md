@@ -2612,3 +2612,30 @@ a content-addressed store it is a different regime, and it manufactured a defect
 serious product failure for the better part of an hour. The tell was there in the first measurement
 and was read past: `chunks_matched: 1` on a 14-chunk memory says the retrieval saw ONE chunk, which a
 correct corpus of 14 sibling chunks would not produce. Vary the fixture before naming a suspect.
+
+## The `omitempty` description gate cannot see a conditional map key, and `withheld` is now one — 2026-08-29
+
+`TestEveryOmitemptyWireKeyInThisPackageIsDescribed` (`internal/mcpserver/wirekeys_test.go`) enumerates
+Go struct tags. It has never covered the third population its own doc comment names — *"conditional
+`map[string]any` keys, set inside `if` blocks. `out["stale_hits"]`, `out["warning"]`,
+`out["supersedes"]`, `out["reason"]`, `out["ended_at"]` and others are emitted where no tag exists to
+find. Out of scope here and named so the next reader knows it."*
+
+**ADR-044 T5 added `out["withheld"]` to that population.** Its task file asserted the gate would fail
+if the description omitted the key; measured 2026-08-29 by deleting the word, the gate stayed green and
+the package passed. Recorded as a deviation in
+`docs/adr/ADR-044-make-a-small-read-trustworthy/tasks/T5-a-page-reports-what-it-withheld.md` rather than
+by widening the gate, because widening it is its own change.
+
+What the gate's comment already proposes: *"a reflect walk from the registered view types, following
+embedding and field types"*. That would also close the two blind-spot fields it names in
+`internal/palace` — `replacement_id` and `elsewhere_wing` on `Correction`, the first of which is the
+field telling a reader the memory in front of them has been contradicted.
+
+Not filed as an ADR follow-up: the obligation is the gate's, not ADR-044's, and padding a record's
+Follow-ups with unrelated work is how an open count stops meaning anything.
+
+⚠ **Until it runs, the `withheld` sentence in `am_search`'s description is held up by nothing.** The
+next edit to that description can drop it silently, and every gate stays green — which is the defect
+the gate exists to catch, one level up.
+

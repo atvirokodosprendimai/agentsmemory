@@ -34,11 +34,21 @@ says a bounded listing carries *"as much of their opening as the budget still al
 none"*. The definition is narrower than the record assumed and strictly checkable, which the
 alternative — a hit that never appears — is not.
 
-**2. The Stop Condition did NOT fire, and this is not a dodge of it.** It stops the task if *"the
-candidate set is truncated before the budget is applied"*, because then the count is unknowable.
-The opposite holds: every candidate reaches the loop and the loop knows exactly which ones it
-emptied. The redefinition is about what withholding LOOKS like on this wire, not about a number
-the code cannot compute.
+**2. The Stop Condition did NOT fire, and this is not a dodge of it — but the first draft of this
+paragraph overclaimed and is corrected here.** It stops the task if *"the candidate set is truncated
+before the budget is applied"*, because then the count is unknowable. `limit` DOES truncate the
+candidate set before the budget, so the honest statement is narrower than "every candidate reaches
+the loop": **`withheld` is exact over the hits `limit` admitted**, and hits `limit` excluded are not
+withheld *by definition* (Invariant 1), not by an approximation. The count is therefore exact for the
+thing it names rather than a lower bound on some larger quantity — and the larger quantity is one this
+record explicitly declines to measure.
+
+Measured 2026-08-29 on the six-memory fixture at `snippet_chars=100000`: `limit=4` → `count=4`,
+per-hit runes `[12041 12041 12041 3877]`, **no `withheld` key**, while memories 5 and 6 exist and
+would have been emptied at a higher limit. `limit=6` and `limit=10` → `count=6`, `withheld
+{budget:2}`, per-hit `[12041 12041 12041 3877 0 0]`. That is the contract working: the `limit=4` page
+is short because the caller asked for four, which is legible without a counter, and the `limit=6` page
+is short because the budget ran out, which is not.
 
 **3. Rung 3 is UNENFORCED, and the Reachability table above overstates it.** That row says the
 description must name `withheld` *"or `TestEveryOmitemptyWireKeyInThisPackageIsDescribed` fails"*.
