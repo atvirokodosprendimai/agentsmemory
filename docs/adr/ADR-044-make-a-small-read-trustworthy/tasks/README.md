@@ -40,7 +40,7 @@ reports in wave 2, so a human can see the effect after two waves rather than at 
 | T4 | Make every incomplete hit say so, with its full length and fetch id | done | F-2, UC1-S2 | `go test -tags readcostspec ./internal/mcpserver/ -run 'TestF2NoHitIsSilentlyPartial' …` |
 | T5 | Make a page report how many hits the budget made it withhold | done | F-7, UC1-S4 | `go test -tags readcostspec ./internal/mcpserver/ -run 'TestF7APageReportsWhatItWithheld' …` |
 | T6 | Guarantee a caller never joins chunks, and take the tag off | done | F-4, UC1-S3 | `go test ./internal/mcpserver/ -run 'TestF4ChunkingCreatesNoReassemblyObligation' …` |
-| T7 | Make a correction leave exactly one current successor, atomically | pending | F-3, UC2-S1, UC2-S2 | `go test ./internal/palace/ -run 'TestF3ACorrectionLeavesOneCurrentSuccessor' …` |
+| T7 | Make a correction leave exactly one current successor, atomically | done | F-3, UC2-S1, UC2-S2 | `go test ./internal/palace/ -run 'TestF3ACorrectionLeavesOneCurrentSuccessor' …` |
 
 Status: `pending` | `running` | `blocked` | `done` | `failed`.
 

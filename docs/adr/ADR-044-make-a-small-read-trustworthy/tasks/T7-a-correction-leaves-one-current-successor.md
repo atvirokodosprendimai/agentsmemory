@@ -21,6 +21,56 @@ Make an advertised correction end its predecessor and leave exactly one current 
 | `internal/palace/readcost_spec_test.go` | edit | Turn `TestF3ACorrectionLeavesOneCurrentSuccessor` green **and remove `//go:build readcostspec`** — F-3 is the only binding in this file, so its tag comes off with it |
 | `internal/mcpserver/drawers.go` | read only | `am_update_drawer` at `:490` is the advertised correction surface; its description at `:463` already promises the ending-and-linking behaviour. This task makes the promise true under failure and concurrency |
 
+## Deviations recorded during execution
+
+**1. `Add` HAD TO BE SPLIT, and that is the whole reason this task was L.** Atomicity means the
+successor's rows and the predecessor's endings commit together, and `Add` cannot simply be wrapped:
+it calls the embedder, and `KGSupersede`'s comment already records what holding a network call
+inside SQLite's single write transaction costs — *"a slow embedder becomes a locked database"*.
+`Add` is now `prepareWrite` (chunk, embed, resolve ids, build rows — writes nothing) plus
+`persistWrite` (vectors, then rows). `persistRows` is the row half, and **the repo is a parameter**
+so a caller can pass one bound to a transaction, exactly as `KGSupersede` does with `&Repo{db: tx}`.
+`purgeSource` became `purgeSourceOn` for the same reason. Behaviour-preserving: the whole `palace`
+suite passed before the correction path was changed at all.
+
+**2. VECTORS STAY OUTSIDE THE TRANSACTION, and this is not an optimisation.** `s.vectors` was
+constructed with the service's own `*gorm.DB` and `sqlitevec` shares that handle, so writing
+through it inside the transaction opens a SECOND connection to the file the transaction already
+holds the write lock on — the same deadlock arriving by a different door. Vectors are written
+first, which keeps `Add`'s invariant that a row never exists without its embedding; the inverse
+orphan is harmless because search skips ids it cannot resolve.
+
+**3. THE ENDINGS RUN BEFORE `persistRows` INSIDE THE TRANSACTION, and the order is load-bearing in a
+way that is not obvious.** `persistRows` re-files under the predecessor's SOURCE, and a re-file ends
+every current row of that source whose content key left it — which is every chunk of the
+predecessor. Running it first would end them with the generic re-file reason and the swap would
+then find nothing current and report a race that never happened.
+
+**4. THE `:84-87` COMMENT IS REWRITTEN, and half of it survives.** The old rationale — successor
+first, *"so a failure leaves the old memory current rather than leaving the team with nothing"* — is
+rejected by §Decision as to its CONCLUSION. Its PREMISE stands: an ending with no successor is
+genuinely bad. What changed is that the choice is no longer forced; both halves commit together, so
+a failure leaves the predecessor current and nothing else, which is the pre-correction state rather
+than a fork.
+
+**5. STEP 5's HONEST OUTCOME: THE COMPARE-AND-SWAP MUTANT SURVIVES, and here is exactly why.** The
+task says to record this rather than claim coverage, and the reason is more specific than "the
+harness cannot interleave" — it can. Measured 2026-08-29, 20 iterations x 8 concurrent writers with
+distinct content per writer: **20 wins, 4 refusals from the compare-and-swap, 136 from the
+pre-flight already-ended check, 0 other.** So the swap IS reached, at roughly 2.5% of refusals —
+real, and far too rare to assert on without a flaky gate.
+
+⚠ **AND THERE IS A SECOND REASON, which is the more interesting one: for a memory filed under a
+NAMED SOURCE, something else upholds the invariant.** With the swap severed, extra writers succeed
+(wins rose 20 → 25) and yet exactly one memory is still current, because each winner's re-file ends
+the previous winner's rows through `purgeSourceOn`. The mutant is killed by the wrong mechanism, so
+a test built on a source-filed fixture cannot see it. The swap's real job is the SOURCELESS memory,
+where no re-file cleans up behind a lost race.
+
+Both facts were found by varying the fixture — first identical content across writers (which
+collapses to one row by content key and hid the fork entirely), then a named source. Neither was
+visible from reading the code.
+
 ## Ordered Steps
 
 1. Confirm `TestF3ACorrectionLeavesOneCurrentSuccessor` is red for the right reason. Verified 2026-08-29; the binding names three kill-cases — replacing supersession with a plain `Add`, skipping one predecessor chunk's ending, and racing two corrections into two current successors.
@@ -58,6 +108,12 @@ No `-tags readcostspec`: the fence is red until step 5 removes the tag, so it pr
 ## Mutation Log
 
 <!-- Tool-written by `adr-verify --mutant`. Empty at authoring. -->
+- 2026-08-29 · a52a567 · mutant killed · exit 1 · `internal/palace/supersede.go` · the ended predecessor keeps no link to its successor — a dead end rather than a correction, which is what a reader following the chain hits · acceptance-sha256:de9933f99d83b93d2c514f40b10bebdad43c95bca41104bb96cf2935ee4f49fa
+- 2026-08-29 · a52a567* · mutant killed · exit 1 · `internal/palace/supersede.go` · end only the HEAD chunk, leaving the rest of a multi-chunk predecessor current and still answering with the claim the correction withdrew — the binding second kill-case · acceptance-sha256:de9933f99d83b93d2c514f40b10bebdad43c95bca41104bb96cf2935ee4f49fa
+- 2026-08-29 · a52a567* · mutant survived · exit 0 · `internal/palace/supersede.go` · sever the compare-and-swap, so a second correction that arrives after the first has ended the chunks is applied rather than refused · acceptance-sha256:de9933f99d83b93d2c514f40b10bebdad43c95bca41104bb96cf2935ee4f49fa
+  ```
+  the fence passed with the mechanism broken
+  ```
 
 ## Invariants
 
@@ -86,3 +142,4 @@ Stop if atomicity cannot be achieved without holding a transaction across the em
 ## Verification Log
 
 <!-- Tool-written by `adr-verify`. -->
+- 2026-08-29 · a52a567* · exit 0 · `set -o pipefail …` · acceptance-sha256:de9933f99d83b93d2c514f40b10bebdad43c95bca41104bb96cf2935ee4f49fa
