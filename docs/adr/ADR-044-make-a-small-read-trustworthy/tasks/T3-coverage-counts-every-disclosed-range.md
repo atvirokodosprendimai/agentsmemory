@@ -19,13 +19,25 @@ Make `content_coverage` report the fraction of a memory a caller actually receiv
 | `internal/mcpserver/drawers.go` | edit | `Coverage` is computed at `:958` as `len(views[i].Content) / full`, counting the window only, while regions are rendered separately at `:859`. Replace with `coveredRunes`, summing distinct disclosed ranges. **Ranges must be de-duplicated** — a region overlapping the primary window would otherwise be counted twice and push coverage above the truth, which is the same defect inverted |
 | `internal/mcpserver/drawers.go` | edit | The `am_search` tool description at `:817` says *"content_coverage is always present and reports how much of the memory you are seeing"*. That sentence becomes true rather than aspirational; if the wording needs to change, it changes here, because `TestEveryOmitemptyWireKeyInThisPackageIsDescribed` already gates description drift |
 | `internal/mcpserver/readcost_spec_test.go` | edit | Turn `TestF1CoverageCountsEveryDisclosedRange` green. **The `//go:build readcostspec` tag STAYS** — F-2, F-4 and F-7 are still red in this file and T6 is its last task |
+| `internal/mcptest/regions_test.go` | add | **Not in this table at authoring, and the omission was the reachability trap this repo keeps falling into.** The F-1 binding lives in `package mcpserver`, which `mcptest` imports, so the binding cannot drive the real tool — it tests `coveredRunes` and would stay green if the CALL SITE were reverted to the window-only division. `TestScenarioCoverageCountsTheRegionsItRendered` drives the real `am_search` over the transport and reads the field an agent receives. It runs in the default lane and is inside this task's fence via its `go test ./...` leg |
 | `internal/mcpserver/bootstrap.go` | edit or record | `am_bootstrap` renders through `res.WireShape()`, not `toView`, and carries its own truncation report. Either extend the same coverage arithmetic to it, or record in this task why its report already satisfies F-1. **Silence is not an option** — a member of the class left unmentioned reads as a member that does not exist |
 
 ## Ordered Steps
 
 1. Confirm `TestF1CoverageCountsEveryDisclosedRange` is red for the right reason: verified 2026-08-29, *"Today `Coverage = len(views[i].Content) / len(fullContent)` (drawers.go:929) counts the window only"*.
-2. Measure the current gap on a real memory before changing anything, so the fix has a before-figure that is not borrowed: the spec records **11–13% reported against 23–27% disclosed**, measured 2026-08-28 over 3,053–3,505-rune memories. Re-take it and date it.
-3. Extract `coveredRunes(content string, regions []region, full int) float64` — union of disclosed ranges over the memory's rune length, clamped to 1. The existing clamp at `:959-960` stays; its comment says the head join adds runes the memory does not have, and that is still true.
+2. Measure the current gap on a real memory before changing anything, so the fix has a before-figure that is not borrowed: the spec records **11–13% reported against 23–27% disclosed**, measured 2026-08-28 over 3,053–3,505-rune memories. Re-take it and date it. **Re-taken 2026-08-29** against a live 5,331-rune memory (`wing_agentmemories`/`llm_open_threads`, the session-continuation note) at `snippet_chars: 700`, reconstructed verbatim from the palace — its rune count matches the `content_length` the server reported, which is what makes it the same text and not a paraphrase:
+
+   | Figure | Value |
+   |--------|-------|
+   | Memory | 5,331 runes |
+   | Primary window, as rendered | 703 runes, in **two** ranges — `[0,119)` and `[1522,2101)` — the head-joined shape |
+   | Regions rendered beside it | 7, 723 runes summed |
+   | **Reported (window ÷ full)** | **0.1319 — 13.2%** |
+   | Naive sum, window + regions | 0.2675 — 26.8% |
+   | **Disclosed (union, de-duplicated)** | **0.2472 — 24.7%** |
+
+   Two things this measurement settles that the borrowed figure could not. The gap reproduces on 2026-08-29 on a memory of a different size, so it is not an artifact of the three that were measured. And **the overlap is real, not hypothetical**: the naive sum exceeds the union by 108 runes, so a fix that summed instead of unioning would have over-reported on the very first real hit it saw.
+3. Extract `coveredRunes(content string, regions []regionView, full string) float64` — **`full` is the memory, not its length, a deviation from the signature declared above.** The primary window arrives as rendered text and its offsets have to be recovered from it (the measurement above shows why: the real shape is two disjoint ranges, not one), so the union cannot be computed from a length alone. The signature moved rather than the arithmetic guessing. Union of disclosed ranges over the memory's rune length, clamped to 1. The clamp stays: join markers are now excluded by construction so it should never fire, and a clamp that never fires costs nothing while a removed one that should have fired reports coverage above 1.0.
 4. Turn F-1 green, including the two kill-cases the binding names: reporting window-only coverage, and claiming 1.0 while withholding a region.
 5. Decide `am_bootstrap` — extend or record. Write the decision into this file's prose either way.
 
@@ -42,6 +54,35 @@ recorded where a human reads it: **the sign-off for this task must name the `am_
 "extended" or "records why its own report suffices" — and a sign-off that does not name it is not a
 sign-off for this task.** Written down rather than assumed, because a requirement the gate cannot see
 is exactly how a task goes green with its actual work unmet.
+
+## The `am_bootstrap` decision (step 5)
+
+**Recorded, not extended, and the reason names the field.** `am_bootstrap` renders through
+`BootstrapResult.WireShape()` (`internal/palace/bootstrap.go`), whose `eager` tier is
+`Eager []Drawer` — rows appended verbatim from `DrawersByIDs`, with no snippet window, no
+`SnippetRegions` call, and no per-record fraction anywhere in the struct. **F-1's defect has no
+analogue there**: the arithmetic this task corrects is a division that counts the primary window and
+ignores the regions rendered beside it, and `am_bootstrap` renders neither. Every eager record is
+disclosed whole, so a `content_coverage` field on that surface would be the constant 1.0 — a number
+that never varies, which this file's own `Truncated` comment already identifies as a field carrying
+no information. Its `truncation` report answers the other question, *which records were left out
+entirely*, unconditionally and with the call that fetches them; that is the shape T5's `withheld`
+belongs to, not F-1's.
+
+**The residual, named rather than left silent.** A `Drawer` row is a chunk, so an entry edge naming
+a chunk of a multi-chunk memory inlines 100% of a row that is a fraction of a memory. That is a real
+disclosure gap and it is **not F-1's** — it is F-4, *a memory is ONE UNIT to its caller*, which T6
+owns. Routed there rather than absorbed here, because F-1's arithmetic cannot express it: there is no
+window to add a region to.
+
+## Stop Condition check
+
+**It did not fire, and this line exists because a Stop Condition that silently does not fire looks
+identical to one nobody checked.** The condition asks whether rendered region text can be mapped back
+to offsets in the memory. It can: `palace.Region` carries `Start`, a rune offset, and `regionView`
+carries it onto the wire as `start` (`drawers.go`, `regionView.Start`). Region text is a verbatim
+slice with no join markers (`regions.go`, `out = append(out, Region{Text: string(runes[start:end])…})`),
+and regions are non-overlapping among themselves. The union is computable without a wire change.
 
 ## Tests
 
@@ -68,6 +109,9 @@ regions were computed.
 ## Mutation Log
 
 <!-- Tool-written by `adr-verify --mutant`. Empty at authoring. -->
+- 2026-08-29 · 93ee81c* · mutant killed · exit 1 · `internal/mcpserver/drawers.go` · summing disclosed ranges instead of unioning them double-counts a region that falls inside the primary window — the over-report that reads as completeness. F-1 kill-case: claiming more of the memory than was disclosed · acceptance-sha256:2f9fdaffe162ce7a9907fe01acbb5b081c5569f856ff3a6152b1a03de1d99c6a
+- 2026-08-29 · 93ee81c* · mutant killed · exit 1 · `internal/mcpserver/drawers.go` · reporting a constant 1.0 claims the memory is fully disclosed while a region was withheld — a caller reads 1.0 as "there is nothing more to fetch". F-1 kill-case: claiming 1.0 while withholding a region · acceptance-sha256:2f9fdaffe162ce7a9907fe01acbb5b081c5569f856ff3a6152b1a03de1d99c6a
+- 2026-08-29 · 93ee81c* · mutant killed · exit 1 · `internal/mcpserver/drawers.go` · the REACHABILITY mutant: coveredRunes stays correct and the call site reverts to the window-only division, so the wire carries the old number while the unit test still passes. Killed by TestScenarioCoverageCountsTheRegionsItRendered over the real transport, not by the binding · acceptance-sha256:2f9fdaffe162ce7a9907fe01acbb5b081c5569f856ff3a6152b1a03de1d99c6a
 
 ## Invariants
 
@@ -93,3 +137,4 @@ Stop if regions can overlap in a way the render path does not make recoverable �
 ## Verification Log
 
 <!-- Tool-written by `adr-verify`. -->
+- 2026-08-29 · 93ee81c* · exit 0 · `set -o pipefail …` · acceptance-sha256:2f9fdaffe162ce7a9907fe01acbb5b081c5569f856ff3a6152b1a03de1d99c6a

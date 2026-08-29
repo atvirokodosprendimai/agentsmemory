@@ -36,7 +36,7 @@ reports in wave 2, so a human can see the effect after two waves rather than at 
 |----|-------|--------|--------|------------|
 | T1 | Commit the counting rule as an artifact and make a baseline name it by content | done | F-5, UC3-S1 | `go test -tags readcostspec ./internal/repohygiene/ -run 'TestF5ABaselineNamesItsCountingRule' …` |
 | T2 | Make a rule change invalidate every baseline taken under it | done | F-6, UC3-S2 | `go test ./internal/repohygiene/ -run 'TestF6ARuleChangeInvalidatesItsBaselines' …` |
-| T3 | Count every disclosed range in `content_coverage` | pending | F-1, UC1-S1 | `go test -tags readcostspec ./internal/mcpserver/ -run 'TestF1CoverageCountsEveryDisclosedRange' …` |
+| T3 | Count every disclosed range in `content_coverage` | done | F-1, UC1-S1 | `go test -tags readcostspec ./internal/mcpserver/ -run 'TestF1CoverageCountsEveryDisclosedRange' …` |
 | T4 | Make every incomplete hit say so, with its full length and fetch id | pending | F-2, UC1-S2 | `go test -tags readcostspec ./internal/mcpserver/ -run 'TestF2NoHitIsSilentlyPartial' …` |
 | T5 | Make a page report how many hits the budget made it withhold | pending | F-7, UC1-S4 | `go test -tags readcostspec ./internal/mcpserver/ -run 'TestF7APageReportsWhatItWithheld' …` |
 | T6 | Guarantee a caller never joins chunks, and take the tag off | pending | F-4, UC1-S3 | `go test ./internal/mcpserver/ -run 'TestF4ChunkingCreatesNoReassemblyObligation' …` |

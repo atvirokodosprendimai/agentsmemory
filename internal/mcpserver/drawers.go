@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/atvirokodosprendimai/agentsmemory/internal/palace"
@@ -814,7 +815,7 @@ type anchorView struct {
 // re-ranked by a vector+BM25 blend (closet boost joins with the mining phase).
 func registerSearch(reg *registrar, drawers *palace.Service, usageSvc *usage.Service, scopeSearchToWing bool) {
 	tool := newTool("search",
-		mcp.WithDescription("Semantically recall distinct memories most similar to a query. Optionally filter by wing/room and a max cosine distance. Each hit carries blended_score: the value the page was actually ordered by, combining the cross-encoder and the fused lexical/vector score. It is POOL-RELATIVE — comparable between hits on one page, meaningless across pages, and not to be averaged. A page is often not monotonic in rerank_score, which is the blend working rather than a reranker that failed. content_coverage is always present and reports how much of the memory you are seeing. Fields that appear only when they apply: content_truncated with content_length when a memory was trimmed; regions, the other windows of the same memory that matched, when more than one did; chunks_matched, how many of its chunks did; content_date when the memory is about a different day than it was filed; code_anchors with a status when the memory pins source that may have drifted; stale on a hit whose code anchors no longer match the code they pin — the one summary to branch on, because a recalled sentence about changed code reads as knowledge either way; and stale_index on the page when the search index is behind the store, which means the answer may be missing recent writes rather than that nothing was written."),
+		mcp.WithDescription("Semantically recall distinct memories most similar to a query. Optionally filter by wing/room and a max cosine distance. Each hit carries blended_score: the value the page was actually ordered by, combining the cross-encoder and the fused lexical/vector score. It is POOL-RELATIVE — comparable between hits on one page, meaningless across pages, and not to be averaged. A page is often not monotonic in rerank_score, which is the blend working rather than a reranker that failed. content_coverage is always present and reports how much of the memory you are seeing: the primary window AND every region rendered beside it, counted once where they overlap. It changed meaning on 2026-08-29 — it used to count the window alone and under-reported, so a threshold calibrated before then is comparing against a different number. Fields that appear only when they apply: content_truncated with content_length when a memory was trimmed; regions, the other windows of the same memory that matched, when more than one did; chunks_matched, how many of its chunks did; content_date when the memory is about a different day than it was filed; code_anchors with a status when the memory pins source that may have drifted; stale on a hit whose code anchors no longer match the code they pin — the one summary to branch on, because a recalled sentence about changed code reads as knowledge either way; and stale_index on the page when the search index is behind the store, which means the answer may be missing recent writes rather than that nothing was written."),
 		mcp.WithString("query", mcp.Required(), mcp.Description("What to recall (max 250 chars).")),
 		mcp.WithBoolean("include_history", mcp.Description("Also return memories that have been RETRACTED or superseded (default false). Off by default because an ended record keeps its embedding: without the filter a withdrawn claim competes with the correction that replaced it, and can outrank it. Turn it on to audit what a wing used to say. Every returned record carries valid_to and ended_reason, so history is never mistaken for current, plus superseded_by when something replaced it — and a CURRENT record carries supersedes and superseded_reason naming what it replaced and why, so a session about to redo a rejected thing sees that without asking for history.")),
 		mcp.WithNumber("limit", mcp.Description("Max distinct memories after chunk collapse in the legacy control (before ranking in the memory-level treatment), 1-100 (default 5).")),
@@ -954,12 +955,7 @@ func registerSearch(reg *registrar, drawers *palace.Service, usageSvc *usage.Ser
 			// Coverage is set for EVERY hit, including snippet_chars=0. Otherwise
 			// "the caller requested and received the whole memory" reports the same
 			// zero as "the caller saw none of it".
-			if full := len([]rune(fullContent)); full > 0 {
-				views[i].Coverage = float64(len([]rune(views[i].Content))) / float64(full)
-				if views[i].Coverage > 1 {
-					views[i].Coverage = 1 // the head join adds runes the memory does not have
-				}
-			}
+			views[i].Coverage = coveredRunes(views[i].Content, views[i].Regions, fullContent)
 		}
 		// Staleness travels WITH the memory. A recalled sentence about code that
 		// has since changed is the one failure mode a confident agent cannot catch
@@ -1173,4 +1169,128 @@ func registerReconnect(reg *registrar, drawers *palace.Service, usageSvc *usage.
 		}
 		return jsonResult(map[string]any{"ok": true, "note": "vector namespace ready, backend reachable"}), nil
 	})
+}
+
+// disclosedRange is one half-open rune range of a memory that a response
+// actually put in front of its caller.
+type disclosedRange struct{ start, end int }
+
+// coveredRunes reports the fraction of a memory a response disclosed: the
+// primary window AND every region rendered beside it, counted once where they
+// overlap.
+//
+// It replaces `len(content) / len(fullContent)`, which counted the window alone
+// while the regions sat rendered next to it in the same response. Measured
+// 2026-08-29 on a live 5,331-rune memory at snippet_chars=700: 13.2% reported
+// against 24.7% actually disclosed. A caller comparing that figure against a
+// threshold to decide "do I need a second call?" was deciding on a number that
+// under-reported what it already held, which is the defect this whole record is
+// about — not the price of a read, but whether a small one can be trusted.
+//
+// De-duplication is not an optimisation, it is the arithmetic: SnippetRegions
+// and SnippetWithHead choose independently and the best-matching region routinely
+// falls inside the window, so a naive sum reports coverage ABOVE the truth. On
+// that same live memory the naive sum reads 26.8% against a true 24.7% — 108
+// runes disclosed once and counted twice. That is the same defect inverted and
+// worse, because it reads as completeness.
+//
+// full is the memory, not its length, because the primary window arrives as
+// rendered text and its offsets have to be recovered from it. The task file
+// declared `full int`; the signature moved rather than the arithmetic guessing.
+func coveredRunes(content string, regions []regionView, full string) float64 {
+	total := len([]rune(full))
+	if total == 0 {
+		return 0
+	}
+	ranges := primaryRanges(content, full)
+	for _, r := range regions {
+		n := len([]rune(r.Text))
+		if n == 0 || r.Start < 0 {
+			continue
+		}
+		ranges = append(ranges, disclosedRange{r.Start, r.Start + n})
+	}
+	covered := unionLen(ranges, total)
+	c := float64(covered) / float64(total)
+	if c > 1 {
+		// Kept from the arithmetic it replaces. The union should never exceed the
+		// memory now that join markers are excluded by construction — but a clamp
+		// that never fires costs nothing, while a removed clamp that should have
+		// fired reports coverage above 1.0, which is precisely the over-report the
+		// de-duplication above exists to prevent.
+		c = 1
+	}
+	return c
+}
+
+// primaryRanges maps the rendered `content` window back to rune ranges in the
+// memory it was cut from.
+//
+// SnippetWithHead has exactly three shapes and this handles all of them without
+// asking which one ran: the whole memory (no markers), one contiguous window
+// anchored at rune 0 with a trailing "…", and the head joined to a later body by
+// " … ". Splitting on the join marker and locating each piece verbatim covers
+// all three, because renderSnippet only ever ADDS markers around slices it took
+// unchanged.
+func primaryRanges(content, full string) []disclosedRange {
+	var out []disclosedRange
+	for _, piece := range strings.Split(content, snippetJoin) {
+		// Only the ellipsis, never surrounding whitespace: a space at the edge of a
+		// window IS a rune of the memory that was disclosed, and trimming it
+		// under-reports by one rune per edge — small, but in the direction of the
+		// defect this function exists to remove.
+		piece = strings.Trim(piece, "…")
+		if piece == "" {
+			continue
+		}
+		at := strings.Index(full, piece)
+		if at < 0 {
+			// Not provable as a slice of this memory, so not claimed. Reachable
+			// only if a render path starts rewriting text rather than slicing it,
+			// which ADR-019 forbids — and the honest failure is a coverage figure
+			// that is too LOW, matching what the field meant before this change,
+			// rather than one that overstates what the caller received.
+			continue
+		}
+		start := len([]rune(full[:at]))
+		out = append(out, disclosedRange{start, start + len([]rune(piece))})
+	}
+	return out
+}
+
+// snippetJoin is the separator SnippetWithHead puts between a memory's opening
+// and the later window that matched.
+const snippetJoin = " … "
+
+// unionLen is the total length of the given ranges with overlaps counted once,
+// bounded to [0, total].
+func unionLen(ranges []disclosedRange, total int) int {
+	if len(ranges) == 0 {
+		return 0
+	}
+	sort.Slice(ranges, func(a, b int) bool { return ranges[a].start < ranges[b].start })
+	sum, cur := 0, ranges[0]
+	flush := func(r disclosedRange) {
+		if r.start < 0 {
+			r.start = 0
+		}
+		if r.end > total {
+			r.end = total
+		}
+		if r.end > r.start {
+			sum += r.end - r.start
+		}
+	}
+	for _, r := range ranges[1:] {
+		if r.start <= cur.end {
+			if r.end > cur.end {
+				cur.end = r.end
+			}
+			continue
+		}
+		flush(cur)
+		cur = r
+	}
+	flush(cur)
+	return sum
 }

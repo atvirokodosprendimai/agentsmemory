@@ -213,3 +213,46 @@ func TestScenarioChildChunkCarriesRootAnchor(t *testing.T) {
 		t.Fatalf("anchor status = %q, want drifted:\n%s", status, out)
 	}
 }
+
+// TestScenarioCoverageCountsTheRegionsItRendered is the rung the arithmetic's own
+// unit test cannot reach: something has to CALL it.
+//
+// `coveredRunes` can be correct and the wire can still carry the old number —
+// this repository has shipped that shape four times, a finished capability with
+// nothing selecting it. The unit test in internal/mcpserver drives the function;
+// this drives the real am_search tool over the transport and reads the field an
+// agent actually receives. Restore the window-only division at the call site and
+// this is what goes red.
+func TestScenarioCoverageCountsTheRegionsItRendered(t *testing.T) {
+	h := mcptest.NewWithWing(t, "wing_acme")
+	h.MustCall(t, "am_add_drawer", map[string]any{"room": "decisions", "content": threeMentions})
+
+	out := h.MustCall(t, "am_search", map[string]any{
+		"query": "rerank pool size", "snippet_chars": 200,
+	})
+	hit := hitsOf(t, out)[0]
+
+	rs, _ := hit["regions"].([]any)
+	if len(rs) < 2 {
+		t.Skipf("the fixture produced %d region(s), so there is nothing beside the window to "+
+			"count and the assertion below would be vacuous:\n%s", len(rs), out)
+	}
+	content, _ := hit["content"].(string)
+	length, _ := hit["content_length"].(float64)
+	coverage, ok := hit["content_coverage"].(float64)
+	if !ok || length == 0 {
+		t.Fatalf("content_coverage or content_length absent from a truncated hit:\n%s", out)
+	}
+
+	windowOnly := float64(len([]rune(content))) / length
+	if coverage <= windowOnly {
+		t.Errorf("content_coverage = %v, which is the window alone (%v) — the response also "+
+			"rendered %d regions of this memory, so the caller was shown more than the number "+
+			"it is being asked to act on. Under-reporting here is what makes the defensive "+
+			"read (whole:true) the rational one:\n%s", coverage, windowOnly, len(rs), out)
+	}
+	if coverage > 1 {
+		t.Errorf("content_coverage = %v — a fraction of a memory cannot exceed the memory, and "+
+			"over-reporting reads as completeness", coverage)
+	}
+}

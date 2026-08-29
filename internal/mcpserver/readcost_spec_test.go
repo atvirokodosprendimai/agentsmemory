@@ -13,7 +13,12 @@
 
 package mcpserver
 
-import "testing"
+import (
+	"fmt"
+	"math"
+	"strings"
+	"testing"
+)
 
 // Bindings for docs/specs/2026-08-28-a-read-as-cheap-as-a-grep.md — the facts
 // that are MCP RESPONSE CONTRACTS and can only be driven here.
@@ -33,12 +38,97 @@ import "testing"
 const readCostNotYetBuilt = "not built yet — %s"
 
 func TestF1CoverageCountsEveryDisclosedRange(t *testing.T) {
-	t.Fatalf(readCostNotYetBuilt, "F-1 (UC1-S1): a hit's reported coverage must count the primary "+
-		"window AND every region returned. Today `Coverage = len(views[i].Content) / len(fullContent)` "+
-		"(drawers.go:929) counts the window only, while regions are rendered separately (:859) — so a "+
-		"caller deciding whether it needs a second call decides on an under-reported number. Measured "+
-		"2026-08-28: 11-13% by the reported figure, 23-27% actually disclosed. Kill it by reporting "+
-		"window-only coverage, or by claiming 1.0 while withholding a region")
+	// A memory long enough to be windowed, whose runes are their own addresses:
+	// full[n] identifies position n, so a fixture can name a range and the
+	// assertion can be read without counting characters.
+	full := addressable(2000)
+	total := float64(len([]rune(full)))
+
+	// The shapes SnippetWithHead actually produces, plus the region shapes
+	// SnippetRegions puts beside them. Each `content` is a verbatim slice-join of
+	// `full` with the same markers the render path adds, because coveredRunes
+	// recovers the window's offsets from the rendered text and a fixture that
+	// skipped the markers would test an input the server never emits.
+	cases := []struct {
+		name    string
+		content string
+		regions []regionView
+		want    float64
+		why     string
+	}{{
+		name:    "a window with no regions is the window",
+		content: string([]rune(full)[0:100]) + "…",
+		want:    100 / total,
+		why:     "unchanged from the arithmetic this replaces: with nothing beside it, the window IS the disclosure",
+	}, {
+		name:    "a region disclosed beside the window is counted",
+		content: string([]rune(full)[0:100]) + "…",
+		regions: []regionView{{Text: string([]rune(full)[300:400]), Start: 300}},
+		want:    200 / total,
+		why: "THE DEFECT. The region is in the same response, in front of the same caller. " +
+			"Reporting 100/2000 tells an agent it holds 5% of a memory it holds 10% of, and the " +
+			"decision that number exists to inform is whether to spend a second call",
+	}, {
+		name:    "the head-joined two-range window is mapped back to both ranges",
+		content: string([]rune(full)[0:120]) + " … " + string([]rune(full)[1000:1300]) + "…",
+		regions: []regionView{{Text: string([]rune(full)[1500:1600]), Start: 1500}},
+		want:    520 / total,
+		why: "the real shape of a hit whose match is not at the top: SnippetWithHead keeps the " +
+			"identity and joins the matching window to it. Both halves are disclosed; the join " +
+			"marker is not part of the memory and must not be counted",
+	}, {
+		name:    "a whole memory is 1",
+		content: full,
+		want:    1,
+		why:     "ADR-019's rule, kept: snippet_chars=0 must not report the same figure as showing none of it",
+	}}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := coveredRunes(c.content, c.regions, full)
+			if math.Abs(got-c.want) > 1e-9 {
+				t.Errorf("coverage = %v, want %v\n%s", got, c.want, c.why)
+			}
+			if got > 1 {
+				t.Errorf("coverage = %v, above 1 — a fraction of a memory cannot exceed the memory", got)
+			}
+		})
+	}
+
+	// The inverse defect, as a subtest so it is inside the acceptance fence
+	// rather than a sibling the fence's -run never reaches.
+	t.Run("an overlapping region is not double counted", func(t *testing.T) {
+		content := string([]rune(full)[0:200]) + "…"
+		regions := []regionView{{Text: string([]rune(full)[50:150]), Start: 50}}
+		got := coveredRunes(content, regions, full)
+		if want := 200 / total; math.Abs(got-want) > 1e-9 {
+			t.Errorf("coverage = %v, want %v — the region lies wholly inside the window, so the "+
+				"caller received 200 runes and not 300. Summing them reports MORE of the memory "+
+				"than was disclosed, which reads as completeness and is worse than the "+
+				"under-report it would replace", got, want)
+		}
+	})
+
+	t.Run("a withheld region keeps coverage below 1", func(t *testing.T) {
+		// The binding's second kill-case, stated as its own assertion: a response
+		// that withheld anything may not claim the memory is fully disclosed.
+		content := string([]rune(full)[0:1000]) + "…"
+		regions := []regionView{{Text: string([]rune(full)[1200:1900]), Start: 1200}}
+		if got := coveredRunes(content, regions, full); got >= 1 {
+			t.Errorf("coverage = %v with 300 runes never rendered — a caller reads 1.0 as "+
+				"\"there is nothing more to fetch\"", got)
+		}
+	})
+}
+
+// addressable builds a memory whose text encodes its own offsets, so a fixture
+// can slice by position and a failure can be read without counting characters.
+func addressable(n int) string {
+	var b strings.Builder
+	for i := 0; b.Len() < n; i++ {
+		fmt.Fprintf(&b, "%06d the memory continues here with prose that is not filler-shaped. ", i)
+	}
+	return string([]rune(b.String())[:n])
 }
 
 func TestF2NoHitIsSilentlyPartial(t *testing.T) {
