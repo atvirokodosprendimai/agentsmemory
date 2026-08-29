@@ -60,6 +60,17 @@ it the pipeline's status is `tee`'s and only the grep is tested.
 
 <!-- Tool-written by `adr-verify --mutant`. Empty at authoring. -->
 - 2026-08-29 · ea4680f* · mutant killed · exit 1 · `internal/repohygiene/readrule.go` · a baseline naming no rule must not read as one that resolves — F-5 kill-case: recording a baseline with no rule reference · acceptance-sha256:6f7d0ae66e340ef0cc10ba114346ee4ea202fb6a31fb724a284c54af2994b6e5
+- 2026-08-29 · 28c5fc0* · mutant killed · exit 1 · `internal/repohygiene/readrule.go` · the shipped defect, restored: a file that DECLARES ITSELF DEGENERATE counts as a baseline, so F-5 reads as satisfied by the existence of a document that disclaims it. This is the assert-X-is-available-passes-when-X-is-absent shape, reached by the gate that polices it · acceptance-sha256:6f7d0ae66e340ef0cc10ba114346ee4ea202fb6a31fb724a284c54af2994b6e5
+- 2026-08-29 · 28c5fc0* · mutant survived · exit 0 · `internal/repohygiene/readrule.go` · the SHIPPED defect, restored: a file that declares itself degenerate counts as a baseline, so F-5 reads as satisfied by the existence of a document that disclaims it. Found in review 2026-08-29 — the assert-X-is-available-passes-when-X-is-absent shape, reached by the gate that polices it · acceptance-sha256:6f7d0ae66e340ef0cc10ba114346ee4ea202fb6a31fb724a284c54af2994b6e5
+  ```
+  the fence passed with the mechanism broken
+  ```
+- 2026-08-29 · 28c5fc0* · mutant killed · exit 1 · `internal/repohygiene/readrule.go` · the sibling-only glob restored: a baseline filed one directory down is invisible and the gate stays GREEN, against the functions own promise that a baseline added tomorrow joins the check · acceptance-sha256:6f7d0ae66e340ef0cc10ba114346ee4ea202fb6a31fb724a284c54af2994b6e5
+- 2026-08-29 · 28c5fc0* · mutant killed · exit 1 · `internal/repohygiene/readrule.go` · the SHIPPED defect restored one value over: a file declaring itself degenerate counts as a baseline, so F-5 reads as satisfied by a document that disclaims it. This mutant SURVIVED the first version of the falsifiability subtest, which built a Baseline by hand and never drove Usable() · acceptance-sha256:6f7d0ae66e340ef0cc10ba114346ee4ea202fb6a31fb724a284c54af2994b6e5
+- 2026-08-29 · 28c5fc0* · mutant survived · exit 0 · `internal/repohygiene/readrule_spec_test.go` · sever the CALL: the corpus has no usable baseline and no override is required, so F-5 passes over a corpus that does not satisfy it. A falsifiability half that only drives the helper leaves this green, which is why the call site is mutated rather than the helper · acceptance-sha256:6f7d0ae66e340ef0cc10ba114346ee4ea202fb6a31fb724a284c54af2994b6e5
+  ```
+  the fence passed with the mechanism broken
+  ```
 
 ## Invariants
 
@@ -82,6 +93,46 @@ Stop if `drawer_fetches` cannot distinguish a recall that needed a second call f
 - Reporting the ratio with `profile_id` beside it — that is ADR-028 T4's job, not a sibling here
 - Any mechanism change: T1 ships the instrument only, which is F-5's whole point
 
+## Amended 2026-08-29 after review — the gate counted a baseline that says it is not one
+
+@blinkinglight's review of PR #108 found this task's gate satisfied by the very file that disclaims
+it: `Baseline` carried only `Path` and `CitedDigest`, so `TestF5ABaselineNamesItsCountingRule`
+counted the degenerate baseline toward its `len(found) == 0` check — the check whose message says
+*"F-5 forbids shipping a mechanism in that case"*. **A test asserting that X is available, passing
+when X is absent, is the defect this repository names itself after, and it had reached the gate that
+polices it.** Confirmed by reading the code, not the review.
+
+Three repairs, all from that review:
+
+- **`baseline:` verdict line, and `Usable()`.** The baseline now declares `usable` or `degenerate` in
+  a form a tool can read; the prose verdict was already correct and nothing could act on it. A file
+  saying NOTHING is not usable — an unmarked baseline is one nobody has judged.
+- **Shipping anyway is written, not silent.** `shippedWithoutUsableBaseline` names the record that
+  decided and why, refused by `TestF5AnOverrideNamesItsReason` when the reason is blank. Deleting the
+  entry is how the constraint comes back, which is stated there.
+- **`WalkDir`, not `Glob`, and skip `README.md`.** A baseline one directory down was invisible and
+  the gate stayed green, against this function's own promise. A README in that directory reddened CI.
+- **`QuoteRate` in the loop.** The old message appended *"compares against a rule that is not the one
+  on disk"* to BOTH refusals, which is false for a baseline nobody bound — nothing was compared.
+
+### Two mutants SURVIVED, and they are recorded rather than papered over
+
+**1. `Usable() { return b.Verdict != "unusable" }` survived the first version of the falsifiability
+subtest.** That subtest built a `Baseline` by hand and called `requireWrittenOverride` directly, so
+the PREDICATE was never driven: the corpus's `degenerate` file counted as usable and the fence still
+passed. It is killed now by a subtest that drives `Usable()` over its own spellings. **`adr-verify`
+refusing to score a surviving mutant is the only reason this was noticed** — the fence was green and
+the hole was one value over from the one review had just reported.
+
+**2. Severing the CALL to `requireWrittenOverride` still passes, and no test here can catch it.**
+With the call deleted the corpus has no usable baseline, no override is demanded, and F-5 reports
+satisfied. This is the severed-call-site class `AGENTS.md` records twice. The substitutable
+`testing.TB` shim used here catches a severed check INSIDE the helper; it cannot catch the deletion
+of the line that calls it, because the test that would notice is the test being emptied. Recorded as
+an honest limit rather than claimed as covered: **the defence against this one is review, not the
+suite.** The earlier `Verdict != ""` entry in the log below was killed against a corpus whose baseline
+carried no verdict line yet, so it is true of that tree and not of this one.
+
 ## Verification Log
 
 <!-- Tool-written by `adr-verify`. -->
@@ -94,3 +145,4 @@ Stop if `drawer_fetches` cannot distinguish a recall that needed a second call f
   FAIL
   ```
 - 2026-08-29 · ea4680f* · exit 0 · `set -o pipefail …` · acceptance-sha256:6f7d0ae66e340ef0cc10ba114346ee4ea202fb6a31fb724a284c54af2994b6e5
+- 2026-08-29 · 28c5fc0* · exit 0 · `set -o pipefail …` · acceptance-sha256:6f7d0ae66e340ef0cc10ba114346ee4ea202fb6a31fb724a284c54af2994b6e5

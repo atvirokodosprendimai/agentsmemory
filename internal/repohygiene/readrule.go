@@ -9,6 +9,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -32,13 +33,40 @@ const (
 // over a config file has to make.
 var citationRE = regexp.MustCompile(`(?m)^rule-sha256:\s*([0-9a-f]{64})\s*$`)
 
+// verdictRE matches the line by which a baseline says whether a rate may be read
+// from it at all.
+//
+// It exists because ADR-044 T1 recorded a baseline that says IN PROSE "this must
+// not be read as satisfying F-5", and review found the gate counting it as one
+// anyway: `Baseline` carried only a path and a digest, so a file declaring itself
+// unusable was indistinguishable from a usable one. A gate that reports a
+// requirement satisfied because a file exists, without reading what the file
+// says, is this repository's signature defect applied to its own evidence.
+//
+// Machine-readable for the same reason every other rule here is: the prose was
+// already correct and no tool could act on it.
+var verdictRE = regexp.MustCompile(`(?m)^baseline:\s*(usable|degenerate)\s*$`)
+
 // Baseline is one recorded measurement and the rule identity it claims.
 type Baseline struct {
 	// Path is the baseline file, relative to the repository root.
 	Path string
 	// CitedDigest is the digest the file names, or "" when it names none.
 	CitedDigest string
+	// Verdict is what the file says about its own usability: "usable",
+	// "degenerate", or "" when it says nothing. A baseline that declares nothing
+	// is not assumed usable — see Usable.
+	Verdict string
 }
+
+// Usable reports whether a rate may be read from this baseline at all, before any
+// question of which rule it cites.
+//
+// A file that says NOTHING is not usable. That is the direction to be wrong in:
+// an unmarked baseline is one nobody has judged, and treating "no verdict" as
+// "fine" is exactly the assumption that let a file saying "this is not a
+// baseline" satisfy the requirement it disclaims.
+func (b Baseline) Usable() bool { return b.Verdict == "usable" }
 
 // CitationState is what resolving a baseline's citation against the current rule
 // produced.
@@ -101,9 +129,31 @@ func RuleDigest(root string) (string, error) {
 // joins the check without anyone remembering to register it. A list kept beside
 // the truth is a thing somebody has to remember.
 func Baselines(root string) ([]Baseline, error) {
-	paths, err := filepath.Glob(filepath.Join(root, BaselinesDir, "*.md"))
+	// WalkDir rather than Glob. A glob of "*.md" matches siblings only, so a
+	// baseline filed at baselines/2026/x.md was invisible and the gate stayed
+	// GREEN — silently, which is the class this package exists to catch, and
+	// against this function's own promise that a baseline added tomorrow joins
+	// the check. Found in review 2026-08-29.
+	var paths []string
+	dir := filepath.Join(root, BaselinesDir)
+	err := filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() || !strings.HasSuffix(p, ".md") {
+			return nil
+		}
+		// A directory like this acquires a README the way any directory does, and
+		// reddening CI over one would teach people that the gate is noise. It is
+		// skipped by name rather than by a convention nobody would discover.
+		if strings.EqualFold(d.Name(), "README.md") {
+			return nil
+		}
+		paths = append(paths, p)
+		return nil
+	})
 	if err != nil {
-		return nil, fmt.Errorf("glob baselines: %w", err)
+		return nil, fmt.Errorf("walk baselines: %w", err)
 	}
 	out := make([]Baseline, 0, len(paths))
 	for _, p := range paths {
@@ -118,6 +168,9 @@ func Baselines(root string) ([]Baseline, error) {
 		bl := Baseline{Path: filepath.ToSlash(rel)}
 		if m := citationRE.FindSubmatch(b); m != nil {
 			bl.CitedDigest = string(m[1])
+		}
+		if m := verdictRE.FindSubmatch(b); m != nil {
+			bl.Verdict = string(m[1])
 		}
 		out = append(out, bl)
 	}
@@ -172,4 +225,26 @@ func (b Baseline) Resolve(currentDigest string) CitationState {
 	default:
 		return CitationStale
 	}
+}
+
+// shippedWithoutUsableBaseline records a decision to ship mechanism work while no
+// USABLE baseline exists, keyed by the record that took the decision.
+//
+// It is a written exemption rather than a silent one, which is the only form this
+// repository accepts: a knob it finds inert must be listed WITH A REASON, never
+// just listed. An empty reason is refused by TestF5AnOverrideNamesItsReason, so
+// the reason is the review.
+//
+// Removing an entry is how the constraint comes back. That is deliberate: the
+// override is expected to be temporary, and a temporary thing with no expiry is
+// a permanent thing nobody decided on.
+var shippedWithoutUsableBaseline = map[string]string{
+	"ADR-044": "Amendment 2026-08-29, owner Zy. The artifact half of F-5 is satisfied — the rule is " +
+		"committed, digested and cited. What is overridden is the constraint ADR-044 inherits from " +
+		"ADR-041, no mechanism before a baseline, because the only baseline is degenerate: 90 of 91 " +
+		"recalls against ONE fetch on a drawer_fetches instrument that landed the same morning. The " +
+		"mechanism tasks correct statements the server makes about its own responses, whose wrongness " +
+		"is established by reading the arithmetic rather than by measuring how often anyone acts on " +
+		"it. Re-taking the baseline is an open Follow-up on that record; when it lands, DELETE THIS " +
+		"ENTRY rather than editing it.",
 }

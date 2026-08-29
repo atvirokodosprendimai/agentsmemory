@@ -14,6 +14,7 @@
 package repohygiene
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -52,13 +53,142 @@ func TestF5ABaselineNamesItsCountingRule(t *testing.T) {
 			"empty result means either the path moved or no baseline has been recorded, and F-5 "+
 			"forbids shipping a mechanism in the second case", BaselinesDir)
 	}
+	// QuoteRate, not a message stitched around Resolve. The two refusals are
+	// deliberately different sentences — "nobody bound this" and "the rule moved
+	// out from under it" — and the earlier version appended "compares against a
+	// rule that is not the one on disk" to BOTH, which is false for the first:
+	// nothing was compared. Reported in review 2026-08-29. Reusing QuoteRate also
+	// means the gate and the quoting path cannot drift into two answers.
+	usable := 0
 	for _, b := range found {
-		if got := b.Resolve(current); got != CitationResolves {
-			t.Errorf("%s: %s — a rate quoted from it compares against a rule that is not the one on "+
-				"disk (cited %q, current %q)", b.Path, got, b.CitedDigest, current)
+		if err := b.QuoteRate(current); err != nil {
+			t.Errorf("%v", err)
+			continue
+		}
+		if b.Usable() {
+			usable++
 		}
 	}
-	t.Logf("%d baseline(s) checked against rule %s", len(found), current[:12])
+	t.Logf("%d baseline(s) checked against rule %s; %d usable", len(found), current[:12], usable)
+
+	// A BASELINE THAT SAYS IT IS NOT ONE MUST NOT COUNT AS ONE.
+	//
+	// The version of this gate that shipped counted files, so the degenerate
+	// baseline ADR-044 T1 recorded — which says in its own prose "must not be read
+	// as satisfying F-5" — satisfied F-5. A test asserting that X is available,
+	// passing when X is absent, is the defect this repository is named for in its
+	// own AGENTS.md, and it had reached the gate that polices it.
+	//
+	// Shipping anyway is allowed and is not silent: it requires a written entry
+	// naming the record that decided it.
+	if usable == 0 {
+		requireWrittenOverride(t, found, shippedWithoutUsableBaseline)
+	}
+
+	// A baseline in a SUBDIRECTORY is found. The shipped version globbed
+	// "*.md", which matches siblings only, so a baseline filed one directory
+	// down left the gate GREEN — against this function's own promise that a
+	// baseline added tomorrow joins the check without anyone registering it, and
+	// silently, which is the class this package exists to catch. Reported in
+	// review 2026-08-29. A README is skipped in the same walk, because a
+	// directory like this acquires one and reddening CI over it teaches people
+	// the gate is noise.
+	t.Run("a nested baseline joins the check and a README does not", func(t *testing.T) {
+		dir := writeFixtureCorpus(t, "rule-sha256: "+strings.Repeat("a", 64)+"\nbaseline: usable\n")
+		nested := filepath.Join(dir, BaselinesDir, "2026")
+		if err := os.MkdirAll(nested, 0o755); err != nil {
+			t.Fatalf("fixture subdirectory: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(nested, "deeper.md"),
+			[]byte("# a baseline nobody bound\n"), 0o644); err != nil {
+			t.Fatalf("write nested baseline: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, BaselinesDir, "README.md"),
+			[]byte("# what this directory holds\n"), 0o644); err != nil {
+			t.Fatalf("write README: %v", err)
+		}
+		got, err := Baselines(dir)
+		if err != nil {
+			t.Fatalf("baselines: %v", err)
+		}
+		var paths []string
+		for _, b := range got {
+			paths = append(paths, b.Path)
+		}
+		if len(got) != 2 {
+			t.Fatalf("found %d baseline(s) %v, want 2 — the nested one must be checked and the "+
+				"README must not be", len(got), paths)
+		}
+		for _, b := range got {
+			if strings.HasSuffix(b.Path, "README.md") {
+				t.Errorf("a README was treated as a baseline (%s), which reds CI over a file "+
+					"any directory acquires", b.Path)
+			}
+		}
+	})
+
+	// The falsifiability half, INSIDE the fence and driving the SAME function.
+	//
+	// A corpus with a written override cannot exercise the branch that reports a
+	// missing one, so the branch is driven over inputs that ARE wrong. The verdict
+	// travels through a substitutable testing.TB because a test cannot pin its own
+	// reporting: without the shim, severing the check left the gate green while it
+	// printed that everything was in order — which this package has shipped before.
+	t.Run("only a baseline that says usable is usable", func(t *testing.T) {
+		// Drives Usable() itself, and it exists because the first version of this
+		// subtest did not. It built a Baseline with Verdict "degenerate" and called
+		// requireWrittenOverride directly, so the PREDICATE was never exercised: a
+		// mutant reading `Verdict != "unusable"` made the corpus's degenerate file
+		// count as usable and the whole fence still passed. adr-verify refused to
+		// score it, which is the only reason it was noticed.
+		//
+		// "" is not usable, and that is the direction to be wrong in: an unmarked
+		// baseline is one nobody has judged.
+		for _, tc := range []struct {
+			verdict string
+			want    bool
+		}{
+			{"usable", true},
+			{"degenerate", false},
+			{"", false},
+			{"unusable", false},
+			{"USABLE", false},
+		} {
+			if got := (Baseline{Verdict: tc.verdict}).Usable(); got != tc.want {
+				t.Errorf("Baseline{Verdict: %q}.Usable() = %v, want %v — a predicate that admits "+
+					"anything but one spelling lets a file declaring itself degenerate satisfy "+
+					"the requirement it disclaims", tc.verdict, got, tc.want)
+			}
+		}
+	})
+
+	t.Run("shipping with no usable baseline and no override is caught", func(t *testing.T) {
+		degenerate := []Baseline{{Path: "docs/measurement/baselines/x.md", Verdict: "degenerate"}}
+		var spy recorder
+		requireWrittenOverride(&spy, degenerate, map[string]string{})
+		if !spy.failed {
+			t.Error("a corpus whose every baseline declares itself degenerate, with no record " +
+				"taking responsibility, was reported as satisfying F-5 — which is the exact " +
+				"shape review found in the shipped gate")
+		}
+		// The fixture keys are deliberately NOT record-shaped. A key that looks like
+		// a record number is a citation to a record that does not exist, and
+		// TestEveryCitedADRResolves catches it — which it did, on the first run of
+		// this subtest, and again on the comment that explained the first catch by
+		// spelling the number out. Describe it; do not write it.
+		var blank recorder
+		requireWrittenOverride(&blank, degenerate, map[string]string{"a-fixture-record": "   "})
+		if !blank.failed {
+			t.Error("an override whose reason is whitespace counted as written — the list would " +
+				"then be the silent exemption it exists to replace")
+		}
+		var ok recorder
+		requireWrittenOverride(&ok, degenerate, map[string]string{"a-fixture-record": "a stated reason"})
+		if ok.failed {
+			t.Error("a written override was refused, so the gate blocks the decision it is " +
+				"supposed to record")
+		}
+	})
 
 	// The falsifiability half lives INSIDE this test rather than beside it. A
 	// sibling test sits outside the acceptance fence, and `adr-verify --mutant`
@@ -236,3 +366,54 @@ func TestF6ARuleChangeInvalidatesItsBaselines(t *testing.T) {
 		}
 	})
 }
+
+// requireWrittenOverride fails unless some record has taken responsibility, in
+// writing, for shipping mechanism work with no usable baseline.
+//
+// Split out because the falsifiability subtests drive THIS function rather than a
+// copy of it. A falsifiability half that reimplements the check pins nothing:
+// severing the real one would leave it green, which this package has already
+// shipped once.
+func requireWrittenOverride(tb testing.TB, found []Baseline, overrides map[string]string) {
+	tb.Helper()
+	for record, reason := range overrides {
+		if strings.TrimSpace(reason) != "" {
+			tb.Logf("no usable baseline; shipping under a written override from %s", record)
+			return
+		}
+	}
+	var says []string
+	for _, b := range found {
+		says = append(says, fmt.Sprintf("%s says %q", b.Path, b.Verdict))
+	}
+	tb.Errorf("%d baseline file(s) and NONE usable (%s) — F-5 forbids shipping a mechanism against "+
+		"a baseline that cannot move, and a file that declares itself degenerate is not a baseline "+
+		"however well it is written. Either record one that is usable, or add an entry to "+
+		"shippedWithoutUsableBaseline naming the record that decided to ship anyway and why",
+		len(found), strings.Join(says, "; "))
+}
+
+// TestF5AnOverrideNamesItsReason refuses an override with no written reason, so
+// the list cannot become the dodge it exists to prevent.
+func TestF5AnOverrideNamesItsReason(t *testing.T) {
+	for record, reason := range shippedWithoutUsableBaseline {
+		if strings.TrimSpace(reason) == "" {
+			t.Errorf("%s overrides F-5 with no reason — the reason IS the review, and an entry "+
+				"without one is a silent exemption wearing a written one's clothes", record)
+		}
+	}
+}
+
+// recorder is a testing.TB that remembers whether it was failed, so a
+// falsifiability check can drive a gate and inspect its VERDICT rather than
+// inheriting it.
+type recorder struct {
+	testing.TB
+	failed bool
+}
+
+func (r *recorder) Errorf(string, ...any) { r.failed = true }
+func (r *recorder) Error(...any)          { r.failed = true }
+func (r *recorder) Fatalf(string, ...any) { r.failed = true }
+func (r *recorder) Helper()               {}
+func (r *recorder) Logf(string, ...any)   {}

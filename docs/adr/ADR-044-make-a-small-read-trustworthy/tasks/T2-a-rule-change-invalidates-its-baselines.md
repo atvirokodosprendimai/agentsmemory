@@ -88,3 +88,4 @@ Stop if the rule's digest cannot be computed stably — trailing whitespace, lin
   ok  	github.com/atvirokodosprendimai/agentsmemory/internal/repohygiene	0.005s [no tests to run]
   ```
 - 2026-08-29 · bb19c82* · exit 0 · `set -o pipefail …` · acceptance-sha256:feb20d104d7d6001146ed00a256b3cfab21a98ebbc69a61e4620d273f842976b
+- 2026-08-29 · 28c5fc0* · exit 0 · `set -o pipefail …` · acceptance-sha256:feb20d104d7d6001146ed00a256b3cfab21a98ebbc69a61e4620d273f842976b
