@@ -116,6 +116,46 @@ func (s *Service) supersedeInto(ctx context.Context, teamID, id, content, reason
 	if len(prepared.drawers) == 0 {
 		return SupersedeResult{}, fmt.Errorf("the correcting record produced no rows")
 	}
+
+	// ⚠ A CORRECTION MINTS. It may never reuse an id belonging to the record it is
+	// ending, and this is ADR-038's contract rather than an implementation detail:
+	// the id CHANGES, and the old text stays readable by its own id, because the
+	// version that was replaced is the thing nothing else can recover.
+	//
+	// prepareWrite reuses the id of any CURRENT row already holding a chunk's
+	// content key — deliberately, so re-filing unchanged text keeps every anchor and
+	// pointer pinned to it. But it resolves that OUTSIDE this transaction, and when
+	// a correction leaves chunk 0 byte-identical (fixing the conclusion of a long
+	// note and leaving the opening alone — the commonest correction there is) the
+	// lookup hands back the PREDECESSOR's own id. The swap below then ends that row
+	// and the insert collides with it:
+	//
+	//	save drawers: constraint failed: UNIQUE constraint failed: drawers.team_id, drawers.id
+	//
+	// Shipped 2026-08-29 in T7 and fixed here. The pre-T7 order was not correct
+	// either: writing the successor first made that reused id UPSERT the
+	// predecessor's still-current chunk 0, overwriting the row ADR-038 exists to
+	// preserve and only then ending it — silent destruction where this was a loud
+	// failure. Neither is right; minting is.
+	predecessorIDs := make(map[string]bool, len(chunks))
+	for _, c := range chunks {
+		predecessorIDs[c.ID] = true
+	}
+	remint := map[string]string{} // old id -> freshly minted id
+	for i := range prepared.drawers {
+		if predecessorIDs[prepared.drawers[i].ID] {
+			fresh := opaqueDrawerID()
+			remint[prepared.drawers[i].ID] = fresh
+			prepared.drawers[i].ID = fresh
+		}
+	}
+	// Parentage is assigned from chunk 0's id, so a reminted root has to be
+	// followed through its children or they point at the record being ended.
+	for i := range prepared.drawers {
+		if fresh, ok := remint[prepared.drawers[i].ParentID]; ok {
+			prepared.drawers[i].ParentID = fresh
+		}
+	}
 	newID := prepared.drawers[0].ID
 
 	// Vectors before the transaction, for the reason persistRows documents: the
