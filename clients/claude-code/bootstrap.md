@@ -344,11 +344,24 @@ fields exist so the other cases stop being silent — but only if you read them.
 tool that REFUSES is on none of these lists however sharp its edge: a refusal you
 can read is the system working.
 
-⚠**`am_get_drawer` RETURNS ONE CHUNK, AND IT LOOKS COMPLETE.** A memory past the
-chunk size is several drawers sharing a parent, and a search hands back only the one
-that matched. Nothing marks the fragment as partial. Pass `whole: true` when you
-mean to READ a memory rather than confirm it exists — or ask the recall itself for
-whole memories with `snippet_chars: 0`.
+⚠**`am_get_drawer` RETURNS ONE CHUNK, AND IT SAYS SO — BUT ONLY IF YOU READ THE
+FLAG.** A memory past the chunk size is several drawers sharing a parent, and a
+fetch hands back only the one you named. It now arrives marked: `content_truncated`
+with `content_length`, the WHOLE memory's rune count, so a fragment is never
+mistakable for a complete short memory. That marking is keyed on the chunk count,
+so chunk 0 of a 47-chunk memory is marked like any other — a root chunk has no
+parent, and an earlier reading that keyed on `parent_id` left exactly that case
+looking whole.
+
+Pass `whole: true` when you mean to READ a memory rather than confirm it exists.
+The flag tells you a fetch was partial; it does not complete it, and `whole: true`
+is the only completion path — there is no cursor.
+
+⚠ **This paragraph was FALSE from 2026-08-25 until 2026-08-29** and said "nothing
+marks the fragment as partial" for four days after ADR-044 T4 made it untrue. The
+installer writes this file into every agent's config directory, so a stale warning
+here teaches every new session to distrust a field that works. `TestTheShippedProtocolDoesNotSayAFragmentIsUnmarked`
+now fails if the claim comes back.
 
 **READ `resolution` ON A GRAPH ANSWER.** `am_kg_query` returning `count: 0` is not
 one answer, it is three: `matched`, `known_term_no_facts` (the graph knows the term
