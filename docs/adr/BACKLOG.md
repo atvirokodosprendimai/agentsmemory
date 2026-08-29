@@ -2515,3 +2515,46 @@ passes every check there is.
   Deferred from ADR-044 T7 §Out of Scope. Note ADR-028 T3/T4 defer the same question for
   `drawer_fetches` and `search_events`; if any of the three is answered, answer all three together,
   because a retention story for one table and not its siblings is the shape that gets rediscovered.
+
+## `CorrectionsFor` scans every correction edge on every recall — 2026-08-29
+
+Found by Mindaugas by reading `internal/palace/kg.go`, and confirmed in the source the same day.
+Filed here rather than fixed, and deliberately NOT appended to ADR-044's Follow-ups: it is a
+performance defect on a path ADR-044 touches, not an obligation ADR-044 took on.
+
+`CorrectionsFor` is the server-side sweep that replaced the three predicate queries this repo's own
+protocol tells agents to run by hand. It is consumed by both the search path
+(`internal/palace/memory_search.go`) and the bootstrap (`internal/palace/bootstrap.go`), so it runs on
+**every `am_search` and every `am_bootstrap`**. Its body loops the three correction predicates and,
+for each, calls `KGTriplesByPredicate(teamID, pred, KGStatusCurrent)` — which returns every current
+row of that predicate for the team — then discards the ones it did not ask for with an in-Go
+`if !want[row.Object] { continue }`.
+
+So the cost is three full predicate scans per recall, independent of how many record ids the caller
+actually cares about (a page's roots: on the order of ten). At today's corpus — roughly 150
+correction edges — that is invisible, which is why nothing noticed. It grows with the number of
+corrections ever filed, not with page size, and this repository's whole supersession story is an
+instruction to file MORE of them: ADR-038 ends records instead of overwriting, ADR-044 T7 makes an
+atomic correction end its predecessor. The table this scans is the one we are actively encouraging
+to grow.
+
+**The fix is reuse, not new code, and it is already in the same file.** `KGTriplesForEntities` sits
+directly below `CorrectionsFor` and does exactly the needed thing — `WHERE team_id = ? AND (subject
+IN ? OR object IN ?)`, one statement per direction, cost independent of entity count. Its doc comment
+records that it was written for precisely this shape of defect one layer over (`factsFor` issuing a
+full `KGQuery` per candidate entity). What is wanted is the same batching keyed on OBJECT and
+filtered by predicate, so the `want` map becomes a SQL `IN` rather than a Go `continue`.
+
+Two things to preserve when it is done, both of which the current shape gets right by accident:
+
+- The direction. A correction attaches to the record it corrects as an INCOMING edge, so the
+  filtered column is `object` and the id exposed as `ReplacementID` is `subject`. The doc comment
+  says this is easy to get backwards; a rewrite is exactly when it would be.
+- The authorization. `policy.Place` is called on `row.Subject`, never on `row.SourceDrawerID` —
+  `targetauth_test.go` exists because checking provenance instead both disclosed foreign
+  replacements and suppressed local ones. Any batched version must keep the check on the correcting
+  record.
+
+Not measured, and it should be before it is fixed: the claim above is read off the code, and the
+sensible before-figure is the statement count and latency of `CorrectionsFor` at current corpus size
+against a seeded one. `ADR-029`'s span vocabulary already covers the search path.
