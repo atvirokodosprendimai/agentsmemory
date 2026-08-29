@@ -112,6 +112,47 @@ func TestF1CoverageCountsEveryDisclosedRange(t *testing.T) {
 
 	// The inverse defect, as a subtest so it is inside the acceptance fence
 	// rather than a sibling the fence's -run never reaches.
+	t.Run("a memory whose own prose contains the elision marker is still 1", func(t *testing.T) {
+		// ⚠ THE SEPARATOR IS STRUCTURE IN A RENDERED SNIPPET AND CONTENT IN A MEMORY
+		// THAT QUOTES ONE, and this corpus is full of memories that quote one — review
+		// notes, adr-debt output, transcripts. Recovering the window's offsets by
+		// splitting the rendered string on " … " cuts one contiguous slice in two and
+		// loses the separator's runes to neither piece.
+		//
+		// Measured before the fix: a memory returned WHOLE reported 0.9806. The caller
+		// asked for all of it, received all of it, and was told it held 98% — this
+		// binding's own failure sentence one direction over, reachable on the live
+		// corpus today rather than hypothetically.
+		full := "The review said adr-debt … 0 broken, exit 0, and went on at length about why " +
+			"the corpus was fine, which is the sort of sentence this palace is full of."
+		if got := coveredRunes(full, nil, full); got != 1 {
+			t.Errorf("coverage for a memory returned WHOLE = %.4f, want 1 — its prose quotes an "+
+				"elision and the offsets were recovered by splitting on that marker", got)
+		}
+	})
+
+	t.Run("a later window is located after the piece before it", func(t *testing.T) {
+		// strings.Index takes the FIRST occurrence, so a later window whose text also
+		// appears earlier in the memory was located at the wrong offset. It can only
+		// under-report, which is why it was not urgent — but the recovery is ambiguous
+		// by construction and the pieces are known to arrive in order.
+		// BOTH PIECES MUST BE AMBIGUOUS or the cursor is never exercised: the first
+		// draft's second piece carried a unique tail, so it located correctly with or
+		// without the cursor and the mutant survived. Here the two pieces are the same
+		// text, which is the only shape that can tell the two implementations apart.
+		const repeated = "the same sentence appears twice. "
+		full := repeated + "filler between the two copies. " + repeated
+		content := repeated + snippetJoin + repeated
+		got := coveredRunes(content, nil, full)
+		// Both copies disclosed, the filler between them not.
+		want := float64(2*len([]rune(repeated))) / float64(len([]rune(full)))
+		if diff := got - want; diff < -0.0001 || diff > 0.0001 {
+			t.Errorf("coverage = %.4f, want %.4f — the later piece was located at the FIRST "+
+				"occurrence of its text, so its range overlapped the opening's and the union "+
+				"reported less than was disclosed", got, want)
+		}
+	})
+
 	t.Run("an overlapping region is not double counted", func(t *testing.T) {
 		content := string([]rune(full)[0:200]) + "…"
 		regions := []regionView{{Text: string([]rune(full)[50:150]), Start: 50}}

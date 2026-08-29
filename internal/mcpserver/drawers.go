@@ -1326,7 +1326,25 @@ func coveredRunes(content string, regions []regionView, full string) float64 {
 // all three, because renderSnippet only ever ADDS markers around slices it took
 // unchanged.
 func primaryRanges(content, full string) []disclosedRange {
+	// ⚠ TRY THE WINDOW WHOLE FIRST, because the separator is STRUCTURE in a
+	// rendered snippet and CONTENT in a memory that quotes an elision — and this
+	// corpus is full of memories that quote one: review notes, adr-debt output,
+	// transcripts. Splitting first cut one contiguous slice in two and gave the
+	// separator's runes to neither piece, so a memory returned WHOLE reported
+	// 0.98. Nothing about the split was wrong except that it ran unconditionally.
+	//
+	// A verbatim hit is unambiguous: renderSnippet only ever slices, so text found
+	// intact in the memory IS a disclosed slice of it, whatever markers it contains.
+	if at := strings.Index(full, content); content != "" && at >= 0 {
+		start := len([]rune(full[:at]))
+		return []disclosedRange{{start, start + len([]rune(content))}}
+	}
 	var out []disclosedRange
+	// The pieces arrive in the order they appear in the memory, so each is located
+	// AFTER the one before it. strings.Index alone takes the first occurrence, which
+	// put a later window at an earlier copy of its own text and made the two ranges
+	// overlap — under-reporting, never over, but wrong for a knowable reason.
+	cursor := 0
 	for _, piece := range strings.Split(content, snippetJoin) {
 		// Only the ellipsis, never surrounding whitespace: a space at the edge of a
 		// window IS a rune of the memory that was disclosed, and trimming it
@@ -1336,7 +1354,11 @@ func primaryRanges(content, full string) []disclosedRange {
 		if piece == "" {
 			continue
 		}
-		at := strings.Index(full, piece)
+		rel := strings.Index(full[cursor:], piece)
+		at := -1
+		if rel >= 0 {
+			at = cursor + rel
+		}
 		if at < 0 {
 			// Not provable as a slice of this memory, so not claimed. Reachable
 			// only if a render path starts rewriting text rather than slicing it,
@@ -1347,6 +1369,7 @@ func primaryRanges(content, full string) []disclosedRange {
 		}
 		start := len([]rune(full[:at]))
 		out = append(out, disclosedRange{start, start + len([]rune(piece))})
+		cursor = at + len(piece)
 	}
 	return out
 }
