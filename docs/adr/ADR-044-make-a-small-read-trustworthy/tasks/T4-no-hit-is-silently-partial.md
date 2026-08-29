@@ -40,6 +40,21 @@ Probed 2026-08-29 through the real transport (`internal/mcptest`), on a 60,238-r
 | `am_search`, `snippet_chars: 100000` | `true` | 60237 | 40000 runes |
 | **`am_get_drawer(id)`, no `whole`** | **absent** | **absent** | **1600 runes — one chunk of 47** |
 
+⚠ **CORRECTION, same day, later: the sentence below is FALSE in a shape this table did not probe.**
+Re-probed 2026-08-29 with 25 memories of 17,242 runes each (14 chunks apiece) and `limit: 25`, the
+search path served every hit as **one 1,600-rune chunk reporting `content_coverage: 1.000`,
+`content_length: 1600`, `chunks_matched: 1`, and `memory_id == id`** — a caller told it holds ALL of
+a memory while holding one fourteenth of it. That is a silent fragment on the search path, worse than
+the `am_get_drawer` one T4 fixed, because a marked fragment invites a second call and a coverage of
+1.0 forbids one. It is not marked because nothing thinks it is partial: `fullContent` is the CHUNK,
+so every derived figure is self-consistent and wrong together. The single-memory probe below did not
+see it — there `content_length` was the whole 60,237 — so the trigger is pool size or the collapse
+path (`collapseCandidatesToMemories`, flagged DRIFTED by the anchor sweep at session start), not
+memory size. Root cause NOT yet established and deliberately not guessed at; filed in `BACKLOG.md`.
+**This does not invalidate T4** — T4's marking and its three mutants stand, and the `am_get_drawer`
+defect was real and is fixed — but the table's conclusion below overstated its scope, and the
+overstatement is left visible rather than edited away.
+
 **The search path already marks every partial it produces, and that is the finding.** All three
 snippet shapes come back marked with the memory's full length, including the caller-supplied
 unclamped `snippet_chars` that was the suspected hole. So F-2's search half is largely already met,

@@ -2558,3 +2558,45 @@ Two things to preserve when it is done, both of which the current shape gets rig
 Not measured, and it should be before it is fixed: the claim above is read off the code, and the
 sensible before-figure is the statement count and latency of `CorrectionsFor` at current corpus size
 against a seeded one. `ADR-029`'s span vocabulary already covers the search path.
+
+## A search hit can report `content_coverage: 1.000` while carrying one chunk of fourteen — 2026-08-29
+
+Found while probing for ADR-044 T5, by measurement rather than by reading. Root cause NOT established
+and deliberately not guessed at; what follows is what was observed.
+
+Fixture, through the real transport (`internal/mcptest`): 25 memories, each 17,242 runes, each stored
+as **14 chunks** (confirmed from `am_add_drawer`'s own `chunks` count). One `am_search` with
+`limit: 25`. Every hit came back as:
+
+    content            1600 runes  (one chunk)
+    content_coverage   1.000
+    content_length     absent, or 1600 when a snippet cut it
+    chunks_matched     1
+    memory_id == id, chunk_index 0, parent_id absent
+
+So the response is **internally consistent and wrong together**: `fullContent` is the chunk, and
+every figure derived from it agrees with every other. Nothing is marked partial because nothing
+believes anything is missing.
+
+**This is worse than the `am_get_drawer` fragment ADR-044 T4 fixed.** A marked fragment invites a
+second call. `content_coverage: 1.000` forbids one — it is the field an agent is told to compare
+against a threshold, and it is telling the agent it has everything. An agent that trusts it stops
+looking, and the thirteen chunks it never saw are indistinguishable from thirteen chunks that do not
+exist.
+
+**What the trigger is NOT:** memory size. A single-memory probe the same afternoon, on a 60,237-rune
+memory of 47 chunks, reported `content_length: 60237` correctly — reassembly ran. The difference
+between the two probes is the number of candidate memories and the `limit`, so the suspect is the
+collapse/reassembly path, `collapseCandidatesToMemories` in `internal/palace/service.go` —
+**which the anchor sweep independently flagged as DRIFTED at the start of this session**, along with
+`searchCandidates` in `memory_search.go`. That coincidence is a lead, not a diagnosis.
+
+**Before fixing, establish which it is**, because two very different repairs follow: reassembly not
+running for candidates beyond some pool bound (a cap interacting with `limit`), versus reassembly
+running and its result being dropped on one arm. The A/B ranking arms are live here — `am_status`
+reports `unit=memory` — so "which arm served this page" is part of the question.
+
+Filed rather than fixed, and NOT folded into ADR-044: T4's marking is correct and its mutants stand,
+and this is a defect in what `fullContent` IS rather than in whether a partial says so. It plausibly
+belongs to F-4 (*a memory is ONE UNIT to its caller*), which T6 owns — but that call should be made
+with the root cause known, not from the symptom.
