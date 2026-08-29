@@ -82,7 +82,7 @@ func TestF5ABaselineNamesItsCountingRule(t *testing.T) {
 	// Shipping anyway is allowed and is not silent: it requires a written entry
 	// naming the record that decided it.
 	if usable == 0 {
-		requireWrittenOverride(t, found, shippedWithoutUsableBaseline)
+		requireWrittenOverride(t, found, shippedWithoutUsableBaseline, recordNumbers(t, repoRoot(t)))
 	}
 
 	// A baseline in a SUBDIRECTORY is found. The shipped version globbed
@@ -165,7 +165,7 @@ func TestF5ABaselineNamesItsCountingRule(t *testing.T) {
 	t.Run("shipping with no usable baseline and no override is caught", func(t *testing.T) {
 		degenerate := []Baseline{{Path: "docs/measurement/baselines/x.md", Verdict: "degenerate"}}
 		var spy recorder
-		requireWrittenOverride(&spy, degenerate, map[string]string{})
+		requireWrittenOverride(&spy, degenerate, map[string]string{}, map[string]bool{})
 		if !spy.failed {
 			t.Error("a corpus whose every baseline declares itself degenerate, with no record " +
 				"taking responsibility, was reported as satisfying F-5 — which is the exact " +
@@ -177,13 +177,17 @@ func TestF5ABaselineNamesItsCountingRule(t *testing.T) {
 		// this subtest, and again on the comment that explained the first catch by
 		// spelling the number out. Describe it; do not write it.
 		var blank recorder
-		requireWrittenOverride(&blank, degenerate, map[string]string{"a-fixture-record": "   "})
+		// The fixture key is declared live so this subtest exercises the REASON branch
+		// rather than passing on the key check, which is a different refusal.
+		requireWrittenOverride(&blank, degenerate, map[string]string{"a-fixture-record": "   "},
+			map[string]bool{"a-fixture-record": true})
 		if !blank.failed {
 			t.Error("an override whose reason is whitespace counted as written — the list would " +
 				"then be the silent exemption it exists to replace")
 		}
 		var ok recorder
-		requireWrittenOverride(&ok, degenerate, map[string]string{"a-fixture-record": "a stated reason"})
+		requireWrittenOverride(&ok, degenerate, map[string]string{"a-fixture-record": "a stated reason"},
+			map[string]bool{"a-fixture-record": true})
 		if ok.failed {
 			t.Error("a written override was refused, so the gate blocks the decision it is " +
 				"supposed to record")
@@ -374,13 +378,47 @@ func TestF6ARuleChangeInvalidatesItsBaselines(t *testing.T) {
 // copy of it. A falsifiability half that reimplements the check pins nothing:
 // severing the real one would leave it green, which this package has already
 // shipped once.
-func requireWrittenOverride(tb testing.TB, found []Baseline, overrides map[string]string) {
-	tb.Helper()
-	for record, reason := range overrides {
-		if strings.TrimSpace(reason) != "" {
-			tb.Logf("no usable baseline; shipping under a written override from %s", record)
-			return
+
+// usableBaselines counts the baselines in the live corpus that are usable under
+// the current rule — the quantity an override suspends, so the expiry check can
+// tell a spent override from a live one.
+func usableBaselines(t *testing.T) int {
+	t.Helper()
+	root := repoRoot(t)
+	found, err := Baselines(root)
+	if err != nil {
+		t.Fatalf("list baselines: %v", err)
+	}
+	n := 0
+	for _, b := range found {
+		if b.Usable() {
+			n++
 		}
+	}
+	return n
+}
+
+func requireWrittenOverride(tb testing.TB, found []Baseline, overrides map[string]string, records map[string]bool) {
+	tb.Helper()
+	// ⚠ THE KEY IS COMPARED, not just iterated. Review probe, 2026-08-29: renaming
+	// the key to "a-record-that-decided-nothing" — a string naming no record and
+	// taking no decision — left the suite GREEN. So the map was not a per-record
+	// exemption registry, it was a global boolean with a comment on it, and the
+	// next record to ship without a baseline would have been silently authorised by
+	// THIS one's entry.
+	//
+	// A key that resolves to no record is worse than no override: it reads as a
+	// decision somebody took. Same rule TestDocCitedADRExemptionsAreJustified
+	// applies to its own keys.
+	for record, reason := range overrides {
+		if strings.TrimSpace(reason) == "" {
+			continue
+		}
+		if !records[record] {
+			continue
+		}
+		tb.Logf("no usable baseline; shipping under a written override from %s", record)
+		return
 	}
 	var says []string
 	for _, b := range found {
@@ -396,7 +434,38 @@ func requireWrittenOverride(tb testing.TB, found []Baseline, overrides map[strin
 // TestF5AnOverrideNamesItsReason refuses an override with no written reason, so
 // the list cannot become the dodge it exists to prevent.
 func TestF5AnOverrideNamesItsReason(t *testing.T) {
+	root := repoRoot(t)
+	records := recordNumbers(t, root)
+	// A universe of zero cannot fail: if no record resolves, every key below would
+	// report as dangling and the message would be about this helper, not the map.
+	if len(records) == 0 {
+		t.Fatal("no ADR records resolved, so this check cannot distinguish a dangling override " +
+			"key from a broken corpus scan")
+	}
+
+	// ⚠ AN OVERRIDE THAT IS NO LONGER NEEDED IS REMOVED, NOT LEFT. readrule.go's own
+	// comment says "the override is expected to be temporary, and a temporary thing
+	// with no expiry is a permanent thing nobody decided on" — and nothing enforced
+	// the expiry. Review probe, 2026-08-29: flipping the real baseline's verdict to
+	// `usable` left both F-5 tests green with the override still present.
+	//
+	// The house precedent is one file over: TestDocCitedADRExemptionsAreJustified
+	// refuses an entry with no reason AND one where the thing it exempts is gone,
+	// because "an exemption nobody needs is one nobody re-reads". This implemented
+	// the first half only.
+	if usable := usableBaselines(t); usable > 0 && len(shippedWithoutUsableBaseline) > 0 {
+		t.Errorf("%d usable baseline(s) exist and %d override(s) are still listed. The constraint "+
+			"they suspend is satisfied, so they are dead weight that would silently authorise the "+
+			"NEXT record to ship without one. Delete the entries rather than editing them — that "+
+			"is how the constraint comes back.", usable, len(shippedWithoutUsableBaseline))
+	}
+
 	for record, reason := range shippedWithoutUsableBaseline {
+		if !records[record] {
+			t.Errorf("%s overrides F-5 and resolves to no record in the corpus. A key that names "+
+				"nothing reads as a decision somebody took; keyed this way the map is a global "+
+				"boolean, and the next record with no baseline is authorised by this entry", record)
+		}
 		if strings.TrimSpace(reason) == "" {
 			t.Errorf("%s overrides F-5 with no reason — the reason IS the review, and an entry "+
 				"without one is a silent exemption wearing a written one's clothes", record)
