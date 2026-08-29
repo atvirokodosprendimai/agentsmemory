@@ -65,7 +65,7 @@ That is `add_drawer` trimming the fixture's trailing space at write, not a repor
 verified by fetching the memory whole. The binding names an off-by-one as a kill-case, so it is worth
 recording that the corpus was checked for one and does not have it.
 
-## OPEN — the cost question this task must answer before it can be finished
+## RESOLVED — the cost question, and why option 1 stopped being expensive
 
 Marking `am_get_drawer`'s chunk needs the memory's full rune length, and **nothing on the row carries
 it**. Reassembly removes chunk overlap, so it is not the sum of the stored chunk lengths; computing
@@ -80,8 +80,40 @@ honest options are:
 3. Add a cheap metadata query (chunk count, and a stored length if one can be maintained) — a
    `palace` change, outside this task's declared Affected Files.
 
-Unresolved. Recorded rather than decided quietly, because option 2 silently repeals a comment that
-exists to forbid it.
+**Resolved as option 1, and the objection to it was mispriced.** "Defeats the record's own purpose"
+assumed the purpose is that `am_get_drawer` be CHEAP. It is not — the record retracted that framing
+before it was written. The purpose is that a small read be TRUSTWORTHY, and the asymmetry it rests on
+is that server-side bytes are cheap while an agent's context is not. Loading a memory server-side to
+report one number, and returning one chunk, spends in the right direction.
+
+The parity argument is what settles it rather than the principle. The SEARCH path already reassembles
+every candidate memory on every recall (`internal/palace/memory_search.go`, `representative.MemoryContent`),
+so this is the cost of a path already measured, not a new class of it. `palace.MemorySize` reuses
+`GetMemory` and `reassembleMemory` rather than adding a second reassembly.
+
+Option 2 is rejected for the reason it was flagged: `drawerView`'s comment forbidding a lone
+`content_truncated` is honoured here, not repealed. Option 3's stored-length column is not needed and
+would have been a migration — 00037 stays free, as the ADR's Rollback section reserves.
+
+**Why the sum of the chunks is not the answer, measured rather than assumed:** a 60,237-rune memory
+is stored as 47 chunks whose lengths sum to roughly 75,200. Chunk overlap is removed at reassembly,
+so the sum is an upper bound. Reporting it would be a wrong number rather than a missing one, which
+is the direction this record exists to avoid.
+
+## Additions to Affected Files, recorded rather than made silently
+
+| File | Change | Why it was not in the table at authoring |
+|------|--------|------------------------------------------|
+| `internal/palace/service.go` | add `MemorySize` | The table assumed F-2 was a transport-only change, because it assumed the defect was on the search path. The live defect is on `am_get_drawer`, whose marking needs the memory's length — a `palace` question, since `reassembleMemory` is `palace`'s and duplicating it in `mcpserver` would be the second implementation this codebase's own comment on `CorrectionsFor` warns about |
+| `internal/mcptest/regions_test.go` | add `TestScenarioAFetchedChunkSaysItIsOne` | Same reachability constraint as T3: `mcptest` imports `mcpserver`, so the F-2 binding can drive the marking but never the handler that selects it. The ROOT-chunk mutant is killed there and NOT by the binding |
+
+**Rung 3 has no mechanical backstop here, and that is a deliberate outcome of reusing `memory_id`.**
+No new `omitempty` key was added — the fetch id is the id the caller already passed, and
+`am_get_drawer(id, whole: true)` is the completion path — so
+`TestEveryOmitemptyWireKeyInThisPackageIsDescribed` does not fire. The `am_get_drawer` description was
+extended by hand to state that an unmarked response is complete and a marked one is not. Written down
+because a requirement no gate can see is exactly how a task goes green with its work unmet — the same
+shape as T3's step 5.
 
 ## Acceptance
 
@@ -112,6 +144,13 @@ satisfied by the already-green one alone, which is the aggregate-gate hole the t
 ## Mutation Log
 
 <!-- Tool-written by `adr-verify --mutant`. Empty at authoring. -->
+- 2026-08-29 · de0c6a5* · mutant inconclusive · exit 1 · `internal/mcpserver/drawers.go` · the ROOT-chunk mutant: keying the marking on ParentID instead of the chunk count leaves chunk 0 of a 47-chunk memory unmarked — the exact case measured on 2026-08-29, and the one a reader would implement by reflex. F-2 kill-case: restoring a silent fragment · acceptance-sha256:1ac2b0e23e0901ac96a0fc051401bb605073cf9484260276d8d8c0328cd03bcb
+  ```
+  the fence failed on a build/parse error, not an assertion
+  ```
+- 2026-08-29 · de0c6a5* · mutant killed · exit 1 · `internal/mcpserver/drawers.go` · the off-by-one the binding names: reporting the FRAGMENTS length instead of the memorys, so a caller comparing what it holds against what exists concludes it holds all of it · acceptance-sha256:1ac2b0e23e0901ac96a0fc051401bb605073cf9484260276d8d8c0328cd03bcb
+- 2026-08-29 · de0c6a5* · mutant killed · exit 1 · `internal/mcpserver/drawers.go` · the ROOT-chunk mutant: also requiring a ParentID leaves chunk 0 of a 47-chunk memory unmarked — the exact case measured on 2026-08-29, and the one a reader would implement by reflex since a root chunk has no parent and chunk_index 0. F-2 kill-case: restoring a silent fragment · acceptance-sha256:1ac2b0e23e0901ac96a0fc051401bb605073cf9484260276d8d8c0328cd03bcb
+- 2026-08-29 · de0c6a5* · mutant killed · exit 1 · `internal/mcpserver/drawers.go` · a silent fragment restored: the length is reported and the flag is not, so a caller scanning for content_truncated sees nothing and reads the response as complete. drawerViews own comment requires both fields or neither · acceptance-sha256:1ac2b0e23e0901ac96a0fc051401bb605073cf9484260276d8d8c0328cd03bcb
 
 ## Invariants
 
@@ -145,3 +184,4 @@ Stop if the fetch id available at render time does not address the whole memory 
   FAIL	github.com/atvirokodosprendimai/agentsmemory/internal/mcpserver	0.019s
   FAIL
   ```
+- 2026-08-29 · de0c6a5* · exit 0 · `set -o pipefail …` · acceptance-sha256:1ac2b0e23e0901ac96a0fc051401bb605073cf9484260276d8d8c0328cd03bcb

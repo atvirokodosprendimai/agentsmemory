@@ -417,7 +417,7 @@ func recordFetchJoin(ctx context.Context, drawers *palace.Service, teamID string
 // registerGetDrawer: fetch one drawer by id.
 func registerGetDrawer(reg *registrar, drawers *palace.Service, usageSvc *usage.Service) {
 	tool := newTool("get_drawer",
-		mcp.WithDescription("Fetch a drawer by its id. A memory longer than ~1600 characters is stored as several chunks and a search returns the ONE that matched; pass whole=true to get every chunk of that memory, in order, so you can read the note as it was written."),
+		mcp.WithDescription("Fetch a drawer by its id. A memory longer than ~1600 characters is stored as several chunks and a search returns the ONE that matched; pass whole=true to get every chunk of that memory, in order, so you can read the note as it was written. A response you did NOT ask to be whole says whether it is one: content_truncated is set with content_length, the whole memory's rune count, whenever the drawer you asked for is a chunk of a longer memory — so a fragment is never mistakable for a complete short memory. Complete it by calling this tool again with the same id and whole=true; that is the only completion path, and no cursor or offset exists."),
 		mcp.WithString("id", mcp.Required(), mcp.Description("The drawer id returned by am_add_drawer or am_search.")),
 		mcp.WithBoolean("whole", mcp.Description("Return every chunk of the memory this drawer belongs to, in order, instead of just this one. Any chunk's id works — you do not need the first.")),
 		mcp.WithString("search_id", mcp.Description("Optional: the search_id of the am_search page that led you to this memory. It is recorded on the request's trace span AND, since ADR-028 T3, durably against the drawer this call returned — so the recall that sent you here becomes a relevance signal. Nothing changes in what you get back. A fetch that does not resolve records nothing, and an id that is not the shape am_search mints is refused rather than stored.")),
@@ -478,7 +478,30 @@ func registerGetDrawer(reg *registrar, drawers *palace.Service, usageSvc *usage.
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 		recordFetchJoin(ctx, drawers, t.TeamID, req, d.ID, false)
-		return jsonResult(toView(d)), nil
+		v := toView(d)
+		// ADR-044 F-2: a fragment a caller cannot tell is a fragment.
+		//
+		// Without whole:true this returns ONE chunk, and until now it said nothing
+		// about that — content_truncated and content_length both absent, which is
+		// byte-for-byte what a complete short memory looks like. The team's own
+		// operating protocol had to warn about it in prose ("it looks complete"),
+		// and a warning an agent must have read is what this field replaces.
+		//
+		// Keyed on the chunk COUNT, never on ParentID: the root chunk of a
+		// multi-chunk memory has no parent and chunk_index 0, so a parent test
+		// leaves exactly the case this exists for unmarked.
+		//
+		// Fails OPEN and says so in the trace: a size lookup that errors must not
+		// turn a working read into an error, but an UNMARKED fragment is the defect
+		// itself, so it cannot pass silently either.
+		if full, n, err := drawers.MemorySize(ctx, t.TeamID, d.ID); err != nil {
+			telemetry.Annotate(ctx, attribute.Bool("am.memory_size_failed", true))
+			slog.Warn("memory size lookup failed; drawer returned without its partial marking",
+				"error", err, "drawer", d.ID)
+		} else if n > 1 {
+			partialWithFetchID(&v, full)
+		}
+		return jsonResult(v), nil
 	})
 }
 
@@ -664,8 +687,7 @@ func registerListDrawers(reg *registrar, drawers *palace.Service, usageSvc *usag
 			// opening line is what its author wrote to say what the memory is.
 			if head, cut := headWithin(d.Content, palace.DefaultSnippetChars, responseBudget-spent); cut {
 				views[i].Content = head
-				views[i].Truncated = true
-				views[i].FullLength = len([]rune(d.Content))
+				partialWithFetchID(&views[i], len([]rune(d.Content)))
 				trimmed++
 			}
 			spent += len([]rune(views[i].Content))
@@ -1293,4 +1315,22 @@ func unionLen(ranges []disclosedRange, total int) int {
 	}
 	flush(cur)
 	return sum
+}
+
+// partialWithFetchID marks a view as carrying less than its whole memory.
+//
+// One marking, so the three sites that set these fields by hand cannot drift
+// apart. Both fields together, which drawerView's own comment requires:
+// "truncated" without the original length tells a caller something is missing and
+// not how much, which is not enough to decide whether to fetch it.
+//
+// The fetch id is the view's OWN id and is deliberately not a new wire key.
+// am_get_drawer(id, whole: true) completes the memory from any chunk's id, so the
+// caller already holds the pointer it needs — and ADR-044's primitives audit says
+// not to invent a second vocabulary for an idea the response already carries.
+// What was missing was never the id; it was the statement that the id is worth
+// using.
+func partialWithFetchID(v *drawerView, full int) {
+	v.Truncated = true
+	v.FullLength = full
 }

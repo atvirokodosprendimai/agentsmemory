@@ -2413,3 +2413,34 @@ func (s *Service) WingNames(ctx context.Context, teamID string) ([]string, error
 func (s *Service) InboxCount(ctx context.Context, teamID, wing, room string) (int, error) {
 	return s.repo.InboxCount(ctx, teamID, wing, room)
 }
+
+// MemorySize reports the rune length of the whole logical memory a chunk belongs
+// to, and how many chunks it is stored in.
+//
+// It exists for ADR-044 F-2: am_get_drawer without whole:true hands back ONE
+// chunk, and a fragment a caller cannot tell is a fragment is the defect that
+// record is about. Marking it needs the memory's full length, and no row carries
+// one — reassembly removes chunk overlap, so the length is neither the chunk's
+// nor the sum of the chunks'. Measured 2026-08-29: a 60,237-rune memory is stored
+// as 47 chunks whose lengths sum to ~75,200, so the sum is an upper bound and
+// reporting it would be a wrong number rather than a missing one.
+//
+// So it reassembles, and that is a deliberate trade rather than an oversight. The
+// SEARCH path already reassembles every candidate memory on every recall
+// (memory_search.go, representative.MemoryContent), so this is parity with the
+// path already measured, not a new class of cost. What it buys is the asymmetry
+// ADR-044 rests on: server-side bytes are cheap and an agent's context is not, so
+// loading a memory to report ONE number while returning one chunk is the right
+// direction to spend in.
+//
+// The count is returned beside the length because a caller marking a fragment
+// must key on "this memory has more than one chunk" and NOT on ParentID: the ROOT
+// chunk of a 47-chunk memory has no parent and chunk_index 0, so a ParentID test
+// leaves exactly the case this was written for unmarked.
+func (s *Service) MemorySize(ctx context.Context, teamID, id string) (length, chunks int, err error) {
+	cs, err := s.GetMemory(ctx, teamID, id)
+	if err != nil {
+		return 0, 0, err
+	}
+	return len([]rune(reassembleMemory(cs))), len(cs), nil
+}

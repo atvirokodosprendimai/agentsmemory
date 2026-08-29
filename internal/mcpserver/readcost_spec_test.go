@@ -132,12 +132,48 @@ func addressable(n int) string {
 }
 
 func TestF2NoHitIsSilentlyPartial(t *testing.T) {
-	t.Fatalf(readCostNotYetBuilt, "F-2 (UC1-S2): a hit that does not carry its whole memory must "+
-		"say so, report the full length, and carry the id that fetches the rest — never a fragment "+
-		"a caller cannot tell is a fragment. Note `am_search` has limit but no cursor "+
-		"(drawers.go:786-800), so 'fetch the rest' means am_get_drawer, not paging. Kill it by "+
-		"restoring a silent fragment, or by an off-by-one in the reported length")
+	// The marking, not the paths that call it: partialWithFetchID is the single
+	// place the three hand-written sites were unified into, so this is where an
+	// off-by-one or a half-set pair would live.
+	t.Run("a marked view carries both fields, never one", func(t *testing.T) {
+		var v drawerView
+		v.Content = "a fragment"
+		partialWithFetchID(&v, 60237)
+		if !v.Truncated {
+			t.Error("a view that carries less than its memory is not marked — a caller reads an " +
+				"unmarked response as complete, which is the whole defect")
+		}
+		if v.FullLength != 60237 {
+			t.Errorf("content_length = %d, want 60237. drawerView's own comment requires both "+
+				"fields or neither: \"truncated\" without the original length says something is "+
+				"missing and not how much, which is not enough to decide whether to fetch it",
+				v.FullLength)
+		}
+		if v.ID != "" {
+			t.Error("the marking invented an id; the fetch id is the view's own, which the " +
+				"caller already holds")
+		}
+	})
+
+	t.Run("the reported length is the memory's, not the fragment's", func(t *testing.T) {
+		// The binding's named kill-case. A marking that reported len(content) would
+		// tell a caller the fragment it holds IS the memory.
+		var v drawerView
+		v.Content = "1600 runes worth of chunk"
+		partialWithFetchID(&v, 60237)
+		if v.FullLength == len([]rune(v.Content)) {
+			t.Errorf("content_length = %d, the length of the fragment rather than of the memory "+
+				"— a caller comparing what it holds against what exists would conclude it holds "+
+				"all of it", v.FullLength)
+		}
+	})
 }
+
+// The ROOT-chunk case — a marking keyed on ParentID would leave chunk 0 of a
+// 47-chunk memory looking complete — is driven against the REAL am_get_drawer in
+// internal/mcptest (TestScenarioAFetchedChunkSaysItIsOne). It cannot live here:
+// mcptest imports this package, so a binding in package mcpserver can exercise
+// the marking but never the handler that selects it.
 
 func TestF4ChunkingCreatesNoReassemblyObligation(t *testing.T) {
 	t.Fatalf(readCostNotYetBuilt, "F-4 (UC1-S3): a caller never joins chunks to obtain a memory's "+
