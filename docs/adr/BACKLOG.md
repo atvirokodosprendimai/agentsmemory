@@ -2999,3 +2999,123 @@ The absence-class probes left two rows in `am_recall_stats`: one search against 
 which will appear in `unanswered` and `suggestions` for 24h and reads like a real project to anyone
 scanning the list cold, and one deliberately over-filtered query that reads as unanswered. Both are
 noise from this exercise. Discount them, or remove them if a route exists that is not destructive.
+
+## The corpus holds ONE `mutant killed` whose exit code contradicts its own detection path — 2026-08-29
+
+Swept after a quality-harness session found a FALSE KILL in its own tool: a fence pointed at
+`nosuchrunner` exited 127, matched no build-broken pattern, and fell through to
+`mutant killed · a test went red`. An absent runner recorded as evidence that a suite noticed a
+broken mechanism — and it predated the report. Their fix routes it to `environment_failure`.
+
+**The retroactive consequence is what made this worth sweeping: a `killed` row is worse than no row,
+because the tool-written stamp is what makes it trusted.** Every mutation-log entry written on a
+machine with a missing or misnamed runner is suspect.
+
+**This corpus is clean of the 127 signature.** Measured 2026-08-29 on `main`:
+
+```
+grep -rho 'mutant [a-z]* · exit [0-9]*' docs/adr --include='*.md' | sort | uniq -c
+  195  mutant killed · exit 1
+   39  mutant survived · exit 0
+    6  mutant inconclusive · exit 1
+    1  mutant killed · exit 2
+grep -rn 'exit 127' docs/adr --include='*.md'   →  no matches
+```
+
+**But the single exit-2 row does not survive reading, and exit 2 is the ambiguous code** — from a
+gate it can mean "I refuse this" or "I could not run".
+
+`ADR-021-.../tasks/T3-does-the-instruction-change-the-answer.md:98` —
+`2026-08-25 · 8c3167d* · mutant killed · exit 2 · README.md`, for a typo mutation that should make
+`TestReadmeNamesEveryInstallableAgent` fail.
+
+Its fence is a `docker run … sh -c 'set -e; …'` whose detection works like this:
+
+```
+go test … -run "TestReadmeNamesEveryInstallableAgent" … | tee /tmp/a21t3.out
+grep -q -- "--- PASS: TestReadmeNamesEveryInstallableAgent" /tmp/a21t3.out
+```
+
+The `go test` is PIPED, so its status is `tee`'s and `set -e` does not fire there. **The detection is
+the `grep -q` finding no PASS line — and `grep` exits 1 on no-match.** So a genuine kill by this
+fence exits **1**, which is what the other 195 rows show. `grep` exits **2** on a FILE ERROR. The one
+row at exit 2 therefore carries an exit code inconsistent with the path it claims to have taken.
+
+**NOT established: that it is a false kill.** The tree was dirty at the time (`8c3167d*`), the fence
+also runs `apk add`, `go vet`, a second `grep` against `internal/web/windows-guide.md` and a full
+`go test ./...`, and any of those could produce a 2 by a route not reconstructed here. What is
+established is that the row deserves the second look the other 195 do not, and that nobody has given
+it one.
+
+**RUN, 2026-08-30 at `0ebdad2`: the kill path exits 1.** Applied the mutation this row describes —
+typoed both `--agent claude-desktop` occurrences in `README.md` — and ran T3's Acceptance fence
+verbatim, tree clean before and after:
+
+```
+FENCE_EXIT=1
+installer_test.go:1880: README.md never shows `--agent claude-desktop`, so a reader cannot tell the kit installs for it
+--- FAIL: TestReadmeNamesEveryInstallableAgent (0.00s)
+```
+
+It fails exactly where this entry predicted, at the `grep -q -- "--- PASS: …"` line. The recorded
+`exit 2` is now measurably inconsistent with the path this fence takes when it kills. **Still not
+established that the row is false** — the tree was dirty at `8c3167d*`, and the reproduction rules
+out the detection path, not every other command in the fence. ADR-021 T3 is still pending on its
+human-observed half, so the task is live rather than archived.
+
+**The general rule, worth more than this row:** a fence's detection path has a KNOWN exit code, and
+an entry whose code differs took a different path. `exit 127` is the signature to grep for first;
+`exit 2` from a gate is the one that needs reading rather than grepping.
+
+## `! grep …` cannot fail a `set -e` fence, and 50 of our vacuity guards are written that way — 2026-08-30
+
+Found while reading the fence above. POSIX specifies that `set -e` is IGNORED for a command whose
+exit status is inverted with `!`. So the guard every fence here writes to mean *"the output must not
+contain a failure marker"* fires and the script carries straight on:
+
+```
+$ printf 'FAIL\n' > /tmp/x.out
+$ sh   -c 'set -e; ! grep -q FAIL /tmp/x.out; echo REACHED; exit 7'   -> REACHED, rc=7
+$ bash -c 'set -e; ! grep -q FAIL /tmp/x.out; echo REACHED; exit 7'   -> REACHED, rc=7
+$ sh   -c 'set -e;   grep -q NOPE /tmp/x.out; echo REACHED; exit 7'   -> rc=1   (control)
+```
+
+Both shells. The `! grep … && next` form is inert for the same reason — the `&&` short-circuits and
+the script continues.
+
+**Two forms, and only one is broken.** Swept `docs/adr/**/*.md` by fence block:
+
+| | count |
+|---|---|
+| guards inside an `&&` chain with no `set -e` (short-circuits — **works**) | 5 |
+| guards inside a `set -e` script (**inert**) | 50 |
+| inert **and** the only detector in that block | **0** |
+
+⚠ **NOTHING IS BROKEN TODAY, and that is the finding's actual shape rather than a softening of it.**
+Every one of the 50 sits beside a POSITIVE assertion — `grep -q -- "--- PASS: …"` or
+`grep -q "^ok"` — and a lane that scored no tests prints neither, so the positive check already
+catches the vacuous case the negated one was written for. The `! grep` line is redundant, not
+load-bearing. That redundancy is precisely why its inertness never produced a failure anyone
+investigated.
+
+It is a **latent hazard, not a live defect**: it READS like the vacuity check, and the first fence
+written or edited without the positive assertion beside it loses the vacuity check silently. The
+un-negated form costs nothing:
+
+```bash
+if grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/out; then exit 1; fi
+```
+
+**Why this is the same finding as the classifier one, from the other side.** PR #117 records that
+`adr-verify` cannot tell a fence that scored no tests and PASSED (vacuous — inconclusive is right)
+from one that scored no tests and FAILED BECAUSE IT DETECTED THAT (a kill). This is the guard that
+was supposed to produce the second case, unable to produce it at all inside `set -e`. Reported to
+the quality-harness session 2026-08-30.
+
+**Not gated.** A check would have to parse a fence block, tell a `set -e` script from an `&&` chain,
+and decide whether a positive assertion covers the same lane — and with zero live offenders it would
+be a gate against a hypothesis. Recorded here so the next fence author reaches for the `if` form; a
+gate earns its place the day an offender exists.
+
+**The general rule:** a guard that has never fired is not evidence that it works. Before trusting
+one, make its condition true and watch the exit code.
