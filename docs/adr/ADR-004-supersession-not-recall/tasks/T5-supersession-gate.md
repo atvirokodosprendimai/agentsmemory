@@ -35,7 +35,7 @@ Make ADR-004's acceptance criterion executable: one command that reads a report 
 ## Acceptance
 
 ```bash
-docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'go vet ./... && go test ./internal/palace/ ./cmd/server/ -run "TestSupersessionGate" -count=1'
+docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'go vet ./... && go test ./internal/palace/ ./cmd/server/ -run "TestSupersessionGate|TestGatedArm|TestServiceReportsItsOwnGatedArm" -count=1'
 ```
 
 ## Tests
@@ -62,6 +62,14 @@ docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v 
 - At the floor a verdict can flip on one label — 10/30 is `unresolved`, 11/30 is `justified`. Mitigation: the command prints that distance beside the verdict, so nobody reads a one-case margin as a settled answer; the fix is more verified pairs, never a different rule.
 - The non-inferiority margin is set by the instrument, so a band that costs up to 0.05 MRR reads as free. Mitigation: the measured delta prints beside the verdict, and the ADR carries a follow-up to re-derive the margin when the case set can resolve less.
 
+- ⚠ **THE FENCE SELECTED ONLY HALF THIS TASK'S MECHANISM UNTIL 2026-08-28.** It ran
+  `TestSupersessionGate*`, which drives `SupersessionVerdict` and never reaches `Service.gatedArm` —
+  so returning a named arm where none reconstructs the served ranking, the exact defect
+  `SupersessionGatedArmFor`'s doc comment says "is how the gate judged a pipeline nobody runs",
+  passed this task's gate. Verified: mutating `case closetOn: return ""` to `return ArmHybridCloset`
+  SURVIVED the old fence and is killed by `TestGatedArmReconstructsTheServedRanking`, which already
+  existed in `internal/palace/gatedarm_test.go` and was simply not selected. The fence now names it.
+
 ## Stop Condition
 
 Stop if fewer than `supersessionMinCases` verified, non-vacuous pairs exist once T2 has run — per the ADR's Decision the response is more dated corrections in the corpus, and lowering the floor to reach a verdict needs an explicit human decision to overrule this ADR. Stop too if the gated arm is missing from the report — whether the run was degraded or the constant has gone stale behind an ADR-003 change — because picking a replacement arm at read time would reintroduce exactly the selection this task removes.
@@ -78,5 +86,13 @@ Stop if fewer than `supersessionMinCases` verified, non-vacuous pairs exist once
 - 2026-08-20 · 8602da5 · exit 0 · `docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'go vet ./... && go test ./internal/palace/ ./cmd/server/ -run "TestSupersessionGate" -count=1'`
 - 2026-08-20 · 829d1d5 · exit 0 · `docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'go vet ./... && go test ./internal/palace/ ./cmd/server/ -run "TestSupersessionGate" -count=1'`
 - 2026-08-20 · 9b72924 · exit 0 · `docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'go vet ./... && go test ./internal/palace/ ./cmd/server/ -run "TestSupersessionGate" -count=1'`
+- 2026-08-28 · 023c208 · exit 0 · `docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'go vet ./... && go test ./internal/palace/ ./cmd/server/ -run "TestSupersessionGate" -count=1'` · acceptance-sha256:1eb71064269a5192b2883e619203fcc25753f032f52eed87f9146683c046348b
+- 2026-08-28 · 098580d · exit 0 · `docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'go vet ./... && go test ./internal/palace/ ./cmd/server/ -run "TestSupersessionGate|TestGatedArm|TestServiceReportsItsOwnGatedArm" -count=1'` · acceptance-sha256:22e0cfc1f6908bda8c6f02977a6243837959d60ab0122c9fa5959e53ee0edf85
 
 ## Mutation Log
+- 2026-08-28 · f1b7b0e · mutant survived · exit 0 · `internal/palace/evalstats.go` · naming the nearest arm when none reconstructs the served ranking is exactly how the gate came to judge a pipeline nobody runs · acceptance-sha256:1eb71064269a5192b2883e619203fcc25753f032f52eed87f9146683c046348b
+  ```
+  the fence passed with the mechanism broken
+  ```
+- 2026-08-28 · f1b7b0e* · mutant killed · exit 1 · `internal/palace/evalstats.go` · two defensible treatments of an unretrieved correction that DISAGREE must resolve to unresolved, not to whichever one was computed first — a gate that picks a side silently reports a verdict the evidence does not support · acceptance-sha256:1eb71064269a5192b2883e619203fcc25753f032f52eed87f9146683c046348b
+- 2026-08-28 · 6cab8e5 · mutant killed · exit 1 · `internal/palace/evalstats.go` · naming the nearest arm where none reconstructs the served ranking — the defect that survived this fence until it selected the gatedArm tests · acceptance-sha256:22e0cfc1f6908bda8c6f02977a6243837959d60ab0122c9fa5959e53ee0edf85

@@ -48,6 +48,22 @@ jobs:
       - name: Test
         run: go test ./...
 
+      # The race detector is a separate step, not a flag on the run above: the
+      # two answer different questions, and keeping them apart means a red build
+      # says which one failed. This workflow carries its own gate rather than
+      # leaning on build.yml because the two run independently by design — a tag
+      # publishes from here whatever the sibling workflow is doing.
+      # -timeout for the same reason as build.yml: the default is 10 minutes PER
+      # PACKAGE and the instrumented suite exceeds it on a CI runner.
+      - name: Race
+        run: go test -race -timeout=30m ./...
+
+      # The runtime stage installs packages, so its layer EXECUTES on the target
+      # architecture; without QEMU the arm64 build dies with "exec format error".
+      # Only that small apk layer is emulated — the Go build is cross-compiled by
+      # the $BUILDPLATFORM-pinned builder stage (see Dockerfile).
+      - uses: docker/setup-qemu-action@v3
+
       - uses: docker/setup-buildx-action@v3
 
       - name: Log in to GHCR
@@ -66,10 +82,17 @@ jobs:
             type=semver,pattern={{version}}
             type=raw,value=latest
 
+      # linux/arm64 alongside amd64: an arm64 host (Apple Silicon, Graviton, a
+      # Pi) could not pull a released image at all before this — `docker pull`
+      # failed with "no matching manifest", so the only route was building from
+      # source. Publishing both makes the manifest an index and costs nothing
+      # extra in GHCR. The runtime dependencies of the compose shapes are all
+      # multi-arch already, so the image was the sole blocker.
       - uses: docker/build-push-action@v6
         with:
           context: .
           push: true
+          platforms: linux/amd64,linux/arm64
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |

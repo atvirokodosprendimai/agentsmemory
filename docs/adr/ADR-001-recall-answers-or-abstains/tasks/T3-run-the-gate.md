@@ -36,8 +36,16 @@ Acceptance is human-observed: the gate needs a populated palace, a live reranker
 
 ```text
 ~/.claude/bin/adr-verify docs/adr/ADR-001-recall-answers-or-abstains/tasks/T3-run-the-gate.md \
-  --human "corpus <n> drawers, retrieval ceiling in-pool <c>%; gate run on hard negatives: <n> verified-absent (<n> dropped), <n> reachable-answerable; answer_at=<x> refuse_below=<y>; refusal <k>/<n> = <r>, 90% Wilson lower bound <b> against the declared 0.30; absent cases below refuse_below = <n>; eval --calibrate --gate exit <0|1>; recorded in evidence/abstain-gate-2026-08.md; decision <ship|withdraw>"
+  --human "corpus <n> drawers, retrieval ceiling in-pool <c>%; gate run on hard negatives: <n> verified-absent (<n> dropped), <n> reachable-answerable; answer_at=<x> refuse_below=<y>; refusal <k>/<n> = <r>, 90% Wilson lower bound <b> against the declared 0.30; absent cases below refuse_below = <n>; eval --calibrate --gate exit <0|1>; recorded in evidence/abstain-gate-2026-08.md; decision <ship|withdraw|blocked>"
 ```
+
+⚠ **`blocked` is the third value and it is not decoration.** A run can END WITHOUT DECIDING — this
+task's preflight disqualifies a saturated corpus, and the 2026-08-22 run hit exactly that: the gate
+ran, exited 1, and the honest verdict was neither ship nor withdraw. The first version of this hint
+offered two values, so that outcome went into free text where no tool reads it, and every routing
+tool went on reporting the task done. `TestAHumanObservedSignOffAgreesWithTheIndex` now requires the
+sign-off to name one of the three and the sibling README to carry the status it maps to
+(`ship`→`done`, `withdraw`→`failed`, `blocked`→`blocked`).
 
 ## Tests
 

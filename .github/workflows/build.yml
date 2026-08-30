@@ -63,6 +63,25 @@ jobs:
         run: go vet ./...
       - name: Test
         run: go test ./...
+      # Nothing in this repo ran the race detector until now — not CI, not an
+      # ADR fence, not a Makefile — so a change that introduced a goroutine had
+      # no path that would ever have asked. The suite was already race-clean
+      # when measured, which makes this an ENFORCEMENT gap rather than a bug
+      # fix: the point is that the next unsynchronised access fails here instead
+      # of in production. Kept as its own step rather than a flag on the run
+      # above so a red build says which of the two failed, and because -race
+      # needs cgo while several other paths deliberately build with CGO_ENABLED=0.
+      #
+      # -timeout is not decoration and must not be dropped back to the default.
+      # go test allows 10 minutes PER PACKAGE, and instrumentation blows through
+      # it: internal/palace measures 15.7s plain and 108.8s under -race locally
+      # (6.9x), and the runner is slower again, so the first CI run of this step
+      # died at exactly 600s with "test timed out" — no data race anywhere in the
+      # log, and the test it interrupted had been going four seconds. A timeout
+      # exists to catch a HANG, not to bound a legitimately slow instrumented
+      # suite, so it is raised rather than the suite trimmed.
+      - name: Race
+        run: go test -race -timeout=30m ./...
       - name: Contract-axis
         run: go test -tags contractaxis ./internal/mcptest
 

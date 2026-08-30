@@ -102,6 +102,12 @@ jobs:
       - name: Test
         run: go test ./...
 
+      # The runtime stage installs packages, so its layer EXECUTES on the target
+      # architecture; without QEMU the arm64 build dies with "exec format error".
+      # Only that small apk layer is emulated — the Go build is cross-compiled by
+      # the $BUILDPLATFORM-pinned builder stage (see Dockerfile).
+      - uses: docker/setup-qemu-action@v3
+
       - uses: docker/setup-buildx-action@v3
 
       - name: Log in to GHCR
@@ -118,7 +124,11 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          platforms: linux/amd64
+          # A preview exists to be deployed somewhere before it is merged, and
+          # this team's own host is arm64 — an amd64-only preview cannot be run
+          # on the machine the summary below tells you to run it on. Building
+          # both keeps the "deploy the immutable digest" instructions true.
+          platforms: linux/amd64,linux/arm64
           outputs: type=image,name=${{ steps.identity.outputs.image }},push-by-digest=true,name-canonical=true,push=true
           labels: |
             org.opencontainers.image.revision=${{ steps.identity.outputs.source_sha }}
@@ -131,6 +141,13 @@ jobs:
       # The readable tag includes both the PR number and the complete container
       # digest. A different rebuild necessarily gets a different tag. Preserve
       # the source manifest format so the tag resolves to the digest in its name.
+      #
+      # Now that the build is multi-platform that source digest is an INDEX
+      # digest rather than a single manifest's, which is why --prefer-index=false
+      # still earns its place: the flag only forces the single-manifest case not
+      # to be wrapped, so an index source is copied unchanged and the equality
+      # asserted below holds for either shape. If that ever stops being true the
+      # `test` fails loudly here rather than publishing a tag pointing elsewhere.
       - name: Add digest-derived PR tag
         id: publish
         shell: bash

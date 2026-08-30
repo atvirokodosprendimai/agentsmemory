@@ -8,6 +8,7 @@ import (
 	"go/types"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -457,5 +458,56 @@ func TestEveryCatalogToolIsNamedInTheReadme(t *testing.T) {
 		if !rows[name] {
 			t.Errorf("the server registers %s and no README table row lists it; a tool absent from the table is undiscoverable to a reader who cannot query the server", name)
 		}
+	}
+}
+
+// TestEveryToolTheServedBootstrapDocNamesIsRegistered closes the reverse arrow on
+// the one document this server hands an agent before it knows anything.
+//
+// ⚠ internal/web/bootstrap-memory.md IS go:embed-ed AND SERVED at
+// /bootstrap-memory. It is the first thing a new agent reads, and it is a list of
+// tool names — which makes every name in it a promise the catalogue has to keep.
+// ADR-038 took erasure off the agent surface and the doc kept advertising
+// `am_delete_drawer` for it: an agent following the bootstrap would call a tool
+// that does not exist, and nothing failed. The existing guide test asserts the
+// page SERVES and contains some expected strings, which is the half that already
+// worked.
+//
+// The universe is the real catalogue on one side and the real document on the
+// other, so a tool renamed tomorrow joins this check on the same commit. It runs
+// one direction only: the doc is a curated introduction, not an index, so a
+// registered tool it does not mention is a choice rather than a defect.
+func TestEveryToolTheServedBootstrapDocNamesIsRegistered(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "web", "bootstrap-memory.md"))
+	if err != nil {
+		t.Fatalf("read the served bootstrap document: %v", err)
+	}
+
+	registered := map[string]bool{}
+	for _, name := range fullCatalog(false) {
+		registered[name] = true
+	}
+	for _, name := range fullCatalog(true) {
+		registered[name] = true
+	}
+	if len(registered) == 0 {
+		t.Fatal("the catalogue is empty, so this check would pass vacuously")
+	}
+
+	named := regexp.MustCompile(`\bam_[a-z_]+\b`).FindAllString(string(raw), -1)
+	if len(named) == 0 {
+		t.Fatal("the bootstrap document names no tools — either it changed shape or this check " +
+			"is reading the wrong file, and either way it is now asserting nothing")
+	}
+
+	seen := map[string]bool{}
+	for _, name := range named {
+		if seen[name] || registered[name] {
+			continue
+		}
+		seen[name] = true
+		t.Errorf("the served bootstrap document advertises %s, which no registration provides. "+
+			"It is the first document an agent reads: a tool named there and missing from the "+
+			"catalogue is a call that fails for a reader who did exactly what they were told.", name)
 	}
 }

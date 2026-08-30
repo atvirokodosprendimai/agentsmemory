@@ -27,10 +27,10 @@ import (
 // were returned at all — a ~60x change in the resource envelope with nothing
 // bounding it.
 //
-// The failure it prevents is not a crash. Past roughly 40-45KB this transport
-// does not deliver a tool result to the agent at all; it spills to a file the
-// model never reads. So an unbounded response is not more generous, it is
-// silently emptier — and the agent's conclusion is that the palace has no answer.
+// The failure it prevents is not a crash. It is a response that spends a large
+// share of a session's context on text nobody asked for — and, on clients that
+// truncate, one that arrives smaller than it looks. See responseBudget for why the
+// number rests on the first of those and not the second.
 func TestWholeMemorySearchStaysWithinTheResponseBudget(t *testing.T) {
 	srv, ctx := budgetTestServer(t)
 
@@ -74,10 +74,10 @@ func TestWholeMemorySearchStaysWithinTheResponseBudget(t *testing.T) {
 	for _, h := range decoded.Hits {
 		total += len([]rune(h.Content))
 	}
-	if total > wholeMemoryBudget {
-		t.Errorf("whole-memory page carried %d runes, over the %d budget — past roughly 40-45KB "+
-			"this transport drops the result to a file instead of delivering it, so the caller "+
-			"would receive nothing at all", total, wholeMemoryBudget)
+	if total > responseBudget {
+		t.Errorf("whole-memory page carried %d runes, over the %d budget — a page this size "+
+			"is context the caller never asked to spend, and on a truncating client "+
+			"would receive nothing at all", total, responseBudget)
 	}
 
 	// Degrading has to be VISIBLE. A silent cap on "give me everything" teaches
@@ -98,7 +98,7 @@ func TestWholeMemorySearchStaysWithinTheResponseBudget(t *testing.T) {
 			sizes[i] = len([]rune(h.Content))
 		}
 		t.Fatalf("nothing was trimmed, so the fixture never reached the %d budget: %d hit(s) "+
-			"totalling %d runes, per-hit %v", wholeMemoryBudget, decoded.Count, total, sizes)
+			"totalling %d runes, per-hit %v", responseBudget, decoded.Count, total, sizes)
 	}
 	if !strings.Contains(decoded.Note, "am_get_drawer") {
 		t.Errorf("hits were trimmed for size and the response does not say so, or does not say "+
@@ -147,7 +147,10 @@ func budgetTestServer(t *testing.T) (*server.MCPServer, context.Context) {
 	}
 
 	srv := server.NewMCPServer("test", "0.0.0", server.WithToolCapabilities(true))
-	registerSearch(&registrar{srv: srv}, drawers,
+	// The whole drawer set, not search alone: the budget bounds every response that
+	// can grow with the corpus, and registering only the tool under test is how the
+	// listing path went unbounded while search was fixed.
+	registerDrawers(&registrar{srv: srv}, drawers,
 		usage.NewService(usage.NewRepo(gdb), graphTestCaps{}), false)
 
 	ctx := auth.WithTenant(context.Background(), tenant.Tenant{
@@ -165,4 +168,142 @@ func resultText(res *mcp.CallToolResult) string {
 		}
 	}
 	return b.String()
+}
+
+// TestAListingStaysWithinTheResponseBudget is the other half of the same ceiling.
+//
+// am_search got a budget; am_list_drawers did not, and it returns WHOLE drawers at
+// a default limit of 50. Fifty drawers at ChunkSize is ~80,000 runes against a
+// budget of 40,000 — so a single listing could spend twice a search page's whole
+// context allowance, unasked. On a client that truncates it is worse than costly:
+// the result arrives as nothing and reads as "this room holds nothing". Either way
+// it is this repository's signature shape — the fix applied to the path somebody
+// tested.
+func TestAListingStaysWithinTheResponseBudget(t *testing.T) {
+	srv, ctx := budgetTestServer(t)
+
+	const tool = mcpprotocol.ToolPrefix + "list_drawers"
+	st := srv.GetTool(tool)
+	if st.Handler == nil {
+		t.Fatalf("%s is not registered — this check has stopped checking anything", tool)
+	}
+
+	res, err := st.Handler(ctx, mcp.CallToolRequest{Params: mcp.CallToolParams{
+		Name:      tool,
+		Arguments: map[string]any{"wing": budgetWing},
+	}})
+	if err != nil {
+		t.Fatalf("list_drawers: %v", err)
+	}
+
+	var decoded struct {
+		Count   int    `json:"count"`
+		Note    string `json:"note"`
+		Drawers []struct {
+			Content    string `json:"content"`
+			Truncated  bool   `json:"content_truncated"`
+			FullLength int    `json:"content_length"`
+		} `json:"drawers"`
+	}
+	if err := json.Unmarshal([]byte(resultText(res)), &decoded); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	// The fixture must actually be able to exhibit the defect. A listing that fits
+	// under the budget proves nothing, and a passing test over such a fixture is
+	// the failure mode this file exists to prevent.
+	if decoded.Count < 10 {
+		t.Fatalf("fixture returned %d drawers — too few to exceed the budget, so this "+
+			"test cannot fail and is not a gate", decoded.Count)
+	}
+
+	total := 0
+	trimmed := 0
+	for _, d := range decoded.Drawers {
+		total += len([]rune(d.Content))
+		if d.Truncated {
+			trimmed++
+			if d.FullLength <= len([]rune(d.Content)) {
+				t.Errorf("a trimmed drawer reports full_length %d against %d runes returned; "+
+					"the caller cannot tell how much it is missing", d.FullLength, len([]rune(d.Content)))
+			}
+		}
+	}
+	if total > responseBudget {
+		t.Errorf("the listing returned %d runes of content against a %d budget — past the "+
+			"transport ceiling the whole result spills to a file and the caller receives "+
+			"nothing at all", total, responseBudget)
+	}
+	if trimmed == 0 {
+		t.Fatal("nothing was marked content_truncated on a listing that had to be trimmed; " +
+			"a silent trim is the same wrong answer in a smaller size")
+	}
+	if !strings.Contains(decoded.Note, "am_get_drawer") {
+		t.Errorf("note = %q; a trimmed listing must name the way to read a drawer in "+
+			"full, or the caller only learns that something is missing", decoded.Note)
+	}
+}
+
+// TestASnippetPageStaysWithinTheResponseBudget covers the branch the first budget
+// test could not see.
+//
+// snippet_chars is caller-supplied and unclamped, and the original bound was
+// conditioned on snippet_chars<=0 — the one branch somebody tested. So
+// limit=100 with a large snippet_chars rendered an unbounded page while the check
+// looked on, which is the same shape as the listing going unbounded beside search:
+// a guard written for the path in front of the author.
+func TestASnippetPageStaysWithinTheResponseBudget(t *testing.T) {
+	srv, ctx := budgetTestServer(t)
+
+	const tool = mcpprotocol.ToolPrefix + "search"
+	st := srv.GetTool(tool)
+	if st.Handler == nil {
+		t.Fatalf("%s is not registered — this check has stopped checking anything", tool)
+	}
+
+	res, err := st.Handler(ctx, mcp.CallToolRequest{Params: mcp.CallToolParams{
+		Name: tool,
+		Arguments: map[string]any{
+			"query":         "budget probe memory content",
+			"wing":          budgetWing,
+			"limit":         10,
+			"snippet_chars": 100000, // "a window bigger than any memory" — i.e. all of it
+		},
+	}})
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+
+	var decoded struct {
+		Count int `json:"count"`
+		Hits  []struct {
+			Content string `json:"content"`
+			Regions []struct {
+				Text string `json:"text"`
+			} `json:"regions"`
+		} `json:"hits"`
+	}
+	if err := json.Unmarshal([]byte(resultText(res)), &decoded); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if decoded.Count < 3 {
+		t.Fatalf("fixture returned %d hits — too few to exceed the budget, so this test "+
+			"cannot fail and is not a gate", decoded.Count)
+	}
+
+	// Regions count. They are additional rendered text and were outside the total
+	// entirely, so a page could pass the old check and still ship several times the
+	// budget.
+	total := 0
+	for _, h := range decoded.Hits {
+		total += len([]rune(h.Content))
+		for _, r := range h.Regions {
+			total += len([]rune(r.Text))
+		}
+	}
+	if total > responseBudget {
+		t.Errorf("a snippet page rendered %d runes against a %d budget — snippet_chars is "+
+			"caller-supplied and unclamped, so a bound that skips this branch bounds nothing",
+			total, responseBudget)
+	}
 }

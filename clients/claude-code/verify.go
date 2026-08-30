@@ -114,6 +114,7 @@ func runVerify(ctx context.Context, c *cli.Command, out io.Writer) error {
 	verdicts, counts := verifyAnchors(root, anchors, out)
 	here := currentRepoLabel(root)
 	drifted, missing, verified, elsewhere := counts.drifted, counts.missing, counts.verified, counts.elsewhere
+	unattributable := counts.unattributable
 	_ = verified
 
 	if elsewhere > 0 {
@@ -125,16 +126,16 @@ func runVerify(ctx context.Context, c *cli.Command, out io.Writer) error {
 		}
 	}
 	if c.Bool("dry-run") {
-		fmt.Fprintf(out, "\n%d anchor(s)%s: %d verified, %d drifted, %d missing, %d elsewhere (dry run — nothing recorded)\n",
-			len(anchors), wingLabel(wing), verified, drifted, missing, elsewhere)
+		fmt.Fprintf(out, "\n%d anchor(s)%s: %d verified, %d drifted, %d missing, %d elsewhere, %d unlabelled (dry run — nothing recorded)\n",
+			len(anchors), wingLabel(wing), verified, drifted, missing, elsewhere, unattributable)
 		return nil
 	}
 	marked, err := markAnchors(ctx, cli, verdicts)
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(out, "\n%d anchor(s)%s: %d verified, %d drifted, %d missing, %d elsewhere — %d verdict(s) recorded\n",
-		len(anchors), wingLabel(wing), verified, drifted, missing, elsewhere, marked)
+	fmt.Fprintf(out, "\n%d anchor(s)%s: %d verified, %d drifted, %d missing, %d elsewhere, %d unlabelled — %d verdict(s) recorded\n",
+		len(anchors), wingLabel(wing), verified, drifted, missing, elsewhere, unattributable, marked)
 	if drifted+missing > 0 {
 		fmt.Fprintf(out, "Search now flags those memories as STALE. Re-read the code and re-file whichever are wrong.\n")
 	}
@@ -305,7 +306,15 @@ func short(id string) string {
 }
 
 // anchorCounts is what one verification pass concluded, by kind.
-type anchorCounts struct{ verified, drifted, missing, elsewhere int }
+// anchorCounts is what one verification pass concluded, by kind.
+//
+// unattributable is its own bucket rather than part of elsewhere, because the two
+// have DIFFERENT REMEDIES and folding them together hides the one a human can act
+// on. "elsewhere" is the system working — that anchor belongs to another
+// repository and there is nothing to do. "unattributable" means the anchor carries
+// no repo label, so drift can never be reported for it from anywhere, and the fix
+// is to label it.
+type anchorCounts struct{ verified, drifted, missing, elsewhere, unattributable int }
 
 // verifyAnchors checks every anchor against the tree at root and returns the
 // verdicts worth RECORDING plus the counts worth reporting.
@@ -319,7 +328,7 @@ func verifyAnchors(root string, anchors []anchor, out io.Writer) ([]verdict, anc
 	here := currentRepoLabel(root)
 	files := map[string]*sourceFile{}
 	var verdicts []verdict
-	var drifted, missing, verified, elsewhere int
+	var drifted, missing, verified, elsewhere, unattributable int
 	for _, a := range anchors {
 		// An anchor labelled with another repository cannot be checked from
 		// here, and calling it MISSING is not a small inaccuracy: the honest
@@ -331,6 +340,33 @@ func verifyAnchors(root string, anchors []anchor, out io.Writer) ([]verdict, anc
 			elsewhere++
 			continue
 		}
+
+		// ⚠ ONLY A POSITIVE MATCH LICENSES A DESTRUCTIVE VERDICT, and this is the
+		// rule the guards above and below could not express.
+		//
+		// Every one of them was conditioned on the anchor HAVING a label, so an
+		// anchor with an EMPTY label in a tree we can name passed all of them and
+		// was checked against whatever repository the session happened to be
+		// sitting in. Measured 2026-08-29: five sessions in five unrelated
+		// repositories were each told that seven of THIS project's Go and
+		// TypeScript files were gone, from trees that have never held a .go file —
+		// and the verdicts are recorded, so search flags those memories STALE and
+		// the session-start hook tells the reader to re-file them. A session that
+		// complies rewrites correct records.
+		//
+		// "I cannot attribute this anchor" and "I am in the wrong tree" are the
+		// same epistemic state and now take the same branch.
+		attributed := a.Repo != "" && here != "" && strings.EqualFold(a.Repo, here)
+		// unchecked accounts for an anchor no verdict may be recorded for, in the
+		// bucket that names its remedy.
+		unchecked := func() {
+			if a.Repo == "" {
+				unattributable++
+				return
+			}
+			elsewhere++
+		}
+
 		src, ok := files[a.Path]
 		if !ok {
 			src = readSource(filepath.Join(root, a.Path))
@@ -338,31 +374,30 @@ func verifyAnchors(root string, anchors []anchor, out io.Writer) ([]verdict, anc
 		}
 		v := verdict{ID: a.ID}
 		switch {
-		case !src.exists && here == "" && a.Repo != "":
-			// We cannot tell whether this tree IS a.Repo, so we cannot tell an
-			// absent file from a file that lives somewhere else. Reporting
-			// MISSING here would be the destructive reading of an unknown: the
-			// honest response to "the file is gone" is to delete the memory, and
-			// a session once deleted three chunks that way. Anything we CAN
-			// confirm below is still confirmed — an unknown tree verifies what it
-			// finds and stays silent about what it does not.
-			elsewhere++
-			continue
 		case !src.exists:
+			// Absent here. Only a tree that positively claims this anchor can call
+			// that a deletion; anywhere else it may simply live somewhere we are not.
+			if !attributed {
+				unchecked()
+				continue
+			}
 			v.Status, missing = statusMissing, missing+1
 			fmt.Fprintf(out, "  MISSING  %s — file is gone (memory %s)\n", a.Path, short(a.DrawerID))
 		default:
 			if line, ok := src.find(a.Snippet); ok {
+				// A MATCH IS TRUSTWORTHY WHEREVER IT IS FOUND, and this asymmetry is
+				// deliberate: an unrelated file at the same path is vanishingly
+				// unlikely to contain the same verbatim snippet. Refusing to confirm
+				// an unlabelled anchor would turn this fix into a check that checks
+				// nothing, which is the failure mode currentRepoLabel's own test
+				// already names.
 				v.Status, v.Line, verified = statusVerified, line, verified+1
-			} else if here == "" && a.Repo != "" {
-				// The same reasoning as the not-found branch, and the branch
-				// that actually writes the destructive verdict. In an unknown
-				// tree we cannot tell this file from an unrelated file at the
-				// same path — README.md, main.go and go.mod collide across
-				// repositories constantly — so a snippet that does not match is
-				// not evidence the memory is stale. A match above IS strong
-				// evidence and stays `verified`; a non-match records nothing.
-				elsewhere++
+			} else if !attributed {
+				// The file is present and the snippet is not — which is evidence of
+				// drift only if this is the right file. README.md, main.go and go.mod
+				// collide across repositories constantly, so without attribution a
+				// non-match is not evidence of anything.
+				unchecked()
 				continue
 			} else {
 				v.Status, drifted = statusDrifted, drifted+1
@@ -372,7 +407,16 @@ func verifyAnchors(root string, anchors []anchor, out io.Writer) ([]verdict, anc
 		}
 		verdicts = append(verdicts, v)
 	}
-	return verdicts, anchorCounts{verified: verified, drifted: drifted, missing: missing, elsewhere: elsewhere}
+	// Said out loud, because the cost of the rule above is real and silent
+	// otherwise: these anchors can never report drift from ANY tree until somebody
+	// labels them, and a cost nobody can see is a cost nobody fixes.
+	if unattributable > 0 {
+		fmt.Fprintf(out, "  %d anchor(s) carry no repo label, so this tree cannot be confirmed as "+
+			"theirs and no verdict was recorded — pass repo when filing code_anchors so their "+
+			"drift can be detected\n", unattributable)
+	}
+	return verdicts, anchorCounts{verified: verified, drifted: drifted, missing: missing,
+		elsewhere: elsewhere, unattributable: unattributable}
 }
 
 func snippetHeadline(text string, max int) string {
