@@ -261,7 +261,11 @@ that declares `# hook-output: stdout-injected`, and exits non-zero on three stat
 installed and registered by no event, registered on an event whose stdout goes to
 the debug log, or unable to run. `TestDoctorIsRegistered` covers the rung the
 command's own tests cannot: they build their own root, so all of them passed with
-`doctorCommand(),` deleted from `main.go`.
+`doctorCommand(),` deleted from `main.go`. `TestPlaybookIsRegistered` is the
+same gate for `agentsmemory playbook`, added the day that command was written
+rather than after it shipped unreachable — the pattern generalises to every
+operator command, because a command's own tests build their own root and cannot
+see the registration.
 
 ⚠ **It does NOT fail on silence, and that limit is the finding.** Both shipped
 injecting hooks are silent when healthy — the verify hook prints only on drift, the
