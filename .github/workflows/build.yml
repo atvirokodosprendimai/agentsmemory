@@ -48,6 +48,10 @@ jobs:
   # Gate every binary on a green tree: vet + the full test suite. Runs on every
   # push and PR (this is the CI safety net for branches), independent of the tag
   # gate above — the build job depends on both.
+  #
+  # The race detector is NOT here; it is the `race` job below, running beside
+  # this one rather than after it. Both are required contexts, so "green" still
+  # means both — splitting changed the wall clock, not the bar.
   test:
     runs-on: ubuntu-latest
     steps:
@@ -63,6 +67,36 @@ jobs:
         run: go vet ./...
       - name: Test
         run: go test ./...
+      - name: Contract-axis
+        run: go test -tags contractaxis ./internal/mcptest
+
+  # The race detector, on its own job so it runs BESIDE vet/test rather than
+  # after them. It is 384s of a 565s job measured across three consecutive runs
+  # (2026-08-30) — 65% of the wall clock, and every second of it was serialised
+  # behind work that does not depend on it. Splitting costs one extra runner and
+  # one extra checkout+setup (~17s) and returns ~165s.
+  #
+  # ⚠ It is a REQUIRED context in branch protection, and it has to stay one. A
+  # gate moved off the blocking path is this repository's signature defect in its
+  # CI form: the job still runs, still goes red, and stops preventing anything.
+  # The whole point of the step's own history — nothing here ran -race until it
+  # was added — is that an unenforced check is the same as an absent one.
+  #
+  # Two packages are 54% of this job (internal/palace 130.0s, cmd/server 93.3s
+  # under -race locally), and nothing in the tree calls t.Parallel(), so the
+  # floor is the slowest single package however many cores the runner has.
+  # nproc is printed rather than assumed: sharding this job is only worth doing
+  # against a measured core count, and the figure belongs in the log where the
+  # next person can read it instead of in a comment that goes stale.
+  race:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Runner capacity
+        run: 'echo "vCPU: $(nproc)"; echo "GOMAXPROCS default: $(go env GOMAXPROCS)"'
       # Nothing in this repo ran the race detector until now — not CI, not an
       # ADR fence, not a Makefile — so a change that introduced a goroutine had
       # no path that would ever have asked. The suite was already race-clean
@@ -82,16 +116,16 @@ jobs:
       # suite, so it is raised rather than the suite trimmed.
       - name: Race
         run: go test -race -timeout=30m ./...
-      - name: Contract-axis
-        run: go test -tags contractaxis ./internal/mcptest
 
   # Cross-compile the static binary for each target. CGO is off (pure-Go SQLite
   # via modernc), so every GOOS/GOARCH builds on the linux runner with no C
   # cross-toolchain. fail-fast: false so one bad target does not cancel the rest.
-  # Tag-only: needs both a passing `test` and a `check` verdict of release=true,
-  # so cross-compiles run on strict version tags, not on every push/PR.
+  # Tag-only: needs a passing `test` AND `race`, plus a `check` verdict of
+  # release=true, so cross-compiles run on strict version tags, not on every
+  # push/PR. race is in `needs` because a binary must not ship on a tree the
+  # race detector rejects — the split moved that check, it did not relax it.
   build:
-    needs: [test, check]
+    needs: [test, race, check]
     if: needs.check.outputs.release == 'true'
     runs-on: ubuntu-latest
     strategy:
