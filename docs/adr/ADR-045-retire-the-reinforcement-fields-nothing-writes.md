@@ -8,7 +8,7 @@
 **Governs:** internal/mcpserver/graph.go
 **Enforced-by:** `internal/mcpserver/dynamicswire_test.go::TestNoUnwrittenDynamicsFieldReachesTheWire`
 **Invalidates:** none — checked
-**Served-path change:** `am_list_hallways`, `am_list_tunnels` and `am_find_tunnels` stop returning `strength`, `stability`, `last_activated` and `access_count`, so an agent reading a result no longer sees four fields describing a reinforcement layer this server does not implement.
+**Served-path change:** `am_create_tunnel`, `am_list_tunnels` and `am_list_hallways` stop returning `strength`, `stability`, `last_activated` and `access_count`, so an agent reading a result no longer sees four fields describing a reinforcement layer this server does not implement. Three tool responses change, and `am_find_tunnels` is **not** one of them: its handler returns raw rooms (`registerFindTunnels`, which answers `{"rooms": ...}` rather than a `tunnelView`) and it never carried these fields.
 
 ## Context
 
@@ -26,7 +26,9 @@ So the decision this record carries has been taken. What is missing is the remov
 
 ## Decision
 
-Remove `strength`, `stability`, `last_activated` and `access_count` from `tunnelView` and `hallwayView` in `internal/mcpserver/graph.go`, and delete the two assignments that populate them. Delete the now-dead `undescribedOnPurpose["last_activated"]` entry. Add a gate that derives its universe from `palace.Dynamics`'s own json tags and fails when any of them reappears as a wire key anywhere in `internal/mcpserver`, so a field added to the dynamics layer tomorrow joins the check on the same commit rather than needing anyone to remember this record.
+Remove `strength`, `stability`, `last_activated` and `access_count` from `tunnelView` and `hallwayView` in `internal/mcpserver/graph.go`, and delete the two assignments that populate them. Delete the now-dead `undescribedOnPurpose["last_activated"]` entry. Add a gate that derives its universe from `palace.Dynamics`'s own json tags and fails when any of them reappears **as a json tag declared in `internal/mcpserver`**, so a field added to the dynamics layer tomorrow joins the check on the same commit rather than needing anyone to remember this record.
+
+That scope is the gate's real one and is stated narrowly on purpose. `packageSources` globs this package's own `*.go` and the matcher reads `json:"..."` tags, so three routes put a key back on the wire with the gate green: a handler returning `palace.Tunnel` directly, a view embedding it, and a hand-built `map[string]any{"strength": ...}` that has no tag at all. This is the same blind spot `wirekeys_test.go` documents against itself — its first name overclaimed for exactly this reason and was narrowed to "in this package" — and a gate whose name claims more than it covers is worse than a narrower one.
 
 The database columns, `palace.Dynamics`, and `initDynamics` all stay. This is deliberate and is the narrow reading of the owner's ruling: the wire is what advertises the capability, and `LastActivated` still has one internal reader — `internal/palace/hallway.go:109` uses it as a fallback input to `earliestStamp` when preserving a hallway's `created_at` across a rebuild, which is the #38 stamp repair. Removing the field from the type would rework a repair that is working.
 
@@ -48,7 +50,7 @@ None — internal to `internal/mcpserver`. Ownership is unchanged: the view stru
 | Surface | Change | Producer | Consumer(s) |
 |---------|--------|----------|-------------|
 | `am_list_hallways` response objects | remove `strength`, `stability`, `last_activated`, `access_count` | `hallwayView` in `internal/mcpserver/graph.go` | any MCP client reading hallways |
-| `am_list_tunnels` / `am_find_tunnels` response objects | remove `strength`, `stability`, `last_activated`, `access_count` | `tunnelView` in `internal/mcpserver/graph.go` | any MCP client reading tunnels |
+| `am_create_tunnel` / `am_list_tunnels` response objects | remove `strength`, `stability`, `last_activated`, `access_count` | `tunnelView` in `internal/mcpserver/graph.go` | any MCP client reading tunnels |
 | `undescribedOnPurpose` allowlist | delete the `last_activated` entry | `internal/mcpserver/wirekeys_test.go` | `TestUndescribedOnPurposeIsJustified` |
 
 ## Inter-task Contracts
@@ -62,7 +64,7 @@ One task; see `ADR-045-retire-the-reinforcement-fields-nothing-writes/tasks/READ
 ## Consequences
 
 - **Positive:** four fields that described a behaviour the server does not have stop being published, so an agent can no longer read a reinforcement signal into `access_count: 0`. The new gate makes the absence durable rather than a fact about today's tree.
-- **Negative:** a breaking change to two published tool responses. A client parsing these keys into a non-pointer required field will fail to decode. No such client is known in this workspace, and the values it would lose are constants.
+- **Negative:** a breaking change to three published tool responses. A client parsing these keys into a non-pointer required field will fail to decode. No such client is known in this workspace, and the values it would lose are constants.
 - **Neutral:** storage is untouched. The columns keep their `NOT NULL` defaults and a future record that revives a verified-access signal can use them without a migration.
 
 ## Out of Scope
@@ -76,7 +78,7 @@ One task; see `ADR-045-retire-the-reinforcement-fields-nothing-writes/tasks/READ
 
 | Risk | Likelihood | Impact | Mitigation |
 |------|------------|--------|------------|
-| An unknown client parses these keys as required | Low | Med | The values are constants, so a client reading them learns nothing; the removal is named in the changelog and in this record's Served-path change line |
+| An unknown client parses these keys as required | Low | Med | The values are constants, so a client reading them learns nothing, and the Served-path change line above names the three responses that change. ⚠ A release note is **owed, not written**: `CHANGELOG.md` is authored at release time in its own `docs(changelog):` commit, never in the PR that does the work, so this record cannot ship one — the obligation is carried as a Follow-up rather than claimed here |
 | The gate hardcodes the four names and rots when a fifth is added | Low | Med | It derives its universe from `palace.Dynamics`'s own json tags rather than a literal list, so a new dynamics field joins the check on the same commit |
 | The gate passes vacuously because it read no sources | Low | High | It fails when the package glob returns nothing, the same guard `packageSources` already uses at `wirekeys_test.go:208` |
 | Removing the field leaves a dead exemption nobody notices | Low | Low | It cannot: `TestUndescribedOnPurposeIsJustified` at `wirekeys_test.go:183` fails on an entry excusing a field the package no longer emits |
@@ -87,4 +89,5 @@ Revert the commit. No migration runs, no persistent state changes, and the colum
 
 ## Follow-ups
 
+- [ ] Name the removal in the release note for whichever version carries it: three tool responses (`am_create_tunnel`, `am_list_tunnels`, `am_list_hallways`) lose four keys (`strength`, `stability`, `last_activated`, `access_count`). This is the Risks table's mitigation and the only part of it that does not exist yet — `CHANGELOG.md` is written at release time, so the obligation is here rather than in this PR's diff.
 - [ ] Decide whether the four columns should be dropped, once something either revives a verified-access signal or confirms nothing will — recorded in `docs/adr/BACKLOG.md` under this record's name.

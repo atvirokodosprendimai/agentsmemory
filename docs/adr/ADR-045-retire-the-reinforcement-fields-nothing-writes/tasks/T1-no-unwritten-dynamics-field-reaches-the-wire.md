@@ -10,7 +10,7 @@
 
 ## Goal
 
-Stop `am_list_hallways`, `am_list_tunnels` and `am_find_tunnels` publishing four fields that describe
+Stop `am_create_tunnel`, `am_list_tunnels` and `am_list_hallways` publishing four fields that describe
 a reinforcement layer this server does not implement, and make the absence durable by deriving the
 forbidden key set from `palace.Dynamics` itself rather than from a literal list.
 
