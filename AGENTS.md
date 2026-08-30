@@ -426,16 +426,21 @@ name-first one-line summary, a blank line, then the reason.
 **Aim for about 70 words of why, and run longer when the reason is longer.** A
 comment that takes a paragraph because the decision behind it took a paragraph is
 correct, not verbose. This is a change of level rather than a description of the
-tree: measured 2026-08-26 over the 560 exported functions and methods in
-non-test, non-generated files, the median doc comment was 30 words and 96 were
+tree: re-measured 2026-08-30 over the 1,520 exported functions and methods in
+non-test, non-generated files, the median doc comment is 32 words and 18% are
 already at 70 or above.
 
 **Name the decision record.** Where the code implements a position an ADR took,
 cite it inline — `Region`'s comment says "ADR-019 refuses to put generated prose
 on the read path" — and a reader who does not know the corpus exists still gets
-from the function to the reasoning. Only 8 of those 560 did this. All
-23 ADR ids cited anywhere in Go source resolved to a file in `docs/adr/` on
-2026-08-26, and that is the standard: a citation that does not resolve is worse
+from the function to the reasoning. Only 1.8% do this, re-measured 2026-08-30.
+
+Every ADR id cited in Go source must resolve to a file in `docs/adr/`, and that is
+not a convention to remember — `TestEveryCitedADRResolves` fails naming file, line
+and number, and prints its live figures on a `-v` run. ⚠ No count is written here
+on purpose: this sentence carried a frozen one that was already stale by the time
+the change shipped, which is the drift §Reachability records against this corpus.
+The standard is unchanged either way: a citation that does not resolve is worse
 than no citation, because it reads as provenance.
 
 **What earns the words**, in rough order: the failure the code prevents, with the
@@ -447,15 +452,33 @@ This binds code you write or touch. An existing comment is upgraded when you are
 already editing that declaration — surgical changes still rule, and a
 comments-only sweep of adjacent code is not this.
 
-**REVIEW CHECKS THIS, because nothing else does.** There is deliberately no gate:
-a word-count check measures padding rather than reason, and `internal/doclint`'s
-own comment records why a noisy gate does not survive. That decision puts the
-whole weight on review. So a review of a change that adds or edits an exported
-declaration reports, by name, every one whose comment states only what the code
-does — and every `ADR-NNN` cited that does not resolve under `docs/adr/`. Raise it
-at the altitude of the other findings, not as a footnote: a feature merged with a
-one-line comment is a feature whose reasoning exists only in the session that
-wrote it, and that session is gone.
+**REVIEW CHECKS THE HALF NOTHING ELSE CAN.** The clause splits, and only one side
+is a reviewer's:
+
+- **Unresolvable citations are GATED.** `TestEveryCitedADRResolves` reads `.go` and
+  only `.go`, so doc comments are exactly its universe. It fails naming file, line
+  and number. Do not spend a reviewer on it; the test is exhaustive and cannot be
+  skipped on a busy day, and it logs its live figures on a `-v` run — no count is
+  written here, for the reason §Reachability already records against this corpus's
+  frozen ones. §Reachability describes the gate above.
+- **A comment that states only what the code does is NOT gateable, and the
+  measurement says why.** A word-count rule flags most of the corpus, so it would
+  measure padding rather than reason — `internal/doclint`'s own comment records why
+  a noisy gate does not survive. Review is the only mechanism there is.
+
+So a review of a change that adds or edits an exported declaration reports, by
+name, every one whose comment states only what the code does. Raise it at the
+altitude of the other findings, not as a footnote: a feature merged with a one-line
+comment is a feature whose reasoning exists only in the session that wrote it, and
+that session is gone.
+
+⚠ **THIS PARAGRAPH ONCE SAID "there is deliberately no gate", AND IT WENT FALSE
+WHILE THE PR SAT OPEN.** `TestEveryCitedADRResolves` landed in the 271 commits
+between writing and merge, so the text asserted the absence of a gate that the
+section directly above it documents. A convention with no gate and no reviewer
+instruction is a preference; a reviewer instruction for work a test already does
+exhaustively is wasted attention. Both halves of that are why the clause is split
+rather than dropped.
 
 ## Exception — read-only review
 
