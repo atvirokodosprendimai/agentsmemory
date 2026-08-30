@@ -370,7 +370,7 @@ Call am_skillset for the rest: which tool answers which question, and how to wri
 // services and no database, which is what makes the tool surface itself
 // assertable rather than something a reader has to count by hand.
 func registerAll(reg *registrar, deps Deps) {
-	registerStatus(reg, deps.Drawers, deps.Usage, deps.Workspaces, deps.Local)
+	registerStatus(reg, deps.Drawers, deps.Skills, deps.Usage, deps.Workspaces, deps.Local)
 	registerLoadSkill(reg, deps.Skills, deps.Usage)
 	// Skill-registry management: list + update (write is role-gated).
 	registerSkills(reg, deps.Skills, deps.Usage)
@@ -527,7 +527,7 @@ func coverageBlockFor(drift palace.DriftReport, err error) map[string]any {
 // in the shape of its memory before searching, mirroring mempalace's status. The
 // taxonomy read is best-effort: a status call still succeeds (with an empty
 // overview) if the aggregation fails, so liveness never depends on it.
-func registerStatus(reg *registrar, drawers *palace.Service, usageSvc *usage.Service, workspaces WorkspaceLookup, local bool) {
+func registerStatus(reg *registrar, drawers *palace.Service, skills *skill.Service, usageSvc *usage.Service, workspaces WorkspaceLookup, local bool) {
 	// One cache for the server, shared by every session: the wake-up call runs
 	// the coverage audit at most once per driftTTL per team instead of on every
 	// first call of every session.
@@ -535,7 +535,7 @@ func registerStatus(reg *registrar, drawers *palace.Service, usageSvc *usage.Ser
 		return drawers.IndexDrift(ctx, teamID)
 	}, driftTTL)
 	tool := newTool("status",
-		mcp.WithDescription("Wake-up call: the workspace this MCP session is scoped to (name, slug, and whether the server is self-hosted or hosted) plus your role, the memory overview (total drawers + the wing→rooms taxonomy with counts), and remaining monthly quota. Check the workspace to confirm you are talking to the palace you think you are — an empty wing list means nothing has been written yet, NOT that you are in the wrong place."),
+		mcp.WithDescription("Wake-up call: the workspace this MCP session is scoped to (name, slug, and whether the server is self-hosted or hosted) plus your role, the memory overview (total drawers + the wing→rooms taxonomy with counts), and remaining monthly quota. Check the workspace to confirm you are talking to the palace you think you are — an empty wing list means nothing has been written yet, NOT that you are in the wrong place. ⚠READ entry_protocol IF IT IS PRESENT: it names the one skill this team wants loaded before anything else, with the exact call to make. The key is ABSENT when the workspace has no entry protocol, so its presence is the whole signal — a key that were always there is one every session learns to skip."),
 	)
 	reg.add(tool, func(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		t, errResult, ok := admit(ctx, usageSvc)
@@ -599,7 +599,13 @@ func registerStatus(reg *registrar, drawers *palace.Service, usageSvc *usage.Ser
 		drift, driftErr := statusDrift.get(ctx, t.TeamID)
 		coverageBlock := coverageBlockFor(drift, driftErr)
 
-		out, _ := json.Marshal(map[string]any{
+		// The names only — the hint needs to know WHETHER an entry protocol
+		// exists, never what it says. A failure here costs the sentence and
+		// nothing else, so it degrades to "no entry skill" rather than failing
+		// the one call every session makes first.
+		entryProtocol := hasEntrySkill(ctx, skills, t.TeamID)
+
+		body := map[string]any{
 			"ok":      true,
 			"team_id": t.TeamID,
 			"role":    string(t.Role),
@@ -622,8 +628,18 @@ func registerStatus(reg *registrar, drawers *palace.Service, usageSvc *usage.Ser
 			// Point the agent at the rest of the wake-up loop — and, when something
 			// is waiting, at that first. The hint changes with the inbox because a
 			// line that is always there is a line nobody reads.
-			"hint": statusHint(inbox),
-		})
+			"hint": statusHint(inbox, entryProtocol),
+		}
+		// ⚠ SET ONLY WHEN THERE IS ONE, because a nil value in a map[string]any
+		// marshals as `"entry_protocol": null` — present, not absent. The first
+		// version's comment claimed "omitempty by construction" and was simply
+		// false: `json.Marshal(map[string]any{"k": nil})` is `{"k":null}`. A key
+		// that is always on the wire is a key every session learns to ignore,
+		// which is the whole reason this one is conditional.
+		if b := entryProtocolBlock(entryProtocol); b != nil {
+			body["entry_protocol"] = b
+		}
+		out, _ := json.Marshal(body)
 		return mcp.NewToolResultText(string(out)), nil
 	})
 }

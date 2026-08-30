@@ -24,7 +24,22 @@ name: agentsmemory
 
 services:
   agentsmemory:
-    build: .
+    # ⚠ VERSION IS PASSED SO A RUNNING CONTAINER CAN NAME THE COMMIT IT WAS BUILT
+    # FROM. The Dockerfile already declares `ARG VERSION=dev` and stamps it into
+    # main.version; compose said only `build: .`, so every locally built image
+    # reported `agentsmemory version dev` while the host binaries beside it
+    # reported their real revision. That is not cosmetic: on 2026-08-30 the only
+    # way to tell whether the container held a fix was to run the fix and see,
+    # because the version it printed was the same string before and after.
+    #
+    # It defaults to `dev`, so a bare `docker compose build` behaves exactly as
+    # before. To stamp it, pass the revision:
+    #
+    #   AGENTSMEMORY_VERSION=$(git rev-parse --short HEAD) docker compose build agentsmemory
+    build:
+      context: .
+      args:
+        VERSION: ${AGENTSMEMORY_VERSION:-dev}
     image: agentsmemory:local
     restart: unless-stopped
     env_file: .env.docker

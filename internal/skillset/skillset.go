@@ -104,6 +104,30 @@ func (r *Repo) Set(ctx context.Context, content, updatedBy string) (Skillset, er
 	}
 }
 
+// SetIfSeeded replaces the playbook ONLY while it is still seeded — an empty
+// updated_by — and reports whether it did.
+//
+// ⚠ CHECKING THEN SETTING IS NOT THE SAME PROMISE. `playbook --reseed` read
+// UpdatedBy, decided, and then called Set, which rereads and saves
+// unconditionally: a dashboard edit landing between those two steps was
+// overwritten by a command whose entire contract is that it will not do that.
+// Found in review 2026-08-30. The guard has to be the write, so the database
+// decides rather than the gap between two reads.
+func (r *Repo) SetIfSeeded(ctx context.Context, content string) (bool, error) {
+	now := time.Now().UTC().Format(time.RFC3339)
+	res := r.db.WithContext(ctx).Model(&Skillset{}).
+		Where("id = ? AND updated_by = ?", globalID, "").
+		Updates(map[string]any{
+			"content":    content,
+			"version":    gorm.Expr("version + 1"),
+			"updated_at": now,
+		})
+	if res.Error != nil {
+		return false, res.Error
+	}
+	return res.RowsAffected == 1, nil
+}
+
 // Store is the persistence behaviour the Service needs. Defined at the consumer so
 // the Service can be tested with a fake and never imports gorm transitively.
 type Store interface {
@@ -197,6 +221,10 @@ every tool follows it.
 
 ## On wake-up — FIRST, before any other tool (in order)
 1. ` + "`am_status`" + ` — your team, role, memory overview (wings → rooms), and remaining quota.
+   ⚠ **If it carries an ` + "`entry_protocol`" + ` block, make that call NOW**, before
+   step 2. The block names the one skill this team wants loaded first and gives you
+   the exact call; the key is absent when there is no such skill, so its presence
+   is the whole signal.
 2. ` + "`am_get_aaak_spec`" + ` — the compressed dialect you WRITE memories in.
 3. ` + "`am_search \"<your task>\"`" + ` — recall first. Never re-derive what you already
    remember; the memory is the only source of cross-session *why*.
