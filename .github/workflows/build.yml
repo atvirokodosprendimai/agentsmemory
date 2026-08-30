@@ -59,14 +59,58 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+      # Go's build cache, rolled forward per commit.
+      #
+      # setup-go caches too, and its cache is the reason this is needed rather
+      # than redundant: its key is the go.sum hash alone, so on a repo whose
+      # dependencies rarely move the key always HITS — and on a hit the action
+      # logs "not saving cache" and writes nothing back. The 373MB it restores is
+      # frozen at whatever existed the first time that go.sum appeared, so no
+      # compiled object or test result from any recent commit is ever in it.
+      # Measured on the run for da6b388: "(cached)" appears ZERO times across all
+      # 41 packages, in both jobs.
+      #
+      # A commit-keyed key with a prefix restore-key rolls instead: every run
+      # restores the most recent cache and saves its own, so the next run starts
+      # from the previous commit's objects and Go can reuse the test RESULTS of
+      # every package the commit did not touch. Measured locally: an identical
+      # tree is 41/41 cached (1.6s for the suite), and touching one file in
+      # internal/palace leaves 32/41 cached, re-running only that package, its
+      # dependents, and the gates that read the whole tree — which is exactly
+      # what should be re-run.
+      #
+      # The two jobs key separately (test). -race objects are a different build
+      # configuration from plain ones, and a shared key would have each job's save
+      # overwrite the other's with a cache that is half-useless to both.
+      #
+      # ⚠ `go test -count=1` DISABLES result reuse, silently and completely. If a
+      # future step adds it for a "clean" run, this cache keeps being uploaded and
+      # downloaded while buying nothing — the cost with none of the benefit, and
+      # no signal that it happened.
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/go-build
+          key: go-build-test-${{ runner.os }}-${{ github.sha }}
+          restore-keys: |
+            go-build-test-${{ runner.os }}-
       # A malformed workflow does not run and therefore cannot report its own
       # failure. Lint every workflow from this independent, always-on CI path.
       - name: Lint GitHub Actions
         run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
       - name: Vet
         run: go vet ./...
+      # The output goes to a file and the exit code is captured BEFORE anything
+      # else runs: piping `go test` into tee/grep makes the pipeline's status the
+      # last command's, which is how a red suite reports green. The cached count
+      # is the only signal that the build cache above is doing anything — without
+      # it a cache that silently stopped rolling forward looks exactly like one
+      # that works, while still paying the upload every run.
       - name: Test
-        run: go test ./...
+        run: |
+          go test ./... > test.log 2>&1; code=$?
+          cat test.log
+          echo "::notice title=cache::$(grep -c '(cached)' test.log) of $(grep -cE '^(ok|FAIL)' test.log) packages served from cache"
+          exit $code
       - name: Contract-axis
         run: go test -tags contractaxis ./internal/mcptest
 
@@ -95,6 +139,40 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+      # Go's build cache, rolled forward per commit.
+      #
+      # setup-go caches too, and its cache is the reason this is needed rather
+      # than redundant: its key is the go.sum hash alone, so on a repo whose
+      # dependencies rarely move the key always HITS — and on a hit the action
+      # logs "not saving cache" and writes nothing back. The 373MB it restores is
+      # frozen at whatever existed the first time that go.sum appeared, so no
+      # compiled object or test result from any recent commit is ever in it.
+      # Measured on the run for da6b388: "(cached)" appears ZERO times across all
+      # 41 packages, in both jobs.
+      #
+      # A commit-keyed key with a prefix restore-key rolls instead: every run
+      # restores the most recent cache and saves its own, so the next run starts
+      # from the previous commit's objects and Go can reuse the test RESULTS of
+      # every package the commit did not touch. Measured locally: an identical
+      # tree is 41/41 cached (1.6s for the suite), and touching one file in
+      # internal/palace leaves 32/41 cached, re-running only that package, its
+      # dependents, and the gates that read the whole tree — which is exactly
+      # what should be re-run.
+      #
+      # The two jobs key separately (race). -race objects are a different build
+      # configuration from plain ones, and a shared key would have each job's save
+      # overwrite the other's with a cache that is half-useless to both.
+      #
+      # ⚠ `go test -count=1` DISABLES result reuse, silently and completely. If a
+      # future step adds it for a "clean" run, this cache keeps being uploaded and
+      # downloaded while buying nothing — the cost with none of the benefit, and
+      # no signal that it happened.
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/go-build
+          key: go-build-race-${{ runner.os }}-${{ github.sha }}
+          restore-keys: |
+            go-build-race-${{ runner.os }}-
       - name: Runner capacity
         run: 'echo "vCPU: $(nproc)"; echo "GOMAXPROCS default: $(go env GOMAXPROCS)"'
       # Nothing in this repo ran the race detector until now — not CI, not an
@@ -115,7 +193,11 @@ jobs:
       # exists to catch a HANG, not to bound a legitimately slow instrumented
       # suite, so it is raised rather than the suite trimmed.
       - name: Race
-        run: go test -race -timeout=30m ./...
+        run: |
+          go test -race -timeout=30m ./... > race.log 2>&1; code=$?
+          cat race.log
+          echo "::notice title=cache::$(grep -c '(cached)' race.log) of $(grep -cE '^(ok|FAIL)' race.log) packages served from cache"
+          exit $code
 
   # Cross-compile the static binary for each target. CGO is off (pure-Go SQLite
   # via modernc), so every GOOS/GOARCH builds on the linux runner with no C
