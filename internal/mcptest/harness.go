@@ -502,6 +502,10 @@ func newStreamWith(gdb *gorm.DB, usageSvc *usage.Service, local bool) (http.Hand
 		ScopeSearchToWing: config.Default().ScopeSearchToWing(),
 		Local:             local,
 		Workspaces:        nil,
+		// The harness deliberately names a version the production resolver can
+		// never produce, so a probe that reads one back knows it is talking to a
+		// test server rather than to a build someone shipped.
+		Version: "test",
 	})
 
 	return mcpserver.StreamHTTP(mcpSrv), drawers

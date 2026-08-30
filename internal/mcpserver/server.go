@@ -18,6 +18,7 @@ import (
 	"strings"
 
 	"github.com/atvirokodosprendimai/agentsmemory/internal/auth"
+	"github.com/atvirokodosprendimai/agentsmemory/internal/buildinfo"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/mcpprotocol"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/palace"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/skill"
@@ -283,16 +284,35 @@ type Deps struct {
 	// widens the tool surface to operations that are only safe when the agent, the
 	// operator and the workspace are one person on one machine — see registerAdmin.
 	Local bool
+
+	// Version is the build this process is running, as internal/buildinfo resolves
+	// it. It reaches two surfaces that previously could not answer "which binary am
+	// I talking to?": the MCP initialize handshake's serverInfo.version, which
+	// reported the frozen literal "0.1.0" while releases ticked 0.0.10x (issue
+	// #106), and am_status, which reported no version at all (issue #70). Both read
+	// this one field so they cannot disagree.
+	//
+	// Optional: an empty value is resolved from the running binary's own build
+	// info, so a test harness or an in-process CLI that sets nothing still reports
+	// something honest rather than a placeholder.
+	Version string
 }
 
 // New builds the MCP server and registers all tools. Registration funnels through
 // a registrar so the live tool catalogue is captured as a side effect — see
 // registrar. am_skillset is registered LAST so its handler advertises the full
 // surface (every tool above it, plus itself).
+//
+// The version is resolved ONCE here and written back into deps, so the handshake
+// and am_status report the same string by construction rather than by two callers
+// remembering to pass the same thing.
 func New(deps Deps) *server.MCPServer {
+	if deps.Version == "" {
+		deps.Version = buildinfo.Effective("")
+	}
 	srv := server.NewMCPServer(
 		"agentsmemory",
-		"0.1.0",
+		deps.Version,
 		server.WithToolCapabilities(true), // advertise the tools/list capability
 		server.WithInstructions(serverInstructions),
 	)
@@ -370,7 +390,7 @@ Call am_skillset for the rest: which tool answers which question, and how to wri
 // services and no database, which is what makes the tool surface itself
 // assertable rather than something a reader has to count by hand.
 func registerAll(reg *registrar, deps Deps) {
-	registerStatus(reg, deps.Drawers, deps.Skills, deps.Usage, deps.Workspaces, deps.Local)
+	registerStatus(reg, deps.Drawers, deps.Skills, deps.Usage, deps.Workspaces, deps.Local, deps.Version)
 	registerLoadSkill(reg, deps.Skills, deps.Usage)
 	// Skill-registry management: list + update (write is role-gated).
 	registerSkills(reg, deps.Skills, deps.Usage)
@@ -527,7 +547,14 @@ func coverageBlockFor(drift palace.DriftReport, err error) map[string]any {
 // in the shape of its memory before searching, mirroring mempalace's status. The
 // taxonomy read is best-effort: a status call still succeeds (with an empty
 // overview) if the aggregation fails, so liveness never depends on it.
-func registerStatus(reg *registrar, drawers *palace.Service, skills *skill.Service, usageSvc *usage.Service, workspaces WorkspaceLookup, local bool) {
+//
+// version is the build this server is running, and it is here because a client
+// had no way to learn which binary answered it. On the 2026-08-26 server update
+// the only way to confirm the new build was live was ssh plus grepping the
+// container binary for a needle string, and a client seeing a stale palace could
+// not tell that it was stale (issue #70). Unlike every other block below it is
+// not best-effort: it comes from the process itself, so there is nothing to fail.
+func registerStatus(reg *registrar, drawers *palace.Service, skills *skill.Service, usageSvc *usage.Service, workspaces WorkspaceLookup, local bool, version string) {
 	// One cache for the server, shared by every session: the wake-up call runs
 	// the coverage audit at most once per driftTTL per team instead of on every
 	// first call of every session.
@@ -535,7 +562,7 @@ func registerStatus(reg *registrar, drawers *palace.Service, skills *skill.Servi
 		return drawers.IndexDrift(ctx, teamID)
 	}, driftTTL)
 	tool := newTool("status",
-		mcp.WithDescription("Wake-up call: the workspace this MCP session is scoped to (name, slug, and whether the server is self-hosted or hosted) plus your role, the memory overview (total drawers + the wing→rooms taxonomy with counts), and remaining monthly quota. Check the workspace to confirm you are talking to the palace you think you are — an empty wing list means nothing has been written yet, NOT that you are in the wrong place. ⚠READ entry_protocol IF IT IS PRESENT: it names the one skill this team wants loaded before anything else, with the exact call to make. The key is ABSENT when the workspace has no entry protocol, so its presence is the whole signal — a key that were always there is one every session learns to skip."),
+		mcp.WithDescription("Wake-up call: the workspace this MCP session is scoped to (name, slug, and whether the server is self-hosted or hosted) plus your role, the memory overview (total drawers + the wing→rooms taxonomy with counts), and remaining monthly quota. Check the workspace to confirm you are talking to the palace you think you are — an empty wing list means nothing has been written yet, NOT that you are in the wrong place. ⚠READ entry_protocol IF IT IS PRESENT: it names the one skill this team wants loaded before anything else, with the exact call to make. The key is ABSENT when the workspace has no entry protocol, so its presence is the whole signal — a key that were always there is one every session learns to skip. version names the build that answered you: a release tag like v0.0.102, or dev-<commit> for an unreleased build — the one field that tells a stale palace from a current one, which nothing else here can."),
 	)
 	reg.add(tool, func(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		t, errResult, ok := admit(ctx, usageSvc)
@@ -613,6 +640,7 @@ func registerStatus(reg *registrar, drawers *palace.Service, skills *skill.Servi
 			// An agent comparing its recall against an eval table could not
 			// previously tell which row described its server.
 			"ranking":       drawers.RankingProfile(),
+			"version":       version,
 			"mode":          mode,
 			"workspace":     workspace,
 			"default_wing":  defaultWing,

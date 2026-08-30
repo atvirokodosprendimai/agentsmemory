@@ -28,6 +28,7 @@ import (
 	"github.com/atvirokodosprendimai/agentsmemory/db"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/auth"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/billing"
+	"github.com/atvirokodosprendimai/agentsmemory/internal/buildinfo"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/config"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/dataexport"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/embed/ollama"
@@ -241,6 +242,9 @@ func productionMCPServer(svc *services, cfg config.Config, local bool) *server.M
 	deps := mcpserver.Deps{
 		Local:             local,
 		ScopeSearchToWing: cfg.ScopeSearchToWing(),
+		// The same resolver the --version flag reads, so the handshake, am_status
+		// and the CLI can never name three different builds.
+		Version: buildinfo.Effective(version),
 	}
 	if svc != nil {
 		deps.Skills = svc.skills
@@ -262,6 +266,16 @@ func run(ctx context.Context, cfg config.Config) error {
 	if cfg.LocalToken != "" && !cfg.Local {
 		return fmt.Errorf("--token requires --local: multi-tenant mode authenticates with per-workspace API keys, not a shared token")
 	}
+
+	// Tell the operator when the build they are running has been superseded. In a
+	// goroutine because startup must not wait on GitHub, and before the mode split
+	// because both serving paths end in a blocking listen — this is the last point
+	// that covers hosted and --local with one line.
+	// Tell the operator when the build they are running has been superseded. In a
+	// goroutine because startup must not wait on GitHub, and before the mode split
+	// because both serving paths end in a blocking listen — this is the last point
+	// that covers hosted and --local with one line.
+	go announceUpdate(ctx, buildinfo.Effective(version))
 
 	if cfg.Debug {
 		// Make the "why is it silent?" answer obvious on boot: echo the effective
