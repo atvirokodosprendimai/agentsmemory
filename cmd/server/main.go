@@ -28,6 +28,7 @@ import (
 	"github.com/atvirokodosprendimai/agentsmemory/db"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/auth"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/billing"
+	"github.com/atvirokodosprendimai/agentsmemory/internal/buildinfo"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/config"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/dataexport"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/embed/ollama"
@@ -93,9 +94,15 @@ func rootCommand(def config.Config) *cli.Command {
 	// `serve` and the read-only `mcp` CLI. Flag builders return fresh slices so
 	// the root and the `serve` subcommand never share mutable flag state.
 	cmd := &cli.Command{
-		Name:    "agentsmemory",
-		Usage:   "Remote MCP memory server (Qdrant + Ollama, multi-tenant)",
-		Version: version,
+		Name:  "agentsmemory",
+		Usage: "Remote MCP memory server (Qdrant + Ollama, multi-tenant)",
+		// buildinfo.Effective, not the raw variable: an unstamped binary has an
+		// empty (or "dev") version symbol, and printing that tells an operator
+		// nothing about WHICH unstamped build they are holding. The resolver
+		// falls back to dev-<commit> from the embedded VCS stamp, and it is the
+		// same call productionMCPServer makes, so --version, the MCP handshake
+		// and am_status can never name three different builds (issue #70).
+		Version: buildinfo.Effective(version),
 		Flags:   serveFlags(def),
 		Action:  serveAction, // no subcommand → serve (bare run + Docker CMD)
 		Commands: []*cli.Command{
@@ -241,6 +248,9 @@ func productionMCPServer(svc *services, cfg config.Config, local bool) *server.M
 	deps := mcpserver.Deps{
 		Local:             local,
 		ScopeSearchToWing: cfg.ScopeSearchToWing(),
+		// The same resolver the --version flag reads, so the handshake, am_status
+		// and the CLI can never name three different builds.
+		Version: buildinfo.Effective(version),
 	}
 	if svc != nil {
 		deps.Skills = svc.skills
@@ -461,7 +471,7 @@ func run(ctx context.Context, cfg config.Config) error {
 	defer ln.Close()
 
 	log.Printf("agentsmemory listening on %s (dashboard /, MCP /mcp, OAuth issuer %s)", listenDescription(cfg), issuer)
-	return serveHTTP(ln, r)
+	return serveHTTP(ctx, ln, r)
 }
 
 // seedGlobalSkillset writes the default wakeup playbook when the database holds
@@ -605,13 +615,23 @@ func serveLocal(ctx context.Context, cfg config.Config, svc *services, r chi.Rou
 		install += " --socket " + cfg.SocketPath
 	}
 	log.Printf("then install the memory protocol (CLAUDE.md + /M, /am commands + the end-of-turn hook), or the tools sit unused:  %s", install)
-	return serveHTTP(ln, r)
+	return serveHTTP(ctx, ln, r)
 }
 
 // serveHTTP serves h on ln with inbound OpenTelemetry spans. This is the one
 // place HTTP requests become traces; skipping it would leave /mcp and the
 // dashboard invisible while Search still emitted children with no parent.
-func serveHTTP(ln net.Listener, h http.Handler) error {
+//
+// It is also where the update check is launched, and the placement is the point.
+// Issue #115 requires the notice to appear AFTER the listening line, and both
+// serving paths reach here only once listenerFor has succeeded and that line has
+// been printed — so a startup that fails earlier announces nothing, and a fast
+// answer from GitHub cannot overtake the line an operator is waiting for. Doing
+// it at the top of run instead satisfies neither, which is what
+// TestTheUpdateCheckLaunchesFromTheListeningSeam exists to keep true. In a
+// goroutine because nothing may wait on GitHub.
+func serveHTTP(ctx context.Context, ln net.Listener, h http.Handler) error {
+	go announceUpdate(ctx, buildinfo.Effective(version))
 	return http.Serve(ln, telemetry.HTTPHandler(h))
 }
 

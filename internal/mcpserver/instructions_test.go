@@ -21,9 +21,17 @@ import (
 // client that has ever connected.
 func initializeResult(t *testing.T) map[string]any {
 	t.Helper()
+	return initializeResultWith(t, Deps{})
+}
+
+// initializeResultWith is initializeResult over a caller-supplied Deps, so a test
+// can pin a field that the handshake is supposed to REPORT rather than one it
+// merely holds — see TestServerInfoCarriesTheBuildVersion.
+func initializeResultWith(t *testing.T, deps Deps) map[string]any {
+	t.Helper()
 	// A real server with nil deps: registration only builds tools and closures,
 	// and initialize touches none of them.
-	srv := httptest.NewServer(StreamHTTP(New(Deps{})))
+	srv := httptest.NewServer(StreamHTTP(New(deps)))
 	t.Cleanup(srv.Close)
 
 	body := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":` +
