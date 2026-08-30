@@ -97,9 +97,25 @@ func TestACorrectionMayKeepItsOpeningUnchanged(t *testing.T) {
 					t.Errorf("chunk %d links to %q, not to the successor", c.ChunkIndex, c.SupersededBy)
 				}
 			}
-			if !strings.Contains(pred[0].Content, "A LONG NOTE whose opening") {
-				t.Errorf("the predecessor's chunk 0 no longer holds its own text — it was "+
-					"overwritten rather than ended:\n  %.80q", pred[0].Content)
+			// ⚠ EVERY chunk, compared byte-for-byte against what was seeded — not just
+			// chunk 0, and not a substring of it. Chunk 0 is byte-identical across the
+			// correction BY CONSTRUCTION, so a substring check on it holds whether the
+			// row was ended or overwritten and would assert nothing. The TAIL is what
+			// separates the two states: it carries "the original conclusion" only while
+			// the predecessor is intact.
+			if len(pred) != len(first.Drawers) {
+				t.Fatalf("the predecessor now has %d chunk(s), seeded with %d", len(pred), len(first.Drawers))
+			}
+			for i, c := range pred {
+				if c.Content != first.Drawers[i].Content {
+					t.Errorf("the predecessor's chunk %d no longer holds its own text — it was "+
+						"overwritten rather than ended:\n  want %.60q\n  got  %.60q",
+						i, first.Drawers[i].Content, c.Content)
+				}
+			}
+			if !strings.Contains(pred[len(pred)-1].Content, "the original conclusion") {
+				t.Errorf("the predecessor's last chunk lost the conclusion it was filed with:\n  %.80q",
+					pred[len(pred)-1].Content)
 			}
 
 			// And the successor is whole and current.
