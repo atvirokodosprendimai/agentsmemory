@@ -1,14 +1,12 @@
-package mcpserver
+package usage
 
 import (
 	"strings"
 	"testing"
-
-	"github.com/atvirokodosprendimai/agentsmemory/internal/usage"
 )
 
 // TestACappedCallerIsToldARemedyThatCanWork covers the user-visible rejection,
-// which is the surface that actually reaches an agent.
+// which is the surface that actually reaches an agent, and /import's 429.
 //
 // The message said "upgrade the project's plan" unconditionally. Since
 // capLookupFor returns usage.FixedCap for every nonzero --monthly-request-cap,
@@ -21,8 +19,8 @@ import (
 // that the remedy DIFFERS with the cap's source and that neither branch sends a
 // caller to the other's action.
 func TestACappedCallerIsToldARemedyThatCanWork(t *testing.T) {
-	plan := capRejection(usage.Status{Used: 10, Cap: 10})
-	fixed := capRejection(usage.Status{Used: 10, Cap: 10, CapFixed: true})
+	plan := Status{Used: 10, Cap: 10}.CapRejection()
+	fixed := Status{Used: 10, Cap: 10, CapFixed: true}.CapRejection()
 
 	if !strings.Contains(plan, "plan") {
 		t.Errorf("a plan-derived cap must point at the plan; got %q", plan)

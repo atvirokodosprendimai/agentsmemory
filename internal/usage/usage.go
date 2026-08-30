@@ -8,6 +8,7 @@ package usage
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"gorm.io/gorm"
@@ -130,6 +131,25 @@ func (s Status) Remaining() int {
 		return 0
 	}
 	return s.Cap - s.Used
+}
+
+// CapRejection is the one sentence a caller gets when the monthly cap refuses
+// the request, and it branches on WHERE the cap came from because only the
+// source decides which remedy can work.
+//
+// It lives on Status rather than beside a caller because there are two callers —
+// the MCP tool rejection and the /import handler — and one copy per caller is
+// how this went wrong the first time. The MCP branch learned about
+// deployment-fixed caps while /import went on telling a self-hosted operator to
+// upgrade a plan that cannot move their cap and, with billing switched off, does
+// not exist to buy. The sentence is a property of the Status, so the Status owns
+// it and a third surface cannot drift from the other two.
+func (s Status) CapRejection() string {
+	remedy := "upgrade the project's plan"
+	if s.CapFixed {
+		remedy = "this cap is set by the deployment, not by the plan — raise --monthly-request-cap (or AGENTSMEMORY_MONTHLY_REQUEST_CAP) on the server"
+	}
+	return fmt.Sprintf("monthly request cap reached (%d/%d) — %s", s.Used, s.Cap, remedy)
 }
 
 // Service is the metering use-case layer.

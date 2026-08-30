@@ -236,7 +236,7 @@ func dataFlags(def config.Config) []cli.Flag {
 // That is this repo's documented reachability failure in its config form: a flag
 // parsed into a Config field is not a flag that has an EFFECT in the mode that is
 // running (ADR-006). Only the serving paths and the direct `mcp` CLI meter, and
-// TestTheCapOverrideIsOnlyOfferedWhereItIsEnforced pins that set against the real
+// TestTheCapOverrideIsOnlyDeclaredWhereItIsEnforced pins that set against the real
 // command tree.
 func meteringFlags(def config.Config) []cli.Flag {
 	return []cli.Flag{
