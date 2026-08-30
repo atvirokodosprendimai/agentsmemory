@@ -42,24 +42,44 @@ F-4's question, so the test fails fast below three chunks. The needle appears in
 the opening marker in the first; asserting both is what makes the check two-directional, since
 either alone passes on the chunk that matched.
 
-**3. THE TAG-RESTORATION MUTANT COULD NOT BE TOOL-WRITTEN — `adr-verify` refuses it as
-comment-only, and that refusal is a FALSE POSITIVE worth reporting upstream.** `//go:build
-readcostspec` is lexically a comment and semantically a build constraint: restoring it removes four
-tests from the lane CI runs. Verified by hand instead, both directions:
+**3. THE TAG-RESTORATION MUTANT IS NOW TOOL-WRITTEN, AND LANDS AS `inconclusive` — twice blocked,
+for two different and both-defensible reasons.** Recorded here in full because the first half of this
+paragraph went false within hours of being written, which is the class this record exists to remove.
+
+**First block, since FIXED upstream.** `adr-verify --mutant` refused the mutation as *comment-only*:
+`//go:build readcostspec` is lexically a comment and semantically a build constraint, so restoring it
+removes four tests from the lane CI runs — a larger behavioural change than most real mutants. Hand-
+verified at the time, both directions:
 
 ```
 $ # tag restored
 $ go test ./internal/mcpserver/ -run 'TestF4ChunkingCreatesNoReassemblyObligation' -count=1
-ok  github.com/atvirokodosprendimai/agentsmemory/internal/mcpserver  0.018s [no tests to run]
+ok  github.com/atvirokodosprendimai/agentsmemory/internal/mcpserver  0.019s [no tests to run]
 $ echo $?
 0
 ```
 
-**Exit 0 over a suite that executed nothing** — which is precisely why this task's Acceptance greps
-for `no tests to run` rather than trusting the exit code, and why rung 2 calls the tag removal "the
-selection". `adr-verify`'s guard is right in general (a comment-only mutant tests nothing) and wrong
-for the directive family — `//go:build`, `//go:generate`, `//go:embed`, `//nolint`. Reported to the
-quality-harness session.
+Reported upstream and **shipped in quality-harness v2.36.0** as an explicit directive list
+(`//go:build`, `// +build`, `//go:generate`, `//go:embed`, `//go:linkname`, `//nolint`,
+`# type: ignore`, `# noqa`, `// eslint-disable`, `/* istanbul ignore */`, a shebang) rather than a
+heuristic — because "a comment whose first token ends in a colon" would swallow ordinary prose, and a
+guard that exists to REFUSE mutants must not get a loose exemption.
+
+**Second block, live as of v2.36.0 and reported.** The mutation now RUNS and is recorded, but as
+`mutant inconclusive` rather than `killed`, with the reason *"the fence failed but scored no tests"*.
+Both rules are individually right and they collide precisely here: the scored-no-tests rule exists to
+catch a fence whose filter matches nothing and passes vacuously, while THIS mutant's entire signal is
+that no tests ran — the fence detects it correctly, by grepping for `no tests to run`, and fails.
+
+**So the class is: any mutant whose effect is to REMOVE tests from a lane is reported inconclusive,
+however correctly the fence catches it.** The distinguishing question the classifier does not ask is
+whether the fence scored no tests and PASSED (vacuous — inconclusive is right) or scored no tests and
+FAILED BECAUSE IT DETECTED THAT (a kill). The exit code and the fence's own grep already separate
+them.
+
+The entry is left in the Mutation Log as `inconclusive` rather than argued away: it is accurate about
+what the tool currently concludes, and rung 2's claim rests on the hand-run above until the classifier
+can tell the two cases apart.
 
 **4. A REPO GATE CAUGHT THE FIXTURE'S WING NAME, correctly — TWICE.** The first draft named the
 fixture wing after this task. `TestNoRealProjectNamesInWings` refused it: a wing name is a project
@@ -113,6 +133,10 @@ which is what catches a removal that exposes a test CI cannot reproduce.
 
 <!-- Tool-written by `adr-verify --mutant`. Empty at authoring. -->
 - 2026-08-29 · 089323d · mutant killed · exit 1 · `internal/mcpserver/drawers.go` · the binding's named kill-case: render the matching CHUNK's content in place of the memory's, so a match in a later chunk returns only that chunk and the caller must fetch and join its siblings to obtain the memory · acceptance-sha256:846eb0d04b9d69f3dd82c48954953bd4db3630c3059570f6c8ba07b31a48d9e6
+- 2026-08-29 · 25cd90b · mutant inconclusive · exit 1 · `internal/mcpserver/readcost_spec_test.go` · the Reachability rung-2 mutation: restore the build tag. All four bindings vanish from the lane CI runs and go test reports [no tests to run] at exit 0 — a green run over a suite that executed nothing, which is why the fence greps for that string rather than trusting the exit code · acceptance-sha256:846eb0d04b9d69f3dd82c48954953bd4db3630c3059570f6c8ba07b31a48d9e6
+  ```
+  the fence failed but scored no tests
+  ```
 
 ## Invariants
 
