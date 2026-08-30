@@ -644,6 +644,30 @@ func (s *Service) Add(ctx context.Context, teamID string, in AddInput) (result A
 	if err != nil {
 		return AddResult{}, err
 	}
+	// ⚠ AN ENTRY RECORD THAT CHUNKS IS REFUSED, because the limit it breaks is one
+	// no agent can measure before writing.
+	//
+	// am_bootstrap's eager tier serves ONE chunk, so a longer entry record arrives
+	// cut mid-sentence with truncation.omitted:0 and nothing marking it partial —
+	// the front door silently losing whatever came after the seam.
+	//
+	// Reported 2026-08-30 by a session that filed a ~1750-rune entry record in the
+	// same turn it read the instruction "keep it under 1600 runes": "I did not
+	// estimate, because I cannot count runes and did not try to bound it. Nothing
+	// warned me; am_add_drawer returned chunks: 2 as a success. A rune limit an
+	// agent cannot measure is a limit on nothing." The author was right, so the
+	// server counts instead of asking, and REFUSES rather than warning — a warning
+	// beside a success is the shape that got ignored the first time.
+	//
+	// It binds only the entry room. Every other room may chunk freely; this is the
+	// one whose read path cannot reassemble.
+	if in.Room == EntryRoom && len(prepared.drawers) > 1 {
+		return AddResult{}, fmt.Errorf("%w: an entry record for room %q must fit in ONE chunk and "+
+			"this one is %d — am_bootstrap serves the eager tier one chunk at a time, so the rest "+
+			"would arrive cut with nothing marking it partial. Shorten it to about %d runes and "+
+			"file the detail as an ordinary memory the entry record points at",
+			ErrInvalidInput, EntryRoom, len(prepared.drawers), ChunkSize)
+	}
 	if err := s.persistWrite(ctx, s.repo, teamID, prepared); err != nil {
 		return AddResult{}, err
 	}

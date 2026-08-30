@@ -2,6 +2,7 @@ package palace
 
 import (
 	"context"
+	"strings"
 	"testing"
 )
 
@@ -73,5 +74,147 @@ func TestFilingIntoTheEntryRoomMintsTheWingRoot(t *testing.T) {
 	if len(q2.Facts) != len(q.Facts) {
 		t.Errorf("a second entry-room drawer grew the root from %d to %d edges; the root is one "+
 			"hop to the room, not a list of its contents", len(q.Facts), len(q2.Facts))
+	}
+}
+
+// TestAnEntryRecordThatChunksIsRefused pins a limit no agent can measure.
+//
+// ⚠ REPORTED BY A SESSION THAT BROKE IT IN THE SAME TURN IT READ THE RULE. It
+// filed a ~1750-rune entry record minutes after reading "keep it under 1600
+// runes", and said why: "I cannot count runes and did not try to bound it.
+// Nothing warned me; am_add_drawer returned chunks: 2 as a success." The server
+// counts instead, and refuses rather than warning — a warning beside a success is
+// the shape that was already ignored once.
+func TestAnEntryRecordThatChunksIsRefused(t *testing.T) {
+	ctx := context.Background()
+	svc := newTestService(t)
+	const team, wing = "team-entrysize", "wing_alpha"
+
+	long := longNote(headA, tailA) // built to exceed ChunkSize by construction
+
+	_, err := svc.Add(ctx, team, AddInput{Wing: wing, Room: EntryRoom, Content: long})
+	if err == nil {
+		t.Fatal("a multi-chunk entry record was accepted; the eager tier serves one chunk, so " +
+			"the rest would arrive cut with nothing marking it partial")
+	}
+	// The refusal has to be actionable: name the room and the remedy, or it is a
+	// wall rather than an instruction.
+	if !strings.Contains(err.Error(), EntryRoom) {
+		t.Errorf("the refusal does not name the room it binds: %v", err)
+	}
+	if !strings.Contains(err.Error(), "ONE chunk") {
+		t.Errorf("the refusal does not say what the limit is: %v", err)
+	}
+
+	// ⚠ AND IT BINDS ONLY THE ENTRY ROOM. Every other room may chunk freely; this
+	// is the one whose read path cannot reassemble.
+	if _, err := svc.Add(ctx, team, AddInput{Wing: wing, Room: "decisions", Content: long}); err != nil {
+		t.Errorf("a multi-chunk memory in an ordinary room was refused: %v", err)
+	}
+
+	// A short one is fine, and still mints the root.
+	if _, err := svc.Add(ctx, team, AddInput{
+		Wing: wing, Room: EntryRoom, Content: "WHAT MUST I LOAD AT THE START OF A SESSION? — short enough",
+	}); err != nil {
+		t.Fatalf("a single-chunk entry record was refused: %v", err)
+	}
+}
+
+// TestCorrectingAnEntryRecordEndsItsDerivedEdge pins the front door.
+//
+// ⚠ THE AUTHOR CANNOT FIX THIS ONE, WHICH IS WHY THE SERVER MUST. A derived edge
+// is minted by the server from the room, so when a correction ends the drawer the
+// edge points at, no call exists that would let the author repoint it. Reported
+// 2026-08-30 by a session that corrected its own entry record and found
+// am_entry_point returning both rows, the ENDED one listed first because it is
+// older — a front door whose first edge errors on read.
+func TestCorrectingAnEntryRecordEndsItsDerivedEdge(t *testing.T) {
+	ctx := context.Background()
+	svc := newTestService(t)
+	const team, wing = "team-frontdoor", "wing_alpha"
+
+	first, err := svc.Add(ctx, team, AddInput{
+		Wing: wing, Room: EntryRoom, Content: "WHAT MUST I LOAD AT THE START OF A SESSION? — v1",
+	})
+	if err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	res, err := svc.Supersede(ctx, team, first.Drawers[0].ID,
+		"WHAT MUST I LOAD AT THE START OF A SESSION? — v2", "sharpened")
+	if err != nil {
+		t.Fatalf("correct: %v", err)
+	}
+
+	q, err := svc.KGQuery(ctx, team, KGQueryInput{
+		Entity: DerivedEdgeSubject(wing, EntryRoom), Direction: "outgoing", Status: KGStatusCurrent,
+	})
+	if err != nil {
+		t.Fatalf("read the entry room's edges: %v", err)
+	}
+	for _, f := range q.Facts {
+		if f.Object == first.Drawers[0].ID {
+			t.Errorf("the entry room still points at the SUPERSEDED record %s — a session "+
+				"fetching that edge gets an error at the front door, and the author has no "+
+				"call that would end a derived edge:\n%+v", short12(f.Object), q.Facts)
+		}
+	}
+	var pointsAtSuccessor bool
+	for _, f := range q.Facts {
+		if f.Object == res.ID {
+			pointsAtSuccessor = true
+		}
+	}
+	if !pointsAtSuccessor {
+		t.Errorf("the entry room does not point at the correction %s; ending the old edge must "+
+			"not leave the door pointing at nothing:\n%+v", short12(res.ID), q.Facts)
+	}
+}
+
+// TestCorrectingADrawerLeavesAuthoredEdgesAlone is the other half, and it was
+// UNASSERTED until a mutant found it.
+//
+// ⚠ REMOVING THE `derived = true` FILTER PASSED THE WHOLE SUITE. The correction
+// would then have ended every authored edge pointing at the superseded row too —
+// somebody's deliberate `qualifies`, `supersedes` or `must.*` pointer, silently,
+// with no call to restore it. The doc comment claimed that was "the opposite
+// defect" and nothing held the claim. This does.
+//
+// The asymmetry is the whole rule: a DERIVED edge is the server's, so the server
+// must clean it up; an AUTHORED edge is a person's, so the server must not touch
+// it — even when the row it names has been superseded, because the author may
+// mean exactly that.
+func TestCorrectingADrawerLeavesAuthoredEdgesAlone(t *testing.T) {
+	ctx := context.Background()
+	svc := newTestService(t)
+	const team, wing = "team-authored", "wing_alpha"
+
+	target, err := svc.Add(ctx, team, AddInput{Wing: wing, Room: "decisions", Content: "the record someone pointed at"})
+	if err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	id := target.Drawers[0].ID
+
+	// An authored edge, the shape start-here prescribes for a correction.
+	if _, err := svc.KGAdd(ctx, team, "some-other-record", "qualifies", id, "", "", "", "", id); err != nil {
+		t.Fatalf("author an edge: %v", err)
+	}
+
+	if _, err := svc.Supersede(ctx, team, id, "the record, corrected", "sharpened"); err != nil {
+		t.Fatalf("correct: %v", err)
+	}
+
+	q, err := svc.KGQuery(ctx, team, KGQueryInput{Entity: id, Direction: "incoming", Status: KGStatusCurrent})
+	if err != nil {
+		t.Fatalf("read incoming edges: %v", err)
+	}
+	var authoredSurvives bool
+	for _, f := range q.Facts {
+		if f.Predicate == "qualifies" {
+			authoredSurvives = true
+		}
+	}
+	if !authoredSurvives {
+		t.Errorf("correcting the drawer ended an AUTHORED edge pointing at it — that pointer is "+
+			"someone's deliberate act and there is no call that would restore it:\n%+v", q.Facts)
 	}
 }
