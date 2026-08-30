@@ -511,11 +511,29 @@ func admit(ctx context.Context, usageSvc *usage.Service) (tenant.Tenant, *mcp.Ca
 		return tenant.Tenant{}, mcp.NewToolResultError("usage metering failed"), false
 	}
 	if !st.Allowed {
-		return tenant.Tenant{}, mcp.NewToolResultError(
-			fmt.Sprintf("monthly request cap reached (%d/%d) — upgrade the project's plan", st.Used, st.Cap),
-		), false
+		return tenant.Tenant{}, mcp.NewToolResultError(capRejection(st)), false
 	}
 	return t, nil, true
+}
+
+// capRejection is the one sentence a blocked caller gets, and the remedy it names
+// depends on where the cap came from.
+//
+// Naming the wrong remedy is worse than naming none. capLookupFor returns
+// usage.FixedCap for every nonzero --monthly-request-cap, so under a deployment
+// override changing teams.plan_id moves nothing: "upgrade the project's plan"
+// then sends a caller to an action that cannot succeed, and on the self-hosted
+// install the override exists for there is no plan to buy at all.
+//
+// A named function rather than an inline branch so the seam is testable without a
+// database, a tenant and a live handler — the assertion is about which sentence a
+// caller receives, and that is answerable here.
+func capRejection(st usage.Status) string {
+	remedy := "upgrade the project's plan"
+	if st.CapFixed {
+		remedy = "this cap is set by the deployment, not by the plan — raise --monthly-request-cap (or AGENTSMEMORY_MONTHLY_REQUEST_CAP) on the server"
+	}
+	return fmt.Sprintf("monthly request cap reached (%d/%d) — %s", st.Used, st.Cap, remedy)
 }
 
 // coverageBlockFor builds the am_status coverage block. It mirrors inboxStatus's

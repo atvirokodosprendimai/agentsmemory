@@ -109,3 +109,49 @@ func TestSnapshotAgreesWithAllowUnderAnOverride(t *testing.T) {
 			"displayed one disagree", allowed.Cap, shown.Cap)
 	}
 }
+
+// TestTheCapSourceTravelsWithTheStatus pins the field every "what do I do now?"
+// surface branches on.
+//
+// The cap VALUE cannot tell a caller whether anything they can buy will move it,
+// and both surfaces that advise a capped caller were written when the plan was
+// the only source: the MCP rejection says "upgrade the project's plan" and the
+// dashboard renders a checkout button. Under a deployment override both are
+// advice that cannot work, and the dashboard's version takes money for it.
+func TestTheCapSourceTravelsWithTheStatus(t *testing.T) {
+	ctx := context.Background()
+
+	fixed := NewService(NewRepo(newTestDB(t)), FixedCap(1))
+	st, err := fixed.Allow(ctx, "team")
+	if err != nil {
+		t.Fatalf("allow: %v", err)
+	}
+	if !st.CapFixed {
+		t.Error("a FixedCap deployment override does not mark its Status, so every surface downstream " +
+			"still advises a plan upgrade that cannot move the cap")
+	}
+	// The blocked path too — that is the one a capped caller actually receives.
+	if st, err = fixed.Allow(ctx, "team"); err != nil {
+		t.Fatalf("allow: %v", err)
+	}
+	if st.Allowed || !st.CapFixed {
+		t.Errorf("the REFUSED status lost the cap source: allowed=%v fixed=%v", st.Allowed, st.CapFixed)
+	}
+	if st, err = fixed.Snapshot(ctx, "team"); err != nil {
+		t.Fatalf("snapshot: %v", err)
+	}
+	if !st.CapFixed {
+		t.Error("Snapshot drops the cap source, so the dashboard and the enforcement path disagree " +
+			"about whether a purchase can change anything")
+	}
+
+	// A plan-derived cap must NOT be marked, or the remedy flips the wrong way and
+	// every hosted workspace is told to edit a server flag it cannot reach.
+	plan := NewService(NewRepo(newTestDB(t)), fakeCaps{cap: 5})
+	if st, err = plan.Allow(ctx, "team"); err != nil {
+		t.Fatalf("allow: %v", err)
+	}
+	if st.CapFixed {
+		t.Error("a plan-derived cap is reported as a deployment override")
+	}
+}

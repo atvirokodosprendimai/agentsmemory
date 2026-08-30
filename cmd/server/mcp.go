@@ -33,12 +33,17 @@ import (
 // mcpCommand builds the `mcp` subcommand. It reuses dataFlags (the storage/embed
 // flags) so it opens the same database as serve, and adds the auth selectors
 // (--token / --team) and the repeatable -a/--arg tool-argument flag.
+//
+// It also takes meteringFlags, and unlike every other dataFlags command it earns
+// them: --token here resolves a tenant and METERS the call for HTTP parity, so
+// the cap override changes what this command does. That is the test for offering
+// the flag at all — parsing it into a Config field is not having an effect.
 func mcpCommand(def config.Config) *cli.Command {
 	return &cli.Command{
 		Name:      "mcp",
 		Usage:     "Invoke a read-only memory tool from the CLI (run with no tool to list them)",
 		ArgsUsage: "[tool] [primary-arg]",
-		Flags: append(dataFlags(def),
+		Flags: append(append(dataFlags(def), meteringFlags(def)...),
 			&cli.StringFlag{Name: "token", Usage: "API key: resolves the tenant and meters the call (HTTP parity). AGENTSMEMORY_TOKEN is used only when neither --token nor --team is set"},
 			&cli.StringFlag{Name: "team", Usage: "team id: trusted local admin read, no metering (alternative to --token)"},
 			&cli.StringSliceFlag{Name: "arg", Aliases: []string{"a"}, Usage: "tool argument as key=value (repeatable)"},

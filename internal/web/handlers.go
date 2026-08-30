@@ -232,9 +232,15 @@ func (s *Server) projectsForUser(ctx context.Context, userID string) ([]views.Pr
 		// ErrNoSubscription. Ask billing whether a relationship is on record; this is
 		// the same test ManageURL itself applies (ADR-042).
 		hasRelationship := s.billing.HasRelationship(ctx, t.ID)
+		// A deployment override fixes the cap for every workspace this process
+		// serves, so no purchase can move it: the plan would flip and the enforced
+		// cap would not. Offering checkout there sells a lift that cannot be
+		// delivered, which is why the source travels on the usage Status rather
+		// than being re-derived here.
+		capFixedByDeployment := st.CapFixed
 		// Upgrade is offered on a free plan; Manage on a paid one. Both require an admin
 		// and configured billing, and they are mutually exclusive by the onFree split.
-		canUpgrade := s.billing.Enabled() && isAdmin && onFree
+		canUpgrade := s.billing.Enabled() && isAdmin && onFree && !capFixedByDeployment
 		canManage := s.billing.Enabled() && isAdmin && !onFree && !isComped && hasRelationship
 		out = append(out, views.ProjectVM{
 			TeamID: t.ID, Name: t.Name, Slug: t.Slug, PlanName: planName, Endpoint: "/mcp",
