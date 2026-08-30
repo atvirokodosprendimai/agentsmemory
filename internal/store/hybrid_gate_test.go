@@ -381,15 +381,43 @@ func TestSearchFallsBackWhenIndexBehind(t *testing.T) {
 		}
 	}
 
-	// The trigger is asynchronous: the index is eventually replayed from the
-	// source of truth, and a later query serves from it again, unflagged.
-	eventually(t, "rebuild to restore the index", func() bool { return idx.count("ns") == 10 })
+	// The trigger is asynchronous, and the wait is on the property this test
+	// actually asserts — a later query serving UNFLAGGED — rather than on the
+	// index's point count.
+	//
+	// The count is a PROXY, and it goes true too early. rebuildNamespace does the
+	// replay first and drops the cached count pair afterwards:
+	//
+	//	err := h.Rebuild(ctx, namespace)   // idx.count reaches 10 here
+	//	...
+	//	delete(h.gate.pair, namespace)     // the behind pair is dropped only here
+	//
+	// Between those two lines Search still reads the cached indexed=7/expected=10
+	// and correctly sets StaleIndex. Waiting on the count returns inside that
+	// window, and the very next line then fails on a system that is behaving
+	// exactly as designed. It is a narrow window locally and a wide one on a
+	// loaded CI runner, where the goroutine can be descheduled between them:
+	// observed as a spurious red on PR #129 (2026-08-30), which passed on a
+	// re-run with no code change.
+	//
+	// This does not weaken the assertion. The deadline IS the assertion: if the
+	// rebuild never restores unflagged serving, eventually never returns true and
+	// the test fails on the timeout.
+	eventually(t, "the rebuilt index to serve unflagged", func() bool {
+		r, err := h.Search(ctx, "ns", []float32{0, 0, 0}, 5, nil)
+		return err == nil && !r.StaleIndex
+	})
+
+	// And the restored index must still answer, not merely answer unflagged.
 	res2, err := h.Search(ctx, "ns", []float32{0, 0, 0}, 5, nil)
 	if err != nil {
 		t.Fatalf("search after rebuild: %v", err)
 	}
-	if res2.StaleIndex {
-		t.Fatal("a rebuilt index still served with the stale_index flag")
+	if len(res2.H) == 0 {
+		t.Fatal("the rebuilt index served an empty answer")
+	}
+	if idx.count("ns") != 10 {
+		t.Fatalf("the rebuild left the index at %d of 10 points", idx.count("ns"))
 	}
 }
 
