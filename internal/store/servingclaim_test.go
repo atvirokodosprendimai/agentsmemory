@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode"
 )
 
 // qualifiers are the words that turn a serving claim into a conditional one.
@@ -17,7 +18,7 @@ import (
 // package comment was unconditional, and an unconditional sentence cannot
 // survive a fallback being added anywhere in the package.
 var qualifiers = []string{
-	"while", "when", "unless", "until", "behind", "agree", "stale",
+	"if", "while", "when", "unless", "until", "behind", "agree", "stale",
 	"source of truth", "sot", "fall", "fell", "degraded",
 }
 
@@ -64,6 +65,11 @@ func TestTheServingClaimGateCatchesAnUnconditionalSentence(t *testing.T) {
 		"Searches are served entirely by the index.",
 		"searches are served by the index",
 		"A search is served from the index, always.",
+		// Unconditional, and it contains the letters of a qualifier inside a
+		// word that names no condition: "different" holds "if", "specific"
+		// holds "if" again. A substring test excuses both, which is why
+		// admitsACondition matches on word boundaries.
+		"Searches are served by the index, in a different way for each specific store.",
 	}
 	for _, s := range offenders {
 		if admitsACondition(s) {
@@ -79,6 +85,10 @@ func TestTheServingClaimGateCatchesAnUnconditionalSentence(t *testing.T) {
 	fine := []string{
 		"Search is served by the index while the halves agree on population, and by the source of truth when the index has fallen behind.",
 		"searches are served by the index while the two halves agree on population, and by the SoT when the index has fallen behind",
+		// The plainest way to write the same true condition. It was rejected
+		// before "if" joined the list, which is a false alarm on correct prose
+		// — the failure mode the paragraph above says turns a gate off.
+		"Search is served by the index if it is current.",
 	}
 	for _, s := range fine {
 		if !admitsACondition(s) {
@@ -91,11 +101,32 @@ func TestTheServingClaimGateCatchesAnUnconditionalSentence(t *testing.T) {
 // admitsACondition reports whether a serving claim names something that limits
 // it. Deliberately generous: the cost of missing a badly-worded true sentence is
 // one uncaught comment, and the cost of a false alarm is the gate's credibility.
+//
+// Matching is on WORD BOUNDARIES, not substrings, and that is what makes the
+// list safe to keep generous. A plain substring test cannot hold "if": the
+// letters appear inside "different", "specific" and "verify", so every sentence
+// using one of those would be excused without naming a condition at all. The
+// same test is a prefix on each word, so "fall" still admits "fallen", "agree"
+// still admits "agrees", and "when" still admits "whenever" — the inflections
+// the list was written to cover — while no qualifier can hide mid-word.
 func admitsACondition(sentence string) bool {
-	lower := strings.ToLower(sentence)
+	words := strings.FieldsFunc(strings.ToLower(sentence), func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+	})
+	// A leading and trailing space so a phrase qualifier matches at either end
+	// of the sentence exactly as it does in the middle.
+	joined := " " + strings.Join(words, " ")
 	for _, q := range qualifiers {
-		if strings.Contains(lower, q) {
-			return true
+		if strings.Contains(q, " ") {
+			if strings.Contains(joined, " "+q) {
+				return true
+			}
+			continue
+		}
+		for _, w := range words {
+			if strings.HasPrefix(w, q) {
+				return true
+			}
 		}
 	}
 	return false
