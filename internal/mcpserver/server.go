@@ -511,9 +511,7 @@ func admit(ctx context.Context, usageSvc *usage.Service) (tenant.Tenant, *mcp.Ca
 		return tenant.Tenant{}, mcp.NewToolResultError("usage metering failed"), false
 	}
 	if !st.Allowed {
-		return tenant.Tenant{}, mcp.NewToolResultError(
-			fmt.Sprintf("monthly request cap reached (%d/%d) — upgrade the project's plan", st.Used, st.Cap),
-		), false
+		return tenant.Tenant{}, mcp.NewToolResultError(st.CapRejection()), false
 	}
 	return t, nil, true
 }

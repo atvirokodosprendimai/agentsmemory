@@ -29,6 +29,19 @@ func setPlanCommand(def config.Config) *cli.Command {
 			&cli.StringFlag{Name: "plan", Value: "unlimited", Usage: "plan code to attach (e.g. unlimited, personal, pro_monthly)"},
 		),
 		Action: func(ctx context.Context, c *cli.Command) error {
+			// urfave/cli v3 hands every subcommand the ROOT command's flags, and the
+			// root is the serve action — so --monthly-request-cap parses here whatever
+			// flag set this command declares, and no flag-surface change can take it
+			// away. Refusing it is therefore the only honest option, and this is the
+			// command where accepting it silently is worst: set-plan reports a durable
+			// plan-cap change while a process override it neither uses nor persists
+			// would, at serve time, ignore the plan it just wrote.
+			if cap := c.Int("monthly-request-cap"); cap != 0 {
+				return fmt.Errorf("--monthly-request-cap (%d) does nothing here: it is a serving policy "+
+					"read by the server process, and set-plan writes the workspace's plan. Run it on "+
+					"serve (or the mcp CLI), or drop it — this command would otherwise report a cap "+
+					"change that the running server overrides", cap)
+			}
 			return setTeamPlan(ctx, configFromCmd(c, def), c.String("slug"), c.String("plan"))
 		},
 	}

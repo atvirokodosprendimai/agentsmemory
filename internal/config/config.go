@@ -280,6 +280,35 @@ type Config struct {
 	// served decision. A collector that is down drops observability, not search.
 	OTELEndpoint string
 
+	// MonthlyRequestCap overrides the per-workspace monthly request cap that the
+	// workspace's PLAN would otherwise decide, for every workspace this process
+	// serves.
+	//
+	// It exists because the cap is enforced whether or not billing is configured.
+	// A self-hosted install has no Polar account, no subscription and nobody to
+	// bill, yet a workspace on the seeded Free plan stops answering its own owner
+	// after 10,000 metered requests a month (db/migrations/00003_usage.sql) — a
+	// limit that exists to price a hosted service, applied to someone running the
+	// server on their own machine. Until now the only lever was the `set-plan`
+	// superadmin CLI, per workspace, which an operator has to know exists.
+	//
+	// Three values, and the zero value is deliberately the inert one so an
+	// operator who sets nothing keeps today's behaviour exactly:
+	//
+	//   0 (default) — no override; the plan decides, as it always has.
+	//   n > 0       — every workspace is capped at n metered requests per month.
+	//   negative    — every workspace is uncapped.
+	//
+	// Negative rather than zero for "uncapped" because zero already had to mean
+	// "unset", and because -1 is the value the Unlimited plan row itself carries
+	// (db/migrations/00019_unlimited_plan.sql) and the value am_status already
+	// reports for it — so the two spellings of "no limit" agree.
+	//
+	// This is a deployment policy, not a per-workspace grant: it does not edit any
+	// plan row, so removing the setting restores plan-derived caps with nothing to
+	// undo.
+	MonthlyRequestCap int
+
 	// Debug turns on verbose logging: per-request HTTP access logs (chi) and
 	// gorm SQL logging. Off by default so production stays quiet; set APP_DEBUG=true
 	// (or --debug) to see traffic and queries during development.

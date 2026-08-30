@@ -103,13 +103,13 @@ func rootCommand(def config.Config) *cli.Command {
 		// same call productionMCPServer makes, so --version, the MCP handshake
 		// and am_status can never name three different builds (issue #70).
 		Version: buildinfo.Effective(version),
-		Flags:   serveFlags(def),
+		Flags:   meteredServeFlags(def),
 		Action:  serveAction, // no subcommand → serve (bare run + Docker CMD)
 		Commands: []*cli.Command{
 			{
 				Name:   "serve",
 				Usage:  "Run the HTTP MCP server + dashboard (the default action)",
-				Flags:  serveFlags(def),
+				Flags:  meteredServeFlags(def),
 				Action: serveAction,
 			},
 			mcpCommand(def),
@@ -161,6 +161,7 @@ func configFromCmd(c *cli.Command, def config.Config) config.Config {
 		RerankTimeout:          c.Duration("rerank-timeout"),
 		HTTPTimeout:            c.Duration("http-timeout"),
 		OTELEndpoint:           strings.TrimSpace(c.String("otel-endpoint")),
+		MonthlyRequestCap:      c.Int("monthly-request-cap"),
 		Debug:                  c.Bool("debug"),
 		Local:                  c.Bool("local"),
 		// Trimmed because the presented credential is: auth.bearerToken strips the
@@ -224,6 +225,25 @@ func dataFlags(def config.Config) []cli.Flag {
 	}
 }
 
+// meteringFlags are the flags that change how requests are METERED. They are
+// separate from dataFlags because dataFlags is shared by every command that
+// opens the database, and most of those never meter anything: doctor, wing
+// export and set-plan among them accepted --monthly-request-cap and it changed
+// no result they produce. `set-plan --monthly-request-cap=...` was the worst of
+// them — it reports a durable plan-cap change while the process override it
+// accepted is neither used by that operation nor persisted.
+//
+// That is this repo's documented reachability failure in its config form: a flag
+// parsed into a Config field is not a flag that has an EFFECT in the mode that is
+// running (ADR-006). Only the serving paths and the direct `mcp` CLI meter, and
+// TestTheCapOverrideIsOnlyDeclaredWhereItIsEnforced pins that set against the real
+// command tree.
+func meteringFlags(def config.Config) []cli.Flag {
+	return []cli.Flag{
+		&cli.IntFlag{Name: "monthly-request-cap", Sources: cli.EnvVars("AGENTSMEMORY_MONTHLY_REQUEST_CAP"), Value: def.MonthlyRequestCap, Usage: "override the monthly metered-request cap for EVERY workspace this process serves: 0 (default) leaves the workspace's plan deciding, a positive number caps every workspace there, and a negative number uncaps them. For a self-hosted install with no billing, where the seeded Free plan's 10000/month prices a service nobody is selling. Refused alongside configured billing, which sells a cap this would override"},
+	}
+}
+
 // serveFlags are the flags the serving entry points expose: the listen address
 // or socket, plus the shared storage/embed flags.
 func serveFlags(def config.Config) []cli.Flag {
@@ -237,6 +257,18 @@ func serveFlags(def config.Config) []cli.Flag {
 		&cli.StringFlag{Name: "token", Sources: cli.EnvVars(mcpprotocol.LocalTokenEnvVar), Usage: "require this bearer token on --local's /mcp and /import, so the server can safely bind a LAN address (e.g. --addr 0.0.0.0:8080); omit for a credential-free loopback or --socket install"},
 		&cli.StringFlag{Name: "superadmin-emails", Sources: cli.EnvVars("SUPERADMIN_EMAILS"), Usage: "comma-separated emails allowed to edit the global am_skillset playbook"},
 	}, dataFlags(def)...)
+}
+
+// meteredServeFlags are serveFlags plus the metering policy: what the two serving
+// entry points expose.
+//
+// Separate from serveFlags because `eval` reuses that builder and meters nothing
+// — it opens the database and runs offline comparisons, so an accepted cap
+// override would change no number it prints. The gate that caught exactly that is
+// TestTheCapOverrideIsOnlyDeclaredWhereItIsEnforced, on the commit that moved the
+// flag out of dataFlags.
+func meteredServeFlags(def config.Config) []cli.Flag {
+	return append(serveFlags(def), meteringFlags(def)...)
 }
 
 // productionMCPServer is the one composition seam for every in-process MCP
@@ -397,6 +429,22 @@ func run(ctx context.Context, cfg config.Config) error {
 	billingCfg := billingConfig()
 	billingSrv := billing.NewService(billingCfg, tenants, billing.NewRepo(svc.gdb)).
 		WithIntents(billing.NewIntentRepo(svc.gdb))
+
+	// A process-wide cap override and a configured checkout cannot both be true,
+	// so refuse the combination at startup rather than serving a contradiction.
+	// capLookupFor returns FixedCap for every nonzero override, which means
+	// teams.plan_id no longer decides anything — while billing exists precisely to
+	// change teams.plan_id in exchange for money. A user could pay, the plan could
+	// flip successfully, and the enforced cap would not move. A negative override
+	// is the same defect wearing the opposite sign: the dashboard would offer a
+	// paid lift from a cap that is already unlimited.
+	//
+	// Loud at boot, because both of the alternatives are silent. Suppressing the
+	// upgrade UI alone leaves an operator believing they sell a plan they do not,
+	// and letting checkout run takes money for nothing.
+	if err := refuseCapOverrideWithBilling(cfg.MonthlyRequestCap, billingSrv.Enabled()); err != nil {
+		return err
+	}
 	startOpenCollectiveReconciler(ctx, billingCfg, billingSrv, svc.gdb)
 
 	// Per-workspace data export (BDAR right of access): builds a scoped SQLite
@@ -1062,7 +1110,7 @@ func buildServicesWith(cfg config.Config, prepare bool) (*services, error) {
 	tenants := tenant.NewRepo(gdb, tenant.WithTokenSecret(tokenSecret()))
 	skills := skill.NewService(skill.NewRepo(gdb))
 	skillsets := skillset.NewService(skillset.NewRepo(gdb))
-	usageSvc := usage.NewService(usage.NewRepo(gdb), tenants)
+	usageSvc := usage.NewService(usage.NewRepo(gdb), capLookupFor(cfg, tenants))
 
 	// Vector storage: SQLite is always the source of truth; cfg.VectorBackend
 	// selects whether it also serves search or Qdrant indexes it.
@@ -1141,6 +1189,53 @@ func buildEmbedder(cfg config.Config) (palace.Embedder, error) {
 
 func buildVectorStore(cfg config.Config, gdb *gorm.DB) (store.VectorStore, error) {
 	return buildVectorStoreWith(cfg, gdb, true)
+}
+
+// refuseCapOverrideWithBilling rejects the one configuration whose two halves
+// contradict each other: a process-wide cap override and a checkout that sells a
+// cap.
+//
+// capLookupFor returns usage.FixedCap for every nonzero override, so teams.plan_id
+// stops deciding the enforced cap — while billing exists precisely to change
+// teams.plan_id in exchange for money. A user could pay, the plan could flip
+// successfully, and the enforced cap would not move. A negative override is the
+// same defect with the opposite sign: the dashboard would offer a paid lift from a
+// cap that is already unlimited.
+//
+// Loud at boot, because both alternatives are silent. Hiding the upgrade control
+// alone leaves an operator believing they sell a plan they do not; letting
+// checkout run takes money for nothing.
+//
+// A named function rather than three lines inside run so the decision is testable
+// without a database, a migrated schema and a live provider — the same reason
+// capLookupFor is one.
+func refuseCapOverrideWithBilling(cap int, billingEnabled bool) error {
+	if cap == 0 || !billingEnabled {
+		return nil
+	}
+	return fmt.Errorf("--monthly-request-cap (%d) cannot be combined with configured billing: the "+
+		"override fixes the cap for every workspace this process serves, so a purchase would flip "+
+		"the plan and change no enforced cap. Unset the override, or unset the provider's price "+
+		"configuration", cap)
+}
+
+// capLookupFor decides what prices a workspace's monthly request cap: the
+// workspace's own plan, or one process-wide override an operator configured.
+//
+// It is a named function rather than three lines at the call site so the choice
+// is testable without a database — the call site opens one — and so this repo's
+// reachability rule has something to pin: a test that asserts the override is
+// consulted must fail when the wiring goes, and it cannot see an inline branch
+// inside buildServicesWith.
+//
+// The zero value returns the plan lookup unchanged, which is what keeps an
+// operator who configures nothing on exactly today's behaviour rather than on a
+// new default nobody chose.
+func capLookupFor(cfg config.Config, plans usage.CapLookup) usage.CapLookup {
+	if cfg.MonthlyRequestCap == 0 {
+		return plans
+	}
+	return usage.FixedCap(cfg.MonthlyRequestCap)
 }
 
 // buildVectorStoreWith is buildVectorStore with preparation made optional for

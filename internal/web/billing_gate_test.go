@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"strconv"
 	"testing"
 	"time"
 
@@ -137,5 +138,48 @@ func TestCanUpgradeIsUnaffectedByTheRelationshipGate(t *testing.T) {
 	}
 	if projects[0].CanManage {
 		t.Fatal("CanManage is true on the free plan")
+	}
+}
+
+// TestAFixedDeploymentCapSuppressesTheUpgradeControl covers the seam a purchase
+// actually goes through, which is where the harm is.
+//
+// capLookupFor returns usage.FixedCap for every nonzero --monthly-request-cap, so
+// under an override teams.plan_id no longer decides the enforced cap. The upgrade
+// card was computed from the plan row alone: a user could pay, the plan could flip
+// successfully, and the cap they bought the lift for would not move. With a
+// NEGATIVE override the same control offers a paid lift from a cap that is already
+// unlimited.
+//
+// The startup check in run refuses that combination outright, so this is the
+// second of two independent guards rather than the only one. It is worth having
+// separately because the two fail differently: the startup check protects a
+// process an operator configures, and this protects the model a template renders
+// — and only this one is exercised by the path a browser takes.
+func TestAFixedDeploymentCapSuppressesTheUpgradeControl(t *testing.T) {
+	srv, gdb, userID, _ := newBillingGateEnv(t, tenant.FreePlanID)
+
+	// Baseline: the control is offered, so a later absence means something.
+	projects, err := srv.projectsForUser(context.Background(), userID)
+	if err != nil {
+		t.Fatalf("projectsForUser: %v", err)
+	}
+	if !projects[0].CanUpgrade {
+		t.Fatal("CanUpgrade is false on the free plan with billing configured — the probe below would prove nothing")
+	}
+
+	for _, cap := range []usage.FixedCap{50, -1} {
+		t.Run(strconv.Itoa(int(cap)), func(t *testing.T) {
+			srv.usage = usage.NewService(usage.NewRepo(gdb), cap)
+			projects, err := srv.projectsForUser(context.Background(), userID)
+			if err != nil {
+				t.Fatalf("projectsForUser: %v", err)
+			}
+			if projects[0].CanUpgrade {
+				t.Errorf("CanUpgrade is true under a fixed deployment cap of %d: the checkout would "+
+					"take money, flip teams.plan_id, and leave the enforced cap exactly where it was",
+					int(cap))
+			}
+		})
 	}
 }

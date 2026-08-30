@@ -8,6 +8,7 @@ package usage
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"gorm.io/gorm"
@@ -34,6 +35,41 @@ func CurrentPeriod() string { return time.Now().UTC().Format("2006-01") }
 type CapLookup interface {
 	MonthlyCap(ctx context.Context, teamID string) (int, error)
 }
+
+// fixedCapLookup is the optional half of CapLookup that says a cap is a
+// deployment policy. A CapLookup that does not implement it is plan-derived,
+// which is the pre-existing behaviour and the right default for a lookup written
+// elsewhere.
+type fixedCapLookup interface {
+	capIsFixed() bool
+}
+
+// FixedCap is a CapLookup that answers the same cap for every workspace,
+// ignoring plans entirely.
+//
+// It is what makes the cap configurable for a self-hosted install. The plan-derived
+// cap prices a hosted service; a server running on someone's own machine has no
+// billing relationship to price, and before this the only way to lift the seeded
+// Free plan's 10,000/month was the `set-plan` superadmin CLI, per workspace.
+//
+// Deliberately a decorator rather than a branch inside Service: enforcement then
+// has exactly one shape — ask the CapLookup — and the choice of policy is made
+// once, at wiring time, where an operator's configuration is already being read.
+// A branch inside Allow would have to be repeated in Snapshot, and the two
+// disagreeing is how a dashboard comes to show a limit that is not enforced.
+//
+// A negative value means unlimited, matching what Service already does with any
+// cap <= 0 and what the Unlimited plan row carries.
+type FixedCap int
+
+// MonthlyCap returns the fixed cap. The context and workspace are ignored by
+// construction: this is a process-wide deployment policy, and consulting the
+// workspace here would make it something else.
+func (c FixedCap) MonthlyCap(context.Context, string) (int, error) { return int(c), nil }
+
+// capIsFixed marks this cap as deployment policy so Status can carry the source
+// to the surfaces that advise a capped caller what to do next.
+func (c FixedCap) capIsFixed() bool { return true }
 
 // Repo persists the counters.
 type Repo struct{ db *gorm.DB }
@@ -72,6 +108,18 @@ type Status struct {
 	Used    int  // requests consumed this month
 	Cap     int  // monthly cap (0 = unlimited)
 	Allowed bool // whether the request that produced this status is permitted
+
+	// CapFixed says the cap came from deployment configuration rather than from
+	// the workspace's plan, so nothing the workspace can BUY will move it.
+	//
+	// It exists because every surface that tells a capped caller what to do next
+	// was written when the plan was the only source: the MCP rejection says
+	// "upgrade the project's plan" and the dashboard offers a checkout button.
+	// Under a fixed cap both are advice that cannot work, and the dashboard's
+	// version is worse than useless — a user can pay, teams.plan_id can flip
+	// successfully, and the enforced cap does not move. The value alone cannot
+	// tell you that; only its source can.
+	CapFixed bool
 }
 
 // Remaining returns how many requests are left this month (0 if unlimited cap).
@@ -83,6 +131,25 @@ func (s Status) Remaining() int {
 		return 0
 	}
 	return s.Cap - s.Used
+}
+
+// CapRejection is the one sentence a caller gets when the monthly cap refuses
+// the request, and it branches on WHERE the cap came from because only the
+// source decides which remedy can work.
+//
+// It lives on Status rather than beside a caller because there are two callers —
+// the MCP tool rejection and the /import handler — and one copy per caller is
+// how this went wrong the first time. The MCP branch learned about
+// deployment-fixed caps while /import went on telling a self-hosted operator to
+// upgrade a plan that cannot move their cap and, with billing switched off, does
+// not exist to buy. The sentence is a property of the Status, so the Status owns
+// it and a third surface cannot drift from the other two.
+func (s Status) CapRejection() string {
+	remedy := "upgrade the project's plan"
+	if s.CapFixed {
+		remedy = "this cap is set by the deployment, not by the plan — raise --monthly-request-cap (or AGENTSMEMORY_MONTHLY_REQUEST_CAP) on the server"
+	}
+	return fmt.Sprintf("monthly request cap reached (%d/%d) — %s", s.Used, s.Cap, remedy)
 }
 
 // Service is the metering use-case layer.
@@ -102,6 +169,7 @@ func NewService(repo *Repo, caps CapLookup) *Service {
 // (unlimited) it always allows and still counts for analytics.
 func (s *Service) Allow(ctx context.Context, teamID string) (Status, error) {
 	period := CurrentPeriod()
+	fixed := s.capIsFixed()
 	limit, err := s.caps.MonthlyCap(ctx, teamID)
 	if err != nil {
 		return Status{}, err
@@ -112,14 +180,14 @@ func (s *Service) Allow(ctx context.Context, teamID string) (Status, error) {
 			return Status{}, err
 		}
 		if current >= limit {
-			return Status{Used: current, Cap: limit, Allowed: false}, nil
+			return Status{Used: current, Cap: limit, Allowed: false, CapFixed: fixed}, nil
 		}
 	}
 	used, err := s.repo.increment(ctx, teamID, period)
 	if err != nil {
 		return Status{}, err
 	}
-	return Status{Used: used, Cap: limit, Allowed: true}, nil
+	return Status{Used: used, Cap: limit, Allowed: true, CapFixed: fixed}, nil
 }
 
 // Snapshot reports current usage WITHOUT counting a request — for the dashboard.
@@ -132,5 +200,13 @@ func (s *Service) Snapshot(ctx context.Context, teamID string) (Status, error) {
 	if err != nil {
 		return Status{}, err
 	}
-	return Status{Used: used, Cap: limit, Allowed: limit <= 0 || used < limit}, nil
+	return Status{Used: used, Cap: limit, Allowed: limit <= 0 || used < limit, CapFixed: s.capIsFixed()}, nil
+}
+
+// capIsFixed reports whether this Service's cap is deployment policy. Asked once
+// per call rather than cached so a Service built with a different lookup can
+// never report a stale source.
+func (s *Service) capIsFixed() bool {
+	f, ok := s.caps.(fixedCapLookup)
+	return ok && f.capIsFixed()
 }

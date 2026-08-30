@@ -175,7 +175,12 @@ func serve(w http.ResponseWriter, r *http.Request, drawers Drawers, metering Met
 		return
 	}
 	if !st.Allowed {
-		http.Error(w, "monthly request cap reached — upgrade the project's plan", http.StatusTooManyRequests)
+		// st.CapRejection(), not a literal: under a deployment-fixed cap "upgrade
+		// the project's plan" names an action that cannot move the enforced cap, and
+		// on the self-hosted install this endpoint serves there is no plan to buy.
+		// The MCP rejection learned that; this one did not, because the sentence was
+		// written twice.
+		http.Error(w, st.CapRejection(), http.StatusTooManyRequests)
 		return
 	}
 	// Bound the upload before reading a byte of it. A body over the cap fails the
