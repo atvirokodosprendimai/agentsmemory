@@ -108,6 +108,15 @@ type binVerdict struct {
 // act on. STALE-PATH is deliberately NOT fatal on its own: an operator may have
 // pointed a kit at a deliberate build, and a check that fails on a legitimate
 // choice is one that gets switched off.
+//
+// ⚠ IT SEES ONLY THE REGISTRATIONS WE WRITE AS FILES, and that limit is worth
+// stating because a clean run otherwise reads as full coverage. A kit registered
+// by shelling out to the agent's own CLI (`claude mcp add`, `codex mcp add` —
+// which is how socket mode registers) stores its command wherever that CLI keeps
+// it, in a format this project does not own and must not start parsing. Those
+// registrations are kept honest at WRITE time instead, by
+// TestEveryStdioRegistrationNamesThePlacedBinary: every one of them names the
+// binary the installer placed, so there is no build path to drift away from.
 func judgeServerBin(kit agentKit, targetDir string) *binVerdict {
 	if !kitNeedsServerBin(kit) {
 		return nil // this kit hands over a URL; there is no binary to drift

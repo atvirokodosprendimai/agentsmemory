@@ -1339,14 +1339,22 @@ func (i *Installer) registerSocketMCP() error {
 		return fmt.Errorf("--socket is not supported for pi (its bridge extension connects over HTTP): run the server on --addr and install pi with --mcp-url")
 	}
 
+	// The registration names the binary this install PLACED, for the same reason
+	// the Desktop one does — see placeServerBin. Socket mode froze a PATH lookup
+	// into the agent's config exactly like Desktop did, and a rebuild elsewhere
+	// left the bridge spawning a stale server with nothing able to say so.
+	placed, err := i.placeServerBin()
+	if err != nil {
+		return err
+	}
 	argv := []string{"mcp-stdio", "--socket", i.socket}
 	if i.wing != "" {
 		argv = append(argv, "--wing", i.wing)
 	}
-	if err := i.addStdioMCP(mcpName, i.serverBin, argv...); err != nil {
+	if err := i.addStdioMCP(mcpName, placed, argv...); err != nil {
 		return err
 	}
-	i.ok("registered MCP %q → %s (stdio bridge to %s)", mcpName, i.socket, i.serverBin)
+	i.ok("registered MCP %q → %s (stdio bridge to %s)", mcpName, i.socket, placed)
 	return nil
 }
 
