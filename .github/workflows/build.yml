@@ -105,11 +105,24 @@ jobs:
       # is the only signal that the build cache above is doing anything — without
       # it a cache that silently stopped rolling forward looks exactly like one
       # that works, while still paying the upload every run.
+      #
+      # ⚠ The log is written to RUNNER_TEMP, NOT the working directory. The first
+      # version of this step wrote ./test.log and turned TestMCPContractAxis red,
+      # on the very PR that introduced it. The contract axis runs MUTATION tests,
+      # and mutation requires a clean tree before it may patch anything:
+      #
+      #     mutation execution: repository must be clean before mutation:
+      #     ?? test.log
+      #
+      # So an untracked byte in the repo root is not cosmetic here, it disables a
+      # gate. Reproduced locally: clean tree exit 0, same tree plus a one-line
+      # test.log exit 1, log in RUNNER_TEMP exit 0.
       - name: Test
         run: |
-          go test ./... > test.log 2>&1; code=$?
-          cat test.log
-          echo "::notice title=cache::$(grep -c '(cached)' test.log) of $(grep -cE '^(ok|FAIL)' test.log) packages served from cache"
+          log="${RUNNER_TEMP}/test.log"
+          go test ./... > "$log" 2>&1; code=$?
+          cat "$log"
+          echo "::notice title=cache::$(grep -c '(cached)' "$log") of $(grep -cE '^(ok|FAIL)' "$log") packages served from cache"
           exit $code
       - name: Contract-axis
         run: go test -tags contractaxis ./internal/mcptest
@@ -194,9 +207,10 @@ jobs:
       # suite, so it is raised rather than the suite trimmed.
       - name: Race
         run: |
-          go test -race -timeout=30m ./... > race.log 2>&1; code=$?
-          cat race.log
-          echo "::notice title=cache::$(grep -c '(cached)' race.log) of $(grep -cE '^(ok|FAIL)' race.log) packages served from cache"
+          log="${RUNNER_TEMP}/race.log"
+          go test -race -timeout=30m ./... > "$log" 2>&1; code=$?
+          cat "$log"
+          echo "::notice title=cache::$(grep -c '(cached)' "$log") of $(grep -cE '^(ok|FAIL)' "$log") packages served from cache"
           exit $code
 
   # Cross-compile the static binary for each target. CGO is off (pure-Go SQLite
