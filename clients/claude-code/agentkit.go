@@ -39,6 +39,11 @@ type agentKit struct {
 	commandsDir string // subdir under the config dir that holds slash commands
 	memoryFile  string // agent memory file our managed block merges into
 
+	// shipsCompanionHooks reports whether this kit receives the Claude-only
+	// companion hooks, of which the injecting ones are the subject of `doctor`.
+	// False for an agent that gets the Stop hook and nothing else.
+	shipsCompanionHooks bool
+
 	// hooksFile is the file holding the Stop-hook registration, empty for an
 	// agent with no hook system. pi is that case: it renamed hooks/ to extensions,
 	// so its end-of-turn nudge lives in the extension we install instead.
@@ -103,6 +108,13 @@ var claudeKit = agentKit{
 	agentAssetExt:  ".md",
 	supportsImport: true,
 	commandHint:    "/M",
+	// The companion hooks — verify, subagent, session-end and recall — ship to
+	// Claude only, for the reason installHooks states: codex exposes the event
+	// names but its execution contract was never captured. TWO things read this,
+	// which is why it is a field rather than a name comparison: the installer
+	// decides what to write, and `doctor` decides whether an empty hooks directory
+	// is a finding or the designed state.
+	shipsCompanionHooks: true,
 	// Claude Code stores its OAuth credentials in the OS keychain on macOS and in
 	// .credentials.json elsewhere. Linking the file is a no-op on macOS (it never
 	// exists) and the right thing on Linux, so naming it costs nothing.

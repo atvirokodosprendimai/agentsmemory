@@ -110,7 +110,7 @@ func registerMarkAnchors(reg *registrar, drawers *palace.Service, usageSvc *usag
 // is working, which is the only question an operator can act on.
 func registerRecallStats(reg *registrar, drawers *palace.Service, usageSvc *usage.Service, scopeSearchToWing bool) {
 	tool := newTool("recall_stats",
-		mcp.WithDescription("How well memory is working, per wing: searches run, how many came back with something, drawers held, and the recent queries that found NOTHING (the memories the team looked for and does not have). Use it to see whether recall is earning its keep rather than guessing."),
+		mcp.WithDescription("How well memory is working, per wing: searches run, how many came back with something, drawers held, and the recent queries that found NOTHING (the memories the team looked for and does not have). Use it to see whether recall is earning its keep rather than guessing. Two team-level counts sit beside them: fetches, how many times a caller read a drawer while naming the recall that sent it there, and recalls_fetched, how many DISTINCT recalls those fetches name — the palace's only usage signal that grows with usage rather than with a labelling budget. They are raw counts and deliberately not a rate: the denominator would be recalls that were LOGGED, and a ratio needs the ranking profile beside it to mean anything."),
 		mcp.WithString("wing", mcp.Description("Only report this wing. Omitted, scoped to this registration's default_wing only when one is configured and SEARCH_SCOPE is not workspace; otherwise every wing. Pass \"*\" for every wing deliberately."), searchWingProperty()),
 		mcp.WithNumber("hours", mcp.Description("Window to report on, in hours (default 24).")),
 		mcp.WithNumber("unanswered", mcp.Description("How many unanswered queries to list (default 10).")),
@@ -164,17 +164,36 @@ func registerRecallStats(reg *registrar, drawers *palace.Service, usageSvc *usag
 				"last_filed":   w.LastFiled,
 			})
 		}
+		// ADR-028 T3. Two RAW counts, never a rate, and never wing-scoped.
+		//
+		// A rate is withheld on purpose: the denominator is recalls THAT WERE
+		// LOGGED — SkipTelemetry means some recalls write no search_events row at
+		// all — and ADR-028's deferral puts any ratio behind `profile_id` on the
+		// durable row, because "38% of recalls were followed by a fetch" is
+		// uninterpretable without knowing which ranking profile produced them.
+		// Publishing the counts is what makes the fetch join observable at all;
+		// publishing a rate would be the population error ADR-007 exists to stop.
+		//
+		// Team-scoped rather than per-wing because a fetch names a DRAWER and the
+		// wing would have to be joined back through it. Reported at the top level
+		// so nobody reads it as a wing figure.
+		fetches, recallsFetched, err := drawers.CountFetches(ctx, t.TeamID, time.Duration(hours)*time.Hour)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
 		return jsonResult(map[string]any{
-			"window_hours": hours,
-			"since":        stats.Since,
-			"searches":     stats.Searches,
-			"answered":     stats.Answered,
-			"answered_pct": stats.AnsweredPct(),
-			"writes":       stats.Writes,
-			"wings":        wings,
-			"unanswered":   stats.Unanswered,
-			"suggestions":  stats.Suggestions,
-			"hint":         "answered_pct climbing over weeks means the palace is learning the questions this team actually asks; a wing with drawers and no searches is written-to and never read. suggestions collapses the unanswered queries into a to-write list: each entry is one memory this team looked for and does not have, with how many times it was asked and which wing to file it in.",
+			"window_hours":    hours,
+			"since":           stats.Since,
+			"searches":        stats.Searches,
+			"answered":        stats.Answered,
+			"answered_pct":    stats.AnsweredPct(),
+			"writes":          stats.Writes,
+			"fetches":         fetches,
+			"recalls_fetched": recallsFetched,
+			"wings":           wings,
+			"unanswered":      stats.Unanswered,
+			"suggestions":     stats.Suggestions,
+			"hint":            "answered_pct climbing over weeks means the palace is learning the questions this team actually asks; a wing with drawers and no searches is written-to and never read. suggestions collapses the unanswered queries into a to-write list: each entry is one memory this team looked for and does not have, with how many times it was asked and which wing to file it in.",
 		}), nil
 	})
 }

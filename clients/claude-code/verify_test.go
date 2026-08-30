@@ -1,6 +1,7 @@
 package main
 
 import (
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -213,4 +214,108 @@ func TestUnknownTreeRecordsNoVerdictEndToEnd(t *testing.T) {
 	if counts.elsewhere != 2 {
 		t.Errorf("elsewhere=%d, want 2 — the anchors must be accounted for, not silently dropped", counts.elsewhere)
 	}
+}
+
+// gitTreeLabelled makes a temp tree that currentRepoLabel resolves to `label`,
+// so a test can exercise the KNOWN-tree half of the rule. The unknown-tree half
+// needs no git at all, which is why the older tests above do not have this.
+func gitTreeLabelled(t *testing.T, label string) string {
+	t.Helper()
+	dir := t.TempDir()
+	for _, args := range [][]string{
+		{"init", "-q"},
+		{"remote", "add", "origin", "git@github.com:someone/" + label + ".git"},
+	} {
+		if out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).CombinedOutput(); err != nil {
+			t.Skipf("git unavailable in this environment: %v (%s)", err, out)
+		}
+	}
+	if got := currentRepoLabel(dir); got != label {
+		t.Fatalf("fixture: currentRepoLabel = %q, want %q", got, label)
+	}
+	return dir
+}
+
+// TestAnUnattributableAnchorIsNeverMissing is the KNOWN-tree half of "unknown is
+// not absent", and it was the half nobody had.
+//
+// Every guard protecting an unknown from being read as an absence was conditioned
+// on the anchor carrying a repo label. So an anchor with an EMPTY label, in a tree
+// we CAN name, passed all of them and landed on MISSING — checked against whatever
+// repository the session happened to be sitting in.
+//
+// Measured 2026-08-29: five sessions in five unrelated repositories were each told
+// that seven of this project's Go and TypeScript files were "gone", from trees that
+// have never contained a .go file. The verdicts are RECORDED, search then flags
+// those memories STALE, and the session-start hook says "re-read the code and
+// re-file whichever are wrong" — so a session that COMPLIES rewrites correct
+// records on evidence from a repository that could not have produced it. One
+// session supplied the decisive pair: the same file, in one working tree,
+// verdict=missing with repo="" and verdict=verified with repo="agentsmemory".
+//
+// THE ASYMMETRY IS THE FIX, and it is the same one the unknown-tree branch already
+// makes: a snippet that MATCHES is strong evidence wherever it is found, so it
+// stays `verified`. A non-match is not evidence of anything without knowing which
+// repository this is, so it records nothing.
+func TestAnUnattributableAnchorIsNeverMissing(t *testing.T) {
+	root := gitTreeLabelled(t, "some-known-tree")
+	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("unrelated content\n"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	anchors := []anchor{
+		// Absent here, and we cannot say whose it is.
+		{ID: "a1", Path: "internal/palace/service.go", Snippet: "func (s *Service) Add(", Repo: "", DrawerID: "d1"},
+		// PRESENT here at a path that collides across repositories, with a snippet
+		// that does not match — the drift verdict, equally destructive.
+		{ID: "a2", Path: "README.md", Snippet: "a line that is not in this README", Repo: "", DrawerID: "d2"},
+	}
+
+	var buf strings.Builder
+	verdicts, counts := verifyAnchors(root, anchors, &buf)
+	report := buf.String()
+
+	if counts.missing != 0 || counts.drifted != 0 {
+		t.Errorf("missing=%d drifted=%d, want 0 and 0. An anchor carrying no repo label cannot be "+
+			"attributed to this tree, so neither verdict is supportable — and both are the "+
+			"destructive reading of an unknown:\n%s", counts.missing, counts.drifted, report)
+	}
+	for _, v := range verdicts {
+		if v.Status == statusMissing || v.Status == statusDrifted {
+			t.Errorf("recorded a %q verdict for an unattributable anchor; a recorded verdict is "+
+				"durable and is what flags the memory STALE:\n%s", v.Status, report)
+		}
+	}
+
+	t.Run("a matching snippet is still verified", func(t *testing.T) {
+		// The rule must not become "ignore unlabelled anchors". A match is strong
+		// evidence wherever it is found: an unrelated file at the same path is
+		// vanishingly unlikely to contain the same verbatim snippet.
+		root := gitTreeLabelled(t, "some-known-tree")
+		const snippet = "func VeryDistinctivelyNamedThing() error {"
+		if err := os.WriteFile(filepath.Join(root, "main.go"),
+			[]byte("package main\n\n"+snippet+"\n\treturn nil\n}\n"), 0o644); err != nil {
+			t.Fatalf("write fixture: %v", err)
+		}
+		verdicts, counts := verifyAnchors(root,
+			[]anchor{{ID: "a3", Path: "main.go", Snippet: snippet, Repo: "", DrawerID: "d3"}}, io.Discard)
+		if counts.verified != 1 {
+			t.Errorf("verified=%d, want 1 — an unlabelled anchor whose snippet is found is "+
+				"confirmed, and refusing to confirm it would make the fix a silent no-op check",
+				counts.verified)
+		}
+		if len(verdicts) != 1 || verdicts[0].Status != statusVerified {
+			t.Errorf("verdicts=%+v, want one verified", verdicts)
+		}
+	})
+
+	t.Run("the unattributable ones are reported, not silently dropped", func(t *testing.T) {
+		// A cost paid silently is a cost nobody fixes. Labelling the anchors is
+		// what restores drift detection for them, so the report has to say how
+		// many are in this state and what to do about it.
+		if !strings.Contains(report, "no repo label") {
+			t.Errorf("the report does not tell the reader that anchors went unchecked for want "+
+				"of a label, so the remedy is invisible:\n%s", report)
+		}
+	})
 }

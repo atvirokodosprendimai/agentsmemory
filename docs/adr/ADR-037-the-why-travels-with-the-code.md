@@ -1,8 +1,8 @@
 # ADR-037: Carry the why with the code, and gate the citations
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-08-26
-**Owner:** M
+**Owner:** M (accepted by Zy 2026-08-28)
 **Spec:** None — no spec stage
 **Cross-references:** `AGENTS.md`, PR #64, `internal/doclint`, `internal/repohygiene`, `docs/adr/ADR-019-a-hit-shows-its-matching-regions-and-lets-the-agent-choose.md`
 **Governs:** None — declared by its tasks
@@ -121,7 +121,7 @@ See `tasks/README.md` — one task, T1: the resolving-citation gate.
 |------|------------|--------|------------|
 | PR #64 is not merged when T1 executes, leaving the convention unrecorded in-tree | Low | Med | T1's steps verify the AGENTS.md section exists and fold it in from the PR in the same commit if not |
 | A comment cites a number that exists only in an open PR (e.g. ADR-034 in PR #61 today) | Med | Low | The gate is the mitigation: it goes red until the record merges, which is the correct reading — the citation IS unresolvable for a clone at that commit |
-| The citation grammar drifts (an archive directory appears) | Low | Low | The gate's corpus glob is one line; the Rollback section names it; an archive move re-scopes it deliberately |
+| The citation grammar drifts (an archive directory appears) | Low | Low | The gate's corpus glob is one named constant; the Decision names the re-scope; an archive move re-scopes it deliberately |
 
 ## Rollback
 

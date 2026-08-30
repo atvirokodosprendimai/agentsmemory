@@ -292,8 +292,18 @@ func TestProvenanceReachesTheCaller(t *testing.T) {
 	svc := newTestService(t)
 	const team = "team-1"
 
+	// A REAL drawer, because provenance is now checked: this fixture used to cite
+	// "drawer-abc", an id no row ever had, and passed — which is the corpus defect
+	// in miniature. Citing a row that exists makes the round-trip it asserts mean
+	// something.
+	src, err := svc.Add(ctx, team, AddInput{Wing: "w", Room: "r", SourceFile: "notes.md", Content: "Alice joined Acme in January"})
+	if err != nil {
+		t.Fatalf("seed the cited drawer: %v", err)
+	}
+	cited := src.Drawers[0].ID
+
 	if _, err := svc.KGAdd(ctx, team, "Alice", "works at", "Acme", "2024-01-01", "",
-		"closet-1", "notes.md", "drawer-abc"); err != nil {
+		"closet-1", "notes.md", cited); err != nil {
 		t.Fatalf("add: %v", err)
 	}
 
@@ -308,9 +318,9 @@ func TestProvenanceReachesTheCaller(t *testing.T) {
 	if f.SourceFile != "notes.md" {
 		t.Errorf("source_file = %q, want %q", f.SourceFile, "notes.md")
 	}
-	if f.SourceDrawerID != "drawer-abc" {
+	if f.SourceDrawerID != cited {
 		t.Errorf("source_drawer_id = %q, want %q — every fact knows which memory asserted it and no agent could ask",
-			f.SourceDrawerID, "drawer-abc")
+			f.SourceDrawerID, cited)
 	}
 	if f.RecordedAt == "" {
 		t.Error("recorded_at is empty; transaction time is what makes the graph bitemporal and it is written on every row")

@@ -77,8 +77,15 @@ func TestClosetDeltaExcludesUnreachableAndAbsentCases(t *testing.T) {
 			Ranks: map[EvalArm]int{ArmHybrid: 1, ArmHybridCloset: 3}},
 		{Query: "unreachable — gold never made the pool", Category: CatSingle, PoolRank: 0,
 			Ranks: map[EvalArm]int{ArmHybrid: 0, ArmHybridCloset: 0}},
-		{Query: "absent — no gold to rank", Category: CatAbsent, PoolRank: 0,
-			Ranks: map[EvalArm]int{ArmHybrid: 0, ArmHybridCloset: 0}},
+		// ⚠ PoolRank 3, NOT 0, and both arms carry a rank. An absent case with
+		// PoolRank 0 is excluded by the UNREACHABLE check before the absent guard
+		// is reached, so it cannot distinguish the two rules — that is exactly why
+		// the mutant survived the first attempt at this test. This case is
+		// retrievable and ranked, so the ONLY thing that can exclude it is its
+		// category.
+		{Query: "absent — retrieved and ranked, but there is no gold to be right about",
+			Category: CatAbsent, PoolRank: 3,
+			Ranks: map[EvalArm]int{ArmHybrid: 2, ArmHybridCloset: 1}},
 	}}
 
 	cell := ClosetDelta(report, CatSingle)
@@ -97,6 +104,27 @@ func TestClosetDeltaExcludesUnreachableAndAbsentCases(t *testing.T) {
 	if math.Abs(cell.DeltaMRR-0.0416666) > 1e-4 {
 		t.Errorf("ΔMRR = %.6f, want ≈ +0.041667 (closet minus no-closet over the two admitted cases)", cell.DeltaMRR)
 	}
+
+	// ⚠ THE ABSENT HALF OF THE NAME WAS UNDRIVEN UNTIL THIS SUBTEST. Everything
+	// above asks for CatSingle, and ClosetDelta's first check is
+	// `if d.Category != category { continue }` — so the absent fixture is filtered
+	// on CATEGORY before the `if category == CatAbsent` guard can run. Deleting
+	// that guard changed nothing any assertion above observes, and the mutant
+	// SURVIVED. A test whose name claims two exclusions and drives one is the
+	// defect this repository keeps finding in its own gates.
+	//
+	// Asking for CatAbsent is the only call that reaches the guard.
+	t.Run("asked for the absent category, the delta is undefined rather than zero", func(t *testing.T) {
+		absent := ClosetDelta(report, CatAbsent)
+		if absent.Admitted != 0 {
+			t.Errorf("admitted %d absent cases, want 0 — an absent question has no gold to rank, "+
+				"so its delta is UNDEFINED, and admitting it would average a zero that means "+
+				"'nothing to measure' together with zeros that mean 'the arms agreed'", absent.Admitted)
+		}
+		if absent.DeltaMRR != 0 {
+			t.Errorf("ΔMRR = %v over absent cases, want exactly 0 from an empty population", absent.DeltaMRR)
+		}
+	})
 }
 
 // TestClosetDeltaIsScopedToOneCategory pins that the statistic never pools

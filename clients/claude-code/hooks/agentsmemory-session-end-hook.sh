@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 # agentsmemory SessionEnd hook — the closing read on how memory did this session.
+# hook-output: none — SessionEnd cannot reach the model on any channel; the session is
+# already over. What this writes is for the operator and for /stats.
+#
 #
 # The Stop hook fires when the AGENT finishes a turn, which is the right place for
 # the persist checkpoint (it needs the agent to still be running) but the wrong

@@ -48,7 +48,7 @@ func registerKGAdd(reg *registrar, drawers *palace.Service, usageSvc *usage.Serv
 		mcp.WithString("valid_to", mcp.Description("Optional end of validity; omit while the fact is current.")),
 		mcp.WithString("source_closet", mcp.Description("Optional closet id this fact came from.")),
 		mcp.WithString("source_file", mcp.Description("Optional source label.")),
-		mcp.WithString("source_drawer_id", mcp.Description("Optional drawer id this fact was extracted from.")),
+		mcp.WithString("source_drawer_id", mcp.Description("Optional drawer id this fact was extracted from. It is CHECKED: an id naming no drawer in this team is refused rather than stored, because provenance that resolves to nothing is worse than none — it reads as evidence. Pass the full id exactly as am_add_drawer or am_search returned it — a shortened one is refused here rather than stored. ⚠The CHECK IS ON PROVENANCE ONLY: subject and object are entity labels in a schemaless graph and are never checked, so a mistyped one still mints a NEW node silently. An id whose drawer was later RETRACTED or superseded is accepted: a fact records what was believed then, and a correction does not withdraw it.")),
 	)
 	reg.addWrite(tool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		t, errResult, ok := admit(ctx, usageSvc)
@@ -161,7 +161,7 @@ func registerKGSupersede(reg *registrar, drawers *palace.Service, usageSvc *usag
 
 func registerKGQuery(reg *registrar, drawers *palace.Service, usageSvc *usage.Service) {
 	tool := newTool("kg_query",
-		mcp.WithDescription("Query the knowledge graph by entity, by predicate, or both — optionally as of a point in time, in a chosen direction, and restricted to facts that are still current. Give at least one of entity/predicate. Facts are workspace-wide: this returns facts filed by any project in the workspace, not only this registration's."),
+		mcp.WithDescription("Query the knowledge graph by entity, by predicate, or both — optionally as of a point in time, in a chosen direction, and restricted to facts that are still current. Give at least one of entity/predicate. Facts are workspace-wide: this returns facts filed by any project in the workspace, not only this registration's. ⚠READ `resolution` BEFORE CONCLUDING ANYTHING FROM count:0 — it is three answers, not one: `matched`, `known_term_no_facts` (the graph knows the term and has nothing filed) and `unknown_term` (it has never heard of it, so check your spelling; `unresolved` names which of entity/predicate was the unknown one). Reporting \"nothing is filed\" on an unknown_term is how a pointer to nowhere becomes a finding."),
 		mcp.WithString("entity", mcp.Description("The entity to look up. Optional when predicate is given.")),
 		mcp.WithString("predicate", mcp.Description("Only facts with this relation. Given WITHOUT an entity it is an entry point in its own right, answering \"every fact of this relation\" — how you audit a whole relation type, e.g. every retracts edge. Given WITH an entity it narrows that entity's facts.")),
 		mcp.WithString("as_of", mcp.Description("Only facts in effect at this instant (YYYY-MM-DD or datetime).")),

@@ -179,9 +179,9 @@ acceptance is the falsification measurement above.
 - **Re-chunking on update** — issue #39 part 2. ADR-038 removes the blocker this bullet
   named (an id that is also a content hash); what remains is a reference-survival rule for
   non-parent chunks (deferred: docs/adr/ADR-038-refer-by-the-id-and-end-instead-of-overwrite.md)
-- **Every server-side improvement surfaced in the same session** (deferred: each
-  needs its own issue). Folding any of them in would widen this decision silently,
-  which is how a decision stops being one:
+- **Every server-side improvement surfaced in the same session.** Folding any of them in would
+  widen this decision silently, which is how a decision stops being one, so each is listed
+  below and none is decided here (deferred: each needs its own issue)
   - orphan detection — a drawer with zero KG edges is mechanically detectable, and
     "filed but never linked" is this team's most repeated failure
   - a headroom signal on write, so the cliff is a gauge rather than a surprise, and

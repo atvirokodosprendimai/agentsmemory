@@ -342,6 +342,26 @@ agent actually *use* the tools is the protocol the kit installs alongside it —
 see [the server is inert without the
 protocol](#the-server-is-inert-without-the-protocol).
 
+⚠ **Re-run `install` the same way you ran it the first time.** Without `--local`
+(or `--mcp-url`) the endpoint falls back to the hosted default, and the default
+wins over what is already configured — so a bare `aiagentmemory install` on a
+machine set up with `--local` repoints every installed hook at the hosted
+service. The hooks then talk to a server they hold no credential for, and a hook
+that cannot reach its palace goes **silent** rather than failing loudly, so
+nothing looks broken. The installer now says so before it writes:
+
+```
+[!!] this install REPOINTS your hooks: they currently talk to
+     http://localhost:8080/mcp, and will now talk to https://aiagentmemory.dev/mcp.
+```
+
+To see where your hooks point today, grep the endpoint out of your agent's hooks
+file — for Claude, `AGENTSMEMORY_MCP_URL` is the first thing in each command:
+
+```bash
+grep -o "AGENTSMEMORY_MCP_URL='[^']*'" ~/.claude/settings.json | sort -u
+```
+
 What changes:
 
 | | default | `--local` |
@@ -687,15 +707,32 @@ docker compose -f docker-compose.prod.yml up -d
 
 The port is published on the host loopback only; put Caddy/nginx/Traefik in
 front and forward 443 → 127.0.0.1:8080. Billing is single-provider per
-deployment and inert until configured. With OpenCollective (donations — the
-checkout is a hosted contribution page, and there is no signed webhook, so plan
-activation after payment is the `set-plan` CLI):
+deployment and inert until configured. With OpenCollective — a donations
+platform, so the checkout is a hosted contribution page:
 
 ```bash
 BILLING_PROVIDER=opencollective
 OPENCOLLECTIVE_CHECKOUT_PRO_MONTHLY=https://opencollective.com/it-uoga/projects/ai-agents-memory/contribute/pro-monthly-104934/checkout
 OPENCOLLECTIVE_CHECKOUT_PRO_ANNUAL=https://opencollective.com/it-uoga/projects/ai-agents-memory/contribute/pro-yearly-104935/checkout
 OPENCOLLECTIVE_PROJECT_URL=https://opencollective.com/it-uoga/projects/ai-agents-memory
+# Activation: OpenCollective does not SIGN its webhooks, so the server asks
+# instead of waiting to be told — it polls the authenticated GraphQL API and
+# reconciles contributions into plan changes (ADR-042).
+OPENCOLLECTIVE_PERSONAL_TOKEN=oc_pat_...          # read-only; this is the switch
+OPENCOLLECTIVE_COLLECTIVE_SLUG=ai-agents-memory
+OPENCOLLECTIVE_RECONCILE_INTERVAL=15m             # optional, this is the default
+```
+
+A paid contribution started from the dashboard's Upgrade button is attributed
+back to its workspace and activated within one interval. Two cases still need a
+human, by design rather than omission: a contribution made outside that button
+carries no attribution, and one whose payer cannot be matched is counted and
+logged rather than guessed at. Both — and any deployment that leaves
+`OPENCOLLECTIVE_PERSONAL_TOKEN` unset, which turns polling off entirely — are
+settled with:
+
+```bash
+agentsmemory set-plan --slug <workspace> --plan pro_monthly
 ```
 
 **CI deploy (opt-in).** Tagging `vX.Y.Z` already builds binaries and the GHCR
@@ -891,7 +928,7 @@ inferred from documentation.
 | memory protocol | `CLAUDE.md` + `@import` | inlined in `AGENTS.md` | `rules/agentsmemory.mdc`, `alwaysApply: true` | **the MCP handshake** — it can hold no file | inlined in `AGENTS.md` |
 | slash commands | `/M`, `/am`, `/load-skill` | `/prompts:M`, … | **none** — no commands dir | **none** | `/M`, … |
 | Stop checkpoint | ✅ | ✅ — native TOML in `config.toml` | ❌ hook shape not established | ❌ | in the extension |
-| `SessionStart` / `SessionEnd` | ✅ | ❌ not registered; not part of the Codex subagent audit | ❌ | ❌ | ❌ |
+| `SessionStart` / `SessionEnd` | ✅ — two hooks share `SessionStart`: one verifies anchored memories, one performs a recall for the branch and injects it so a fresh context does not start blind (ADR-041) | ❌ not registered; not part of the Codex subagent audit | ❌ | ❌ | ❌ |
 | `SubagentStart` / `SubagentStop` | ✅ | ❌ events exist; [payload, feedback, and retry contracts remain to measure](docs/adr/BACKLOG.md) | ❌ | ❌ | ❌ |
 | subagent definition | `agents/*.md` | `agents/*.toml` | `agents/*.md` | ❌ | ❌ no subagent system |
 | `--wing` registration scope | ✅ header | ✅ URL query | ✅ header | ✅ `mcp-stdio --wing` | ✅ bridge env |

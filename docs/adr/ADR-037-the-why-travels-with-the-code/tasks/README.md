@@ -15,4 +15,4 @@ disagree, the task file is right and this file is stale.
 
 | ID | Title | Status | Covers | Acceptance |
 |----|-------|--------|--------|------------|
-| T1 | Every ADR cited in Go source resolves | pending | none — no spec | repohygiene citation test + vet |
+| T1 | Every ADR cited in Go source resolves | done | none — no spec | repohygiene citation test + vet |

@@ -180,10 +180,19 @@ func TestInstallReplacesEveryPreQuoteHookCommand(t *testing.T) {
 	if err := inst.run(); err != nil {
 		t.Fatalf("upgrade install: %v", err)
 	}
+	// One registration PER PLAN, not per event: ADR-041 T4 put a second hook on
+	// SessionStart beside the verify hook. The property under test is unchanged —
+	// a legacy unquoted entry that survived the upgrade shows up as one more
+	// registration than there are plans for that event.
+	want := map[string]int{}
+	for _, plan := range inst.hookPlans() {
+		want[plan.event]++
+	}
 	for _, plan := range inst.hookPlans() {
 		entries := readHookEvent(t, settingsPath, plan.event)
-		if len(entries) != 1 {
-			t.Errorf("%s has %d registrations after upgrade, want 1", plan.event, len(entries))
+		if len(entries) != want[plan.event] {
+			t.Errorf("%s has %d registrations after upgrade, want %d",
+				plan.event, len(entries), want[plan.event])
 		}
 		if !hookPresent(entries, plan.cmd) {
 			t.Errorf("%s does not contain current quoted command %q", plan.event, plan.cmd)

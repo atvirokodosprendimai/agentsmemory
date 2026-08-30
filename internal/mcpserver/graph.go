@@ -138,7 +138,7 @@ func registerCreateTunnel(reg *registrar, drawers *palace.Service, usageSvc *usa
 
 func registerListTunnels(reg *registrar, drawers *palace.Service, usageSvc *usage.Service, scopeSearchToWing bool) {
 	tool := newTool("list_tunnels",
-		mcp.WithDescription("List explicit and derived tunnels, optionally filtered to those touching a wing. Omitted, scoped to this registration's default_wing only when one is configured and SEARCH_SCOPE is not workspace; otherwise omission lists every wing. Pass \"*\" to list every wing deliberately."),
+		mcp.WithDescription("List explicit and derived tunnels, optionally filtered to those touching a wing. Omitted, scoped to this registration's default_wing only when one is configured and SEARCH_SCOPE is not workspace; otherwise omission lists every wing. Pass \"*\" to list every wing deliberately. Each endpoint carries wing and room, plus drawer_id when that end is pinned to ONE specific memory rather than to the room as a whole — absent means the tunnel lands on the room, so follow it by recalling there."),
 		mcp.WithString("wing", mcp.Description("Only tunnels with this wing as source or target. Omitted, scoped to this registration's default_wing only when one is configured and SEARCH_SCOPE is not workspace; otherwise every wing. Pass \"*\" for every wing deliberately."), searchWingProperty()),
 	)
 	reg.add(tool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {

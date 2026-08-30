@@ -190,7 +190,10 @@ func gitignoreMatcher(t *testing.T, root string) func(rel string, isDir bool) bo
 	}
 }
 
-func walk(t *testing.T, root string, ignored func(string, bool) bool) []string {
+// walk takes testing.TB rather than *testing.T so a caller can substitute a
+// recorder. Widening is backward-compatible: every existing caller passes a
+// *testing.T, which satisfies it.
+func walk(t testing.TB, root string, ignored func(string, bool) bool) []string {
 	t.Helper()
 	var out []string
 	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {

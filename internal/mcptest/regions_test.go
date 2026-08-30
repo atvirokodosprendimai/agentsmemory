@@ -213,3 +213,134 @@ func TestScenarioChildChunkCarriesRootAnchor(t *testing.T) {
 		t.Fatalf("anchor status = %q, want drifted:\n%s", status, out)
 	}
 }
+
+// TestScenarioCoverageCountsTheRegionsItRendered is the rung the arithmetic's own
+// unit test cannot reach: something has to CALL it.
+//
+// `coveredRunes` can be correct and the wire can still carry the old number —
+// this repository has shipped that shape four times, a finished capability with
+// nothing selecting it. The unit test in internal/mcpserver drives the function;
+// this drives the real am_search tool over the transport and reads the field an
+// agent actually receives. Restore the window-only division at the call site and
+// this is what goes red.
+func TestScenarioCoverageCountsTheRegionsItRendered(t *testing.T) {
+	h := mcptest.NewWithWing(t, "wing_acme")
+	h.MustCall(t, "am_add_drawer", map[string]any{"room": "decisions", "content": threeMentions})
+
+	out := h.MustCall(t, "am_search", map[string]any{
+		"query": "rerank pool size", "snippet_chars": 200,
+	})
+	hit := hitsOf(t, out)[0]
+
+	rs, _ := hit["regions"].([]any)
+	if len(rs) < 2 {
+		t.Skipf("the fixture produced %d region(s), so there is nothing beside the window to "+
+			"count and the assertion below would be vacuous:\n%s", len(rs), out)
+	}
+	content, _ := hit["content"].(string)
+	length, _ := hit["content_length"].(float64)
+	coverage, ok := hit["content_coverage"].(float64)
+	if !ok || length == 0 {
+		t.Fatalf("content_coverage or content_length absent from a truncated hit:\n%s", out)
+	}
+
+	windowOnly := float64(len([]rune(content))) / length
+	if coverage <= windowOnly {
+		t.Errorf("content_coverage = %v, which is the window alone (%v) — the response also "+
+			"rendered %d regions of this memory, so the caller was shown more than the number "+
+			"it is being asked to act on. Under-reporting here is what makes the defensive "+
+			"read (whole:true) the rational one:\n%s", coverage, windowOnly, len(rs), out)
+	}
+	if coverage > 1 {
+		t.Errorf("content_coverage = %v — a fraction of a memory cannot exceed the memory, and "+
+			"over-reporting reads as completeness", coverage)
+	}
+}
+
+// TestScenarioAFetchedChunkSaysItIsOne drives ADR-044 F-2's live case over the
+// real transport: am_get_drawer WITHOUT whole:true.
+//
+// Measured 2026-08-29 before the fix: chunk 0 of a 47-chunk memory came back with
+// content_truncated and content_length both absent — byte-for-byte what a
+// complete 1,600-rune memory looks like. The team's operating protocol warned
+// about it in prose, which is what a field is for.
+//
+// It is here rather than beside the F-2 binding because the binding lives in
+// package mcpserver, which this package imports: a test there can drive the
+// marking and never the handler that decides to apply it. The mutation that
+// matters — key the marking on ParentID instead of the chunk count — leaves the
+// ROOT subtest below red and the binding green.
+func TestScenarioAFetchedChunkSaysItIsOne(t *testing.T) {
+	h := mcptest.NewWithWing(t, "wing_acme")
+	body := "MARKERX the rerank pool ships at ten. " +
+		strings.Repeat("filler prose about other matters entirely. ", 400)
+	added := h.MustCall(t, "am_add_drawer", map[string]any{"room": "decisions", "content": body})
+	var addRes struct {
+		Drawers []map[string]any `json:"drawers"`
+		Chunks  int              `json:"chunks"`
+	}
+	if err := json.Unmarshal([]byte(added), &addRes); err != nil {
+		t.Fatalf("add_drawer response is not the JSON an agent parses: %v\n%s", err, added)
+	}
+	if addRes.Chunks < 2 {
+		t.Fatalf("the fixture stored %d chunk(s), so there is no fragment to mark and every "+
+			"assertion below would be vacuous:\n%s", addRes.Chunks, added)
+	}
+
+	t.Run("the root chunk", func(t *testing.T) {
+		rootID, _ := addRes.Drawers[0]["id"].(string)
+		assertMarkedFragment(t, h, rootID, len([]rune(body)))
+	})
+
+	t.Run("a child chunk", func(t *testing.T) {
+		childID, _ := addRes.Drawers[1]["id"].(string)
+		assertMarkedFragment(t, h, childID, len([]rune(body)))
+	})
+
+	t.Run("a memory stored in one chunk is not marked", func(t *testing.T) {
+		short := h.MustCall(t, "am_add_drawer", map[string]any{
+			"room": "decisions", "content": "a short memory about the rerank pool, stored whole.",
+		})
+		var res struct {
+			Drawers []map[string]any `json:"drawers"`
+		}
+		json.Unmarshal([]byte(short), &res)
+		id, _ := res.Drawers[0]["id"].(string)
+		out := h.MustCall(t, "am_get_drawer", map[string]any{"id": id})
+		var v map[string]any
+		json.Unmarshal([]byte(out), &v)
+		if v["content_truncated"] != nil {
+			t.Errorf("a whole memory is marked as a fragment — a caller would spend a second "+
+				"call fetching what it already holds:\n%s", out)
+		}
+	})
+}
+
+// assertMarkedFragment fetches one chunk by id, without whole, and requires the
+// response to say it is a fragment and how large the memory really is.
+func assertMarkedFragment(t *testing.T, h *mcptest.Harness, id string, wantFull int) {
+	t.Helper()
+	out := h.MustCall(t, "am_get_drawer", map[string]any{"id": id})
+	var v map[string]any
+	if err := json.Unmarshal([]byte(out), &v); err != nil {
+		t.Fatalf("get_drawer response is not JSON: %v\n%s", err, out)
+	}
+	if v["content_truncated"] != true {
+		t.Errorf("content_truncated absent — this is one chunk of a multi-chunk memory and the "+
+			"response is indistinguishable from a complete short one. The protocol warns about "+
+			"this in prose; the point of the field is that it does not have to:\n%s", out)
+	}
+	full, ok := v["content_length"].(float64)
+	if !ok {
+		t.Fatalf("content_length absent beside content_truncated. Both fields or neither: "+
+			"\"missing\" without \"how much\" is not enough to decide whether to fetch:\n%s", out)
+	}
+	if got := len([]rune(v["content"].(string))); int(full) <= got {
+		t.Errorf("content_length = %d against %d runes returned — the reported length is the "+
+			"fragment's, not the memory's, so a caller concludes it holds all of it", int(full), got)
+	}
+	if int(full) != wantFull {
+		t.Logf("content_length = %d, fixture was %d runes (a write-time trim of trailing "+
+			"whitespace accounts for a small difference)", int(full), wantFull)
+	}
+}

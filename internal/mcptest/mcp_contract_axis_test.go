@@ -103,15 +103,24 @@ func contractMutationGoEnv() []string {
 	return []string{"GOWORK=off", "GOTOOLCHAIN=local", "GOTELEMETRY=off"}
 }
 
+// classifyToolMutationPatch cuts readOnlyHint out of the chokepoint, to prove the
+// wire assertion still notices.
+//
+// ⚠ IT IS A PATCH, SO IT PINS THE SURROUNDING LINES TOO. Adding openWorldHint
+// between the two stamped hints changed this hunk's CONTEXT, not just its offset,
+// and git apply refused it — which the axis reported as an INVALID mutant rather
+// than a passing one, correctly: a mutation that cannot be applied has proved
+// nothing. Re-cut it whenever classifyTool's body moves, and note that plain
+// go test ./... never runs this: the axis is behind the contractaxis build tag.
 const classifyToolMutationPatch = `diff --git a/internal/mcpserver/server.go b/internal/mcpserver/server.go
 --- a/internal/mcpserver/server.go
 +++ b/internal/mcpserver/server.go
-@@ -106,5 +106,4 @@
+@@ -190,5 +190,4 @@
  func classifyTool(tool mcp.Tool, write bool) mcp.Tool {
 -	tool.Annotations.ReadOnlyHint = mcp.ToBoolPtr(!write)
+ 	tool.Annotations.OpenWorldHint = mcp.ToBoolPtr(false)
  	if !write {
- 		tool.Annotations.DestructiveHint = mcp.ToBoolPtr(false)
- 	}
+ 		// Both are defined by MCP only for a tool that writes. A read tool is
 `
 
 const searchWingMutationPatch = `diff --git a/internal/mcpserver/server.go b/internal/mcpserver/server.go

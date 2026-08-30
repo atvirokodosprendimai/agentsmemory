@@ -39,6 +39,14 @@ var incidentalWrites = map[string]string{
 	"Search":         "records a best-effort search_events row about the read it just served; recallstats.go:21 states the write must never fail the read",
 	"RecallStats":    "reads search_events to summarise recall; reachable writes come from shared helper names, not from memory tables",
 	"CheckDuplicate": "embeds the candidate text to compare it, and stores no drawer",
+	// ADR-028 T3, and the same judgement as SearchPage one tool over. A fetch row
+	// is observability ABOUT a read — which drawer a caller opened and which recall
+	// sent them — and it stores no memory anybody can recall later. Classifying it
+	// as a genuine write would make am_get_drawer a write tool and lock every
+	// read-only member out of FETCHING A DRAWER, which is the worst possible
+	// outcome for a signal whose entire purpose is to observe reading.
+	"RecordFetch":  "records a best-effort drawer_fetches row about the read it just served; the write must never fail the read, and it stores no memory",
+	"CountFetches": "reads drawer_fetches to publish two counts; reachable writes come from shared helper names, not from memory tables",
 }
 
 // TestMutatingCallListIsComplete: every service method an MCP handler calls that

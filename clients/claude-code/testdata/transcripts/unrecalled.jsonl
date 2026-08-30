@@ -1,0 +1,2 @@
+{"type": "assistant", "sessionId": "sess-fixture", "isSidechain": false, "message": {"content": [{"type": "text", "text": "Starting on the ranking work now."}]}}
+{"type": "assistant", "sessionId": "sess-fixture", "isSidechain": false, "message": {"content": [{"type": "text", "text": "`closetDistanceCap = 1.5` is still live in main, with the flat +0.40."}]}}

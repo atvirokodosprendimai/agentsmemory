@@ -322,8 +322,12 @@ func TestApplyCanceled_EmptySubID_NoOp(t *testing.T) {
 	}
 	// A cancellation carrying no subscription id must be a no-op — never matching a
 	// workspace by the empty-string key (which the pre-provider rows default to).
-	if err := svc.applyCanceled(context.Background(), providerEvent{kind: eventCanceled}); err != nil {
+	downgraded, err := svc.applyCanceled(context.Background(), providerEvent{kind: eventCanceled})
+	if err != nil {
 		t.Fatalf("applyCanceled empty id: %v", err)
+	}
+	if downgraded != "" {
+		t.Fatalf("an empty-id cancellation reported downgrading %q; it must attribute to nobody", downgraded)
 	}
 	if got := teamPlanID(t, gdb, teamID); got != want {
 		t.Fatalf("empty-id cancel changed plan: %q", got)
