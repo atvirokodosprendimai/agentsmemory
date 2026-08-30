@@ -118,6 +118,7 @@ func rootCommand(def config.Config) *cli.Command {
 			projectsCommand(def),
 			inspectCommand(def),
 			doctorCommand(def),
+			playbookCommand(def),
 		},
 	}
 

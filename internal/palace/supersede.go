@@ -202,6 +202,16 @@ func (s *Service) supersedeInto(ctx context.Context, teamID, id, content, reason
 		if res.Error != nil {
 			return fmt.Errorf("end the superseded memory: %w", res.Error)
 		}
+		// ⚠ AND END THE DERIVED EDGES THAT POINT AT THOSE ROWS, in this same
+		// transaction, because the author cannot do it and nothing else will. A
+		// derived edge is minted by the server from the room; no call lets an
+		// author end one, so advice about repointing your edges has no action
+		// behind it. See endDerivedEdgesFor for the full reasoning and the other
+		// three doors that end rows.
+		if err := endDerivedEdgesFor(tx, teamID, open, endedAt,
+			"the drawer this derived edge points at was superseded"); err != nil {
+			return fmt.Errorf("end the superseded memory's derived edges: %w", err)
+		}
 		// THE COMPARE-AND-SWAP. RowsAffected is the answer, not a diagnostic — the
 		// same discard that made am_kg_invalidate report success for a fact it never
 		// touched (#73). A short count means someone ended at least one of these

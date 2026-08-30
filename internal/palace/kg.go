@@ -1136,6 +1136,96 @@ func (s *Service) attachDerivedEdge(ctx context.Context, teamID string, d Drawer
 	})
 }
 
+// WingRootSubject is the by-name address of a wing's entry point: `<wing>.root`.
+//
+// ⚠ IT IS A NAME A SESSION CAN TYPE, which is the whole reason it exists beside
+// DerivedEdgeSubject. `room:<wing>/llm_init` is derived from where a drawer
+// happened to be filed, so reaching it means knowing the room-naming convention
+// first; `<wing>.root` is chosen, and a session that knows one string can reach
+// any wing's front door. Derived-versus-chosen is the distinction BACKLOG.md
+// records under "The must-load tier is reachable by a chosen name on ONE palace"
+// — named by heading rather than by record number, because the record that
+// argued it was closed unmerged on 2026-08-30 and a number would resolve to
+// nothing.
+func WingRootSubject(wing string) string {
+	return wing + ".root"
+}
+
+// attachWingRootEdge points a wing's by-name root at its entry room, so the
+// address a session can guess resolves to the one the code already mints.
+//
+// ⚠ UNTIL THIS EXISTED, NOTHING IN THE CODEBASE CREATED A `.root` NODE AT ALL —
+// grepped 2026-08-30 across non-test source: zero hits. Every `<wing>.root` in
+// any palace was hand-authored through am_kg_add, which is why three sessions in
+// three repositories each got `unknown_term` from the first call the entry
+// protocol tells them to make, on a graph holding 839 entities and 545 current
+// facts. The tier was not missing; the door had no name.
+//
+// ⚠ IT FIRES ONLY FOR THE ENTRY ROOM. Minting a root edge for every room would
+// put the fan-out back on one node, which is the 109-edge front door this
+// project already measured spilling at 63KB. One wing, one root, one hop to the
+// room am_entry_point resolves.
+//
+// The MEMBERSHIP of the tier is deliberately not touched: which records a session
+// must load is a judgement no code can make — a record is in that tier because
+// you cannot notice you needed it until after you have broken something. This
+// mints the skeleton; curating what hangs off it stays a human or agent act.
+func (s *Service) attachWingRootEdge(ctx context.Context, teamID, wing string) error {
+	subj := WingRootSubject(wing)
+	obj := DerivedEdgeSubject(wing, EntryRoom)
+	subID, objID := normalizeEntityID(subj), normalizeEntityID(obj)
+	p := normalizePredicate(DerivedEdgePredicate)
+	now := time.Now().UTC().Format(time.RFC3339)
+
+	if err := s.repo.UpsertKGEntity(ctx, teamID, subID, subj, now); err != nil {
+		return err
+	}
+	if err := s.repo.UpsertKGEntity(ctx, teamID, objID, obj, now); err != nil {
+		return err
+	}
+	// Idempotent: a wing gets one root edge however many entry-room drawers it
+	// accumulates.
+	if id, err := s.repo.CurrentTripleID(ctx, teamID, subID, p, objID); err != nil {
+		return err
+	} else if id != "" {
+		return nil
+	}
+	derived := true
+	return s.repo.InsertKGTriple(ctx, kgTripleRow{
+		TeamID: teamID, ID: tripleID(subID, p, objID, "", now),
+		Subject: subID, Predicate: p, Object: objID,
+		Confidence: 1.0, ExtractedAt: now, Derived: &derived,
+	})
+}
+
+// endDerivedEdgesFor ends every CURRENT DERIVED edge pointing at these drawers,
+// on the handle it is given, and leaves AUTHORED edges alone.
+//
+// ⚠ ONE HELPER BECAUSE THERE ARE FOUR DOORS, and the first fix only closed one.
+// A row can stop being current through a correction, through a re-file that
+// purges a source, or through an outright retraction — and every one of them
+// used to leave the server's own derived edge pointing at ended content. Review
+// 2026-08-30 found the three this missed after supersede was fixed.
+//
+// ⚠ THE ASYMMETRY IS THE RULE. A DERIVED edge is the server's: it minted it from
+// the room, no call lets an author end one, so the server must clean it up. An
+// AUTHORED edge is a person's deliberate pointer and must survive even when the
+// row it names is superseded — the author may mean exactly that. `derived IS
+// NULL` is left alone too: those rows predate the distinction and "not marked
+// derived" is not the same claim as "authored" (00028).
+//
+// It takes a *gorm.DB so a caller inside a transaction passes its tx — reaching
+// for s.repo.db there would open a second connection to a file the transaction
+// already holds a write lock on.
+func endDerivedEdgesFor(db *gorm.DB, teamID string, drawerIDs []string, endedAt, reason string) error {
+	if len(drawerIDs) == 0 {
+		return nil
+	}
+	return db.Model(&kgTripleRow{}).
+		Where("team_id = ? AND object IN ? AND valid_to = '' AND derived = ?", teamID, drawerIDs, true).
+		Updates(map[string]any{"valid_to": endedAt, "ended_reason": reason}).Error
+}
+
 // AllKGEntities returns every entity a team owns, for the label backfill.
 //
 // Unpaged deliberately: the whole point is a one-shot index build, and the live

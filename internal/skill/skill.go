@@ -76,6 +76,25 @@ func (r *Repo) GetByName(ctx context.Context, teamID, name string) (Skill, error
 	return s, err
 }
 
+// HasSkill reports whether a team holds a skill by that name, reading the NAME
+// column only.
+//
+// ⚠ List() SELECTS BODIES, and am_status is the call every session makes first.
+// Asking "does start-here exist" through List pulled every skill body — up to 1MB
+// each — across the hottest path in the server, to compare one string. Found in
+// review 2026-08-30. This selects one indexed column with LIMIT 1, which is
+// cheaper than caching and, unlike a cache, cannot serve a stale answer the
+// moment somebody writes the skill.
+func (r *Repo) HasSkill(ctx context.Context, teamID, name string) (bool, error) {
+	var found string
+	err := r.db.WithContext(ctx).Model(&Skill{}).
+		Select("name").
+		Where("team_id = ? AND name = ?", teamID, name).
+		Limit(1).
+		Scan(&found).Error
+	return found != "", err
+}
+
 // List returns every skill in a team ordered by name (metadata for a future
 // list_skills tool — content omitted at the call site that wants a summary).
 func (r *Repo) List(ctx context.Context, teamID string) ([]Skill, error) {
@@ -134,6 +153,9 @@ type Store interface {
 	GetByName(ctx context.Context, teamID, name string) (Skill, error)
 	Upsert(ctx context.Context, teamID, name, description, content, updatedBy string) (Skill, error)
 	List(ctx context.Context, teamID string) ([]Skill, error)
+	// HasSkill answers existence without reading a body — am_status asks it on
+	// every session's first call.
+	HasSkill(ctx context.Context, teamID, name string) (bool, error)
 }
 
 // Summary is a skill's metadata without its (potentially large) body — the shape
@@ -188,6 +210,12 @@ func (s *Service) Update(ctx context.Context, t RoleHolder, name, description, c
 		return Skill{}, ErrInvalidDescription
 	}
 	return s.repo.Upsert(ctx, t.Team(), name, description, content, t.User())
+}
+
+// HasSkill reports whether the team holds a skill by that name, without reading
+// any body. See Repo.HasSkill for why the cheap path exists.
+func (s *Service) HasSkill(ctx context.Context, teamID, name string) (bool, error) {
+	return s.repo.HasSkill(ctx, teamID, name)
 }
 
 // List returns a team's skills as metadata summaries (no bodies). Any team member

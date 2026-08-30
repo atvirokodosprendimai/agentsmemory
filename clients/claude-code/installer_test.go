@@ -1020,7 +1020,7 @@ func TestWingReachesEveryClientOrSaysWhyNot(t *testing.T) {
 
 	t.Run("claude desktop passes it to the bridge", func(t *testing.T) {
 		inst, _, dir := newTestInstallerFor(t, claudeDesktopKit, false)
-		inst.serverBin = "/opt/bin/aiagentmemory-server"
+		inst.serverBin = fakeBuiltServerBin(t)
 		inst.wing = wing
 		if err := inst.registerAgentsMemoryMCP(); err != nil {
 			t.Fatalf("register: %v", err)
@@ -1915,7 +1915,7 @@ func TestClaudeDesktopKitResolves(t *testing.T) {
 func TestClaudeDesktopInstallRegistersTheBridge(t *testing.T) {
 	inst, rr, dir := newTestInstallerFor(t, claudeDesktopKit, false)
 	inst.mcpURL = "http://localhost:8080/mcp"
-	inst.serverBin = "/opt/bin/aiagentmemory-server"
+	inst.serverBin = fakeBuiltServerBin(t)
 
 	// A server the user already had must survive; this file is shared with every
 	// other MCP server they run.
@@ -1961,8 +1961,11 @@ func TestClaudeDesktopInstallRegistersTheBridge(t *testing.T) {
 		t.Errorf("an HTTP entry was written (%+v); Desktop's config file spawns local processes, "+
 			"so this must be the stdio bridge", entry)
 	}
-	if entry.Command != "/opt/bin/aiagentmemory-server" {
-		t.Errorf("command = %q, want the resolved server binary", entry.Command)
+	// ⚠ THE PLACED PATH, NOT THE SOURCE. The installer copies the binary it
+	// resolved into the kit and registers that copy, so the command Desktop
+	// spawns keeps working when the build directory it came from is gone.
+	if want := filepath.Join(dir, "bin", installedServerBinName); entry.Command != want {
+		t.Errorf("command = %q, want the installed server binary %q", entry.Command, want)
 	}
 	if len(entry.Args) < 3 || entry.Args[0] != "mcp-stdio" ||
 		!contains(entry.Args, "--url") || !contains(entry.Args, inst.mcpURL) {

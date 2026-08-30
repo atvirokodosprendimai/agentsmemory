@@ -29,26 +29,56 @@ Fire these in parallel where you can; each answers a different question.
   third-party skill. If none exists, say `no explicit intent source found` and
   carry that uncertainty into the plan.
 
-- **1b. Code reality — prefer codebase-memory when available.** When it is
-  registered, reindex before searching: first call
-  `index_repository(repo_path=<cwd>)`, then search with the task to locate the
-  symbols, files, and routes it touches. Reach for `get_architecture` or
-  `trace_path` when structure or call paths matter. When it is absent, say so
-  and use targeted source search over the paths, symbols, architecture docs, and
-  tests the task names; do not block on an optional integration.
+- **1b. Code reality — codebase-memory. Three calls, in order:**
+  1. ⚠ **`index_repository(repo_path=<cwd>)` FIRST, every task, no exceptions.**
+     The graph does **not** index automatically. It holds whatever was true the
+     last time somebody indexed — which may be another branch, another day, or
+     never — so at the start of any task the index is **stale by construction**.
+     This is the one call that is easy to skip and expensive to skip, because a
+     stale graph does not error: **it answers**, confidently, about code that has
+     moved. That is worse than having no graph at all, and it is why this is a
+     numbered step rather than a sentence.
+  2. `search_code(pattern=<task>, project=<repo>)` — locate the symbols, files
+     and routes the task touches. Reach for `get_architecture` or `trace_path`
+     when structure or call paths matter.
+  3. Emit `code reality: indexed + searched ✓` so the order is visible.
 
-- **1c. Team memory — `am_*` MCP.** Three calls, in order:
-  1. `am_skillset` — the wake-up playbook: how to drive the `am_*` tools, in what
-     order, and which skills to load. The platform curates this centrally, so the
-     guidance stays current as the toolset grows — you never re-install to get it.
-  2. `am_search(<task>)` — recall past decisions, learnings, and rationale for
+  **If it is not reachable, SAY SO IN ONE LINE and carry on** — e.g.
+  `⚠ codebase-memory unreachable (CONNECTION_CLOSED) — targeted source search only`.
+  Then use targeted search over the paths, symbols, docs and tests the task
+  names, and name what you inspected. Do not block on an optional integration.
+
+  ⚠ **The announcement is not politeness, it is the finding.** A dead server and
+  a skipped step produce identical output — silence — so an unannounced absence
+  gets diagnosed for weeks as an agent that keeps forgetting. Measured 2026-08-30:
+  three sessions across two repositories were all read as "forgot Step 1b" while
+  `claude mcp list` reported `codebase-memory-mcp ✘ CONNECTION_CLOSED` on the
+  machine running them. Check it before you conclude anything about your own
+  discipline: `claude mcp list | grep codebase`.
+
+- **1c. Team memory — `am_*` MCP.** Four calls, in order:
+  1. `am_status` — which palace answered, your wing, what is waiting, and the
+     **`entry_protocol`** block. Read that block first if it is present.
+  2. ⚠ **`am_load_skill("start-here")` — do this NOW if `am_status` named an entry
+     protocol.** It is **one call** with a known target, and it outranks this
+     command on anything specific to that team. **Do not defer it because your
+     task looks read-only** — it is what tells you which reads are cheap and which
+     answers are already written down.
+     ⚠ Measured 2026-08-30: this instruction used to live in call 4 below, as
+     "load `start-here` if it exists". Three sessions in three repositories read
+     it and **none** of them loaded the skill — because it was conditional on a
+     catalogue call they pruned as preparation for work they were told not to do.
+     It is call 2 now for that reason. If `am_status` named no entry protocol,
+     skip it and say so.
+  3. `am_search(<task>)` — recall past decisions, learnings, and rationale for
      this work. This is the **only** source of cross-session *why*; don't
      reconstruct from code what memory already explains.
-  3. `am_list_skills` → `am_load_skill(<name>)` — load the team's **centralised**
-     skills (`effective-go`, and whatever else bears on the task). These are
-     authored once and shared by every agent, so they outrank conventions you
-     would otherwise infer. Check here before concluding a skill doesn't exist:
-     a skill missing from your local list is usually centralised here instead.
+  4. `am_list_skills` → `am_load_skill(<name>)` — load the team's other
+     **centralised** skills (`effective-go`, and whatever else bears on the task).
+     These are authored once and shared by every agent, so they outrank
+     conventions you would otherwise infer. Check here before concluding a skill
+     doesn't exist: a skill missing from your local list is usually centralised
+     here instead.
 
 Reconcile the three. If project intent (1a), the code (1b), and past decisions (1c)
 disagree, **surface the conflict** — that's a human decision, not one to make
@@ -97,6 +127,17 @@ Write back what this session produced so the next one recalls it:
 - **`am_kg_add`** — new durable facts as subject → predicate → object triples.
 - **`am_add_drawer`** — notable decisions or code, verbatim, into the right wing
   and room.
+- ⚠ **If this wing has no entry point, give it one.** `am_status` reports it: no
+  `entry_protocol` block, or `am_entry_point(wing)` answering `unknown_term`,
+  means a session waking here has no front door and must fall back to guessing
+  which rooms to read. Fix it by filing ONE drawer into room `llm_init` whose
+  content OPENS with the words `WHAT MUST I LOAD AT THE START OF A SESSION?` —
+  the server mints the wing's by-name root from that write, so the address
+  resolves for every session afterwards.
+  ⚠ **Keep it under 1600 runes**: the entry tier is served one chunk at a time, so
+  a longer record arrives cut with nothing marking it partial. And put in it only
+  what a session cannot notice it needed until after it has broken something —
+  that judgement is the whole of the tier and no tool can make it for you.
 
 A verified change that isn't written back is memory lost. Skip only when the
 session produced nothing worth recalling — and say so.
