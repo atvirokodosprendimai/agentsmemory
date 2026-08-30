@@ -220,6 +220,26 @@ it finds inert must be listed with a reason, never just listed.
 `TestDiscoveredPairsAdmitTheirCondition` then requires the `--help` text to name
 the gating knob **greppably** — an honest sentence phrased without that name fails.
 
+**AND A KNOB READ IN ONE ENTRY POINT IS INERT IN THE ELEVEN THAT ALSO OFFER IT.**
+`--otel-endpoint` was declared in `dataFlags`, so it appeared in the help of twelve
+commands, while `telemetry.Setup` ran in `run()` and `runEval()` only: everywhere
+else the flag parsed, reached `cfg.OTELEndpoint`, and installed no provider, so
+every span was a `nonRecordingSpan` and nothing was exported — silently, and with
+`README.md` and `.env.example` both promising otherwise. Every existing gate passed,
+because each asks whether the field is assigned and read SOMEWHERE, which is the
+weaker question ADR-006 already rejected; measured, the whole feature could be cut
+out of the SERVING path with a green suite. The remedy is a seam rather than a
+detector: `withTelemetry` is the one call site,
+`TestTelemetrySetupHasOneChokepoint` holds it there, and
+`TestEveryActionInTheCommandTreeIsWrapped` walks the tree `rootCommand` actually
+returns — so a subcommand added tomorrow is instrumented by existing code instead of
+by a reviewer noticing. A per-command *detector* was rejected for the reason this
+section keeps recording: `wing`, `share` and `kg-extract` do no instrumented work,
+so it would need an exemption list, and a list kept beside the truth goes stale.
+`TestASubcommandOfferingOtelEndpointInstallsAProvider` runs the real `mcp` command
+and reads the notice, because no AST check can tell a seam that exists from a seam
+that fires.
+
 **Documentation is load-bearing in BOTH directions, and the reverse arrow is the
 one that bit.** `TestDocumentedEnvVarsAreRead` fails when something advertised in
 `.env.example`, a `docker-compose*.yml` `environment:` block, or a Go comment

@@ -36,7 +36,6 @@ import (
 	"github.com/atvirokodosprendimai/agentsmemory/internal/config"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/palace"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/rerank/tei"
-	"github.com/atvirokodosprendimai/agentsmemory/internal/telemetry"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/tenant"
 	"github.com/urfave/cli/v3"
 )
@@ -94,17 +93,6 @@ func evalCommand(def config.Config) *cli.Command {
 // runEval is the whole flow: load or generate cases, score the arms, print.
 func runEval(ctx context.Context, c *cli.Command, def config.Config, out io.Writer) error {
 	cfg := configFromCmd(c, def)
-	shutdown, err := telemetry.Setup(ctx, telemetry.Config{Endpoint: cfg.OTELEndpoint})
-	if err != nil {
-		// Same fail-open as serve: a collector that refuses is instrument-health,
-		// not a reason to skip the table. Eval without traces is still an eval.
-		fmt.Fprintf(os.Stderr, "otel: setup failed (%v) — eval without traces\n", err)
-	} else {
-		defer func() { _ = shutdown(context.Background()) }()
-		if cfg.OTELEndpoint != "" {
-			fmt.Fprintf(os.Stderr, "otel: exporting traces to %s\n", cfg.OTELEndpoint)
-		}
-	}
 	svc, err := buildServices(cfg)
 	if err != nil {
 		return err

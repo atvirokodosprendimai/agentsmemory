@@ -129,6 +129,11 @@ func rootCommand(def config.Config) *cli.Command {
 		},
 	}
 
+	// Every action, once, at the one place that knows the whole tree. See
+	// telemetry.go: --otel-endpoint used to install a provider on two entry
+	// points out of the twelve that offer it (issue #53).
+	wrapTelemetry(cmd, def)
+
 	return cmd
 }
 
@@ -314,18 +319,6 @@ func run(ctx context.Context, cfg config.Config) error {
 		log.Printf("config: addr=%s db=%s vector_backend=%s ollama=%s/%s rerank=%s otel=%s",
 			cfg.Addr, cfg.DBPath, cfg.VectorBackend, cfg.OllamaURL, cfg.OllamaEmbedModel,
 			cmp.Or(cfg.RerankURL, "off"), cmp.Or(cfg.OTELEndpoint, "off"))
-	}
-
-	shutdown, err := telemetry.Setup(ctx, telemetry.Config{Endpoint: cfg.OTELEndpoint})
-	if err != nil {
-		// A collector that refuses is instrument-health, not a reason to refuse
-		// /mcp. ADR-025: export failure drops observability, not search.
-		log.Printf("otel: setup failed (%v) — serving without traces", err)
-	} else {
-		defer func() { _ = shutdown(context.Background()) }()
-		if cfg.OTELEndpoint != "" {
-			log.Printf("otel: exporting traces to %s", cfg.OTELEndpoint)
-		}
 	}
 
 	// Claim the database before opening it. Only one server may serve a given
