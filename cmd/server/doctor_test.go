@@ -216,11 +216,13 @@ func TestBuildServicesStillPreparesThePalace(t *testing.T) {
 		t.Fatalf("prepared vector store = %T, want *store.Hybrid", svc.vectors)
 	}
 	_, index := hybrid.Halves()
-	counter, ok := index.(interface{ Count(string) (int, error) })
+	counter, ok := index.(interface {
+		Count(context.Context, string) (int, error)
+	})
 	if !ok {
 		t.Fatalf("prepared index = %T, want a countable Chromem index", index)
 	}
-	if n, err := counter.Count("team-local"); err != nil || n != 1 {
+	if n, err := counter.Count(ctx, "team-local"); err != nil || n != 1 {
 		t.Errorf("ordinary preparation rebuilt %d point(s), want 1 (err=%v)", n, err)
 	}
 }
@@ -390,8 +392,8 @@ func doctorJournalMode(t *testing.T, dbPath string) string {
 // The report is prose and prose is not a gate. A drift that printed a warning
 // and exited 0 would sit green in every pipeline that runs this.
 func TestDoctorIndexExitsNonZeroOnDrift(t *testing.T) {
-	clean := palace.DriftReport{Checked: 5}
-	drifted := palace.DriftReport{Checked: 5, Total: 1, Drifted: []palace.DriftedPoint{
+	clean := palace.DriftReport{Checked: palace.NamespaceSplit{Drawers: 5}}
+	drifted := palace.DriftReport{Checked: palace.NamespaceSplit{Drawers: 5}, Total: 1, Drifted: []palace.DriftedPoint{
 		{Store: "index", DrawerID: "d1", Indexed: "wing_acme-legacy", Actual: "wing_acme"},
 	}}
 
@@ -426,7 +428,7 @@ var _ = cli.Command{}
 // sends an operator to the wrong repair.
 func TestDoctorDistinguishesAnAbsentPointFromAMislabelledOne(t *testing.T) {
 	var buf bytes.Buffer
-	err := reportDrift(&buf, palace.DriftReport{Checked: 2, Total: 2, Drifted: []palace.DriftedPoint{
+	err := reportDrift(&buf, palace.DriftReport{Checked: palace.NamespaceSplit{Drawers: 2}, Total: 2, Drifted: []palace.DriftedPoint{
 		{Store: "index", DrawerID: "d1", Indexed: "wing_acme-legacy", Actual: "wing_acme"},
 		{Store: "index", DrawerID: "d2", Actual: "wing_acme", Missing: true},
 	}})
@@ -446,7 +448,7 @@ func TestDoctorDistinguishesAnAbsentPointFromAMislabelledOne(t *testing.T) {
 // produce a report a human can read, and a count they can trust.
 func TestDoctorBoundsItsListingAndKeepsTheCountExact(t *testing.T) {
 	var buf bytes.Buffer
-	_ = reportDrift(&buf, palace.DriftReport{Checked: 5000, Total: 5000, Drifted: []palace.DriftedPoint{
+	_ = reportDrift(&buf, palace.DriftReport{Checked: palace.NamespaceSplit{Drawers: 5000}, Total: 5000, Drifted: []palace.DriftedPoint{
 		{Store: "index", DrawerID: "d1", Indexed: "wing_acme-legacy", Actual: "wing_acme"},
 	}})
 	out := buf.String()
@@ -463,7 +465,7 @@ func TestDoctorBoundsItsListingAndKeepsTheCountExact(t *testing.T) {
 // embedding has no point yet, and a busy palace must not look broken.
 func TestDoctorSaysPendingEmbeddingIsNotAFault(t *testing.T) {
 	var buf bytes.Buffer
-	if err := reportDrift(&buf, palace.DriftReport{Checked: 10, Pending: 3}); err != nil {
+	if err := reportDrift(&buf, palace.DriftReport{Checked: palace.NamespaceSplit{Drawers: 10}, Pending: palace.NamespaceSplit{Drawers: 3}}); err != nil {
 		t.Errorf("a clean palace with a queue exited non-zero: %v", err)
 	}
 	if !strings.Contains(buf.String(), "queue and not a fault") {

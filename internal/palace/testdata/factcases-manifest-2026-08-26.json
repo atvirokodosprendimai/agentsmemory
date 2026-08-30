@@ -1,0 +1,6 @@
+{
+  "cases": 8,
+  "corpus_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "provenance": "synthetic fixture only; no real corpus has been built yet. When one is, it stays untracked and this file records its case count, digest and date.",
+  "date": "2026-08-26"
+}

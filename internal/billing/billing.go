@@ -25,7 +25,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
+	"time"
 
 	"github.com/atvirokodosprendimai/agentsmemory/internal/tenant"
 
@@ -47,11 +49,23 @@ type Config struct {
 	StripeSecretKey     string
 	StripeWebhookSecret string
 
-	// OpenCollective wiring (used when Provider == "opencollective"). No API
-	// credentials exist — the checkout is a static contribution URL — but the
-	// project page is the stable manage/cancel surface (OpenCollective has no
-	// pre-authenticated customer portal).
+	// OpenCollective wiring (used when Provider == "opencollective"). The checkout
+	// itself is a static contribution URL and needs no credentials; the project page
+	// is the stable manage/cancel surface (OpenCollective has no pre-authenticated
+	// customer portal).
 	OpenCollectiveProjectURL string
+
+	// Reconciliation wiring (ADR-042). OpenCollective sends no signed webhook, so a
+	// payment is learned by ASKING its GraphQL API on a schedule. All four are read
+	// only on the opencollective branch — the mode that is running — per ADR-006.
+	//
+	// An unset personal token disables reconciliation entirely: no goroutine, no
+	// outbound call, and activation stays the operator's set-plan. That is the
+	// rollback path, and it needs no code change.
+	OpenCollectivePersonalToken string        // read-only token; enables reconciliation
+	OpenCollectiveSlug          string        // whose orders to read, e.g. "ai-agents-memory"
+	OpenCollectiveAPIURL        string        // GraphQL endpoint; overridable for tests/staging
+	ReconcileInterval           time.Duration // how often to poll
 }
 
 // PlanStore is the slice of tenant state billing needs: resolve a sellable plan
@@ -70,9 +84,20 @@ type Service struct {
 	priceByPlanCode map[string]string
 	plans           PlanStore
 	subs            *Repo
-	checkout        checkoutAPI   // nil when the active provider is unconfigured
-	webhook         webhookParser // nil when the active provider is unconfigured
-	portal          portalAPI     // nil when the active provider is unconfigured
+	intents         intentRecorder // nil when no intent store is wired; recording is best-effort
+	checkout        checkoutAPI    // nil when the active provider is unconfigured
+	webhook         webhookParser  // nil when the active provider is unconfigured
+	portal          portalAPI      // nil when the active provider is unconfigured
+}
+
+// WithIntents attaches the checkout-intent store, which is what lets a later
+// OpenCollective order be attributed to the workspace that started it (ADR-042).
+// It is optional: with no store, checkouts still work and reconciliation simply has
+// one fewer attribution channel, so a deployment that has not migrated yet degrades
+// rather than breaks.
+func (s *Service) WithIntents(r intentRecorder) *Service {
+	s.intents = r
+	return s
 }
 
 // NewService wires a Service around the provider named by cfg.Provider. The chosen
@@ -136,6 +161,20 @@ func (s *Service) StartCheckout(ctx context.Context, req CheckoutRequest) (strin
 	if _, err := s.plans.PlanByCode(ctx, req.PlanCode); err != nil {
 		return "", fmt.Errorf("%w: %q", ErrUnknownPlan, req.PlanCode)
 	}
+	// Record the intention BEFORE handing the user off, so a contribution that
+	// lands can be traced back to this workspace (ADR-042). Best-effort by design:
+	// a customer must never be blocked from paying because our bookkeeping failed,
+	// and losing the row costs an attribution channel, not the payment.
+	if s.intents != nil {
+		if err := s.intents.Record(ctx, CheckoutIntent{
+			TeamID:   req.TeamID,
+			PlanCode: req.PlanCode,
+			Tag:      intentTag(req.TeamID),
+			Email:    req.CustomerEmail,
+		}); err != nil {
+			log.Printf("billing: recording checkout intent for team %s: %v (checkout continues; this contribution may need manual attribution)", req.TeamID, err)
+		}
+	}
 	return s.checkout.createCheckout(ctx, checkoutInput{
 		PriceID:       priceID,
 		TeamID:        req.TeamID,
@@ -150,6 +189,29 @@ func (s *Service) StartCheckout(ctx context.Context, req CheckoutRequest) (strin
 // provider customer to open a portal for — it never subscribed, or subscribed
 // before we captured a customer id. The handler treats it as "nothing to manage".
 var ErrNoSubscription = errors.New("billing: no subscription to manage")
+
+// HasRelationship reports whether a workspace has a provider relationship on
+// record, which is the precondition ManageURL needs and the dashboard's only
+// honest basis for offering a "manage plan" control. It deliberately applies the
+// SAME test as ManageURL — either provider id present — because a gate that
+// disagrees with the handler it guards reproduces the defect it was added to fix,
+// just one layer up.
+//
+// This exists because being on a paid plan does NOT imply a relationship was ever
+// recorded: under OpenCollective the plan can be set by the operator's set-plan
+// CLI or by reconciliation, and before ADR-042 nothing wrote a subscriptions row
+// at all, so every activated workspace rendered a portal button whose handler
+// could only fail (ADR-042).
+func (s *Service) HasRelationship(ctx context.Context, teamID string) bool {
+	if s == nil || s.subs == nil {
+		return false
+	}
+	sub, err := s.subs.ByTeam(ctx, teamID)
+	if err != nil {
+		return false
+	}
+	return sub.StripeCustomerID != "" || sub.StripeSubscriptionID != ""
+}
 
 // ManageURL returns a provider-hosted customer-portal URL where the workspace's
 // admin can update payment, download invoices, or cancel. It resolves the
@@ -192,9 +254,14 @@ func (s *Service) HandleWebhook(ctx context.Context, payload []byte, headers htt
 	}
 	switch evt.kind {
 	case eventActivated:
-		return s.applyActivated(ctx, evt)
+		// The webhook path keeps no ledger, so it discards what the apply reports:
+		// a delivery the stale-re-delivery guard declines is still a successful 200,
+		// which is what stops the provider retrying an event we deliberately ignored.
+		_, err := s.applyActivated(ctx, evt)
+		return err
 	case eventCanceled:
-		return s.applyCanceled(ctx, evt)
+		_, err := s.applyCanceled(ctx, evt)
+		return err
 	default:
 		return nil
 	}
@@ -205,9 +272,14 @@ func (s *Service) HandleWebhook(ctx context.Context, payload []byte, headers htt
 // back inside the signed event), so they are trustworthy here in a way the
 // browser's success redirect is not. OpenCollective never reaches this path: it
 // has no signed webhook, so activation is operator-driven via the set-plan CLI.
-func (s *Service) applyActivated(ctx context.Context, evt providerEvent) error {
+// It reports whether it ACTED. A verified event that the stale-re-delivery guard
+// declines is a success that changed nothing, and the two are different facts: a
+// polling caller records what it applied, and recording a decision it did not take
+// would put a false entry in that ledger (PR #96 self-review, N1). The webhook
+// caller has no ledger and ignores the bool.
+func (s *Service) applyActivated(ctx context.Context, evt providerEvent) (applied bool, err error) {
 	if evt.teamID == "" || evt.planCode == "" {
-		return fmt.Errorf("billing: activated event missing team_id/plan_code")
+		return false, fmt.Errorf("billing: activated event missing team_id/plan_code")
 	}
 	// Guard against a stale or out-of-order re-delivery: if this exact provider
 	// subscription is already recorded as canceled for the team, a late "activated"
@@ -218,18 +290,18 @@ func (s *Service) applyActivated(ctx context.Context, evt providerEvent) error {
 	if evt.subscriptionID != "" {
 		if existing, err := s.subs.ByTeam(ctx, evt.teamID); err == nil &&
 			existing.Status == "canceled" && existing.StripeSubscriptionID == evt.subscriptionID {
-			return nil
+			return false, nil
 		}
 	}
 	plan, err := s.plans.PlanByCode(ctx, evt.planCode)
 	if err != nil {
-		return fmt.Errorf("billing: resolve plan %q: %w", evt.planCode, err)
+		return false, fmt.Errorf("billing: resolve plan %q: %w", evt.planCode, err)
 	}
 	// Flip the effective plan (idempotent: same plan id on re-delivery).
 	if err := s.plans.SetTeamPlan(ctx, evt.teamID, plan.ID); err != nil {
-		return fmt.Errorf("billing: set team plan: %w", err)
+		return false, fmt.Errorf("billing: set team plan: %w", err)
 	}
-	return s.subs.Upsert(ctx, Subscription{
+	return true, s.subs.Upsert(ctx, Subscription{
 		TeamID:               evt.teamID,
 		PlanID:               plan.ID,
 		Status:               "active",
@@ -241,24 +313,28 @@ func (s *Service) applyActivated(ctx context.Context, evt providerEvent) error {
 // applyCanceled downgrades a workspace back to the free plan when its subscription
 // ends. The subscription id is the stable key, so we look up which workspace it
 // belongs to; an unknown id (we never recorded it) is a no-op.
-func (s *Service) applyCanceled(ctx context.Context, evt providerEvent) error {
+// It returns the workspace it downgraded, or the empty string when there was
+// nothing of ours to act on. A polling caller needs to tell those apart: it records
+// what it applied and to whom, and an empty team means the contribution belongs to
+// somebody else's integration (PR #96 self-review, N2).
+func (s *Service) applyCanceled(ctx context.Context, evt providerEvent) (teamID string, err error) {
 	// A cancellation with no subscription id has no stable key to attribute it. Never
 	// query on the empty string: the subscriptions table's pre-provider rows default
 	// stripe_subscription_id to '' and would match, downgrading the wrong workspace.
 	if evt.subscriptionID == "" {
-		return nil
+		return "", nil
 	}
 	existing, err := s.subs.ByStripeSubID(ctx, evt.subscriptionID)
 	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil // nothing of ours to downgrade
+		return "", nil // nothing of ours to downgrade
 	}
 	if err != nil {
-		return err
+		return "", err
 	}
 	if err := s.plans.SetTeamPlan(ctx, existing.TeamID, tenant.FreePlanID); err != nil {
-		return fmt.Errorf("billing: downgrade team plan: %w", err)
+		return "", fmt.Errorf("billing: downgrade team plan: %w", err)
 	}
 	existing.PlanID = tenant.FreePlanID
 	existing.Status = "canceled"
-	return s.subs.Upsert(ctx, existing)
+	return existing.TeamID, s.subs.Upsert(ctx, existing)
 }

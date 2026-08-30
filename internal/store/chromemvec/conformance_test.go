@@ -22,6 +22,13 @@ func TestChromemVecRunsTheConformanceSuite(t *testing.T) {
 
 // The same backend, the write half.
 func TestChromemvecRunsTheSetPayloadConformanceSuite(t *testing.T) {
+	storetest.RunCountConformance(t, "chromemvec", func(t *testing.T) store.VectorStore {
+		idx, err := New(filepath.Join(t.TempDir(), "chromem"))
+		if err != nil {
+			t.Fatalf("open index: %v", err)
+		}
+		return idx
+	})
 	storetest.RunSetPayloadConformance(t, "chromemvec", func(t *testing.T) store.VectorStore {
 		idx, err := New(filepath.Join(t.TempDir(), "chromem"))
 		if err != nil {

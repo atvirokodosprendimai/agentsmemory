@@ -31,6 +31,9 @@ var mutatingCalls = map[string]bool{
 	"Delete": true, "DeleteWing": true, "MergeWing": true, "DeleteTunnel": true,
 	"DeleteHallway": true, "CreateTunnel": true, "WriteDiary": true,
 	"KGAdd": true, "KGInvalidate": true, "MarkAnchors": true,
+	// ADR-038 T4. InvalidateDrawer and KGSupersede end records and write reasons;
+	// Supersede is reached through Update, which is already here.
+	"InvalidateDrawer": true, "KGSupersede": true, "Supersede": true,
 	"RecomputeGraph": true, "Reconnect": true, "Mine": true,
 	// Skill writes go through skill.Service.Upsert, reached from the handler as
 	// Update; the three speculative spellings this list once carried

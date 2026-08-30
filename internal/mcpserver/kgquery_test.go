@@ -37,7 +37,7 @@ func kgToolServer(t *testing.T) *server.MCPServer {
 	if _, err := drawers.KGAdd(ctx, kgQueryTestTeam, "Alice", "works at", "Globex", "2025-06-01", "", "", "", ""); err != nil {
 		t.Fatalf("seed survivor: %v", err)
 	}
-	if _, _, err := drawers.KGInvalidate(ctx, kgQueryTestTeam, "Alice", "works at", "Acme", "2025-06-01"); err != nil {
+	if _, _, _, err := drawers.KGInvalidate(ctx, kgQueryTestTeam, "Alice", "works at", "Acme", "2025-06-01", "she left"); err != nil {
 		t.Fatalf("seed invalidate: %v", err)
 	}
 

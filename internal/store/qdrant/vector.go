@@ -16,6 +16,7 @@ import (
 // so store.Hybrid can drive it as the index; the bootstrap helpers (CollectionName,
 // EnsureCollection, do) live in qdrant.go.
 var _ store.VectorStore = (*Client)(nil)
+var _ store.ApproximateCounter = (*Client)(nil)
 
 // payloadIDKey holds a point's original string ID inside its Qdrant payload.
 // Qdrant point IDs must be unsigned ints or UUIDs, so we key points by a derived
@@ -95,9 +96,9 @@ func (c *Client) upsertChunk(ctx context.Context, namespace string, points []sto
 // Search runs an approximate nearest-neighbour query against the namespace's
 // collection and maps Qdrant's results back onto store.Hit, restoring each
 // caller-facing ID from the payload.
-func (c *Client) Search(ctx context.Context, namespace string, vector []float32, k int, filter store.Filter) ([]store.Hit, error) {
+func (c *Client) Search(ctx context.Context, namespace string, vector []float32, k int, filter store.Filter) (store.SearchResult, error) {
 	if k <= 0 {
-		return nil, nil
+		return store.SearchResult{}, nil
 	}
 	body := map[string]any{"vector": vector, "limit": k, "with_payload": true}
 	if f := matchFilter(filter); f != nil {
@@ -115,7 +116,7 @@ func (c *Client) Search(ctx context.Context, namespace string, vector []float32,
 	}
 	path := "/collections/" + CollectionName(namespace) + "/points/search"
 	if err := c.do(ctx, http.MethodPost, path, body, &resp); err != nil {
-		return nil, err
+		return store.SearchResult{}, err
 	}
 	hits := make([]store.Hit, 0, len(resp.Result))
 	for _, r := range resp.Result {
@@ -123,7 +124,43 @@ func (c *Client) Search(ctx context.Context, namespace string, vector []float32,
 		delete(r.Payload, payloadIDKey) // the reserved key is internal; hide it
 		hits = append(hits, store.Hit{ID: id, Score: r.Score, Payload: r.Payload})
 	}
-	return hits, nil
+	return store.SearchResult{H: hits}, nil
+}
+
+// Count returns how many points the namespace's collection holds, exact for the
+// unfiltered shape this client uses (count_points is exact without a filter;
+// exact:true is the accuracy/cost lever under one). The coverage check compares
+// counts, so an approximate answer would feed a false trigger or mask a real
+// deficit.
+func (c *Client) Count(ctx context.Context, namespace string) (int, error) {
+	var resp struct {
+		Result struct {
+			Count int `json:"count"`
+		} `json:"result"`
+	}
+	path := "/collections/" + CollectionName(namespace) + "/points/count"
+	if err := c.do(ctx, http.MethodPost, path, map[string]any{"exact": true}, &resp); err != nil {
+		return 0, err
+	}
+	return resp.Result.Count, nil
+}
+
+// ApproximateCount reports the namespace's population without the exact:true
+// lever — the shape the serving gate reads above its ExactCountCap. The value
+// may lag the durable count (that is the price of the cheap read), so the gate
+// corroborates a sampled read against the index-ingested watermark before it
+// lets it trigger a rebuild.
+func (c *Client) ApproximateCount(ctx context.Context, namespace string) (int, error) {
+	var resp struct {
+		Result struct {
+			Count int `json:"count"`
+		} `json:"result"`
+	}
+	path := "/collections/" + CollectionName(namespace) + "/points/count"
+	if err := c.do(ctx, http.MethodPost, path, map[string]any{"exact": false}, &resp); err != nil {
+		return 0, err
+	}
+	return resp.Result.Count, nil
 }
 
 // matchFilter renders a payload filter as Qdrant's must-match clause, or nil when

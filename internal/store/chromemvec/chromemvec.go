@@ -228,16 +228,16 @@ func (i *Index) Upsert(ctx context.Context, namespace string, points []store.Poi
 }
 
 // Search returns up to k nearest neighbours by cosine similarity, closest first.
-func (i *Index) Search(ctx context.Context, namespace string, vector []float32, k int, filter store.Filter) ([]store.Hit, error) {
+func (i *Index) Search(ctx context.Context, namespace string, vector []float32, k int, filter store.Filter) (store.SearchResult, error) {
 	if k <= 0 {
-		return nil, nil
+		return store.SearchResult{}, nil
 	}
 	col, err := i.collection(namespace)
 	if err != nil {
-		return nil, err
+		return store.SearchResult{}, err
 	}
 	if col == nil {
-		return nil, nil
+		return store.SearchResult{}, nil
 	}
 	// chromem rejects a query asking for more results than the collection holds,
 	// while the seam promises that fewer than k hits simply means there were
@@ -245,7 +245,7 @@ func (i *Index) Search(ctx context.Context, namespace string, vector []float32, 
 	// early because chromem also rejects a zero result count.
 	n := col.Count()
 	if n == 0 {
-		return nil, nil
+		return store.SearchResult{}, nil
 	}
 	if k > n {
 		k = n
@@ -255,21 +255,21 @@ func (i *Index) Search(ctx context.Context, namespace string, vector []float32, 
 	// fewer than k hits, which the seam already allows.
 	res, err := col.QueryEmbedding(ctx, vector, k, filter, nil)
 	if err != nil {
-		return nil, fmt.Errorf("chromem search %q: %w", namespace, err)
+		return store.SearchResult{}, fmt.Errorf("chromem search %q: %w", namespace, err)
 	}
 	hits := make([]store.Hit, 0, len(res))
 	for _, r := range res {
 		var payload map[string]any
 		if raw := r.Metadata[payloadKey]; raw != "" {
 			if err := json.Unmarshal([]byte(raw), &payload); err != nil {
-				return nil, fmt.Errorf("decode payload of %q: %w", r.ID, err)
+				return store.SearchResult{}, fmt.Errorf("decode payload of %q: %w", r.ID, err)
 			}
 		}
 		// Similarity is cosine in [-1, 1] — chromem normalizes both stored and
 		// query vectors — which is exactly what store.Hit.Score means.
 		hits = append(hits, store.Hit{ID: r.ID, Score: r.Similarity, Payload: payload})
 	}
-	return hits, nil
+	return store.SearchResult{H: hits}, nil
 }
 
 // PointsByIDs returns the stored points for ids, payloads included. The vector is
@@ -388,11 +388,11 @@ func (i *Index) Delete(ctx context.Context, namespace string, ids []string) erro
 
 // Count reports how many points the namespace's index holds.
 //
-// It exists for the boot-time reconcile in cmd/server: an index that is empty
+// It exists for the boot-time reconcile in cmd/server (an index that is empty
 // while the source of truth is not is the state a fresh chromem directory is in
-// after an existing install switches to this backend, and the fix is to replay
-// SQLite into it.
-func (i *Index) Count(namespace string) (int, error) {
+// after an existing install switches to this backend) and for the coverage
+// check against the source of truth.
+func (i *Index) Count(ctx context.Context, namespace string) (int, error) {
 	col, err := i.collection(namespace)
 	if err != nil {
 		return 0, err

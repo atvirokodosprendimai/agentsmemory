@@ -12,7 +12,7 @@ func TestEveryPoolArmHasServiceForArm(t *testing.T) {
 	for _, arm := range evalArms(EvalOptions{Contextual: true}, true) {
 		got := svc.serviceForArm(arm)
 		switch arm {
-		case ArmProduction, ArmProductionDeep, ArmProductionRetrieve, ArmContextual:
+		case ArmProduction, ArmProductionDeep, ArmProductionRetrieve, ArmContextual, ArmFactRetrieval:
 			if got != nil {
 				t.Errorf("%s must retrieve on its own path, serviceForArm = %v", arm, got)
 			}

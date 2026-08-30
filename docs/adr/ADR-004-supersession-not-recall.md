@@ -5,7 +5,7 @@
 **Owner:** Zy (with Mindaugas as upstream maintainer)
 **Spec:** None — no spec stage; grounded in eval measurements and cited research.
 **Cross-references:** `internal/palace/kg.go` (validity windows), `internal/palace/eval.go:105` (`CatTemporal`), `internal/palace/eval.go:562` (`ArmProduction`), `internal/palace/eval.go:772` (`OlderNeighbor`), `internal/palace/evalstats.go` (intervals), `cmd/server/eval.go:209` (`generateTemporalCases`), `cmd/server/eval.go:1006` (`printPoolDiagnosis`), `docs/adr/ADR-001-recall-answers-or-abstains.md`, `docs/adr/BACKLOG.md`
-**Served-path change:** **None — this ADR changes only measurement.** All five tasks are done and every one is an eval arm, a statistic or a gate. What an agent receives from `am_search` is byte-identical before and after. The behaviour this measures — recall preferring current records over superseded ones — is ADR-010's, which is still Proposed at 0 of 3.
+**Served-path change:** **None — this ADR changes only measurement.** All five tasks are done and every one is an eval arm, a statistic or a gate. What an agent receives from `am_search` is byte-identical before and after. The behaviour this measures — recall preferring current records over superseded ones — was ADR-010's and is now **ADR-038's** (ADR-010 superseded 2026-08-27); it remains Proposed and unbuilt.
 
 ## Context
 
@@ -37,6 +37,8 @@ So the question this ADR settles is not "should we have a knowledge graph" — w
 ## Decision
 
 Harden the supersession measurement first and make it the knowledge graph's acceptance criterion. Nothing about the graph is populated, wired or changed until that measurement exists and has spoken. Five parts, and everything the verdict turns on — the bar, the arm it is read from, the interval rule, the case floor and the non-inferiority margin — is written down before any of the numbers are known.
+
+**Amended 2026-08-26, approved by M** (*"P1 - i agree with change"*, resolving the conflict PR #67's review surfaced as ADR-036 §"The ADR-004 condition"). The sentence above stays for what this gate's own metric prices — populating the graph at corpus scale with `kg-extract`, and any RANKING use of a graph read — and no longer bars ADR-036's read-path annotations: `factsFor` fact blocks beside results and correction marks on hits, which change what a page carries, not how it is ordered. ADR-036 pins ranking untouched (its F-9), runs no `kg-extract`, and brings its own pre-registered instrument with a 0% baseline. The measurement this ADR pre-registered is unaffected and still owed: #34's ask stands, and its verdict still decides population and ranking. The reasoning is **an inference recorded beside the owner's words rather than in them**: the gate's metric is stale-above-current — a ranking measure — and its cost model priced a read that would move ordering; the owner's sentence agreed with ADR-036's change, and this narrowing is how two Accepted records stay simultaneously true. If the categorical sentence was meant to bar annotation wiring as well, this amendment is what M would revert.
 
 **A distractor-aware metric, with its population stated per arm.** A temporal case grows a `Distractor` — the superseded drawer `OlderNeighbor` already finds and then throws away — and every arm records where that drawer landed as well as where the gold landed. That is three quantities, not one, because the first draft collapsed them into a single rank and got the vacuity rule wrong:
 
@@ -158,6 +160,8 @@ T1 leads because every later task reads the distractor's rank. T5 is last and is
 
 - Populating the knowledge graph at corpus scale with `kg-extract` (deferred: docs/adr/BACKLOG.md — this ADR is the gate that decides whether it happens)
 - Wiring a graph read into `Service.Search`, such as demoting drawers whose fact has been ended (deferred: docs/adr/BACKLOG.md — reachable only through a `justified` verdict)
+
+  **Amended 2026-08-26, approved by M** (*"P1 - i agree with change"*). The demotion example — any effect on ORDERING — stays behind the `justified` verdict. Read-path ANNOTATION (ADR-036's fact block and correction marks, which add to the page without reordering it) landed via ADR-036 under the owner's sign-off; see the amendment under §Decision for the narrowing and the caveat about whose inference it is.
 - Contradiction reporting in search results, "it was X, it is now Y" (deferred: docs/adr/BACKLOG.md — already deferred from ADR-001; it is page composition, and this ADR gates on preference)
 - Multi-hop and graph-traversal recall gains (deferred: docs/adr/BACKLOG.md — unresolvable at our n; revisit if the corpus and case set grow enough to separate a ~2% effect)
 - Entity-resolution and triple quality of what `kg-extract` produces (deferred: docs/adr/BACKLOG.md — a population concern, and population is gated here)
@@ -199,4 +203,4 @@ No persistent state, no contract, no production behaviour: reverting the commits
 
 - [ ] Record the gate's first verdict, its case count and its interval in `docs/adr/BACKLOG.md` whichever way it lands — a `not justified` that goes unwritten will be re-litigated within a month.
 - [ ] Re-derive the −0.05 MRR non-inferiority margin once the non-temporal case set can resolve less than that; today it is set by the instrument's resolution rather than by the recall loss we would actually accept, and it is the weakest number in this ADR.
-- [ ] Received from ADR-010 T3: ranking superseded records when history IS requested. ADR-010 hides superseded records from ordinary recall and defers the ordering question here, because this ADR already owns how a history request is ranked.
+- [ ] Received from ADR-010 T3, now **ADR-038 T5** (ADR-010 superseded 2026-08-27): ranking superseded records when history IS requested. ADR-038 T5 hides ended records from ordinary recall and defers the ordering question here, because this ADR already owns how a history request is ranked.

@@ -136,11 +136,12 @@ func backendsWithAConformanceTest(t *testing.T, root string) map[string]int {
 		if rerr != nil {
 			return nil
 		}
-		// BOTH halves of the suite, not either: a backend that reads correctly
-		// and writes a payload that erases the rest of it is covered by one and
-		// broken by the other.
+		// ALL of the suite, not some: a backend that reads correctly and writes
+		// a payload that erases the rest of it is covered by one half and broken
+		// by the other, and one that cannot count its own points cannot
+		// corroborate a rebuild trigger.
 		text := string(src)
-		if !strings.Contains(text, "RunPointsConformance(") || !strings.Contains(text, "RunSetPayloadConformance(") {
+		if !strings.Contains(text, "RunPointsConformance(") || !strings.Contains(text, "RunSetPayloadConformance(") || !strings.Contains(text, "RunCountConformance(") {
 			return nil
 		}
 		fset := token.NewFileSet()

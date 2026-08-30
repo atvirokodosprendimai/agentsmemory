@@ -104,14 +104,103 @@ func (r *registrar) addWrite(tool mcp.Tool, handler server.ToolHandlerFunc) {
 	r.catalog = append(r.catalog, CatalogEntry{Name: tool.Name, Description: tool.Description, Write: true})
 }
 
+// writeSemantics is what a client cannot derive from "does this tool write".
+//
+// readOnlyHint falls out of which registrar method was used, and destructive and
+// idempotent do not: both are properties of what the handler DOES, and MCP defines
+// them only for tools that write. So they are declared, with the reason, and
+// TestWriteToolSemanticsCoversEveryWriteTool derives its universe from the
+// registrar rather than from this literal — a write tool added tomorrow joins the
+// check on the same commit instead of quietly defaulting.
+type writeSemantics struct {
+	idempotent  bool
+	destructive bool
+	why         string
+}
+
+// writeToolSemantics declares those two hints per write tool, keyed by short name.
+//
+// ⚠ THE DEFAULT IS THE REASON THIS EXISTS. MCP specifies destructiveHint as TRUE
+// when absent, so every write tool here has been advertising itself as possibly
+// destructive by omission — including am_add_drawer, which only ever adds. A client
+// building a confirmation prompt from the hints would have prompted on all of them,
+// which is the same as prompting on none.
+var writeToolSemantics = map[string]writeSemantics{
+	"add_drawer": {idempotent: true, destructive: false,
+		why: "re-filing the same source matches the row already holding each content key and " +
+			"updates it in place (ADR-038 T3), which is what its own description promises"},
+	"update_drawer": {idempotent: false, destructive: false,
+		why: "a content change SUPERSEDES: it mints a new record and ends the old one, so two " +
+			"identical calls leave two corrections. Nothing is destroyed — the ended record " +
+			"stays readable by id"},
+	"invalidate_drawer": {idempotent: true, destructive: false,
+		why: "InvalidateDrawer skips a chunk whose valid_to is already set, so a second call is " +
+			"a no-op. It ends a record rather than erasing it; erasure left the agent surface " +
+			"in ADR-038 T4"},
+	"mark_anchors": {idempotent: true, destructive: false,
+		why: "status by path — the same arguments leave the same state"},
+	"diary_write": {idempotent: false, destructive: false,
+		why: "APPEND-ONLY BY DESIGN, and this is the one entry worth reading twice: two " +
+			"identical reflections are two entries, which is exactly what the diary exemption " +
+			"in contentKeyOf exists to guarantee. Advertising it as idempotent would invite a " +
+			"client to collapse the retry that the store deliberately keeps"},
+	"mine": {idempotent: true, destructive: false,
+		why: "chunks and files under a named source, on the same dedupe path as add_drawer"},
+	"create_tunnel": {idempotent: true, destructive: false,
+		why: "the same endpoints and label resolve to the same tunnel"},
+	"kg_add": {idempotent: true, destructive: false,
+		why: "kgAddOn returns the existing triple id when the fact is already current, rather " +
+			"than inserting a second row"},
+	"kg_invalidate": {idempotent: true, destructive: false,
+		why: "it REFUSES when no CURRENT fact matches (#73), so a repeat ends nothing twice. " +
+			"The fact is kept and queryable as-of an earlier time"},
+	"kg_supersede": {idempotent: true, destructive: false,
+		why: "after the first call the old value is no longer current, so the second refuses " +
+			"with ErrFactNotFound rather than ending a second row"},
+	"recompute_graph": {idempotent: true, destructive: false,
+		why: "derived edges recomputed from the corpus: the same corpus yields the same graph"},
+	"reconnect": {idempotent: true, destructive: false,
+		why: "re-derives edges for drawers that have none; a drawer that already has one is " +
+			"left alone"},
+	"update_skill": {idempotent: false, destructive: false,
+		why: "every call bumps the skill's version, which is observable to the next am_load_skill " +
+			"— so a repeat is not without effect even when the body is byte-identical"},
+	"merge_wing": {idempotent: false, destructive: true,
+		why: "THE ONE DESTRUCTIVE TOOL LEFT ON THE AGENT SURFACE. It relabels a whole wing " +
+			"(ADR-015), the source wing ceases to exist under its old name, and calling it again " +
+			"with the old name finds nothing to move. Deliberately kept when the four delete " +
+			"verbs were removed, so the hint is the only warning a client gets"},
+}
+
 // classifyTool makes the execution policy visible on the wire at the same
 // chokepoint that enforces it. MCP clients can therefore fail closed from the
 // live tools/list response instead of maintaining a second read/write list that
 // drifts from the handlers actually registered here.
+//
+// It stamps all four hints, because a hint a client can branch on beats a sentence
+// it has to parse — and three of the four were left unset while the prose carried
+// the same claims. openWorldHint is false for every tool: MCP's own definition uses
+// memory access as its example of a CLOSED domain, and nothing here reaches outside
+// the caller's own workspace.
+//
+// An undeclared write tool is left with nil idempotent/destructive rather than
+// given a guess. nil is honestly "not stated"; a guess is a wrong answer a client
+// would act on, and TestWriteToolSemanticsCoversEveryWriteTool fails the build
+// before it ships.
 func classifyTool(tool mcp.Tool, write bool) mcp.Tool {
 	tool.Annotations.ReadOnlyHint = mcp.ToBoolPtr(!write)
+	tool.Annotations.OpenWorldHint = mcp.ToBoolPtr(false)
 	if !write {
+		// Both are defined by MCP only for a tool that writes. A read tool is
+		// trivially neither, and saying so costs nothing and stops a client
+		// treating "absent" as destructiveHint's default of true.
 		tool.Annotations.DestructiveHint = mcp.ToBoolPtr(false)
+		tool.Annotations.IdempotentHint = mcp.ToBoolPtr(true)
+		return tool
+	}
+	if s, ok := writeToolSemantics[strings.TrimPrefix(tool.Name, mcpprotocol.ToolPrefix)]; ok {
+		tool.Annotations.IdempotentHint = mcp.ToBoolPtr(s.idempotent)
+		tool.Annotations.DestructiveHint = mcp.ToBoolPtr(s.destructive)
 	}
 	return tool
 }
@@ -267,7 +356,7 @@ func StreamHTTP(srv *server.MCPServer) *server.StreamableHTTPServer {
 // most callers. am_status is where a client learns its own.
 const serverInstructions = `This server is agentsmemory: a memory palace your team writes to and reads from across sessions.
 
-RECALL BEFORE YOU ACT. Call am_search with the subject of the task before reading code or answering from your own memory. The palace holds what this team already decided, what was tried and abandoned, and what a previous session got wrong — re-deriving that from source is slower and often lands somewhere else.
+WHAT SOURCE CANNOT SETTLE. Code shows what it does now. It cannot show that something still works a given way, that it does not do something, or that a question was never decided — a fix looks identical to code that was always right. That class is what this palace holds: what was decided, what was abandoned, what a past session got wrong. am_search takes a subject.
 
 CHECK YOUR SCOPE ONCE, with am_status. If default_wing names a wing, this registration is scoped to one project and omitting the wing argument keeps recall there. If default_wing is EMPTY, omitting it searches EVERY wing — so pass an explicit wing when you know which project the answer is in, because unrelated projects do not remove the answer, they add competitors ahead of it. wing:"*" is for genuinely cross-project questions, never a safe default.
 
@@ -295,8 +384,11 @@ func registerAll(reg *registrar, deps Deps) {
 	registerGraph(reg, deps.Drawers, deps.Usage, deps.ScopeSearchToWing)
 	// The temporal knowledge graph: kg_add/invalidate/query/stats/timeline.
 	registerKG(reg, deps.Drawers, deps.Usage)
-	// Palace maintenance: merge_wing, memories_filed_away, and delete_wing when local.
-	registerAdmin(reg, deps.Drawers, deps.Usage, deps.Local)
+	registerBootstrap(reg, deps.Drawers, deps.Usage)
+	// Palace maintenance: merge_wing and memories_filed_away. Erasure is NOT here
+	// — ADR-038 moved it to the operator CLI, so the agent catalogue offers no
+	// verb that destroys a record on either deployment.
+	registerAdmin(reg, deps.Drawers, deps.Usage)
 	// Recall measurement: how well the memory answers, per wing.
 	registerRecallStats(reg, deps.Drawers, deps.Usage, deps.ScopeSearchToWing)
 	// Staleness: pin memories to code, and record what verification found.
@@ -406,6 +498,29 @@ func admit(ctx context.Context, usageSvc *usage.Service) (tenant.Tenant, *mcp.Ca
 	return t, nil, true
 }
 
+// coverageBlockFor builds the am_status coverage block. It mirrors inboxStatus's
+// Known discipline: a failed audit reports as unknown rather than as a number,
+// because a zero report's Coverage() reads 1.0 — indistinguishable from genuine
+// health, in exactly the state (palace in trouble) where the wake-up call matters
+// most. The numbers therefore render only when the audit actually served.
+func coverageBlockFor(drift palace.DriftReport, err error) map[string]any {
+	if err != nil {
+		return map[string]any{
+			"known": false,
+			"note":  "coverage could not be taken this time — this is not an all-clear",
+		}
+	}
+	return map[string]any{
+		"known":      true,
+		"coverage":   drift.Coverage(),
+		"namespaces": drift.CoverageView(),
+		"pending_embedding": map[string]any{
+			"drawers": drift.Pending.Drawers,
+			"closets": drift.Pending.Closets,
+		},
+	}
+}
+
 // registerStatus adds the status tool: the wake-up call. Beyond liveness and the
 // session's team/role/quota, it returns the team's memory overview — total
 // drawers and the wing -> rooms taxonomy with counts — so an agent grounds itself
@@ -413,6 +528,12 @@ func admit(ctx context.Context, usageSvc *usage.Service) (tenant.Tenant, *mcp.Ca
 // taxonomy read is best-effort: a status call still succeeds (with an empty
 // overview) if the aggregation fails, so liveness never depends on it.
 func registerStatus(reg *registrar, drawers *palace.Service, usageSvc *usage.Service, workspaces WorkspaceLookup, local bool) {
+	// One cache for the server, shared by every session: the wake-up call runs
+	// the coverage audit at most once per driftTTL per team instead of on every
+	// first call of every session.
+	statusDrift := newDriftCache(func(ctx context.Context, teamID string) (palace.DriftReport, error) {
+		return drawers.IndexDrift(ctx, teamID)
+	}, driftTTL)
 	tool := newTool("status",
 		mcp.WithDescription("Wake-up call: the workspace this MCP session is scoped to (name, slug, and whether the server is self-hosted or hosted) plus your role, the memory overview (total drawers + the wing→rooms taxonomy with counts), and remaining monthly quota. Check the workspace to confirm you are talking to the palace you think you are — an empty wing list means nothing has been written yet, NOT that you are in the wrong place."),
 	)
@@ -468,6 +589,16 @@ func registerStatus(reg *registrar, drawers *palace.Service, usageSvc *usage.Ser
 			}
 		}
 
+		// Serving coverage: the one number a session's mandated first call should
+		// carry about whether its search index is behind its source of truth.
+		// Best-effort like the blocks around it: a drift failure leaves a note
+		// rather than failing the wake-up call, and nothing here is a write.
+		// Read through a per-team TTL cache: the audit is a two-sided O(N) sweep,
+		// and am_status is the call every session makes first, so it must not
+		// re-run the sweep per call.
+		drift, driftErr := statusDrift.get(ctx, t.TeamID)
+		coverageBlock := coverageBlockFor(drift, driftErr)
+
 		out, _ := json.Marshal(map[string]any{
 			"ok":      true,
 			"team_id": t.TeamID,
@@ -481,6 +612,7 @@ func registerStatus(reg *registrar, drawers *palace.Service, usageSvc *usage.Ser
 			"default_wing":  defaultWing,
 			"total_drawers": total,
 			"wings":         tax.Wings, // [{wing, drawers, rooms:[{wing, room, drawers}]}]
+			"coverage":      coverageBlock,
 			"inbox":         inbox,
 			"usage": map[string]any{
 				"used_this_month": st.Used,

@@ -44,16 +44,25 @@ const (
 	codebaseMemoryBin = "~/.local/bin/codebase-memory-mcp"
 )
 
-// main builds the CLI and dispatches. Errors are printed to stderr with a
-// non-zero exit so the curl|bash installer and shell callers can detect failure.
-func main() {
-	cmd := &cli.Command{
+// rootCommand builds the CLI. It is split out of main so a test can read the
+// command list the binary actually ships.
+//
+// ⚠ THAT IS THE POINT OF THE SPLIT, not tidiness. A subcommand's tests can build
+// their own root and pass while `main` registers the command nowhere — measured:
+// deleting `doctorCommand(),` from the list left `go test ./...` at exit 0, because
+// the doctor test constructed its own root. A command nothing selects is this
+// repository's signature defect, and it reached the command written to find it.
+// cmd/server does the same thing for the same reason (its TestDoctorIsRegistered
+// reads rootCommand's own list rather than the source).
+func rootCommand() *cli.Command {
+	return &cli.Command{
 		Name:    "aiagentmemory",
 		Usage:   "install the agentsmemory Claude Code kit and wrap Claude with per-project sandboxes",
 		Version: version,
 		Commands: []*cli.Command{
 			installCommand(),
 			verifyCommand(),
+			doctorCommand(),
 			mineClaudeCommand(),
 			updateCommand(),
 			updateSkillCommand(),
@@ -62,8 +71,15 @@ func main() {
 			runCommand(),
 			wrapCommand(),
 			mcpCommand(),
+			recallObserveCommand(),
 		},
 	}
+}
+
+// main builds the CLI and dispatches. Errors are printed to stderr with a
+// non-zero exit so the curl|bash installer and shell callers can detect failure.
+func main() {
+	cmd := rootCommand()
 	if err := cmd.Run(context.Background(), os.Args); err != nil {
 		fmt.Fprintln(os.Stderr, "aiagentmemory:", err)
 		os.Exit(1)

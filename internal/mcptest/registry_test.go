@@ -12,6 +12,60 @@ import (
 // ADR-008 opens with. Entries are added by T3 and T4.
 var scenarios = []mcptest.Scenario{
 	{
+		// ADR-036 T8. Two calls: file into the entry room, then bootstrap — so the
+		// assertion is that ONE call returns what a session actually needs, not
+		// that a handler returned something.
+		Name:  "one call bootstraps a wing and carries every part of the protocol it replaces",
+		Tools: []string{"am_add_drawer", "am_bootstrap"},
+		Run: func(t *testing.T, h *mcptest.Harness) {
+			h.MustCall(t, "am_add_drawer", map[string]any{
+				"wing": "wing_scenario", "room": "llm_init",
+				"content": "BOOTSTRAP-MARKER read this before doing anything else in this wing",
+			})
+			out := h.MustCall(t, "am_bootstrap", map[string]any{"wing": "wing_scenario"})
+			for _, part := range []string{"entry_point", "truncation", "BOOTSTRAP-MARKER"} {
+				if !contains(out, part) {
+					t.Errorf("the bootstrap does not carry %q, so it does not replace the protocol it claims to:\n%s", part, out)
+				}
+			}
+			// A wing with no entry point still bootstraps rather than failing.
+			empty := h.MustCall(t, "am_bootstrap", map[string]any{"wing": "wing_no_such_place"})
+			if !contains(empty, "unknown_term") {
+				t.Errorf("a wing with no entry point did not bootstrap distinguishably:\n%s", empty)
+			}
+		},
+	},
+	{
+		// ADR-036 T7. Two calls, because a one-call scenario proves only that the
+		// handler returned something: the drawer is FILED first, then the entry
+		// point is asked, so the assertion is that the front door actually reaches
+		// what was put behind it.
+		Name:  "a wing reports its own entry point, and it reaches what was filed there",
+		Tools: []string{"am_add_drawer", "am_entry_point"},
+		Run: func(t *testing.T, h *mcptest.Harness) {
+			filed := h.MustCall(t, "am_add_drawer", map[string]any{
+				"wing": "wing_scenario", "room": "llm_init",
+				"content": "WHAT MUST I LOAD AT THE START OF A SESSION? Start here.",
+			})
+			if !contains(filed, "has_edge") {
+				t.Errorf("a filed drawer did not report whether it is reachable:\n%s", filed)
+			}
+			out := h.MustCall(t, "am_entry_point", map[string]any{"wing": "wing_scenario"})
+			if !contains(out, "room:wing_scenario/llm_init") {
+				t.Errorf("the wing did not name its own entry node:\n%s", out)
+			}
+			if !contains(out, "edges") {
+				t.Errorf("the entry point reported no edges; it is a door onto a wall:\n%s", out)
+			}
+			// A wing that has no entry point says so rather than erroring — the
+			// distinction T2's vocabulary exists to carry.
+			empty := h.MustCall(t, "am_entry_point", map[string]any{"wing": "wing_no_such_place"})
+			if !contains(empty, "unknown_term") {
+				t.Errorf("a wing with no entry point did not say so distinguishably:\n%s", empty)
+			}
+		},
+	},
+	{
 		Name:  "a filed memory is recalled by the question it answers",
 		Tools: []string{"am_add_drawer", "am_search"},
 		Run: func(t *testing.T, h *mcptest.Harness) {
@@ -64,21 +118,42 @@ var scenarios = []mcptest.Scenario{
 			})
 			id := firstDrawerID(t, h, out)
 
-			h.MustCall(t, "am_update_drawer", map[string]any{
+			res := h.JSON(t, h.MustCall(t, "am_update_drawer", map[string]any{
 				"id": id, "content": "the retry budget is five attempts",
+				"reason": "the budget was raised after the timeout incident",
 				"code_anchors": []any{map[string]any{
 					"path": "internal/retry/retry.go", "snippet": "const budget = 5",
 				}},
-			})
-
-			got := h.MustCall(t, "am_list_anchors", map[string]any{"wing": "wing_anchor"})
-			if !contains(got, "budget = 5") {
-				t.Errorf("the corrected memory did not carry its new anchor — a correction that "+
-					"keeps its dead anchor stays flagged STALE forever:\n%s", got)
+			}))
+			newID, _ := res["drawer"].(map[string]any)["id"].(string)
+			if newID == "" || newID == id {
+				t.Fatalf("a correction must return the id of the record it minted: %v", res)
 			}
-			if contains(got, "budget = 3") {
-				t.Errorf("the superseded anchor is still live beside the new one; REPLACE must "+
-					"not merge:\n%s", got)
+
+			// On the CORRECTING record, and that is the whole assertion. A
+			// correction supersedes, so the id the caller sent now names an ended
+			// row: applying the anchors there would leave the correction with none
+			// and this argument silently not doing the only thing it exists for.
+			// am_list_anchors filters by WING, not by drawer, so the snippets are
+			// picked out per drawer here. Passing an unknown drawer_id argument
+			// instead would be silently ignored and the listing would return both
+			// records' anchors — a check that cannot fail.
+			all := h.MustCall(t, "am_list_anchors", map[string]any{"wing": "wing_anchor"})
+			onNew := anchorSnippets(t, h, all, newID)
+			if !containsAny(onNew, "budget = 5") {
+				t.Errorf("the correcting record %s does not carry the new anchor; the anchors were "+
+					"written to the record the update ENDED, so the correction ships unanchored "+
+					"and this argument stops doing the only thing it exists for:\n%s", newID, all)
+			}
+			if containsAny(onNew, "budget = 3") {
+				t.Errorf("the superseded anchor is still on the correction beside the new one; "+
+					"REPLACE must not merge:\n%s", all)
+			}
+			// The ENDED record keeps its own, because it keeps its text — its pin is
+			// still true of it. Until T5 filters recall, a wing-scoped listing shows
+			// both, and that is the half-landed pair rather than a bug here.
+			if onOld := anchorSnippets(t, h, all, id); !containsAny(onOld, "budget = 3") {
+				t.Errorf("the superseded record lost its anchor:\n%s", all)
 			}
 		},
 	},
@@ -97,6 +172,7 @@ var scenarios = []mcptest.Scenario{
 
 			h.MustRefuse(t, "am_update_drawer", map[string]any{
 				"id": id, "content": "a replacement that must NOT be applied",
+				"reason":       "this call is malformed and must change nothing",
 				"code_anchors": []any{map[string]any{"paht": "typo.go", "snippet": "x"}},
 			})
 
@@ -118,8 +194,12 @@ var scenarios = []mcptest.Scenario{
 		// live, still returning the OLD text from search with nothing marking it
 		// retracted. The update reported success while a false half of the memory
 		// kept competing on equal footing with the correction.
-		Name:  "regression: an updated memory has no stale half left in search",
-		Tools: []string{"am_add_drawer", "am_update_drawer", "am_search"},
+		//
+		// The first fix REFUSED, which made correction impossible for exactly the
+		// long documents that most need it. ADR-038 T4 corrects the whole memory:
+		// every old chunk ends and one new set is written.
+		Name:  "regression: correcting a multi-chunk memory ends every chunk of it",
+		Tools: []string{"am_add_drawer", "am_update_drawer", "am_search", "am_get_drawer"},
 		Run: func(t *testing.T, h *mcptest.Harness) {
 			// Over ChunkSize (1600) so the memory really is several drawers; a
 			// fixture below the threshold cannot reproduce this at all.
@@ -133,45 +213,73 @@ var scenarios = []mcptest.Scenario{
 			}
 			id := firstDrawerID(t, h, out)
 
-			// The fix REFUSES rather than rewriting every chunk, and the refusal
-			// is the contract: a partial rewrite is what produced a false half
-			// competing with its own correction, so the tool declines and says
-			// what to do instead.
-			msg := h.MustRefuse(t, "am_update_drawer", map[string]any{
+			h.MustCall(t, "am_update_drawer", map[string]any{
 				"id": id, "content": "CORRECTED-MARKER always brief from the index file.",
+				"reason": "the index file is always brief; the original had it backwards",
 			})
-			if !contains(msg, "chunk") {
-				t.Errorf("the refusal does not explain that this is a multi-chunk memory:\n%s", msg)
-			}
 
-			// And nothing may have half-landed: the original must still be whole,
-			// with no corrected fragment beside it.
+			// Every chunk of the old memory must be ended, and the marker is placed
+			// in the FIRST chunk while the check sweeps ALL of them: a supersede
+			// that ended only the row it was given would leave the tail current,
+			// which is the same shape as the defect this scenario exists for.
 			got := h.MustCall(t, "am_search", map[string]any{
 				"query": "brief from the index file", "wing": "wing_chunked", "limit": 20,
 			})
-			if !contains(got, "SUPERSEDED-MARKER") {
-				t.Errorf("the refused update removed the original text anyway:\n%s", got)
+			if !contains(got, "CORRECTED-MARKER") {
+				t.Errorf("the correction is not searchable at all:\n%s", got)
 			}
-			if contains(got, "CORRECTED-MARKER") {
-				t.Errorf("a refused multi-chunk update wrote one chunk anyway — that is the exact "+
-					"defect this scenario exists for:\n%s", got)
+			if contains(got, "SUPERSEDED-MARKER") {
+				t.Errorf("the superseded text is still on the default recall route, competing with "+
+					"the correction that replaced it — and it kept its embedding, so it can "+
+					"outrank it:\n%s", got)
+			}
+			// Every chunk of the old memory is ended, not just the one the caller
+			// named. Read through the one explicit route, since the default one has
+			// just been asserted not to carry them.
+			hits := h.JSON(t, h.MustCall(t, "am_search", map[string]any{
+				"query": "brief from the index file", "wing": "wing_chunked",
+				"limit": 20, "include_history": true,
+			}))
+			var sawEnded bool
+			for _, hid := range searchHitIDs(t, hits) {
+				d := h.JSON(t, h.MustCall(t, "am_get_drawer", map[string]any{
+					"id": hid, "include_history": true,
+				}))
+				body, _ := d["content"].(string)
+				switch {
+				case contains(body, "CORRECTED-MARKER"):
+					if d["valid_to"] != nil {
+						t.Errorf("the correction itself is marked ended: %v", d)
+					}
+				case contains(body, "SUPERSEDED-MARKER") || contains(body, "index file"):
+					sawEnded = true
+					if d["valid_to"] == nil {
+						t.Errorf("a chunk of the superseded memory is still current: %v", d)
+					}
+				}
+			}
+			if !sawEnded {
+				t.Errorf("include_history reached no chunk of the superseded memory, so the "+
+					"per-chunk assertion above ran against nothing:\n%v", hits)
 			}
 		},
 	},
 	{
-		// REGRESSION — the delete that orphaned child chunks.
+		// REGRESSION — the delete that orphaned child chunks, now the retraction
+		// that must reach every chunk.
 		//
 		// Deleting a multi-chunk memory by its parent id removed the parent and
 		// left the children embedded and searchable, pointing at a parent that no
 		// longer existed. A get said it was gone; only a search could see it.
-		Name:  "regression: deleting a memory leaves no chunk behind, by any route",
-		Tools: []string{"am_add_drawer", "am_delete_drawer", "am_search", "am_get_drawer"},
+		// am_delete_drawer is gone (ADR-038 took erasure off the agent surface) and
+		// am_invalidate_drawer inherits the same trap: end one row and the rest keep
+		// answering with the claim that was just withdrawn.
+		Name:  "regression: retracting a memory leaves no chunk current, by any route",
+		Tools: []string{"am_add_drawer", "am_invalidate_drawer", "am_search", "am_get_drawer"},
 		Run: func(t *testing.T, h *mcptest.Harness) {
 			// The marker must land in the LAST chunk, not the first. The defect
-			// leaves the CHILDREN behind, so a marker in chunk 0 is removed by the
-			// buggy delete too and the scenario passes while the orphan survives.
-			// Measured: with the marker at the front, truncating the delete to the
-			// parent row left this scenario green.
+			// leaves the CHILDREN behind, so a marker in chunk 0 is ended by the
+			// buggy retraction too and the scenario passes while the orphan survives.
 			body := filler(1900) + " ORPHAN-MARKER the rollback procedure for the queue worker."
 			out := h.MustCall(t, "am_add_drawer", map[string]any{
 				"wing": "wing_orphan", "room": "decisions", "content": body,
@@ -182,21 +290,42 @@ var scenarios = []mcptest.Scenario{
 			}
 			id := firstDrawerID(t, h, out)
 
-			h.MustCall(t, "am_delete_drawer", map[string]any{"id": id})
+			h.MustCall(t, "am_invalidate_drawer", map[string]any{
+				"id": id, "reason": "the rollback procedure was replaced by the runbook",
+			})
 
 			// Checked by BOTH routes, and the pair is the point: a get of the
 			// parent said "gone" while the children were still embedded and
 			// searchable. Either route alone would have reported this fixed.
-			if out, isErr, err := h.Call(t, "am_get_drawer", map[string]any{"id": id}); err != nil {
-				t.Fatalf("am_get_drawer: %v", err)
-			} else if !isErr && contains(out, "rollback procedure") {
-				t.Errorf("the deleted parent is still fetchable by id:\n%s", out)
+			parent := h.JSON(t, h.MustCall(t, "am_get_drawer", map[string]any{
+				"id": id, "include_history": true,
+			}))
+			if parent["ended_reason"] != "the rollback procedure was replaced by the runbook" {
+				t.Errorf("the retracted parent carries no reason — a retraction without one is a "+
+					"delete that kept the bytes: %v", parent)
 			}
+			// The marker sits in the LAST chunk precisely so this can see a child
+			// that outlived the retraction: a retraction that ended only the row it
+			// was handed leaves the tail searchable, which is the defect wearing a
+			// new verb's name.
 			if got := h.MustCall(t, "am_search", map[string]any{
 				"query": "rollback procedure for the queue worker", "wing": "wing_orphan", "limit": 20,
 			}); contains(got, "ORPHAN-MARKER") {
-				t.Errorf("a deleted memory is still searchable, so a chunk outlived the delete — "+
-					"the marker sits in the LAST chunk precisely so this can see it:\n%s", got)
+				t.Errorf("a chunk outlived the retraction and is still on the default recall "+
+					"route:\n%s", got)
+			}
+			// And every chunk is reachable through the one explicit route, ended.
+			hits := h.JSON(t, h.MustCall(t, "am_search", map[string]any{
+				"query": "rollback procedure for the queue worker", "wing": "wing_orphan",
+				"limit": 20, "include_history": true,
+			}))
+			for _, hid := range searchHitIDs(t, hits) {
+				d := h.JSON(t, h.MustCall(t, "am_get_drawer", map[string]any{
+					"id": hid, "include_history": true,
+				}))
+				if d["valid_to"] == nil {
+					t.Errorf("chunk %v is still current after the retraction: %v", hid, d)
+				}
 			}
 		},
 	},
@@ -394,7 +523,7 @@ var scenarios = []mcptest.Scenario{
 			})
 			h.MustCall(t, "am_kg_invalidate", map[string]any{
 				"subject": "batch-runner", "predicate": "deploys_to", "object": "old-node",
-				"ended": "2026-06-01",
+				"ended": "2026-06-01", "reason": "the node was retired",
 			})
 
 			out := h.MustCall(t, "am_kg_query", map[string]any{"entity": "batch-runner"})
@@ -545,70 +674,64 @@ var scenarios = []mcptest.Scenario{
 		Run: exerciseListDrawersRegistrationWing,
 	},
 	{
-		Name:  "deleting a tunnel removes only that woven link and is idempotent",
-		Tools: []string{"am_add_drawer", "am_create_tunnel", "am_delete_tunnel", "am_list_tunnels", "am_follow_tunnels"},
+		// ADR-038 T4, rung 3 for the two verbs that replaced erasure.
+		//
+		// am_delete_drawer, am_delete_tunnel, am_delete_hallway and am_delete_wing
+		// were the four scenarios that stood here. They are gone from the agent
+		// catalogue, and what stands in their place has to be exercised the same
+		// way — a retraction that is declared and never called is the defect this
+		// registry exists to catch, one door over from the erasure it replaced.
+		Name:  "a retracted memory keeps its text and its reason, and a replaced fact leaves one value",
+		Tools: []string{"am_add_drawer", "am_invalidate_drawer", "am_get_drawer", "am_kg_add", "am_kg_supersede", "am_kg_query"},
 		Run: func(t *testing.T, h *mcptest.Harness) {
-			for _, w := range []string{"wing_from", "wing_to", "wing_alpha", "wing_beta"} {
-				h.MustCall(t, "am_add_drawer", map[string]any{
-					"wing": w, "room": "decisions", "content": "a tunnel endpoint in " + w,
-				})
-			}
-			target := createTunnel(t, h, "wing_from", "wing_to", "TARGET-TUNNEL")
-			keeper := createTunnel(t, h, "wing_alpha", "wing_beta", "KEEPER-TUNNEL")
+			out := h.MustCall(t, "am_add_drawer", map[string]any{
+				"wing": "wing_gone", "room": "decisions",
+				"content": "RETRACTED-MARKER we will ship the queue rewrite in Q3",
+			})
+			id := firstDrawerID(t, h, out)
+			h.MustCall(t, "am_invalidate_drawer", map[string]any{
+				"id": id, "reason": "the rewrite was cancelled, not rescheduled",
+			})
 
-			if deleted(t, h.MustCall(t, "am_delete_tunnel", map[string]any{"tunnel_id": "missing-tunnel-id"})) {
-				t.Error("deleting an unknown tunnel reported that it removed something")
+			// Off the default route now (T5), and reached by the one explicit one.
+			if refused := h.MustRefuse(t, "am_get_drawer", map[string]any{"id": id}); !contains(refused, "include_history") {
+				t.Errorf("the refusal does not name the history route, so an agent holding this id "+
+					"dead-ends on a record that plainly exists:\n%s", refused)
 			}
-			if got := h.MustCall(t, "am_list_tunnels", map[string]any{"wing": "*"}); !contains(got, target) || !contains(got, keeper) {
-				t.Errorf("an unknown-id delete changed a real tunnel:\n%s", got)
+			d := h.JSON(t, h.MustCall(t, "am_get_drawer", map[string]any{"id": id, "include_history": true}))
+			body, _ := d["content"].(string)
+			if !contains(body, "RETRACTED-MARKER") {
+				t.Errorf("the retracted text is gone; ending is not deleting, and the version that "+
+					"was withdrawn is the thing nothing else can recover: %v", d)
 			}
-
-			if !deleted(t, h.MustCall(t, "am_delete_tunnel", map[string]any{"tunnel_id": target})) {
-				t.Error("deleting the target tunnel reported deleted=false")
+			if d["ended_reason"] != "the rewrite was cancelled, not rescheduled" {
+				t.Errorf("the retraction carries no reason, which is the only thing a delete could "+
+					"not have done: %v", d)
 			}
-			if got := h.MustCall(t, "am_list_tunnels", map[string]any{"wing": "*"}); contains(got, target) || !contains(got, keeper) {
-				t.Errorf("the target tunnel survived or the keeper was removed:\n%s", got)
-			}
-			if got := h.MustCall(t, "am_follow_tunnels", map[string]any{
-				"wing": "wing_from", "room": "decisions",
-			}); contains(got, "TARGET-TUNNEL") {
-				t.Errorf("the deleted tunnel is still followable:\n%s", got)
-			}
-			if deleted(t, h.MustCall(t, "am_delete_tunnel", map[string]any{"tunnel_id": target})) {
-				t.Error("deleting the same tunnel twice reported a second deletion")
-			}
-			if got := h.MustCall(t, "am_list_tunnels", map[string]any{"wing": "*"}); !contains(got, keeper) {
-				t.Errorf("the keeper tunnel disappeared after an idempotent delete:\n%s", got)
-			}
-		},
-	},
-	{
-		Name:  "deleting a derived hallway is selective and recompute restores it",
-		Tools: []string{"am_mine", "am_recompute_graph", "am_list_hallways", "am_delete_hallway"},
-		Run: func(t *testing.T, h *mcptest.Harness) {
-			mineHallwayCorpus(t, h, "wing_alpha", "TARGET-HALLWAY")
-			mineHallwayCorpus(t, h, "wing_beta", "KEEPER-HALLWAY")
-			h.MustCall(t, "am_recompute_graph", map[string]any{})
-			target := firstListedID(t, h, h.MustCall(t, "am_list_hallways", map[string]any{"wing": "wing_alpha"}), "hallways")
-			keeper := firstListedID(t, h, h.MustCall(t, "am_list_hallways", map[string]any{"wing": "wing_beta"}), "hallways")
-
-			if deleted(t, h.MustCall(t, "am_delete_hallway", map[string]any{"hallway_id": "missing-hallway-id"})) {
-				t.Error("deleting an unknown hallway reported that it removed something")
-			}
-			if got := h.MustCall(t, "am_list_hallways", map[string]any{"wing": "*"}); !contains(got, target) || !contains(got, keeper) {
-				t.Errorf("an unknown-id delete changed a real hallway:\n%s", got)
+			if d["superseded_by"] != nil {
+				t.Errorf("a retraction that replaces nothing invented a successor: %v", d)
 			}
 
-			if !deleted(t, h.MustCall(t, "am_delete_hallway", map[string]any{"hallway_id": target})) {
-				t.Error("deleting the target hallway reported deleted=false")
+			// The fact half. A hand-rolled invalidate-then-add would leave both
+			// values current until the end of the day, which is what issue #74
+			// reproduced; kg_supersede does both ends at one instant.
+			h.MustCall(t, "am_kg_add", map[string]any{
+				"subject": "queue-worker", "predicate": "deploys to", "object": "old-rack",
+			})
+			h.MustCall(t, "am_kg_supersede", map[string]any{
+				"subject": "queue-worker", "predicate": "deploys to",
+				"old_object": "old-rack", "new_object": "new-rack",
+				"reason": "the old rack was decommissioned",
+			})
+			facts := h.MustCall(t, "am_kg_query", map[string]any{
+				"entity": "queue-worker", "status": "current",
+			})
+			if !contains(facts, "new-rack") {
+				t.Errorf("the replacement fact is not current:\n%s", facts)
 			}
-			if got := h.MustCall(t, "am_list_hallways", map[string]any{"wing": "*"}); contains(got, target) || !contains(got, keeper) {
-				t.Errorf("the target hallway survived or the keeper was removed:\n%s", got)
-			}
-
-			h.MustCall(t, "am_recompute_graph", map[string]any{"wing": "wing_alpha"})
-			if got := h.MustCall(t, "am_list_hallways", map[string]any{"wing": "wing_alpha"}); contains(got, `"count":0`) {
-				t.Errorf("recompute did not restore the still-supported derived hallway:\n%s", got)
+			if contains(facts, "old-rack") {
+				t.Errorf("both values are current after a supersede — that is the overlap the "+
+					"single transaction exists to remove:\n%s", facts)
 			}
 		},
 	},
@@ -650,65 +773,6 @@ var scenarios = []mcptest.Scenario{
 			}
 			if got := h.MustCall(t, "am_list_drawers", map[string]any{"wing": "wing_other"}); !contains(got, "KEEPER-MERGE-MARKER") {
 				t.Errorf("the unrelated keeper wing changed during merge:\n%s", got)
-			}
-		},
-	},
-	{
-		Name:  "local wing deletion crosses the real local edge and removes every observable projection",
-		Tools: []string{"am_mine", "am_recompute_graph", "am_create_tunnel", "am_delete_wing", "am_list_drawers", "am_search", "am_list_hallways", "am_list_tunnels", "am_list_wings"},
-		NewHarness: func(t *testing.T) *mcptest.Harness {
-			return mcptest.NewLocalWithWing(t, "wing_gone")
-		},
-		Run: func(t *testing.T, h *mcptest.Harness) {
-			mineHallwayCorpus(t, h, "wing_gone", "DOOMED-WING-MARKER")
-			mineHallwayCorpus(t, h, "wing_other", "KEEPER-WING-MARKER")
-			h.MustCall(t, "am_recompute_graph", map[string]any{})
-			tunnel := createTunnel(t, h, "wing_gone", "wing_other", "DOOMED-TUNNEL-MARKER")
-			hallway := firstListedID(t, h, h.MustCall(t, "am_list_hallways", map[string]any{"wing": "wing_gone"}), "hallways")
-
-			msg := h.MustRefuse(t, "am_delete_wing", map[string]any{
-				"wing": "wing_gone", "confirm": "wing_other",
-			})
-			if !contains(msg, `confirm="wing_gone"`) {
-				t.Errorf("the refusal does not name the exact confirmation required:\n%s", msg)
-			}
-			if got := h.MustCall(t, "am_list_drawers", map[string]any{"wing": "wing_gone"}); !contains(got, "DOOMED-WING-MARKER") {
-				t.Errorf("a refused delete removed the doomed wing's drawers:\n%s", got)
-			}
-			if got := h.MustCall(t, "am_list_hallways", map[string]any{"wing": "wing_gone"}); !contains(got, hallway) {
-				t.Errorf("a refused delete removed the doomed wing's hallway:\n%s", got)
-			}
-			if got := h.MustCall(t, "am_list_tunnels", map[string]any{"wing": "wing_gone"}); !contains(got, tunnel) {
-				t.Errorf("a refused delete removed the doomed wing's tunnel:\n%s", got)
-			}
-
-			out := h.MustCall(t, "am_delete_wing", map[string]any{
-				"wing": "wing_gone", "confirm": "wing_gone",
-			})
-			for _, field := range []string{"drawers_deleted", "closets_deleted", "hallways_deleted", "tunnels_deleted"} {
-				if jsonNumber(t, h, out, field) < 1 {
-					t.Errorf("wing deletion reported no %s despite the populated fixture:\n%s", field, out)
-				}
-			}
-			if got := h.MustCall(t, "am_list_drawers", map[string]any{"wing": "wing_gone"}); contains(got, "DOOMED-WING-MARKER") {
-				t.Errorf("the deleted wing is still enumerable:\n%s", got)
-			}
-			if got := h.MustCall(t, "am_search", map[string]any{
-				"query": "DOOMED-WING-MARKER", "wing": "wing_gone", "limit": 20,
-			}); contains(got, "DOOMED-WING-MARKER") {
-				t.Errorf("the deleted wing remains in vector recall:\n%s", got)
-			}
-			if got := h.MustCall(t, "am_list_hallways", map[string]any{"wing": "*"}); contains(got, hallway) {
-				t.Errorf("the deleted wing's hallway survived:\n%s", got)
-			}
-			if got := h.MustCall(t, "am_list_tunnels", map[string]any{"wing": "*"}); contains(got, tunnel) {
-				t.Errorf("a tunnel whose endpoint was deleted survived:\n%s", got)
-			}
-			if got := h.MustCall(t, "am_list_wings", map[string]any{}); contains(got, "wing_gone") {
-				t.Errorf("the deleted wing still appears in the wing catalogue:\n%s", got)
-			}
-			if got := h.MustCall(t, "am_list_drawers", map[string]any{"wing": "wing_other"}); !contains(got, "KEEPER-WING-MARKER") {
-				t.Errorf("the keeper wing changed during deletion:\n%s", got)
 			}
 		},
 	},
@@ -850,6 +914,55 @@ func drawerCount(t *testing.T, h *mcptest.Harness, out string) int {
 	t.Helper()
 	rows, _ := h.JSON(t, out)["drawers"].([]any)
 	return len(rows)
+}
+
+// anchorSnippets returns the snippets an am_list_anchors listing carries for ONE
+// drawer. The listing filters by wing, so a scenario about which RECORD an anchor
+// landed on has to separate them itself.
+func anchorSnippets(t *testing.T, h *mcptest.Harness, out, drawerID string) []string {
+	t.Helper()
+	rows, _ := h.JSON(t, out)["anchors"].([]any)
+	var got []string
+	for _, raw := range rows {
+		a, _ := raw.(map[string]any)
+		if id, _ := a["drawer_id"].(string); id == drawerID {
+			snippet, _ := a["snippet"].(string)
+			got = append(got, snippet)
+		}
+	}
+	return got
+}
+
+// containsAny reports whether any of the strings contains want.
+func containsAny(haystack []string, want string) bool {
+	for _, s := range haystack {
+		if contains(s, want) {
+			return true
+		}
+	}
+	return false
+}
+
+// searchHitIDs pulls the drawer ids out of a decoded am_search result.
+//
+// It sweeps EVERY hit rather than the first, which is what makes the two
+// supersede regressions above able to fail: both defects leave one chunk of a
+// multi-chunk memory in the wrong state, and a check that reads only the top hit
+// is blind to exactly that.
+func searchHitIDs(t *testing.T, decoded map[string]any) []string {
+	t.Helper()
+	rows, _ := decoded["hits"].([]any)
+	if len(rows) == 0 {
+		t.Fatalf("the search returned no hits, so this scenario asserts nothing: %v", decoded)
+	}
+	ids := make([]string, 0, len(rows))
+	for _, raw := range rows {
+		hit, _ := raw.(map[string]any)
+		if id, _ := hit["id"].(string); id != "" {
+			ids = append(ids, id)
+		}
+	}
+	return ids
 }
 
 // firstDrawerID pulls the id of the first drawer an add returned.

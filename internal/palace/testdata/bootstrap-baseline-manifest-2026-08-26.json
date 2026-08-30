@@ -1,0 +1,9 @@
+{
+  "calls": 13,
+  "output_tokens": 2800,
+  "bytes": 99000,
+  "tokenizer": "cl100k_base",
+  "model_build": "measured against the client-side protocol as documented 2026-08-26",
+  "date": "2026-08-26",
+  "provenance": "redacted record of the client-side bootstrap protocol; the transcript itself stays untracked under ADR-003 T2 because it carries drawer ids and queries"
+}

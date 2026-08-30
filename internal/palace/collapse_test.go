@@ -19,7 +19,7 @@ type orderedVectors struct {
 	ks   []int
 }
 
-func (o *orderedVectors) Search(ctx context.Context, namespace string, vector []float32, k int, filter store.Filter) ([]store.Hit, error) {
+func (o *orderedVectors) Search(ctx context.Context, namespace string, vector []float32, k int, filter store.Filter) (store.SearchResult, error) {
 	if strings.HasSuffix(namespace, "::closets") {
 		return o.VectorStore.Search(ctx, namespace, vector, k, filter)
 	}
@@ -27,7 +27,7 @@ func (o *orderedVectors) Search(ctx context.Context, namespace string, vector []
 	if k > len(o.hits) {
 		k = len(o.hits)
 	}
-	return append([]store.Hit(nil), o.hits[:k]...), nil
+	return store.SearchResult{H: append([]store.Hit(nil), o.hits[:k]...)}, nil
 }
 
 // recordingDocuments is a cross-encoder spy. Scores are intentionally equal:

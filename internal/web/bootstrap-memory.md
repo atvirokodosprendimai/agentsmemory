@@ -427,8 +427,10 @@ ask memory first, grep only the gap.
 
 ## The silent traps
 
-- **⚠ `am_get_drawer` needs `whole=true`.** Otherwise you read the ONE chunk that matched, and
-  it looks complete.
+- **⚠ `am_get_drawer` needs `whole=true`.** Otherwise you read the ONE chunk you named. It now
+  SAYS it is a fragment — `content_truncated` with `content_length`, the whole memory's rune count
+  — but the flag only reports the partial read, it does not complete it, and `whole=true` is the
+  only completion path. (Until 2026-08-29 nothing marked it at all, and this page said so.)
 - **⚠ A KG entity string is a KEY**, normalised only by lowercase + spaces→underscores, no fuzzy
   match. An invented name silently creates a new node. Keys are listed in `llm_index`.
 - **⚠ `am_kg_add` IS IDEMPOTENT**, so replacing a fact means `am_kg_invalidate` FIRST, then add.
@@ -560,7 +562,8 @@ Steps 3–6 are the point. Steps 1–2 only prove you are talking to the right p
   this**, and enumerability is the entire reason rooms exist. Use it for `human-decisions`,
   `llm_corrections`, `inbox`.
 - **`am_get_drawer(id, whole=true)`** — read one memory in full. ⚠ **Always pass `whole=true`**
-  or you get the single chunk that matched, and it looks complete.
+  or you get the single chunk you named, marked `content_truncated` with the memory's
+  `content_length` — a flag you have to read, not a completed answer.
 - **`am_kg_query(entity)`** — one small fact about one named thing (§6).
 - **`am_diary_read(agent_name)`** — narrative history. ⚠ May return chunks rather than whole
   entries, unordered.
@@ -931,7 +934,7 @@ test of the whole thing, and it is worth repeating monthly.
 **Recall** · `am_search` · `am_get_drawer(id, whole=true)` · `am_list_drawers(wing, room)` to
 ENUMERATE · `am_check_duplicate` before filing · `am_diary_read`
 
-**Write** · `am_add_drawer` `am_update_drawer` `am_delete_drawer` `am_diary_write`
+**Write** · `am_add_drawer` `am_update_drawer` `am_invalidate_drawer` `am_diary_write`
 `am_update_skill` `am_mine`
 
 **Taxonomy** · `am_list_wings` `am_list_rooms` `am_get_taxonomy` `am_memories_filed_away`

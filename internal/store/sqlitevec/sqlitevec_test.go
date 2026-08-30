@@ -56,17 +56,17 @@ func TestSearchFilterNarrowsToPayload(t *testing.T) {
 		t.Fatalf("upsert: %v", err)
 	}
 
-	hits, err := s.Search(ctx, ns, []float32{1, 0, 0}, 5, store.Filter{"wing": "wing_two"})
+	res, err := s.Search(ctx, ns, []float32{1, 0, 0}, 5, store.Filter{"wing": "wing_two"})
 	if err != nil {
 		t.Fatalf("search: %v", err)
 	}
-	if len(hits) != 1 || hits[0].ID != "b" {
-		t.Fatalf("want only b, got %d hit(s)", len(hits))
+	if len(res.H) != 1 || res.H[0].ID != "b" {
+		t.Fatalf("want only b, got %d hit(s)", len(res.H))
 	}
 
 	// A nil filter is unscoped, so every point comes back.
-	if hits, err = s.Search(ctx, ns, []float32{1, 0, 0}, 5, nil); err != nil || len(hits) != 3 {
-		t.Fatalf("unfiltered search: %d hit(s), err %v", len(hits), err)
+	if res, err = s.Search(ctx, ns, []float32{1, 0, 0}, 5, nil); err != nil || len(res.H) != 3 {
+		t.Fatalf("unfiltered search: %d hit(s), err %v", len(res.H), err)
 	}
 }
 
@@ -84,21 +84,21 @@ func TestUpsertSearchRanking(t *testing.T) {
 		t.Fatalf("upsert: %v", err)
 	}
 
-	hits, err := s.Search(ctx, ns, []float32{1, 0, 0}, 2, nil)
+	res, err := s.Search(ctx, ns, []float32{1, 0, 0}, 2, nil)
 	if err != nil {
 		t.Fatalf("search: %v", err)
 	}
-	if len(hits) != 2 {
-		t.Fatalf("want 2 hits, got %d", len(hits))
+	if len(res.H) != 2 {
+		t.Fatalf("want 2 hits, got %d", len(res.H))
 	}
-	if hits[0].ID != "a" || hits[1].ID != "c" {
-		t.Fatalf("want ranking [a c], got [%s %s]", hits[0].ID, hits[1].ID)
+	if res.H[0].ID != "a" || res.H[1].ID != "c" {
+		t.Fatalf("want ranking [a c], got [%s %s]", res.H[0].ID, res.H[1].ID)
 	}
-	if hits[0].Score < hits[1].Score {
-		t.Fatalf("expected closest-first ordering, got %.4f then %.4f", hits[0].Score, hits[1].Score)
+	if res.H[0].Score < res.H[1].Score {
+		t.Fatalf("expected closest-first ordering, got %.4f then %.4f", res.H[0].Score, res.H[1].Score)
 	}
 	// Payload must round-trip verbatim.
-	if got := hits[0].Payload["label"]; got != "x-axis" {
+	if got := res.H[0].Payload["label"]; got != "x-axis" {
 		t.Fatalf("payload not round-tripped: got %v", got)
 	}
 }
@@ -123,12 +123,12 @@ func TestUpsertReplacesByID(t *testing.T) {
 	if len(all) != 1 {
 		t.Fatalf("want 1 point after replace, got %d", len(all))
 	}
-	hits, err := s.Search(ctx, ns, []float32{0, 0, 1}, 1, nil)
+	res, err := s.Search(ctx, ns, []float32{0, 0, 1}, 1, nil)
 	if err != nil {
 		t.Fatalf("search: %v", err)
 	}
-	if len(hits) != 1 || hits[0].Score < 0.99 {
-		t.Fatalf("replacement vector not searchable: %+v", hits)
+	if len(res.H) != 1 || res.H[0].Score < 0.99 {
+		t.Fatalf("replacement vector not searchable: %+v", res.H)
 	}
 }
 
@@ -174,12 +174,12 @@ func TestNamespaceIsolation(t *testing.T) {
 		t.Fatalf("team1 should hold exactly its own point, got %d", len(one))
 	}
 	// Same ID in team2 must be a distinct row, not an overwrite of team1's.
-	hits, err := s.Search(ctx, "team1", []float32{1, 0, 0}, 5, nil)
+	res, err := s.Search(ctx, "team1", []float32{1, 0, 0}, 5, nil)
 	if err != nil {
 		t.Fatalf("search team1: %v", err)
 	}
-	if len(hits) != 1 || hits[0].Score < 0.99 {
-		t.Fatalf("team1 vector leaked or got overwritten: %+v", hits)
+	if len(res.H) != 1 || res.H[0].Score < 0.99 {
+		t.Fatalf("team1 vector leaked or got overwritten: %+v", res.H)
 	}
 }
 

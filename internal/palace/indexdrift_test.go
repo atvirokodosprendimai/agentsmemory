@@ -22,7 +22,7 @@ func TestIndexDriftIsSilentOnACleanPalace(t *testing.T) {
 	if err != nil {
 		t.Fatalf("IndexDrift: %v", err)
 	}
-	if report.Checked == 0 {
+	if report.Checked.Drawers+report.Checked.Closets == 0 {
 		t.Fatal("the check examined nothing, so it cannot have found nothing")
 	}
 	if !report.Clean() {
@@ -200,8 +200,8 @@ func TestIndexDriftDoesNotFaultAPendingEmbedding(t *testing.T) {
 	if !report.Clean() {
 		t.Errorf("a drawer awaiting its first embedding was reported as drift: %+v", report.Drifted)
 	}
-	if report.Pending != 1 {
-		t.Errorf("Pending = %d, want 1 — the queue must be counted, not hidden", report.Pending)
+	if report.Pending.Drawers != 1 {
+		t.Errorf("Pending.Drawers = %d, want 1 — the queue must be counted, not hidden", report.Pending.Drawers)
 	}
 }
 
@@ -245,6 +245,48 @@ func TestIndexDriftChecksClosetsToo(t *testing.T) {
 	}
 	if !sawCloset {
 		t.Errorf("closet payloads were left behind and the check does not mention them: %+v", report.Drifted)
+	}
+}
+
+// TestIndexDriftCarriesRealIndexPopulation is the JD-003 gate: an over-count
+// index (orphans, or the transient upsert-before-stamp window) is invisible to
+// the per-id audit by construction — it only asks for drawer ids — so the
+// report must carry the index half's REAL population count. Without it the
+// coverage view renders indexed == expected, indistinguishable from a perfect
+// index (ADR-033 R3's raw-fields promise).
+func TestIndexDriftCarriesRealIndexPopulation(t *testing.T) {
+	ctx := context.Background()
+	svc := newTestService(t)
+	const team = "team-drift-overcount"
+
+	mustAddOne(t, svc, team, AddInput{Wing: "wing_acme", Room: "decisions", Content: "one memory"})
+
+	// An orphan: a point no drawer asked for. PointsByIDs never returns it, so
+	// only the index's own Count can show it.
+	vec := make([]float32, fakeDim)
+	vec[0] = 1
+	if err := svc.vectors.Upsert(ctx, team, []store.Point{{
+		ID: "orphan-1", Vector: vec, Payload: map[string]any{"wing": "wing_acme"},
+	}}); err != nil {
+		t.Fatalf("seed orphan: %v", err)
+	}
+
+	report, err := svc.IndexDrift(ctx, team)
+	if err != nil {
+		t.Fatalf("IndexDrift: %v", err)
+	}
+	if report.Checked.Drawers != 1 {
+		t.Fatalf("Checked.Drawers = %d, want 1 — the orphan is not a drawer row", report.Checked.Drawers)
+	}
+	if report.Total != 0 {
+		t.Fatalf("the orphan must not count as drift: Total = %d", report.Total)
+	}
+	v := report.CoverageView()["drawers"]
+	if v.Indexed != 2 || v.Expected != 1 {
+		t.Fatalf("coverage view = %+v, want indexed 2 over expected 1 — the over-count must be visible", v)
+	}
+	if v.Indexed <= v.Expected {
+		t.Fatal("an orphaned index renders indexed == expected; the raw fields cannot show the over-count")
 	}
 }
 

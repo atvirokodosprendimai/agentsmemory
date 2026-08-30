@@ -15,6 +15,14 @@ func TestSQLiteVecRunsTheConformanceSuite(t *testing.T) {
 	})
 }
 
+// The same backend, the count half: a source of truth that cannot count its
+// own rows cannot corroborate a rebuild trigger.
+func TestSqlitevecRunsTheCountConformanceSuite(t *testing.T) {
+	storetest.RunCountConformance(t, "sqlitevec", func(t *testing.T) store.VectorStore {
+		return newTestStore(t)
+	})
+}
+
 // The same backend, the write half.
 func TestSqlitevecRunsTheSetPayloadConformanceSuite(t *testing.T) {
 	storetest.RunSetPayloadConformance(t, "sqlitevec", func(t *testing.T) store.VectorStore {

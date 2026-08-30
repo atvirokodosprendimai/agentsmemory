@@ -113,7 +113,10 @@ type Stats struct {
 // *palace.Repo satisfies it.
 type Source interface {
 	Wings(ctx context.Context, teamID string) ([]palace.WingStat, error)
-	List(ctx context.Context, teamID, wing, room string, limit, offset int) ([]palace.Drawer, error)
+	// ListCurrent, not List: a bundle record carries no validity window, so an
+	// exported ended row would be re-imported as CURRENT. Declared at the consumer
+	// so the choice is visible here rather than inferred from a call site.
+	ListCurrent(ctx context.Context, teamID, wing, room string, limit, offset int) ([]palace.Drawer, error)
 	ClosetsByWing(ctx context.Context, teamID, wing string) ([]palace.Closet, error)
 	ListTunnels(ctx context.Context, teamID, wing string) ([]palace.Tunnel, error)
 }
@@ -160,7 +163,12 @@ func Export(ctx context.Context, src Source, teamID, wing string, w io.Writer) (
 		if err := ctx.Err(); err != nil {
 			return st, err
 		}
-		page, err := src.List(ctx, teamID, wing, "", pageSize, offset)
+		// ListCurrent for the reason copywing uses it: a bundle record carries no
+		// validity window, so an exported ended row is re-imported as CURRENT — the
+		// retracted text arrives asserted, with the reason gone. Exporting history
+		// needs a format that can carry it (ADR-038 follow-up); until then this
+		// exports what the team still asserts.
+		page, err := src.ListCurrent(ctx, teamID, wing, "", pageSize, offset)
 		if err != nil {
 			return st, fmt.Errorf("list drawers: %w", err)
 		}

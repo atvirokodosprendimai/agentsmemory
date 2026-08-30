@@ -27,6 +27,15 @@ type drawerRow struct {
 	ContentDate string `gorm:"column:content_date"`
 	Agent       string `gorm:"column:agent"` // diary: whose journal (lowercased); "" for normal drawers
 	Topic       string `gorm:"column:topic"` // diary: free grouping tag; "" for normal drawers
+	// The validity window (migration 00030). Empty ValidTo means CURRENT, which
+	// is what makes the migration backfill-free: every pre-existing row is
+	// already correct. '' rather than NULL matches kg_triples, so one concept
+	// does not need two sentinels across two tables.
+	ContentKey   string `gorm:"column:content_key"`
+	ValidTo      string `gorm:"column:valid_to"`
+	SupersededBy string `gorm:"column:superseded_by"`
+	EndedReason  string `gorm:"column:ended_reason"`
+	EndedAt      string `gorm:"column:ended_at"`
 	// EmbeddedAt is RFC3339 when the vector was built, or NULL while the row is
 	// awaiting background embedding (migration 00013). A pointer so "" and NULL
 	// are distinct: the sync filing paths stamp it now; absorb leaves it nil.
@@ -40,17 +49,27 @@ func (drawerRow) TableName() string { return "drawers" }
 // drawers and distinct rooms it holds. The json tags keep the MCP wire shape
 // snake_case, matching the drawer views (the struct is returned to agents as-is).
 type WingStat struct {
-	Wing    string `gorm:"column:wing" json:"wing"`
-	Drawers int    `gorm:"column:drawers" json:"drawers"`
-	Rooms   int    `gorm:"column:rooms" json:"rooms"`
+	Wing string `gorm:"column:wing" json:"wing"`
+	// Drawers counts CURRENT rows — chunks. A retracted drawer is not something
+	// a session can read and am_list_drawers already excludes it, so counting it
+	// here made the two surfaces disagree about the same room in the same minute.
+	Drawers int `gorm:"column:drawers" json:"drawers"`
+	// Memories counts what a reader would call an item: one per memory, however
+	// many chunks it was stored as. am_search reports a memory-level unit and
+	// this surface was the last one still speaking in rows, so a four-chunk
+	// handoff outranked two short ones purely by length.
+	Memories int `gorm:"column:memories" json:"memories"`
+	Rooms    int `gorm:"column:rooms" json:"rooms"`
 }
 
 // RoomStat is one row of the list_rooms aggregation: a room (within its wing)
 // and its drawer count.
 type RoomStat struct {
-	Wing    string `gorm:"column:wing" json:"wing"`
-	Room    string `gorm:"column:room" json:"room"`
-	Drawers int    `gorm:"column:drawers" json:"drawers"`
+	Wing string `gorm:"column:wing" json:"wing"`
+	Room string `gorm:"column:room" json:"room"`
+	// Drawers counts CURRENT rows (chunks); Memories counts items. See WingStat.
+	Drawers  int `gorm:"column:drawers" json:"drawers"`
+	Memories int `gorm:"column:memories" json:"memories"`
 }
 
 // Repo is the gorm-backed persistence for drawer metadata. It owns only the
@@ -81,8 +100,29 @@ func (r *Repo) Save(ctx context.Context, drawers []Drawer) error {
 		row.EmbeddedAt = &now
 		rows = append(rows, row)
 	}
+	// NOT UpdateAll. Re-filing the exact text of an ENDED drawer mints the same id
+	// (the recipe is unchanged at this task), so UpdateAll would reset valid_to,
+	// ended_at and ended_reason to their zero values and silently RESURRECT a
+	// retracted memory — undoing a decision somebody took, with no trace. The
+	// validity columns are therefore owned by EndDrawer alone and are never
+	// written by a filing path.
 	return r.db.WithContext(ctx).
-		Clauses(clause.OnConflict{UpdateAll: true}).
+		Clauses(clause.OnConflict{
+			// The conflict target must repeat the PARTIAL index's predicate: a target
+			// that names only the columns does not match a partial index, so SQLite
+			// would reject the statement rather than upsert. Both conjuncts, exactly
+			// as 00031 declares them.
+			Columns:     []clause.Column{{Name: "team_id"}, {Name: "content_key"}},
+			TargetWhere: clause.Where{Exprs: []clause.Expression{clause.Expr{SQL: "content_key != '' AND valid_to = ''"}}},
+			// The id is NOT in this list, and that is the point: on a conflict the
+			// EXISTING row keeps its name while its content is refreshed, so every
+			// anchor, tunnel and provenance pointer at it survives a re-file.
+			DoUpdates: clause.AssignmentColumns([]string{
+				"wing", "room", "source_file", "chunk_index", "content",
+				"entities", "parent_id", "filed_at", "content_date", "agent", "topic",
+				"embedded_at",
+			}),
+		}).
 		Create(&rows).Error
 }
 
@@ -95,8 +135,10 @@ func (r *Repo) Save(ctx context.Context, drawers []Drawer) error {
 // metadata (entities, dates, agent/topic the source may have re-derived) yet
 // preserves an already-indexed drawer's embedded_at — so an identical re-run never
 // needlessly re-queues a valid vector, and never resets pending→embedded or back.
-// (The id is a content hash, so content/wing/room/source/chunk never differ on a
-// conflict; updating them is a harmless no-op.)
+// It conflicts on the CONTENT KEY, not the id — AbsorbDrawers calls this method
+// exclusively (import.go never calls Save) and Add falls to it whenever the
+// embedder is down, so leaving it keyed on the id would make every import re-run
+// duplicate a whole palace once ids stopped being derived from content.
 func (r *Repo) SaveUnembedded(ctx context.Context, drawers []Drawer) error {
 	if len(drawers) == 0 {
 		return nil
@@ -107,8 +149,12 @@ func (r *Repo) SaveUnembedded(ctx context.Context, drawers []Drawer) error {
 	}
 	return r.db.WithContext(ctx).
 		Clauses(clause.OnConflict{
-			Columns: []clause.Column{{Name: "team_id"}, {Name: "id"}},
-			// Every column except the (team_id, id) key and embedded_at.
+			// The conflict target must repeat the PARTIAL index's predicate: a target
+			// that names only the columns does not match a partial index, so SQLite
+			// would reject the statement rather than upsert. Both conjuncts, exactly
+			// as 00031 declares them.
+			Columns:     []clause.Column{{Name: "team_id"}, {Name: "content_key"}},
+			TargetWhere: clause.Where{Exprs: []clause.Expression{clause.Expr{SQL: "content_key != '' AND valid_to = ''"}}},
 			DoUpdates: clause.AssignmentColumns([]string{
 				"wing", "room", "source_file", "chunk_index", "content",
 				"entities", "parent_id", "filed_at", "content_date", "agent", "topic",
@@ -194,6 +240,29 @@ func (r *Repo) Get(ctx context.Context, teamID, id string) (Drawer, error) {
 		return Drawer{}, err
 	}
 	return fromRow(row), nil
+}
+
+// DrawerExists reports whether a row with this id exists in this team, INCLUDING
+// one that has been ended.
+//
+// ⚠ HISTORY-INCLUSIVE ON PURPOSE, and that is the whole subtlety. A fact citing a
+// drawer that was later corrected is the system working: provenance is a record of
+// what was believed then, and a supersede does not retract the fact somebody
+// derived from the row it ended. Scoping this to current rows would make every
+// correction break its own citations — the opposite of the defect it exists to
+// catch, which is a citation that resolved to nothing on the day it was written.
+//
+// It selects one id rather than the row: the caller wants existence, and a drawer
+// can hold 100,000 runes of content nobody asked for.
+func (r *Repo) DrawerExists(ctx context.Context, teamID, id string) (bool, error) {
+	var found []string
+	err := r.db.WithContext(ctx).Model(&drawerRow{}).
+		Where("team_id = ? AND id = ?", teamID, id).
+		Limit(1).Pluck("id", &found).Error
+	if err != nil {
+		return false, err
+	}
+	return len(found) == 1, nil
 }
 
 // IDsBySource returns the ids of every drawer filed from one source within a
@@ -370,6 +439,14 @@ type DrawerPatch struct {
 	Content *string
 	Wing    *string
 	Room    *string
+	// Reason is WHY the memory changed, and it is required whenever Content is
+	// set: a content change supersedes the record, and a correction that keeps
+	// only THAT something changed destroys the one thing worth keeping about the
+	// change. It is unused for a wing/room move, which corrects nothing.
+	//
+	// Not a pointer, unlike the fields above, because there is no difference
+	// between "reason omitted" and "reason set empty" — both are refused.
+	Reason string
 }
 
 // Update applies a patch to an existing drawer in place, keyed by its id (the id
@@ -403,13 +480,42 @@ func (r *Repo) Update(ctx context.Context, teamID, id string, patch DrawerPatch)
 	if patch.Room != nil {
 		updates["room"] = *patch.Room
 	}
+	// The content key hashes wing, room and content, so any patch touching one
+	// must carry it. Computed from the POST-patch state — the row as it will be —
+	// rather than from the patch alone, so a partial patch cannot produce a key
+	// describing neither the old row nor the new one.
+	if patch.Content != nil || patch.Wing != nil || patch.Room != nil {
+		cur, err := r.Get(ctx, teamID, id)
+		if err != nil {
+			return Drawer{}, err
+		}
+		if patch.Content != nil {
+			cur.Content = *patch.Content
+		}
+		if patch.Wing != nil {
+			cur.Wing = *patch.Wing
+		}
+		if patch.Room != nil {
+			cur.Room = *patch.Room
+		}
+		updates["content_key"] = contentKeyFor(cur)
+	}
 	if len(updates) > 0 {
 		res := r.db.WithContext(ctx).
 			Model(&drawerRow{}).
 			Where("team_id = ? AND id = ?", teamID, id).
 			Updates(updates)
 		if res.Error != nil {
-			return Drawer{}, res.Error
+			// Named, not raw. A move into a wing that already holds identical text
+			// is an ordinary curation action — "this wing already has that memory"
+			// is precisely when someone relocates one — and the bare driver error
+			// ("UNIQUE constraint failed: drawers.team_id, drawers.content_key")
+			// says something collided and nothing about what. Reported on #76 after
+			// T4 moved the content path out of here and left the move as the way in;
+			// RecomputeContentKeys has said this properly since T2 and this was the
+			// second caller that did not.
+			key, _ := updates["content_key"].(string)
+			return Drawer{}, r.namedCollision(ctx, teamID, key, id, res.Error)
 		}
 		if res.RowsAffected == 0 {
 			return Drawer{}, gorm.ErrRecordNotFound
@@ -444,9 +550,28 @@ func (r *Repo) deleteAnchors(ctx context.Context, teamID string, drawerIDs []str
 }
 
 // List returns drawers for a team, optionally narrowed to a wing and/or room,
-// newest first. limit bounds the page (a non-positive limit defaults to 50 to
-// avoid an unbounded scan); offset paginates.
+// newest first, INCLUDING records that have been ended. limit bounds the page (a
+// non-positive limit defaults to 50 to avoid an unbounded scan); offset paginates.
+//
+// History-inclusive is right for its callers — a wing bundle, a cross-workspace
+// copy, a sync — because each of them moves the whole record and an export that
+// silently dropped what a team retracted would lose the only account of why. The
+// recall path uses ListCurrent instead.
 func (r *Repo) List(ctx context.Context, teamID, wing, room string, limit, offset int) ([]Drawer, error) {
+	return r.list(ctx, teamID, wing, room, limit, offset, false)
+}
+
+// ListCurrent is List narrowed to records that have not been ended.
+//
+// The predicate is pushed into SQL rather than applied to the returned page,
+// because limit/offset are applied by the database: filtering afterwards would
+// return SHORT pages and, worse, a page that skips records as the offset walks
+// past ended rows the caller never saw.
+func (r *Repo) ListCurrent(ctx context.Context, teamID, wing, room string, limit, offset int) ([]Drawer, error) {
+	return r.list(ctx, teamID, wing, room, limit, offset, true)
+}
+
+func (r *Repo) list(ctx context.Context, teamID, wing, room string, limit, offset int, currentOnly bool) ([]Drawer, error) {
 	if limit <= 0 {
 		limit = 50
 	}
@@ -459,6 +584,9 @@ func (r *Repo) List(ctx context.Context, teamID, wing, room string, limit, offse
 	}
 	if room != "" {
 		q = q.Where("room = ?", room)
+	}
+	if currentOnly {
+		q = currentScope(q)
 	}
 	var rows []drawerRow
 	// filed_at DESC, id ASC is a stable total order so paging never skips or
@@ -514,14 +642,20 @@ func (r *Repo) DatedDrawers(ctx context.Context, teamID, wing string, limit int)
 	return out, nil
 }
 
-// Wings aggregates a team's drawers by wing — the list_wings backend. The
+// memoryKeyExpr collapses a chunk to the memory it belongs to: a root chunk
+// carries an empty parent_id and stands for itself, every other chunk names its
+// root. Counting DISTINCT over it is the difference between "how many rows" and
+// "how many things a reader would call items".
+const memoryKeyExpr = "CASE WHEN parent_id = '' THEN id ELSE parent_id END"
+
+// Wings aggregates a team's CURRENT drawers by wing — the list_wings backend. The
 // GROUP BY rides idx_drawers_team_wing, keeping it cheap as the palace grows.
 func (r *Repo) Wings(ctx context.Context, teamID string) ([]WingStat, error) {
 	var stats []WingStat
 	if err := r.db.WithContext(ctx).
 		Model(&drawerRow{}).
-		Select("wing, COUNT(*) AS drawers, COUNT(DISTINCT room) AS rooms").
-		Where("team_id = ?", teamID).
+		Select("wing, COUNT(*) AS drawers, COUNT(DISTINCT "+memoryKeyExpr+") AS memories, COUNT(DISTINCT room) AS rooms").
+		Where("team_id = ? AND valid_to = ''", teamID).
 		Group("wing").
 		Order("wing").
 		Scan(&stats).Error; err != nil {
@@ -535,8 +669,8 @@ func (r *Repo) Wings(ctx context.Context, teamID string) ([]WingStat, error) {
 func (r *Repo) Rooms(ctx context.Context, teamID, wing string) ([]RoomStat, error) {
 	q := r.db.WithContext(ctx).
 		Model(&drawerRow{}).
-		Select("wing, room, COUNT(*) AS drawers").
-		Where("team_id = ?", teamID)
+		Select("wing, room, COUNT(*) AS drawers, COUNT(DISTINCT "+memoryKeyExpr+") AS memories").
+		Where("team_id = ? AND valid_to = ''", teamID)
 	if wing != "" {
 		q = q.Where("wing = ?", wing)
 	}
@@ -558,7 +692,13 @@ func diaryScope(db *gorm.DB, teamID, agent, wing string) *gorm.DB {
 	if wing != "" {
 		q = q.Where("wing = ?", wing)
 	}
-	return q
+	// A journal is append-only, so a diary entry is rarely ended — but it CAN be:
+	// am_invalidate_drawer takes any drawer id, and nothing stops an agent
+	// retracting a reflection it decides was wrong. Both the page and the count go
+	// through here, so the filter is applied once and neither can drift from the
+	// other — a total that includes retracted entries while the page excludes them
+	// tells an agent its journal is larger than what it can read.
+	return currentScope(q)
 }
 
 // Diary returns an agent's most recent diary entries (newest first), scoped via
@@ -601,19 +741,24 @@ func (r *Repo) DiaryCount(ctx context.Context, teamID, agent, wing string) (int6
 // semicolons (the frozen palace's on-disk encoding).
 func toRow(d Drawer) drawerRow {
 	return drawerRow{
-		TeamID:      d.TeamID,
-		ID:          d.ID,
-		Wing:        d.Wing,
-		Room:        d.Room,
-		SourceFile:  d.SourceFile,
-		ChunkIndex:  d.ChunkIndex,
-		Content:     d.Content,
-		Entities:    strings.Join(d.Entities, ";"),
-		ParentID:    d.ParentID,
-		FiledAt:     d.FiledAt,
-		ContentDate: d.ContentDate,
-		Agent:       d.Agent,
-		Topic:       d.Topic,
+		TeamID:       d.TeamID,
+		ID:           d.ID,
+		Wing:         d.Wing,
+		Room:         d.Room,
+		SourceFile:   d.SourceFile,
+		ChunkIndex:   d.ChunkIndex,
+		Content:      d.Content,
+		Entities:     strings.Join(d.Entities, ";"),
+		ParentID:     d.ParentID,
+		FiledAt:      d.FiledAt,
+		ContentDate:  d.ContentDate,
+		Agent:        d.Agent,
+		Topic:        d.Topic,
+		ContentKey:   d.ContentKey,
+		ValidTo:      d.ValidTo,
+		SupersededBy: d.SupersededBy,
+		EndedReason:  d.EndedReason,
+		EndedAt:      d.EndedAt,
 	}
 }
 
@@ -621,19 +766,24 @@ func toRow(d Drawer) drawerRow {
 // entities back into a slice (empty string -> nil, not a one-element [""]).
 func fromRow(row drawerRow) Drawer {
 	return Drawer{
-		ID:          row.ID,
-		TeamID:      row.TeamID,
-		Wing:        row.Wing,
-		Room:        row.Room,
-		SourceFile:  row.SourceFile,
-		ChunkIndex:  row.ChunkIndex,
-		Content:     row.Content,
-		Entities:    splitEntities(row.Entities),
-		FiledAt:     row.FiledAt,
-		ContentDate: row.ContentDate,
-		ParentID:    row.ParentID,
-		Agent:       row.Agent,
-		Topic:       row.Topic,
+		ID:           row.ID,
+		TeamID:       row.TeamID,
+		Wing:         row.Wing,
+		Room:         row.Room,
+		SourceFile:   row.SourceFile,
+		ChunkIndex:   row.ChunkIndex,
+		Content:      row.Content,
+		Entities:     splitEntities(row.Entities),
+		FiledAt:      row.FiledAt,
+		ContentDate:  row.ContentDate,
+		ParentID:     row.ParentID,
+		Agent:        row.Agent,
+		Topic:        row.Topic,
+		ContentKey:   row.ContentKey,
+		ValidTo:      row.ValidTo,
+		SupersededBy: row.SupersededBy,
+		EndedReason:  row.EndedReason,
+		EndedAt:      row.EndedAt,
 	}
 }
 
@@ -779,9 +929,12 @@ func (r *Repo) DrawerWings(ctx context.Context, teamID string) (embedded map[str
 	return embedded, pending, nil
 }
 
-// ClosetWings maps every closet id to the wing it is filed in — the closet half
-// of DrawerWings, and for the same reason: closets keep a second copy of the wing
-// in their stored payload, and nothing compared them.
+// ClosetWings maps every EMBEDDED closet id to the wing it is filed in — the
+// closet half of DrawerWings, and for the same reason: closets keep a second
+// copy of the wing in their stored payload, and nothing compared them. The
+// embedded_at filter mirrors DrawerWings' pending split: a closet awaiting its
+// first embedding is a queue, not a fault, so it is excluded here and counted
+// separately via PendingClosetCount.
 func (r *Repo) ClosetWings(ctx context.Context, teamID string) (map[string]string, error) {
 	var rows []struct {
 		ID   string
@@ -790,7 +943,7 @@ func (r *Repo) ClosetWings(ctx context.Context, teamID string) (map[string]strin
 	if err := r.db.WithContext(ctx).
 		Model(&closetRow{}).
 		Select("id", "wing").
-		Where("team_id = ?", teamID).
+		Where("team_id = ? AND embedded_at IS NOT NULL", teamID).
 		Scan(&rows).Error; err != nil {
 		return nil, err
 	}
@@ -820,11 +973,54 @@ func (r *Repo) WingNames(ctx context.Context, teamID string) ([]string, error) {
 // project's session, which are only read if something makes the reader look.
 func (r *Repo) InboxCount(ctx context.Context, teamID, wing, room string) (int, error) {
 	var n int64
+	// LIVE MEMORIES, not rows. Both halves of that were wrong and each was wrong
+	// on its own: retracted drawers were counted, so closing an inbox item never
+	// moved the number that greets the next session; and chunks were counted while
+	// the hint called them "memories", so the figure scaled with how long the
+	// sender wrote. One room reported eight for two live memories.
+	//
+	// Counting ROOT chunks is exact rather than approximate: a retraction ends
+	// every chunk of a memory (InvalidateDrawer and Supersede both do the whole
+	// memory), so a live root implies live siblings and there is no half-ended
+	// memory to miscount.
 	if err := r.db.WithContext(ctx).
 		Model(&drawerRow{}).
-		Where("team_id = ? AND wing = ? AND room = ?", teamID, wing, room).
+		Where("team_id = ? AND wing = ? AND room = ? AND valid_to = '' AND parent_id = ''", teamID, wing, room).
 		Count(&n).Error; err != nil {
 		return 0, err
 	}
 	return int(n), nil
+}
+
+// DrawersByIDs loads drawers by id, preserving the caller's order.
+//
+// Order is preserved deliberately: the bootstrap's eager tier is what the entry
+// point points at, IN THE ORDER it points at it, and a map-ordered result would
+// make the same wing bootstrap differently on each call. A session comparing two
+// bootstraps would read that as the palace changing.
+func (r *Repo) DrawersByIDs(ctx context.Context, teamID string, ids []string) ([]Drawer, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	var rows []drawerRow
+	// CURRENT only. This hydrates am_bootstrap's inline records, which is a default
+	// read route and the FIRST one a waking session takes — an entry edge is
+	// written when a drawer is written and outlives an ending, so a retracted
+	// record reached this way is a withdrawn claim presented as the thing to read
+	// before doing anything else.
+	if err := currentScope(r.db.WithContext(ctx).
+		Where("team_id = ? AND id IN ?", teamID, ids)).Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	byID := make(map[string]Drawer, len(rows))
+	for _, row := range rows {
+		byID[row.ID] = fromRow(row)
+	}
+	out := make([]Drawer, 0, len(ids))
+	for _, id := range ids {
+		if d, ok := byID[id]; ok {
+			out = append(out, d)
+		}
+	}
+	return out, nil
 }

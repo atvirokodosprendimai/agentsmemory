@@ -28,9 +28,12 @@ func fakeQdrant(t *testing.T) *httptest.Server {
 		vector  []float32
 		payload map[string]any
 	}
-	stored := map[string]*point{} // point uuid -> what was written
+	stored := map[string]map[string]*point{} // collection -> point uuid -> what was written
 
 	collection := func(path string) string { return strings.SplitN(path, "?", 2)[0] }
+	collectionName := func(path string) string {
+		return strings.SplitN(strings.TrimPrefix(path, "/collections/"), "/", 2)[0]
+	}
 
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -48,8 +51,13 @@ func fakeQdrant(t *testing.T) *httptest.Server {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
 			}
+			coll := stored[collectionName(path)]
+			if coll == nil {
+				coll = map[string]*point{}
+				stored[collectionName(path)] = coll
+			}
 			for _, p := range body.Points {
-				stored[p.ID] = &point{vector: p.Vector, payload: p.Payload}
+				coll[p.ID] = &point{vector: p.Vector, payload: p.Payload}
 			}
 			_, _ = w.Write([]byte(`{"status":"ok"}`))
 
@@ -64,8 +72,9 @@ func fakeQdrant(t *testing.T) *httptest.Server {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
 			}
+			coll := stored[collectionName(path)]
 			for _, id := range body.Points {
-				p, ok := stored[id]
+				p, ok := coll[id]
 				if !ok {
 					continue // an id it does not hold is ignored
 				}
@@ -114,7 +123,7 @@ func fakeQdrant(t *testing.T) *httptest.Server {
 			var out struct {
 				Result []res `json:"result"`
 			}
-			for _, p := range stored {
+			for _, p := range stored[collectionName(path)] {
 				if !matches(p.payload) {
 					continue
 				}
@@ -125,6 +134,13 @@ func fakeQdrant(t *testing.T) *httptest.Server {
 				out.Result = out.Result[:body.Limit]
 			}
 			_ = json.NewEncoder(w).Encode(out)
+
+		case r.Method == http.MethodPost && strings.HasSuffix(path, "/points/count"):
+			// count_points: exact for the unfiltered shape this client uses; a
+			// collection that was never created counts zero, like the real server.
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"result": map[string]any{"count": len(stored[collectionName(path)])},
+			})
 
 		case r.Method == http.MethodPost && strings.HasSuffix(path, "/points"):
 			var body struct {
@@ -141,12 +157,28 @@ func fakeQdrant(t *testing.T) *httptest.Server {
 			var out struct {
 				Result []res `json:"result"`
 			}
+			coll := stored[collectionName(path)]
 			for _, id := range body.IDs {
-				if p, ok := stored[id]; ok { // an id it does not hold is simply absent
+				if p, ok := coll[id]; ok { // an id it does not hold is simply absent
 					out.Result = append(out.Result, res{ID: id, Payload: p.payload})
 				}
 			}
 			_ = json.NewEncoder(w).Encode(out)
+
+		case r.Method == http.MethodPost && strings.HasSuffix(path, "/points/delete"):
+			// Delete by point id list; ids the store does not hold are ignored.
+			var body struct {
+				Points []string `json:"points"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			coll := stored[collectionName(path)]
+			for _, id := range body.Points {
+				delete(coll, id)
+			}
+			_, _ = w.Write([]byte(`{"status":"ok"}`))
 
 		default: // collection creation and anything else
 			_, _ = w.Write([]byte(`{"status":"ok"}`))
@@ -183,6 +215,11 @@ func TestQdrantRunsTheConformanceSuite(t *testing.T) {
 
 // The same backend, the write half.
 func TestQdrantRunsTheSetPayloadConformanceSuite(t *testing.T) {
+	storetest.RunCountConformance(t, "qdrant", func(t *testing.T) store.VectorStore {
+		srv := fakeQdrant(t)
+		t.Cleanup(srv.Close)
+		return New(srv.URL, "", 10*time.Second)
+	})
 	storetest.RunSetPayloadConformance(t, "qdrant", func(t *testing.T) store.VectorStore {
 		srv := fakeQdrant(t)
 		t.Cleanup(srv.Close)

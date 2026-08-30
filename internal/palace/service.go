@@ -25,6 +25,22 @@ import (
 var (
 	// ErrNotFound is returned when a drawer id does not exist for the team.
 	ErrNotFound = errors.New("drawer not found")
+	// ErrFactNotFound is the knowledge graph's equivalent: no CURRENT triple
+	// matches. A separate sentinel rather than a reuse of ErrNotFound, because that
+	// one's text says "drawer" and %w puts it in front — so the KG path rendered
+	// "drawer not found: no CURRENT fact matches …", contradicting itself in one
+	// line. Callers that only care about the class check both; nothing here does.
+	ErrFactNotFound = errors.New("fact not found")
+	// ErrConcurrentCorrection is returned when a second correction of the same
+	// memory reaches the compare-and-swap after the first has ended its chunks.
+	// It is a REFUSAL, not a failure: the loser changed nothing, and the caller's
+	// correction should be re-read and reapplied against the record that won.
+	ErrConcurrentCorrection = errors.New("concurrent correction")
+	// ErrSourceDrawerNotFound reports a fact whose source_drawer_id names no row in
+	// this team — provenance that resolves to nothing. Distinct from
+	// ErrFactNotFound because the caller's mistake is different: the fact is fine
+	// and the citation is wrong, usually a shortened or retyped id.
+	ErrSourceDrawerNotFound = errors.New("source drawer not found")
 	// ErrInvalidInput is returned when a required argument is missing or empty.
 	ErrInvalidInput = errors.New("invalid input")
 )
@@ -312,6 +328,12 @@ type Service struct {
 	// in-process caveat as mineLocks.
 	graphLocks *keyedMutex
 }
+
+// Repo exposes the underlying repository. Tool layers hold the Service, and
+// seeding or inspection paths (the mcpserver test harness) legitimately need
+// the repo; keeping the field private and exposing this accessor keeps that
+// one door explicit.
+func (s *Service) Repo() *Repo { return s.repo }
 
 // NewService wires the collaborators. dim is the embedding width used to create a
 // tenant's vector namespace on first write (the actual width of returned vectors
@@ -618,11 +640,52 @@ func (s *Service) Add(ctx context.Context, teamID string, in AddInput) (result A
 	defer func() {
 		endStage(sp, err, attribute.Int("am.count", len(result.Drawers)), attribute.Bool("am.pending_embed", result.PendingEmbedding))
 	}()
+	prepared, err := s.prepareWrite(ctx, teamID, in)
+	if err != nil {
+		return AddResult{}, err
+	}
+	if err := s.persistWrite(ctx, s.repo, teamID, prepared); err != nil {
+		return AddResult{}, err
+	}
+	// The edge attaches on BOTH branches. An earlier version attached it only
+	// after the embedded path, so a memory filed while the embedder was down
+	// became a permanent orphan — precisely the memory a later session most needs
+	// to find, and the vector index it is waiting for is not what makes it
+	// reachable by traversal.
+	s.attachDerivedEdgeTo(ctx, teamID, prepared.drawers)
+	return AddResult{Drawers: prepared.drawers, PendingEmbedding: prepared.vectors == nil}, nil
+}
+
+// preparedWrite is a filing that has been chunked, EMBEDDED and turned into rows,
+// with nothing yet written to the database.
+//
+// The split exists so a correction can put the successor's rows and the
+// predecessor's endings under ONE transaction — see supersedeInto. Embedding is
+// the reason that cannot simply be done by wrapping Add: it is a network call,
+// and KGSupersede already records what happens when one is held inside SQLite's
+// single write transaction — "a slow embedder becomes a locked database".
+// Preparing first puts the slow, failable part outside the lock and leaves only
+// row writes inside it.
+type preparedWrite struct {
+	drawers []Drawer
+	// vectors is nil when the embedder was unavailable and the rows go to the
+	// background queue instead (see embedOrDefer). That is a degraded write, not
+	// an error, and persistWrite has a branch for it.
+	vectors            [][]float32
+	wing, room, source string
+	// keep is the set of content keys this filing still asserts, so a re-file of
+	// a NAMED source can end the chunks that left it.
+	keep []string
+}
+
+// prepareWrite does everything a filing needs before anything is persisted:
+// chunking, embedding, id resolution and row construction. It writes nothing.
+func (s *Service) prepareWrite(ctx context.Context, teamID string, in AddInput) (preparedWrite, error) {
 	wing := strings.TrimSpace(in.Wing)
 	room := strings.TrimSpace(in.Room)
 	content := strings.TrimSpace(in.Content)
 	if wing == "" || room == "" || content == "" {
-		return AddResult{}, fmt.Errorf("%w: wing, room and content are required", ErrInvalidInput)
+		return preparedWrite{}, fmt.Errorf("%w: wing, room and content are required", ErrInvalidInput)
 	}
 
 	chunks := ChunkText(content, ChunkSize, ChunkOverlap, ChunkMin)
@@ -631,6 +694,20 @@ func (s *Service) Add(ctx context.Context, teamID string, in AddInput) (result A
 	vectors := s.embedOrDefer(ctx, chunks)
 
 	filedAt := time.Now().UTC().Format(time.RFC3339)
+
+	// Reuse the id of any CURRENT row already holding one of these content keys,
+	// so re-filing unchanged text updates the row in place and every anchor,
+	// tunnel and provenance pointer at it survives — and so the ids returned to
+	// the caller are the ids the database ends up with.
+	keys := make([]string, 0, len(chunks))
+	for _, c := range chunks {
+		keys = append(keys, contentKeyOf(teamID, wing, room, in.SourceFile, c.Index, c.Content))
+	}
+	existing, err := s.repo.IDsByContentKeys(ctx, teamID, keys)
+	if err != nil {
+		return preparedWrite{}, fmt.Errorf("look up rows already holding these content keys: %w", err)
+	}
+
 	drawers := make([]Drawer, len(chunks))
 	for i, c := range chunks {
 		// The first chunk is the parent the rest of a multi-chunk write point
@@ -651,7 +728,8 @@ func (s *Service) Add(ctx context.Context, teamID string, in AddInput) (result A
 		// them to become a hallway, rather than every chunk inheriting the whole
 		// memory's entities and manufacturing connections the text never made.
 		drawers[i] = Drawer{
-			ID:          DrawerID(teamID, wing, room, in.SourceFile, c.Index, c.Content),
+			ID:          mintOrReuse(existing, keys[i]),
+			ContentKey:  keys[i],
 			TeamID:      teamID,
 			Wing:        wing,
 			Room:        room,
@@ -665,26 +743,116 @@ func (s *Service) Add(ctx context.Context, teamID string, in AddInput) (result A
 		}
 	}
 
-	// Re-filing a *named* source replaces it wholesale: purge the source's prior
-	// drawers (rows + vectors) before writing the new set, so shrinking the
-	// content cannot leave orphaned higher-index chunks behind. A source-less add
-	// is a standalone memory (deduped by its content-hash id), so it is not purged.
-	if in.SourceFile != "" {
-		if err := s.purgeSource(ctx, teamID, wing, room, in.SourceFile); err != nil {
-			return AddResult{}, err
-		}
-	}
+	return preparedWrite{
+		drawers: drawers,
+		vectors: vectors,
+		wing:    wing,
+		room:    room,
+		source:  in.SourceFile,
+		keep:    keys,
+	}, nil
+}
 
-	if vectors == nil {
-		if err := s.repo.SaveUnembedded(ctx, drawers); err != nil {
-			return AddResult{}, fmt.Errorf("save drawers (embedding deferred): %w", err)
+// persistWrite writes a prepared filing: its vectors, then its rows, through the
+// repo it is handed.
+//
+// ⚠ THE REPO IS A PARAMETER so a caller can pass one bound to a transaction —
+// that is what lets supersedeInto commit a successor and its predecessor's
+// endings together. Vectors are written FIRST and deliberately OUTSIDE any such
+// transaction: it keeps Add's existing invariant that a row never exists without
+// its embedding, and the inverse orphan is harmless because search skips ids it
+// cannot resolve.
+func (s *Service) persistWrite(ctx context.Context, r *Repo, teamID string, p preparedWrite) error {
+	if p.vectors != nil {
+		if err := s.upsertDrawerVectors(ctx, teamID, p.drawers, p.vectors); err != nil {
+			return err
 		}
-		return AddResult{Drawers: drawers, PendingEmbedding: true}, nil
 	}
-	if err := s.storeDrawers(ctx, teamID, drawers, vectors); err != nil {
-		return AddResult{}, err
+	return s.persistRows(ctx, r, teamID, p)
+}
+
+// persistRows is persistWrite's row half, split out so a transactional caller can
+// write the VECTORS first and outside the transaction.
+//
+// ⚠ THAT SPLIT IS NOT TIDINESS. s.vectors was constructed with the service's own
+// *gorm.DB, and sqlitevec shares that handle — so calling upsertDrawerVectors
+// inside a transaction opens a SECOND connection to the file the transaction
+// already holds the write lock on, which is the deadlock KGSupersede's comment
+// warns about arriving by a different door.
+func (s *Service) persistRows(ctx context.Context, r *Repo, teamID string, p preparedWrite) error {
+	// Re-filing a *named* source replaces it wholesale: end the source's prior
+	// drawers whose content key LEFT the source, so shrinking the content cannot
+	// leave orphaned higher-index chunks behind. A source-less add is a standalone
+	// memory (deduped by its CONTENT KEY, not its id), so it is not purged.
+	if p.source != "" {
+		if err := s.purgeSourceOn(ctx, r, teamID, p.wing, p.room, p.source, p.keep); err != nil {
+			return err
+		}
 	}
-	return AddResult{Drawers: drawers}, nil
+	if p.vectors == nil {
+		if err := r.SaveUnembedded(ctx, p.drawers); err != nil {
+			return fmt.Errorf("save drawers (embedding deferred): %w", err)
+		}
+		return nil
+	}
+	if err := r.Save(ctx, p.drawers); err != nil {
+		return fmt.Errorf("save drawers: %w", err)
+	}
+	return nil
+}
+
+// attachDerivedEdgeTo makes a freshly written set of chunks reachable by
+// traversal. EVERY write path calls it — Add's normal branch, Add's deferred
+// branch, and the import path — because a capability reachable on the one path
+// somebody tested is this repository's characteristic defect, and T6 shipped
+// with exactly that shape before a cross-check found the other two.
+//
+// The edge goes on the ROOT chunk only. A memory is chunked, and one edge per
+// chunk would multiply a single filing into as many graph rows as it happened to
+// split into, inflating the very count this is measured by.
+//
+// Failure is logged, never fatal. The text is the memory; the edge is only how it
+// is reached, and losing a filing because the graph refused would be the worse
+// trade — the same reasoning the deferred-embedding branch already makes.
+func (s *Service) attachDerivedEdgeTo(ctx context.Context, teamID string, drawers []Drawer) {
+	// One edge per SOURCE ROOT, not per batch. An import batch can carry records
+	// from several independent source files, and attaching only to drawers[0]
+	// left every other root unedged — a distinct defect from the missing call
+	// that preceded it, and invisible for the same reason: the batch that was
+	// tested had one source.
+	seen := map[string]bool{}
+	for i := range drawers {
+		d := drawers[i]
+		// The ROOT chunk of each memory. A chunked memory must not contribute one
+		// edge per chunk, which would inflate the count this is measured by.
+		if d.ParentID != "" {
+			continue
+		}
+		key := d.Wing + "\x00" + d.Room + "\x00" + d.SourceFile
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+
+		got, err := s.attachDerivedEdge(ctx, teamID, d)
+		if err != nil {
+			logAttachFailure(ctx, d.ID, err)
+			continue
+		}
+		// Reported from what actually happened. Setting both flags unconditionally
+		// made a drawer a writer had deliberately placed come back claiming the
+		// server guessed for it.
+		drawers[i].HasEdge = true
+		drawers[i].EdgeDerived = got != EdgeAuthored
+	}
+}
+
+// logAttachFailure records a derived-edge attachment that did not happen. It is
+// deliberately non-fatal and deliberately not silent: an orphan created because
+// the graph write failed looks exactly like one created before this existed.
+func logAttachFailure(ctx context.Context, drawerID string, err error) {
+	slog.WarnContext(ctx, "derived edge not attached; drawer is filed but unreachable by traversal",
+		"drawer_id", drawerID, "err", err)
 }
 
 // embedChunks embeds a batch of chunks, returning one vector per chunk in order.
@@ -774,22 +942,61 @@ func (s *Service) upsertDrawerVectors(ctx context.Context, teamID string, drawer
 // purgeSource deletes every drawer (row + vector) previously filed from a source
 // within a (team, wing, room), so a re-add of that source replaces rather than
 // accumulates. Vectors are dropped by the ids the rows carry, then the rows.
-func (s *Service) purgeSource(ctx context.Context, teamID, wing, room, source string) error {
-	ids, err := s.repo.IDsBySource(ctx, teamID, wing, room, source)
+// purgeSourceOn takes the repo as a parameter for the same reason persistWrite
+// does: a correction runs this inside its transaction, so the endings it performs
+// commit or roll back with the successor's rows rather than separately.
+func (s *Service) purgeSourceOn(ctx context.Context, r *Repo, teamID, wing, room, source string, keep []string) error {
+	rows, err := r.CurrentBySource(ctx, teamID, wing, room, source)
 	if err != nil {
 		return fmt.Errorf("list source drawers: %w", err)
+	}
+	kept := make(map[string]bool, len(keep))
+	for _, k := range keep {
+		kept[k] = true
+	}
+	var ids []string
+	for _, row := range rows {
+		if !kept[row.ContentKey] {
+			ids = append(ids, row.ID)
+		}
 	}
 	if len(ids) == 0 {
 		return nil
 	}
-	if err := s.vectors.Delete(ctx, teamID, ids); err != nil {
-		return fmt.Errorf("purge source vectors: %w", err)
-	}
-	if err := s.repo.DeleteBySource(ctx, teamID, wing, room, source); err != nil {
-		return fmt.Errorf("purge source rows: %w", err)
+	// ENDED, not deleted, and the vectors and anchors STAY.
+	//
+	// This used to delete every row under the triple — with its vectors, its
+	// derived edges and, through DeleteBySource, its ANCHORS — and let Add
+	// re-insert. That was survivable only because ids were derived from content,
+	// so an unchanged chunk came back with the same id. It never saved the
+	// anchors: 39 of the 41 anchored drawers in the live palace were one re-file
+	// from losing their pin, and nothing reported it.
+	//
+	// Now only the rows whose content key LEFT the source are touched, and they
+	// are ended rather than destroyed: a chunk a re-file dropped is a memory the
+	// team stopped asserting, which is a retraction, not an erasure.
+	// Ended through the SAME repo, not through s.EndDrawer: that method reads and
+	// writes on s.repo.db, so calling it from inside a transaction would use a
+	// second connection to the file the transaction already holds a write lock on.
+	// The rows here were just read as CURRENT, so EndDrawer's already-ended refusal
+	// has nothing to check that this query does not.
+	now := time.Now().UTC().Format(time.RFC3339)
+	reason := "dropped from " + source + " on re-file"
+	for _, id := range ids {
+		err := r.db.WithContext(ctx).Model(&drawerRow{}).
+			Where("team_id = ? AND id = ? AND valid_to = ''", teamID, id).
+			Updates(map[string]any{"valid_to": now, "ended_at": now, "ended_reason": reason}).Error
+		if err != nil {
+			return fmt.Errorf("end drawer %s dropped from the source: %w", short12(id), err)
+		}
 	}
 	return nil
 }
+
+// An ended row KEEPS its vector and its derived edges. Nothing is deleted by a
+// re-file any more: T5 composes current() into recall, which is what stops an
+// ended row being returned, and destroying the vector would make an ending
+// irreversible in the one store a rollback cannot repair.
 
 // Get returns one drawer, mapping an unknown id to ErrNotFound.
 func (s *Service) Get(ctx context.Context, teamID, id string) (d Drawer, err error) {
@@ -805,7 +1012,51 @@ func (s *Service) Get(ctx context.Context, teamID, id string) (d Drawer, err err
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return Drawer{}, ErrNotFound
 	}
-	return d, err
+	if err != nil {
+		return Drawer{}, err
+	}
+	// Ended records are not on the default route (ADR-038 T5), and the refusal
+	// NAMES the way in. An agent reaches an ended id by holding the `supersedes`
+	// a correction just handed it; a bare "not found" for a row that plainly
+	// exists is a dead end at exactly the moment the agent is doing the right
+	// thing.
+	if d.ValidTo != "" {
+		// The successor clause only when there IS one. A retraction replaces
+		// nothing, and "or read , which replaced it" is the shape of a bug — it
+		// reads as a lost id rather than as an absence that is meant.
+		return Drawer{}, endedRefusal(id, d)
+	}
+	one := []Drawer{d}
+	if err := s.attachSupersedes(ctx, teamID, one); err != nil {
+		return Drawer{}, err
+	}
+	return one[0], nil
+}
+
+// endedRefusal is the answer for a drawer that exists and has been ended.
+//
+// ⚠ IT IS SHARED BY BOTH READ PATHS ON PURPOSE. Get had it and GetMemory did not,
+// so `am_get_drawer(id)` refused an ended drawer with the date, the reason and the
+// successor, while `am_get_drawer(id, whole: true)` on the SAME id answered a bare
+// "drawer not found". Reported 2026-08-29 with a same-id, same-second, one-variable
+// proof.
+//
+// That is the worst possible flag to lose it on: the protocol tells readers to
+// pass whole:true whenever they mean to READ a memory rather than confirm it
+// exists, so the flag we recommend for real reading was the one that hid the
+// correction. And the degraded message is not merely less useful, it is a
+// DIFFERENT CLAIM — "not found" reads as never existed, not as was corrected, so a
+// reader chasing a citation concludes the pointer was bad and moves on.
+func endedRefusal(id string, d Drawer) error {
+	// The successor clause only when there IS one. A retraction replaces nothing,
+	// and "or read , which replaced it" is the shape of a bug — it reads as a lost
+	// id rather than as an absence that is meant.
+	successor := ""
+	if d.SupersededBy != "" {
+		successor = fmt.Sprintf(", or read %s, which replaced it", short12(d.SupersededBy))
+	}
+	return fmt.Errorf("%w: drawer %s was ended on %s (%q). Pass include_history to read it%s",
+		ErrNotFound, short12(id), d.ValidTo, truncateReason(d.EndedReason), successor)
 }
 
 // GetMemory returns every chunk of the memory the given drawer belongs to, in
@@ -834,18 +1085,68 @@ func (s *Service) GetMemory(ctx context.Context, teamID, id string) (chunks []Dr
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, ErrNotFound
 	}
-	return chunks, err
+	if err != nil {
+		return nil, err
+	}
+	// Ended chunks are off the default route with the rest (ADR-038 T5). A memory
+	// ends whole — T4 ends every chunk in one pass and TestNoMemoryEndsHalfway
+	// asserts it — so this filter either keeps all of them or none, and a mixed
+	// result would mean the invariant broke rather than that the filter is
+	// partial.
+	current := chunks[:0]
+	for _, c := range chunks {
+		if c.ValidTo == "" {
+			current = append(current, c)
+		}
+	}
+	if len(current) == 0 {
+		// Every chunk is ended, so the memory was corrected or retracted — which is
+		// a different answer from "no such id", and the caller is holding an id it
+		// got from somewhere. Refuse the way Get does.
+		return nil, endedRefusal(id, chunks[0])
+	}
+	// Lineage on this route too. get_drawer whole=true is how an agent reads a long
+	// memory as it was written, and a reader who cannot see that this text replaced
+	// something is exactly the reader the carried reason exists for.
+	if err := s.attachSupersedes(ctx, teamID, current); err != nil {
+		return nil, err
+	}
+	return current, nil
 }
 
-// Update edits an existing drawer's content/wing/room in place (its id is
-// stable). A supplied field must be non-empty — update_drawer must not be a back
-// door around the non-empty invariant add_drawer enforces (a blank wing/room
-// would file the drawer into an unaddressable taxonomy bucket). Any change
-// re-embeds the drawer's final content and re-upserts the vector *before* the row
-// is written, so a failed embed leaves the drawer fully consistent in its old
-// state rather than with a row ahead of its stale vector. A no-op patch just
-// returns the current drawer.
-func (s *Service) Update(ctx context.Context, teamID, id string, patch DrawerPatch) (updated Drawer, err error) {
+// UpdateResult is what an update produced: the record that now holds the memory,
+// and — when the change was a CORRECTION — the record it replaced.
+//
+// Both halves, because an agent told only "ok" learns neither the id to keep
+// working with nor the id it just ended. Supersedes is empty for a move, which is
+// how a caller tells a correction from a relocation without asking twice.
+type UpdateResult struct {
+	Drawer     Drawer `json:"drawer"`
+	Supersedes string `json:"supersedes,omitempty"`
+	Reason     string `json:"reason,omitempty"`
+	EndedAt    string `json:"ended_at,omitempty"`
+}
+
+// Update changes an existing memory. What it does depends on WHICH field moves,
+// and the split is the point of ADR-038:
+//
+//   - CONTENT is a correction, and a correction supersedes. A new record is
+//     written, the old one is ended with the caller's reason, and the two are
+//     linked. The old text survives; only in-place editing destroyed the rejected
+//     alternative, which is the one thing irrecoverable at any price.
+//   - WING or ROOM alone is a relocation. The memory is the same memory in a
+//     different place, so it keeps its id and is edited in place — minting a new
+//     record for a move would invalidate every anchor, tunnel and fact pointing at
+//     it in exchange for nothing.
+//
+// A supplied field must be non-empty — update_drawer must not be a back door
+// around the non-empty invariant add_drawer enforces (a blank wing/room would
+// file the drawer into an unaddressable taxonomy bucket). A move re-embeds the
+// drawer's final content and re-upserts the vector *before* the row is written,
+// so a failed embed leaves the drawer fully consistent in its old state rather
+// than with a row ahead of its stale vector. A no-op patch just returns the
+// current drawer.
+func (s *Service) Update(ctx context.Context, teamID, id string, patch DrawerPatch) (result UpdateResult, err error) {
 	_, sp := telemetry.Start(ctx, telemetry.StageUpdate)
 	defer func() { endStage(sp, err) }()
 	for _, f := range []struct {
@@ -853,18 +1154,56 @@ func (s *Service) Update(ctx context.Context, teamID, id string, patch DrawerPat
 		val  *string
 	}{{"content", patch.Content}, {"wing", patch.Wing}, {"room", patch.Room}} {
 		if f.val != nil && strings.TrimSpace(*f.val) == "" {
-			return Drawer{}, fmt.Errorf("%w: %s cannot be set empty", ErrInvalidInput, f.name)
+			return UpdateResult{}, fmt.Errorf("%w: %s cannot be set empty", ErrInvalidInput, f.name)
 		}
 	}
 
-	current, err := s.Get(ctx, teamID, id) // also maps unknown id -> ErrNotFound
+	// GetAnyVersion so an ended record produces the refusals below — the supersede
+	// path's "already ended on X" and the move guard — rather than a bare miss.
+	current, err := s.GetAnyVersion(ctx, teamID, id) // also maps unknown id -> ErrNotFound
 	if err != nil {
-		return Drawer{}, err
+		return UpdateResult{}, err
+	}
+	// A MOVE of an ended record is refused here; a CORRECTION of one is refused by
+	// supersedeInto with the reason and date attached. Neither is allowed, because
+	// the first ending is the one that is true and relocating history rewrites
+	// where a decision was taken.
+	if current.ValidTo != "" && patch.Content == nil {
+		return UpdateResult{}, fmt.Errorf(
+			"%w: drawer %s was ended on %s (%q) and cannot be moved. Correct the record that "+
+				"replaced it, not the one it replaced",
+			ErrInvalidInput, short12(id), current.ValidTo, truncateReason(current.EndedReason))
 	}
 
 	// Nothing to change.
 	if patch.Content == nil && patch.Wing == nil && patch.Room == nil {
-		return current, nil
+		return UpdateResult{Drawer: current}, nil
+	}
+
+	// A content change is a CORRECTION, and it leaves this function here.
+	//
+	// This branch is placed BEFORE the multi-chunk refusal below deliberately. That
+	// refusal told the caller to "delete the memory and file it again as one
+	// piece"; a supersede is that instruction performed correctly and without the
+	// delete, so keeping the guard ahead of it would make correction impossible for
+	// exactly the long documents that most need it.
+	if patch.Content != nil {
+		wing, room := current.Wing, current.Room
+		if patch.Wing != nil {
+			wing = *patch.Wing
+		}
+		if patch.Room != nil {
+			room = *patch.Room
+		}
+		res, serr := s.supersedeInto(ctx, teamID, id, *patch.Content, patch.Reason, wing, room)
+		if serr != nil {
+			return UpdateResult{}, serr
+		}
+		d, gerr := s.Get(ctx, teamID, res.ID) // the successor is current by construction
+		if gerr != nil {
+			return UpdateResult{}, gerr
+		}
+		return UpdateResult{Drawer: d, Supersedes: res.Supersedes, Reason: res.Reason, EndedAt: res.EndedAt}, nil
 	}
 
 	// A memory over ChunkSize is several rows sharing a parent, and this function
@@ -888,21 +1227,15 @@ func (s *Service) Update(ctx context.Context, teamID, id string, patch DrawerPat
 	// reader that what they got is a fragment.
 	chunks, err := s.repo.MemoryChunks(ctx, teamID, id)
 	if err != nil {
-		return Drawer{}, fmt.Errorf("look up the memory this drawer belongs to: %w", err)
+		return UpdateResult{}, fmt.Errorf("look up the memory this drawer belongs to: %w", err)
 	}
 	if len(chunks) > 1 {
-		what := "content"
-		harm := "leave the other chunk(s) live with the old text — still embedded, still returned " +
-			"by search, and with nothing marking them retracted"
-		if patch.Content == nil {
-			what = "wing or room"
-			harm = "move this chunk away from the rest of the memory, so no single scope returns " +
-				"all of it and a scoped search answers with a fragment that does not say it is one"
-		}
-		return Drawer{}, fmt.Errorf(
-			"%w: drawer %s is chunk %d of a %d-chunk memory, and changing its %s would %s. "+
-				"Delete the memory and file it again as one piece",
-			ErrInvalidInput, short12(id), current.ChunkIndex, len(chunks), what, harm)
+		return UpdateResult{}, fmt.Errorf(
+			"%w: drawer %s is chunk %d of a %d-chunk memory, and changing its wing or room would "+
+				"move this chunk away from the rest, so no single scope returns all of it and a "+
+				"scoped search answers with a fragment that does not say it is one. Moving a whole "+
+				"multi-chunk memory is not expressible yet",
+			ErrInvalidInput, short12(id), current.ChunkIndex, len(chunks))
 	}
 
 	// Compute the post-patch state and refresh the derived index first.
@@ -917,33 +1250,20 @@ func (s *Service) Update(ctx context.Context, teamID, id string, patch DrawerPat
 		finalRoom = *patch.Room
 	}
 
-	// Refuse BEFORE embedding, not after. Update never re-chunks, so this content
-	// becomes one vector however long it is — and the embedder is asked to
-	// truncate rather than fail, so past the model's window it returns a vector
-	// for the prefix and reports success. The memory would still read back whole
-	// from am_get_drawer while being unfindable by anything after the cut, which
-	// is the worst shape a storage bug can take: no error, no warning, and the
-	// symptom appears later as "search cannot find something I know is filed".
+	// There is no length guard here, and its absence is deliberate. One used to
+	// stand at this line: Update re-embedded a whole memory with EmbedOne and never
+	// chunked, so a memory created small and grown in place was the one unbounded
+	// input, and the embedder truncates rather than failing — the tail read back
+	// whole from am_get_drawer while being unfindable by search.
 	//
-	// Refusing rather than truncating or re-chunking keeps this consistent with
-	// the multi-chunk refusal above: the caller is told what to do instead, and
-	// Add is the path that handles arbitrary length (it chunks). Re-chunking here
-	// is the real fix and is an ADR, not a bug fix — docs/adr/BACKLOG.md, because
-	// it changes which ids exist and therefore what every anchor, tunnel and
-	// knowledge-graph fact still points at.
-	if n := len([]rune(finalContent)); n > MaxEmbedRunes {
-		return Drawer{}, fmt.Errorf(
-			"%w: updated content is %d characters and the embedder takes at most %d in one piece, "+
-				"so the text past that point would be stored but never findable. "+
-				"Delete this memory and file it again with add_drawer, which splits long content into "+
-				"chunks that each embed in full — note that re-filing mints new ids, so any anchor, "+
-				"tunnel or knowledge-graph fact pointing at this drawer must be re-pointed",
-			ErrInvalidInput, n, MaxEmbedRunes)
-	}
-
+	// A content change no longer arrives here (it supersedes, and Add chunks), so
+	// finalContent is now always the text this row was ALREADY storing. Refusing a
+	// relocation because that text is long would block the move without improving
+	// the vector, which is truncated to exactly the same prefix either way.
+	//
 	vec, err := s.embed.EmbedOne(ctx, finalContent)
 	if err != nil {
-		return Drawer{}, fmt.Errorf("re-embed updated drawer: %w", err)
+		return UpdateResult{}, fmt.Errorf("re-embed updated drawer: %w", err)
 	}
 	point := store.Point{
 		ID:      id,
@@ -951,18 +1271,18 @@ func (s *Service) Update(ctx context.Context, teamID, id string, patch DrawerPat
 		Payload: map[string]any{"wing": finalWing, "room": finalRoom},
 	}
 	if err := s.vectors.Upsert(ctx, teamID, []store.Point{point}); err != nil {
-		return Drawer{}, fmt.Errorf("re-upsert updated vector: %w", err)
+		return UpdateResult{}, fmt.Errorf("re-upsert updated vector: %w", err)
 	}
 
 	// Index is current; now commit the authoritative row.
-	updated, err = s.repo.Update(ctx, teamID, id, patch)
+	updated, err := s.repo.Update(ctx, teamID, id, patch)
 	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return Drawer{}, ErrNotFound
+		return UpdateResult{}, ErrNotFound
 	}
 	if err != nil {
-		return Drawer{}, err
+		return UpdateResult{}, err
 	}
-	return updated, nil
+	return UpdateResult{Drawer: updated}, nil
 }
 
 // Delete removes a drawer's metadata row and its vector. The row goes first so
@@ -992,6 +1312,11 @@ func (s *Service) Delete(ctx context.Context, teamID, id string) (n int, err err
 	if len(ids) == 0 {
 		ids = []string{id} // no row to resolve; delete what we were given
 	}
+	// Same rule as purgeSource: a deleted drawer's derived edges go with it, or
+	// they stay current pointing at nothing.
+	if err := s.repo.DropDerivedEdgesFor(ctx, teamID, ids); err != nil {
+		return 0, fmt.Errorf("drop derived edges: %w", err)
+	}
 	for _, cid := range ids {
 		if err := s.repo.Delete(ctx, teamID, cid); err != nil {
 			return 0, fmt.Errorf("delete drawer row: %w", err)
@@ -1005,7 +1330,14 @@ func (s *Service) Delete(ctx context.Context, teamID, id string) (n int, err err
 
 // List paginates a team's drawers, optionally narrowed to a wing and/or room.
 func (s *Service) List(ctx context.Context, teamID, wing, room string, limit, offset int) ([]Drawer, error) {
-	return s.repo.List(ctx, teamID, wing, room, limit, offset)
+	out, err := s.repo.ListCurrent(ctx, teamID, wing, room, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.attachSupersedes(ctx, teamID, out); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 // SearchQuery is the mempalace_search input.
@@ -1030,6 +1362,15 @@ type SearchQuery struct {
 	// is also zero, the candidateKFor formula). It widens only; a value below
 	// the formula is ignored. The page Limit is unchanged.
 	RetrieveK int
+	// IncludeHistory returns records that have been ended alongside current ones.
+	// Default false, which is the point of ADR-038 T5: an ended record keeps its
+	// vector, so without this filter a retracted claim competes with the
+	// correction that replaced it and can outrank it.
+	//
+	// It is a filter, never a ranking change — ended records that survive it are
+	// scored exactly as current ones are. Ranking history differently is deferred
+	// (docs/adr/BACKLOG.md).
+	IncludeHistory bool
 }
 
 // rerankQuery returns the text the cross-encoder scores against: the (already
@@ -1166,23 +1507,63 @@ func (s *Service) SearchPage(ctx context.Context, teamID string, q SearchQuery) 
 	// 15, while an eval arm ranking the same query saw 100 — a gap of 0.027 MRR
 	// and 8 golds no ranking change could reach, invisible on every span.
 	telemetry.Annotate(searchCtx, attribute.Int("am.candidate_k", candidateK))
-	hits, rows, err := s.searchCandidates(searchCtx, teamID, q, vec, candidateK)
+	hits, rows, stale, err := s.searchCandidates(searchCtx, teamID, q, vec, candidateK)
 	if err != nil {
 		parent.End(telemetry.FailedClosed)
 		return SearchResult{}, err
 	}
 	q.Limit = limit
-	results, reranked, err := s.rankRetrieved(searchCtx, teamID, query, q, vec, hits, rows)
+	results, reranked, skipReason, err := s.rankRetrieved(searchCtx, teamID, query, q, vec, hits, rows, stale)
 	if err != nil {
 		parent.End(telemetry.FailedClosed)
 		return SearchResult{}, err
+	}
+
+	// What each returned record REPLACED, resolved on the ranked page only.
+	//
+	// Here rather than inside rankRetrieved because the eval arms call that
+	// directly and measure ordering: adding a payload lookup to it would make
+	// every arm pay for a field no arm reads. Recall is where a session meets a
+	// memory, so it is the route that has to carry the reason — a session about to
+	// redo a rejected thing does not know to ask for history.
+	if err := s.attachSupersedesToHits(searchCtx, teamID, results); err != nil {
+		// FAIL CLOSED, unlike the fact block below, and the difference is that this
+		// one is an invariant rather than an enrichment. T5 states "the ending
+		// REASON always reaches the default route" without qualification; a warning
+		// logged server-side and a page that silently omits it is that invariant
+		// quietly false, and the reader has no way to tell a record that replaced
+		// nothing from one whose lineage lookup failed.
+		//
+		// It is one indexed query against the page's own roots, so a failure here
+		// means something is wrong that a recall should not paper over.
+		parent.End(telemetry.FailedClosed)
+		return SearchResult{}, fmt.Errorf("resolve what these records replaced: %w", err)
+	}
+
+	// The fact block is assembled AFTER ranking and never feeds it. A failure
+	// here degrades the answer to drawers-only rather than failing the recall:
+	// the drawers are what a caller had before this existed, and losing them
+	// because the graph refused would be the worse trade.
+	// Entities come from the RANKED PAGE, not the candidate pool. `rows` is the
+	// pool searchCandidates fetched — limit*3, so 30 drawers at the shipped
+	// limit of 10 — and reading entities from all of it made the fact lookup pay
+	// for candidates the caller will never see. The page is also the more correct
+	// source: a fact should relate to what was actually returned.
+	pageRows := make(map[string]Drawer, len(results))
+	for _, h := range results {
+		pageRows[h.Drawer.ID] = h.Drawer
+	}
+	facts, factsErr := s.factsFor(searchCtx, teamID, q.Wing, vec, pageRows)
+	if factsErr != nil {
+		slog.WarnContext(ctx, "fact block not assembled; recall degraded to drawers only", "err", factsErr)
+		facts = FactBlock{}
 	}
 
 	_, rec := telemetry.Start(searchCtx, telemetry.StageRecord)
 	if q.SkipTelemetry {
 		rec.End(telemetry.Bypassed, telemetry.AttrReason(telemetry.ReasonSkipSQLite))
 		parent.Set(attribute.Int("am.count", len(results)))
-		return SearchResult{SearchID: searchID, Hits: results}, nil
+		return SearchResult{SearchID: searchID, Hits: results, Facts: facts}, nil
 	}
 	ev := searchEventRow{
 		ID: searchID, TeamID: teamID, Wing: q.Wing, Room: q.Room, Query: query,
@@ -1192,6 +1573,10 @@ func (s *Service) SearchPage(ctx context.Context, teamID string, q SearchQuery) 
 		// cross-encoder pass that never ran. ADR-001 calibrates its abstention
 		// threshold from these rows.
 		Candidates: len(hits), Hits: len(results), Reranked: boolToInt(reranked),
+		// WHY it was not reranked, beside WHETHER it was. This is the line that
+		// SELECTS the value T1 returns: without it the reason is computed, put on
+		// the span, and never reaches a row anyone can aggregate.
+		RerankSkipReason: skipReason,
 	}
 	if len(results) > 0 {
 		ev.TopScore = results[0].Score
@@ -1203,7 +1588,7 @@ func (s *Service) SearchPage(ctx context.Context, teamID string, q SearchQuery) 
 	rec.End(telemetry.Ran, attribute.Int("am.count", len(results)))
 	parent.Set(attribute.Int("am.count", len(results)))
 
-	return SearchResult{SearchID: searchID, Hits: results}, nil
+	return SearchResult{SearchID: searchID, Hits: results, Facts: facts}, nil
 }
 
 // Search is SearchPage's hits without the page's identity, kept because most
@@ -1223,7 +1608,13 @@ func (s *Service) Search(ctx context.Context, teamID string, q SearchQuery) ([]S
 // rankRetrieved is the one ranking pipeline. Search retrieves then calls it.
 // Eval arms that reconstruct a served configuration call it on a Clone rather
 // than reimplementing fusion, closet boost, recency, rerank, or collapse.
-func (s *Service) rankRetrieved(ctx context.Context, teamID, query string, q SearchQuery, vec []float32, hits []store.Hit, rows map[string]Drawer) ([]SearchHit, bool, error) {
+// The third return says WHETHER a cross-encoder ordered the page and the fourth
+// says WHY it did not — empty when it did. Both travel to recordSearch, because
+// `reranked` alone is 0 for a disabled reranker and a failing one alike.
+//
+// stale marks a page served while the search index was behind its source of
+// truth (ADR-033), and rides onto every hit.
+func (s *Service) rankRetrieved(ctx context.Context, teamID, query string, q SearchQuery, vec []float32, hits []store.Hit, rows map[string]Drawer, stale bool) ([]SearchHit, bool, string, error) {
 	limit := q.Limit
 	if limit <= 0 {
 		limit = DefaultSearchLimit
@@ -1239,7 +1630,7 @@ func (s *Service) rankRetrieved(ctx context.Context, teamID, query string, q Sea
 	// same filter to know how many DISTINCT memories a widening round found, and
 	// therefore whether to widen again. Two copies of a scope predicate is how a
 	// stale one survives, so both paths call survivorsFrom instead.
-	survivors, _, drops := survivorsFrom(hits, rows, q)
+	survivors, _, drops := survivorsFrom(hits, rows, q, stale)
 	// Recorded HERE and nowhere else: this is the single call over the final pool.
 	// Annotate paints the span currently on ctx — the am.search parent for a served
 	// recall, an eval arm's own span for an arm — which is the correct per-caller
@@ -1249,7 +1640,8 @@ func (s *Service) rankRetrieved(ctx context.Context, teamID, query string, q Sea
 		telemetry.Annotate(ctx,
 			attribute.Int("am.dropped_orphan", drops.Orphan),
 			attribute.Int("am.dropped_out_of_scope", drops.OutOfScope),
-			attribute.Int("am.dropped_over_distance", drops.OverDistance))
+			attribute.Int("am.dropped_over_distance", drops.OverDistance),
+			attribute.Int("am.dropped_superseded", drops.Superseded))
 	}
 
 	// Collapse HERE, before scoring, so every consumer of rankRetrieved ranks
@@ -1263,7 +1655,7 @@ func (s *Service) rankRetrieved(ctx context.Context, teamID, query string, q Sea
 		collapsed, err := s.collapseCandidatesToMemories(ctx, teamID, q, survivors)
 		if err != nil {
 			collapseSpan.End(telemetry.FailedClosed, telemetry.AttrReason(telemetry.ReasonError))
-			return nil, false, err
+			return nil, false, "", err
 		}
 		collapseSpan.End(telemetry.Ran, attribute.Int("am.count", len(collapsed)))
 		survivors = collapsed
@@ -1303,7 +1695,7 @@ func (s *Service) rankRetrieved(ctx context.Context, teamID, query string, q Sea
 	// score is the better judge of VOCABULARY, and a query naming an identifier
 	// leans on exactly that. So the two are blended rather than one replacing the
 	// other, and both are reported.
-	ranked, reranked := s.applyRerank(ctx, q.rerankQuery(query), query, vec, survivors, ranked)
+	ranked, reranked, skipReason := s.applyRerank(ctx, q.rerankQuery(query), query, vec, survivors, ranked)
 
 	// A page is a page of MEMORIES. Chunks of one memory are similar to the same
 	// query, so without this they cluster and crowd each other out: measured on a
@@ -1345,7 +1737,7 @@ func (s *Service) rankRetrieved(ctx context.Context, teamID, query string, q Sea
 		results = append(results, hit)
 	}
 
-	return results, reranked, nil
+	return results, reranked, skipReason, nil
 }
 
 // candidateKFor is how many vector neighbours a search fetches.
@@ -1397,7 +1789,7 @@ func boolToInt(b bool) int {
 // hybrid order. That mirrors the closet boost's rule that a ranking input is a
 // signal, never a gate — a reranker that is down or slow must degrade recall,
 // never break it.
-func (s *Service) applyRerank(ctx context.Context, rerankQuery, evidenceQuery string, queryVector []float32, survivors []SearchHit, ranked []HybridScore) ([]HybridScore, bool) {
+func (s *Service) applyRerank(ctx context.Context, rerankQuery, evidenceQuery string, queryVector []float32, survivors []SearchHit, ranked []HybridScore) ([]HybridScore, bool, string) {
 	return s.applyRerankWith(ctx, rerankQuery, evidenceQuery, queryVector, survivors, ranked, s.rerankWeight)
 }
 
@@ -1408,18 +1800,22 @@ func (s *Service) applyRerank(ctx context.Context, rerankQuery, evidenceQuery st
 // the document together, which the embedder never did, and the fused score
 // carries the lexical evidence, which a cross-encoder logit does not
 // distinguish. Blending keeps both; handing over discards one.
-func (s *Service) applyRerankWith(ctx context.Context, rerankQuery, evidenceQuery string, queryVector []float32, survivors []SearchHit, ranked []HybridScore, weight float64) ([]HybridScore, bool) {
+// The third return is WHY the cross-encoder did not order the page — one of
+// telemetry's reason constants, or "" when it did. It is the same value the span
+// carries, computed once and handed to both, because a trace and a durable row
+// disagreeing about one recall is the defect ADR-034 exists to prevent.
+func (s *Service) applyRerankWith(ctx context.Context, rerankQuery, evidenceQuery string, queryVector []float32, survivors []SearchHit, ranked []HybridScore, weight float64) ([]HybridScore, bool, string) {
 	rerankCtx, sp := telemetry.Start(ctx, telemetry.StageRerank, attribute.Float64("am.weight", weight))
 	switch {
 	case s.rerank == nil:
 		sp.End(telemetry.Bypassed, telemetry.AttrReason(telemetry.ReasonNoReranker))
-		return ranked, false
+		return ranked, false, telemetry.ReasonNoReranker
 	case len(ranked) == 0:
 		sp.End(telemetry.Bypassed, telemetry.AttrReason(telemetry.ReasonEmpty))
-		return ranked, false
+		return ranked, false, telemetry.ReasonEmpty
 	case weight <= 0:
 		sp.End(telemetry.Bypassed, telemetry.AttrReason(telemetry.ReasonWeightZero))
-		return ranked, false
+		return ranked, false, telemetry.ReasonWeightZero
 	}
 	pool := min(s.rerankPool, len(ranked))
 	docs := make([]string, pool)
@@ -1464,15 +1860,17 @@ func (s *Service) applyRerankWith(ctx context.Context, rerankQuery, evidenceQuer
 		}
 		slog.Warn("rerank failed, falling back to hybrid order", "error", err, "candidates", pool, "reason", reason)
 		sp.End(telemetry.FailedOpen, telemetry.AttrReason(reason), attribute.Int("am.pool", pool))
-		return ranked, false
+		return ranked, false, reason
 	}
 	if len(scores) != pool {
 		slog.Warn("rerank returned the wrong number of scores", "want", pool, "got", len(scores))
 		sp.End(telemetry.FailedOpen, telemetry.AttrReason(telemetry.ReasonScoreCount), attribute.Int("am.pool", pool), attribute.Int("am.got", len(scores)))
-		return ranked, false
+		return ranked, false, telemetry.ReasonScoreCount
 	}
 	sp.End(telemetry.Ran, attribute.Int("am.pool", pool))
-	return BlendRerankWith(ranked, scores, weight, s.RerankNormName()), true
+	// Empty, not a "ran" sentinel: the column T2 fills must stay empty on the rows
+	// where nothing was skipped, or it measures nothing.
+	return BlendRerankWith(ranked, scores, weight, s.RerankNormName()), true, ""
 }
 
 // RerankBudget reports the ceiling the configured reranker enforces on a
@@ -1754,23 +2152,40 @@ func (s *Service) CheckDuplicate(ctx context.Context, teamID, content string, th
 	if err != nil {
 		return DuplicateResult{}, fmt.Errorf("embed content: %w", err)
 	}
-	hits, err := s.vectors.Search(ctx, teamID, vec, 1, nil)
+	// duplicateProbeK, not 1. An ended drawer keeps its vector, so the nearest
+	// neighbour can be a record the team retracted — and asking for exactly one
+	// then discarding it would report "no duplicate" while a current near-identical
+	// memory sat second. The whole point of this tool is to stop an agent filing
+	// something the palace already holds, so a false negative is the expensive
+	// direction.
+	searchRes, err := s.vectors.Search(ctx, teamID, vec, duplicateProbeK, nil)
 	if err != nil {
 		return DuplicateResult{}, fmt.Errorf("vector search: %w", err)
 	}
-	if len(hits) == 0 {
-		return DuplicateResult{IsDuplicate: false}, nil
-	}
-	top := hits[0]
-	sim := float64(top.Score)
-	res := DuplicateResult{IsDuplicate: sim >= threshold, Similarity: sim}
-	if res.IsDuplicate {
-		if d, err := s.repo.Get(ctx, teamID, top.ID); err == nil {
+	for _, top := range searchRes.H {
+		d, err := s.repo.Get(ctx, teamID, top.ID)
+		if err != nil {
+			continue // orphan vector: the row is gone, so it duplicates nothing
+		}
+		if d.ValidTo != "" {
+			continue // retracted: the team stopped asserting this, so re-filing it is not a duplicate
+		}
+		sim := float64(top.Score)
+		res := DuplicateResult{IsDuplicate: sim >= threshold, Similarity: sim}
+		if res.IsDuplicate {
 			res.Drawer = &d
 		}
+		return res, nil
 	}
-	return res, nil
+	return DuplicateResult{IsDuplicate: false}, nil
 }
+
+// duplicateProbeK is how deep check_duplicate looks for the nearest CURRENT
+// neighbour. Small on purpose: it answers "is this already filed", and a
+// retracted record ahead of a current one is the only case that needs the extra
+// depth. Ten covers a memory superseded several times over without turning a
+// cheap probe into a recall.
+const duplicateProbeK = 10
 
 // Taxonomy is the get_taxonomy view: every wing with its rooms and counts.
 type Taxonomy struct {
@@ -1779,9 +2194,12 @@ type Taxonomy struct {
 
 // TaxonomyWing is one wing in the taxonomy: its totals and the rooms inside it.
 type TaxonomyWing struct {
-	Wing    string     `json:"wing"`
-	Drawers int        `json:"drawers"`
-	Rooms   []RoomStat `json:"rooms"`
+	Wing string `json:"wing"`
+	// Drawers is current rows; Memories is items. See WingStat for why both are
+	// reported rather than one replacing the other.
+	Drawers  int        `json:"drawers"`
+	Memories int        `json:"memories"`
+	Rooms    []RoomStat `json:"rooms"`
 }
 
 // GetTaxonomy assembles the wing -> rooms tree from the two indexed
@@ -1802,9 +2220,10 @@ func (s *Service) GetTaxonomy(ctx context.Context, teamID string) (Taxonomy, err
 	tax := Taxonomy{Wings: make([]TaxonomyWing, 0, len(wings))}
 	for _, w := range wings {
 		tax.Wings = append(tax.Wings, TaxonomyWing{
-			Wing:    w.Wing,
-			Drawers: w.Drawers,
-			Rooms:   byWing[w.Wing],
+			Wing:     w.Wing,
+			Drawers:  w.Drawers,
+			Memories: w.Memories,
+			Rooms:    byWing[w.Wing],
 		})
 	}
 	return tax, nil
@@ -1935,7 +2354,13 @@ func (s *Service) WriteDiary(ctx context.Context, teamID string, in DiaryWriteIn
 			parentID = drawers[0].ID
 		}
 		drawers[i] = Drawer{
-			ID:         diaryEntryID(teamID, wing, agent, topic, c.Index, c.Content, seed),
+			ID: diaryEntryID(teamID, wing, agent, topic, c.Index, c.Content, seed),
+			// Through contentKeyFor, NOT a hardcoded "". Both produce an empty key
+			// for a diary row, and that is exactly the problem with the literal: it
+			// makes contentKeyFor's diary branch dead on this path, so a mutant that
+			// deletes the branch survives — measured 2026-08-27, the fence passed
+			// with the exemption removed. One rule, one place that states it.
+			ContentKey: contentKeyFor(Drawer{TeamID: teamID, Wing: wing, Room: DiaryRoom, ChunkIndex: c.Index, Content: c.Content}),
 			TeamID:     teamID,
 			Wing:       wing,
 			Room:       DiaryRoom,
@@ -2098,4 +2523,35 @@ func (s *Service) WingNames(ctx context.Context, teamID string) ([]string, error
 // InboxCount counts the drawers in one wing's room.
 func (s *Service) InboxCount(ctx context.Context, teamID, wing, room string) (int, error) {
 	return s.repo.InboxCount(ctx, teamID, wing, room)
+}
+
+// MemorySize reports the rune length of the whole logical memory a chunk belongs
+// to, and how many chunks it is stored in.
+//
+// It exists for ADR-044 F-2: am_get_drawer without whole:true hands back ONE
+// chunk, and a fragment a caller cannot tell is a fragment is the defect that
+// record is about. Marking it needs the memory's full length, and no row carries
+// one — reassembly removes chunk overlap, so the length is neither the chunk's
+// nor the sum of the chunks'. Measured 2026-08-29: a 60,237-rune memory is stored
+// as 47 chunks whose lengths sum to ~75,200, so the sum is an upper bound and
+// reporting it would be a wrong number rather than a missing one.
+//
+// So it reassembles, and that is a deliberate trade rather than an oversight. The
+// SEARCH path already reassembles every candidate memory on every recall
+// (memory_search.go, representative.MemoryContent), so this is parity with the
+// path already measured, not a new class of cost. What it buys is the asymmetry
+// ADR-044 rests on: server-side bytes are cheap and an agent's context is not, so
+// loading a memory to report ONE number while returning one chunk is the right
+// direction to spend in.
+//
+// The count is returned beside the length because a caller marking a fragment
+// must key on "this memory has more than one chunk" and NOT on ParentID: the ROOT
+// chunk of a 47-chunk memory has no parent and chunk_index 0, so a ParentID test
+// leaves exactly the case this was written for unmarked.
+func (s *Service) MemorySize(ctx context.Context, teamID, id string) (length, chunks int, err error) {
+	cs, err := s.GetMemory(ctx, teamID, id)
+	if err != nil {
+		return 0, 0, err
+	}
+	return len([]rune(reassembleMemory(cs))), len(cs), nil
 }

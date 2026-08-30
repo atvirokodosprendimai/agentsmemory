@@ -16,8 +16,16 @@ import "strings"
 // metadata. The cardinal rule from the Python tool carries over — a drawer is
 // never a summary; the exact source text is preserved so recall is lossless.
 type Drawer struct {
-	// ID is a deterministic hash of (team, wing, room, source, chunkIndex) so
-	// re-mining the same source is idempotent rather than duplicative.
+	// ID is the drawer's OPAQUE name. It is minted once and never recomputed,
+	// never compared to a hash, and never used to infer anything about the row's
+	// content — it exists so that anchors, tunnels, kg_triples.source_drawer_id,
+	// parent_id, search_events and the vector store have something stable to point
+	// at (ADR-038).
+	//
+	// It previously read "a deterministic hash of (team, wing, room, source,
+	// chunkIndex)", which was wrong twice over: the recipe also hashed CONTENT,
+	// and three shipped paths mutate those fields in place while keeping the id.
+	// What that sentence described is now ContentKey.
 	ID string
 
 	// TeamID is the owning tenant; it selects the Qdrant collection.
@@ -43,6 +51,29 @@ type Drawer struct {
 	// Empty for single-chunk drawers.
 	ParentID string
 
+	// ContentKey is the hash dedup matches on: DrawerID over this row's own
+	// fields (ADR-038, migration 00031). It is what ID used to be, moved to a
+	// column of its own so the id can stay put while the content changes.
+	//
+	// EMPTY for diary rows, because a journal is append-only and two identical
+	// reflections are two entries — the unique index's `content_key != ''`
+	// conjunct is what keeps them out of dedup.
+	ContentKey string
+
+	// ValidTo, SupersededBy, EndedReason and EndedAt are the validity window
+	// (ADR-038, migration 00030). A drawer is CURRENT while ValidTo is empty,
+	// exactly as a knowledge-graph fact already is — ending a memory never
+	// deletes it, so the record of why a decision changed survives the change.
+	//
+	// EndedReason is required at every ending and is the point of the window: an
+	// invalidation that records only THAT something ended destroys the only thing
+	// worth keeping about it. SupersededBy names the successor when a correction
+	// replaces this record, and is empty for a retraction that replaces nothing.
+	ValidTo      string
+	SupersededBy string
+	EndedReason  string
+	EndedAt      string
+
 	// Agent and Topic carry the two extra fields a diary entry needs and a normal
 	// drawer leaves empty (migration 00007). Agent is whose journal the entry
 	// belongs to — stored lowercased so diary_read is case-insensitive, matching
@@ -52,6 +83,26 @@ type Drawer struct {
 	// machinery as add_drawer rather than forking a parallel store.
 	Agent string
 	Topic string
+	// HasEdge and EdgeDerived report whether this drawer is reachable by
+	// traversal and, if so, whether the server inferred the edge or a writer
+	// authored it. They are not persisted: they describe what the filing just
+	// did, so a caller learns it without a second query.
+	HasEdge     bool `json:"has_edge,omitempty"`
+	EdgeDerived bool `json:"edge_derived,omitempty"`
+
+	// Supersedes and SupersededReason name the record THIS one replaced, and why.
+	// They are not persisted either — the predecessor row holds the truth in its
+	// SupersededBy and EndedReason, and these are resolved onto the live record
+	// when it is read (ADR-038 T5).
+	//
+	// They ride the DEFAULT path deliberately. ADR-010 first put history behind a
+	// flag and then corrected itself: hiding it AND expecting retractions to stop
+	// re-litigation cannot both hold, because a session about to redo a rejected
+	// thing does not know to ask for history. So the current record carries what
+	// it replaced, and SupersededReason is capped at maxCarriedReasonRunes — the
+	// full text stays on the predecessor, reachable by the history route.
+	Supersedes       string `json:"supersedes,omitempty"`
+	SupersededReason string `json:"superseded_reason,omitempty"`
 }
 
 // Dynamics are the L7 "living connection" fields every hallway and tunnel carries:
@@ -128,6 +179,11 @@ type Tunnel struct {
 type SearchResult struct {
 	SearchID string
 	Hits     []SearchHit
+	// Facts is the fact block ADR-036 adds BESIDE the hits — in-wing facts, the
+	// sibling wings holding matches this recall did not return, and a count of
+	// the matches it could not place at all. It never reorders Hits: F-9 pins
+	// that, so this cannot be confused with a retrieval change.
+	Facts FactBlock
 }
 
 // SearchHit is one ranked result from hybrid search. Score is the fused rank — a
@@ -152,10 +208,21 @@ type SearchHit struct {
 	// signal — a memory that matched in four places is stronger evidence than one
 	// that matched in one, and a silent collapse throws that away.
 	ChunksMatched int
-	Score         float64 // fused rank score, higher is better
-	BM25          float64 // raw Okapi-BM25 lexical score (pre-normalization)
-	ClosetBoost   float64 // closet rank boost folded into Score (0 when none)
-	Distance      float64 // raw cosine distance, lower is closer
+	// StaleIndex says the index that served this recall was behind its source of
+	// truth (ADR-033): the hits come from the SoT's own vector path, not the
+	// search index, and an async rebuild is in flight. It rides on every hit of
+	// a degraded recall, so an agent that reads a sentence from a stale recall
+	// can tell it happened instead of mistaking it for fresh knowledge.
+	StaleIndex bool
+	// Corrections are the retracts/supersedes/qualifies edges pointing AT this
+	// record, resolved server-side. Marked, never hidden and never demoted: a
+	// retraction can itself be wrong, so this is a signal for the reader rather
+	// than a gate on what the reader may see.
+	Corrections []Correction `json:"corrections,omitempty"`
+	Score       float64      // fused rank score, higher is better
+	BM25        float64      // raw Okapi-BM25 lexical score (pre-normalization)
+	ClosetBoost float64      // closet rank boost folded into Score (0 when none)
+	Distance    float64      // raw cosine distance, lower is closer
 	// RerankScore is the cross-encoder's relevance for this hit, or 0 when no
 	// reranker is configured or it did not score this one. It is reported
 	// alongside Score rather than replacing it: the two are not on the same scale

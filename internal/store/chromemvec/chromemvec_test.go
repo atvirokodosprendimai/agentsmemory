@@ -64,7 +64,7 @@ func TestOpenDiscardsAnOlderIndexLayout(t *testing.T) {
 	if err != nil {
 		t.Fatalf("fourth open: %v", err)
 	}
-	if n, err := again.Count("team1"); err != nil || n != 1 {
+	if n, err := again.Count(context.Background(), "team1"); err != nil || n != 1 {
 		t.Errorf("reopen lost the index: count=%d err=%v", n, err)
 	}
 }
@@ -156,15 +156,15 @@ func TestOpenExistingNeverInitializesOrReplacesTheIndex(t *testing.T) {
 			t.Fatalf("rejected writes changed persisted state: points=%v err=%v", points, err)
 		}
 
-		hits, err := again.Search(context.Background(), "missing-team", []float32{1, 0, 0}, 1, nil)
-		if err != nil || len(hits) != 0 {
-			t.Errorf("search missing namespace: hits=%v err=%v", hits, err)
+		res, err := again.Search(context.Background(), "missing-team", []float32{1, 0, 0}, 1, nil)
+		if err != nil || len(res.H) != 0 {
+			t.Errorf("search missing namespace: hits=%v err=%v", res.H, err)
 		}
 		points, err = again.PointsByIDs(context.Background(), "missing-team", []string{"a"})
 		if err != nil || len(points) != 0 {
 			t.Errorf("read missing namespace: points=%v err=%v", points, err)
 		}
-		if n, err := again.Count("missing-team"); err != nil || n != 0 {
+		if n, err := again.Count(context.Background(), "missing-team"); err != nil || n != 0 {
 			t.Errorf("count missing namespace: count=%d err=%v", n, err)
 		}
 		if collections := again.db.ListCollections(); len(collections) != 1 || collections["team1"] == nil {
@@ -191,24 +191,24 @@ func TestSearchFilterNarrowsToPayload(t *testing.T) {
 		t.Fatalf("upsert: %v", err)
 	}
 
-	hits, err := idx.Search(ctx, ns, []float32{1, 0, 0}, 3, store.Filter{"wing": "wing_two"})
+	res, err := idx.Search(ctx, ns, []float32{1, 0, 0}, 3, store.Filter{"wing": "wing_two"})
 	if err != nil {
 		t.Fatalf("search: %v", err)
 	}
-	if len(hits) != 2 || hits[0].ID != "b" || hits[1].ID != "c" {
-		t.Fatalf("wing filter: want [b c], got %v", ids(hits))
+	if len(res.H) != 2 || res.H[0].ID != "b" || res.H[1].ID != "c" {
+		t.Fatalf("wing filter: want [b c], got %v", ids(res.H))
 	}
 
 	// Two keys must both hold, and the payload still round-trips verbatim.
-	hits, err = idx.Search(ctx, ns, []float32{1, 0, 0}, 3, store.Filter{"wing": "wing_two", "room": "diary"})
+	res, err = idx.Search(ctx, ns, []float32{1, 0, 0}, 3, store.Filter{"wing": "wing_two", "room": "diary"})
 	if err != nil {
 		t.Fatalf("search: %v", err)
 	}
-	if len(hits) != 1 || hits[0].ID != "c" {
-		t.Fatalf("wing+room filter: want [c], got %v", ids(hits))
+	if len(res.H) != 1 || res.H[0].ID != "c" {
+		t.Fatalf("wing+room filter: want [c], got %v", ids(res.H))
 	}
-	if hits[0].Payload["room"] != "diary" {
-		t.Errorf("payload not round-tripped: %v", hits[0].Payload)
+	if res.H[0].Payload["room"] != "diary" {
+		t.Errorf("payload not round-tripped: %v", res.H[0].Payload)
 	}
 }
 
@@ -235,29 +235,29 @@ func TestUpsertSearchRanking(t *testing.T) {
 		t.Fatalf("upsert: %v", err)
 	}
 
-	hits, err := idx.Search(ctx, ns, []float32{1, 0, 0}, 2, nil)
+	res, err := idx.Search(ctx, ns, []float32{1, 0, 0}, 2, nil)
 	if err != nil {
 		t.Fatalf("search: %v", err)
 	}
-	if len(hits) != 2 {
-		t.Fatalf("want 2 hits, got %d", len(hits))
+	if len(res.H) != 2 {
+		t.Fatalf("want 2 hits, got %d", len(res.H))
 	}
-	if hits[0].ID != "a" || hits[1].ID != "c" {
-		t.Fatalf("want closest-first [a c], got [%s %s]", hits[0].ID, hits[1].ID)
+	if res.H[0].ID != "a" || res.H[1].ID != "c" {
+		t.Fatalf("want closest-first [a c], got [%s %s]", res.H[0].ID, res.H[1].ID)
 	}
-	if hits[0].Score <= hits[1].Score {
-		t.Fatalf("scores must descend, got %v then %v", hits[0].Score, hits[1].Score)
+	if res.H[0].Score <= res.H[1].Score {
+		t.Fatalf("scores must descend, got %v then %v", res.H[0].Score, res.H[1].Score)
 	}
 	// The payload must survive the JSON round-trip through chromem's
 	// string-only metadata, and the reserved key must not leak into it.
-	if got := hits[0].Payload["label"]; got != "x-axis" {
+	if got := res.H[0].Payload["label"]; got != "x-axis" {
 		t.Fatalf("payload label = %v, want x-axis", got)
 	}
-	if _, leaked := hits[0].Payload[payloadKey]; leaked {
+	if _, leaked := res.H[0].Payload[payloadKey]; leaked {
 		t.Fatalf("reserved key %q leaked into the caller payload", payloadKey)
 	}
-	if hits[1].Payload != nil {
-		t.Fatalf("point stored without a payload came back with %v", hits[1].Payload)
+	if res.H[1].Payload != nil {
+		t.Fatalf("point stored without a payload came back with %v", res.H[1].Payload)
 	}
 }
 
@@ -273,18 +273,18 @@ func TestUpsertReplacesByID(t *testing.T) {
 		t.Fatalf("second upsert: %v", err)
 	}
 
-	n, err := idx.Count(ns)
+	n, err := idx.Count(ctx, ns)
 	if err != nil {
 		t.Fatalf("count: %v", err)
 	}
 	if n != 1 {
 		t.Fatalf("re-upserting an ID must replace, not duplicate: count = %d", n)
 	}
-	hits, err := idx.Search(ctx, ns, []float32{0, 1, 0}, 1, nil)
+	res, err := idx.Search(ctx, ns, []float32{0, 1, 0}, 1, nil)
 	if err != nil {
 		t.Fatalf("search: %v", err)
 	}
-	if got := hits[0].Payload["v"]; got != "new" {
+	if got := res.H[0].Payload["v"]; got != "new" {
 		t.Fatalf("payload = %v, want the replacement", got)
 	}
 }
@@ -300,12 +300,12 @@ func TestSearchClampsK(t *testing.T) {
 	if err := idx.Upsert(ctx, ns, []store.Point{{ID: "a", Vector: []float32{1, 0, 0}}}); err != nil {
 		t.Fatalf("upsert: %v", err)
 	}
-	hits, err := idx.Search(ctx, ns, []float32{1, 0, 0}, 10, nil)
+	res, err := idx.Search(ctx, ns, []float32{1, 0, 0}, 10, nil)
 	if err != nil {
 		t.Fatalf("search with k above the point count: %v", err)
 	}
-	if len(hits) != 1 {
-		t.Fatalf("want the 1 stored point, got %d hits", len(hits))
+	if len(res.H) != 1 {
+		t.Fatalf("want the 1 stored point, got %d hits", len(res.H))
 	}
 }
 
@@ -315,19 +315,19 @@ func TestSearchEdgeCases(t *testing.T) {
 
 	// An empty namespace is a legitimate state (a workspace before its first
 	// drawer), not an error.
-	hits, err := idx.Search(ctx, "empty", []float32{1, 0, 0}, 5, nil)
+	res, err := idx.Search(ctx, "empty", []float32{1, 0, 0}, 5, nil)
 	if err != nil {
 		t.Fatalf("search on an empty namespace: %v", err)
 	}
-	if len(hits) != 0 {
-		t.Fatalf("want no hits, got %d", len(hits))
+	if len(res.H) != 0 {
+		t.Fatalf("want no hits, got %d", len(res.H))
 	}
 
 	if err := idx.Upsert(ctx, "team1", []store.Point{{ID: "a", Vector: []float32{1, 0, 0}}}); err != nil {
 		t.Fatalf("upsert: %v", err)
 	}
-	if hits, err = idx.Search(ctx, "team1", []float32{1, 0, 0}, 0, nil); err != nil || len(hits) != 0 {
-		t.Fatalf("k <= 0 must return no hits and no error, got %d hits, err %v", len(hits), err)
+	if res, err = idx.Search(ctx, "team1", []float32{1, 0, 0}, 0, nil); err != nil || len(res.H) != 0 {
+		t.Fatalf("k <= 0 must return no hits and no error, got %d hits, err %v", len(res.H), err)
 	}
 }
 
@@ -342,12 +342,12 @@ func TestNamespacesAreIsolated(t *testing.T) {
 		t.Fatalf("upsert team2: %v", err)
 	}
 
-	hits, err := idx.Search(ctx, "team1", []float32{1, 0, 0}, 5, nil)
+	res, err := idx.Search(ctx, "team1", []float32{1, 0, 0}, 5, nil)
 	if err != nil {
 		t.Fatalf("search: %v", err)
 	}
-	if len(hits) != 1 || hits[0].ID != "a" {
-		t.Fatalf("tenant isolation broken: %+v", hits)
+	if len(res.H) != 1 || res.H[0].ID != "a" {
+		t.Fatalf("tenant isolation broken: %+v", res.H)
 	}
 }
 
@@ -371,7 +371,7 @@ func TestDelete(t *testing.T) {
 		t.Fatalf("delete with no ids must be a no-op: %v", err)
 	}
 
-	n, err := idx.Count(ns)
+	n, err := idx.Count(ctx, ns)
 	if err != nil {
 		t.Fatalf("count: %v", err)
 	}
@@ -402,14 +402,14 @@ func TestPersistsAcrossReopen(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reopen: %v", err)
 	}
-	hits, err := second.Search(ctx, ns, []float32{1, 0, 0}, 1, nil)
+	res, err := second.Search(ctx, ns, []float32{1, 0, 0}, 1, nil)
 	if err != nil {
 		t.Fatalf("search after reopen: %v", err)
 	}
-	if len(hits) != 1 || hits[0].ID != "a" {
-		t.Fatalf("index did not survive the reopen: %+v", hits)
+	if len(res.H) != 1 || res.H[0].ID != "a" {
+		t.Fatalf("index did not survive the reopen: %+v", res.H)
 	}
-	if got := hits[0].Payload["label"]; got != "x-axis" {
+	if got := res.H[0].Payload["label"]; got != "x-axis" {
 		t.Fatalf("payload after reopen = %v, want x-axis", got)
 	}
 }

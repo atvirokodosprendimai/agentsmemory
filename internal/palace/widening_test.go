@@ -20,7 +20,7 @@ type endlessVectors struct {
 	ks []int
 }
 
-func (e *endlessVectors) Search(ctx context.Context, namespace string, vector []float32, k int, filter store.Filter) ([]store.Hit, error) {
+func (e *endlessVectors) Search(ctx context.Context, namespace string, vector []float32, k int, filter store.Filter) (store.SearchResult, error) {
 	if strings.HasSuffix(namespace, "::closets") {
 		return e.VectorStore.Search(ctx, namespace, vector, k, filter)
 	}
@@ -29,7 +29,7 @@ func (e *endlessVectors) Search(ctx context.Context, namespace string, vector []
 	for i := range hits {
 		hits[i] = store.Hit{ID: fmt.Sprintf("ghost-%d", i), Score: 1}
 	}
-	return hits, nil
+	return store.SearchResult{H: hits}, nil
 }
 
 // TestCandidateWideningIsBounded pins the safety stop.
@@ -116,8 +116,13 @@ func TestCandidateWideningDoesNotRefetchRows(t *testing.T) {
 
 	requested := 0
 	for _, sql := range rec.statements() {
-		// The row-resolution query, not the memory-chunk union.
-		if strings.Contains(sql, "FROM `drawers`") && strings.Contains(sql, firstChunk) && !strings.Contains(sql, "UNION ALL") {
+		// The row-resolution query, not the memory-chunk union — and not the
+		// supersedes lookup, which names the same ids in an IN clause on a
+		// DIFFERENT column. That one runs once per page by construction and is not
+		// what this gate is about; counting it would make a widening alarm fire on
+		// a payload query and teach the next reader to ignore it.
+		if strings.Contains(sql, "FROM `drawers`") && strings.Contains(sql, firstChunk) &&
+			!strings.Contains(sql, "UNION ALL") && !strings.Contains(sql, "superseded_by") {
 			requested++
 		}
 	}

@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/atvirokodosprendimai/agentsmemory/internal/mcpprotocol"
@@ -38,6 +39,14 @@ const statsHelperAsset = "hooks/agentsmemory-stats.sh"
 // the gap, and a mechanism that decisive should not need hand-registration.
 const subagentHookAsset = "hooks/agentsmemory-subagent-start-hook.sh"
 
+// recallHookAsset is the embedded recall hook: it PERFORMS a recall and injects
+// the result, so a fresh context does not start blind (ADR-041 T4).
+//
+// ADR-017 named this mechanism in 2026-08 and left it unbuilt pending measurement
+// — "a subagent cannot skip a recall that already happened". The measurement is
+// ADR-041 T2's baseline; this is the mechanism it was waiting on.
+const recallHookAsset = "hooks/agentsmemory-recall-hook.sh"
+
 const (
 	// hookFile is where the Stop hook is installed: flat in the config dir, not
 	// under hooks/. The directory name matters because a sandbox is shared — pi
@@ -57,6 +66,9 @@ const (
 
 	// sessionEndHookFile is where the SessionEnd hook lands.
 	sessionEndHookFile = "agentsmemory-session-end-hook.sh"
+
+	// recallHookFile is where the recall hook lands, beside the others.
+	recallHookFile = "agentsmemory-recall-hook.sh"
 
 	// statsHelperFile is the sourced /stats helper, beside the hook scripts.
 	statsHelperFile = "agentsmemory-stats.sh"
@@ -621,7 +633,7 @@ func (i *Installer) writeAssets() error {
 	// its input fields, stdout feedback envelope, and exit-2 retry behaviour have
 	// not been captured. Ship no script until a live Codex dispatch proves those
 	// details; this audit made no claim about the other session events.
-	if i.kit.name == "claude" {
+	if i.kit.shipsCompanionHooks {
 		verifyHook, err := i.source().ReadFile(verifyHookAsset)
 		if err != nil {
 			return err
@@ -649,6 +661,14 @@ func (i *Installer) writeAssets() error {
 		}
 		i.ok("hook %s", filepath.Base(i.sessionEndHookPath()))
 
+		recallHook, err := i.source().ReadFile(recallHookAsset)
+		if err != nil {
+			return err
+		}
+		if err := i.writeFile(i.recallHookPath(), recallHook, 0o755); err != nil {
+			return err
+		}
+		i.ok("hook %s", filepath.Base(i.recallHookPath()))
 	}
 	// Only a hook-owning kit relocates the script: it is the one that also
 	// re-registers the new path, so no agent is left pointing at a deleted file.
@@ -773,6 +793,11 @@ func (i *Installer) sessionEndHookPath() string {
 	return filepath.Join(i.targetDir, sessionEndHookFile)
 }
 
+// recallHookPath is where the recall hook is installed.
+func (i *Installer) recallHookPath() string {
+	return filepath.Join(i.targetDir, recallHookFile)
+}
+
 // statsHelperPath is where the sourced /stats helper lands, beside the scripts
 // that `.` it. The filename is the contract: both hook scripts resolve it as
 // a sibling of $0.
@@ -846,6 +871,8 @@ func (i *Installer) registerStopHook() error {
 	}
 	hooksFile := filepath.Join(i.targetDir, i.kit.hooksFile)
 	plans := i.hookPlans()
+	i.warnIfRepointing(hooksFile)
+	i.warnSocketHooksCannotReachTheServer()
 
 	if i.dryRun {
 		for _, p := range plans {
@@ -959,7 +986,130 @@ func (i *Installer) hookPlans() []hookPlan {
 			cmd:   i.hookCommand(i.sessionEndHookPath()),
 			note:  "registered SessionEnd hook (reports what recall did this session)",
 		},
+		// ADR-041 T4. THIS LINE IS THE MECHANISM: the script is inert without it,
+		// and a hook that is written but never registered is this repository's
+		// characteristic defect wearing a shell script.
+		//
+		// ⚠ THE EVENT IS PART OF THE MECHANISM, not a label on it. This shipped
+		// first as PreCompact, where Claude Code sends a hook's stdout to the
+		// debug log and no further: the recall ran, printed, and was discarded,
+		// and every test passed because they asserted what the script wrote. Only
+		// SessionStart, UserPromptSubmit and UserPromptExpansion inject stdout
+		// into the model's context. TestEveryInjectingHookIsOnAnInjectingEvent
+		// is what makes that a gate rather than a paragraph.
+		hookPlan{
+			event: "SessionStart",
+			cmd:   i.hookCommand(i.recallHookPath()),
+			note:  "registered SessionStart hook (a fresh context starts with a recall already done)",
+		},
 	)
+}
+
+// hookCommandURL is the endpoint baked into an installed hook command, or "" when
+// the command carries none.
+// ⚠ NOT ANCHORED. It used to carry a leading ^ from when it was handed one command
+// string at a time; scanning the raw hooks file, nothing sits at position 0, so the
+// anchored form matched nothing and warned nobody — on every agent.
+var hookCommandURL = regexp.MustCompile(regexp.QuoteMeta(mcpprotocol.MCPURLEnvVar) + `='([^']*)'`)
+
+// warnIfRepointing says so out loud when this install is about to send the hooks
+// at a DIFFERENT server than the one they currently talk to.
+//
+// ⚠ THIS IS THE LOUDEST THING THE INSTALLER DOES, and it exists because the
+// silent version cost a whole session. `install --agent claude` with no --mcp-url
+// takes the hosted default, and the default wins over whatever is already
+// configured: on 2026-08-28 that repointed five working hooks from a local server
+// to the hosted one, every hook went mute because the local token did not
+// authenticate there, and NOTHING said a word. The symptom looked like broken
+// hooks; the cause was a re-install.
+//
+// It reports and does not decide. Which URL wins is upgrade semantics — someone
+// migrating local→hosted needs the new one to take effect — and changing that is
+// a separate decision. Being told is what was missing.
+func (i *Installer) warnIfRepointing(hooksFile string) {
+	raw, err := os.ReadFile(hooksFile)
+	if err != nil {
+		return // no existing hooks file: nothing to repoint, and a fresh install says enough
+	}
+	// ⚠ THE RAW TEXT, NOT A PARSED DOCUMENT. This first unmarshalled JSON, which
+	// made it silently useless for codex — whose hooks live in config.toml, so the
+	// unmarshal failed and the function returned having warned nobody. A warning
+	// that exists for one agent and quietly not for another is the reachability
+	// defect this repository is named for. The assignment we are looking for has
+	// the same shape in every format because WE wrote it, so match that instead of
+	// the container around it.
+	seen := map[string]bool{}
+	for _, m := range hookCommandURL.FindAllStringSubmatch(string(raw), -1) {
+		if m[1] != "" {
+			seen[m[1]] = true
+		}
+	}
+	for existing := range seen {
+		if existing == i.mcpURL {
+			continue
+		}
+		i.warn("this install REPOINTS your hooks: they currently talk to %s, and will now talk "+
+			"to %s. If that is not what you meant, re-run with --mcp-url %s (or --local for "+
+			"a server on this machine) — a hook pointed at a server it cannot authenticate "+
+			"to goes silent rather than failing loudly.",
+			redactURL(existing), redactURL(i.mcpURL), redactURL(existing))
+	}
+}
+
+// redactURL renders an endpoint for display with anything secret removed.
+//
+// ⚠ THE WARNING PRINTS A URL THAT CAME OUT OF A USER-CONTROLLED FILE. An endpoint
+// may legitimately carry credentials — userinfo, or a signed query — and this
+// message goes to a terminal and very often into a log or a pasted bug report.
+// Control characters are stripped too: the source is a file anyone can edit, and
+// a warning is the wrong place to let it drive a terminal.
+func redactURL(raw string) string {
+	clean := strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f {
+			return -1
+		}
+		return r
+	}, raw)
+	u, err := url.Parse(clean)
+	if err != nil || u.Host == "" {
+		return "(an endpoint that does not parse)"
+	}
+	shown := url.URL{Scheme: u.Scheme, Host: u.Host, Path: u.Path}
+	out := shown.String()
+	if u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+		out += " (credentials removed)"
+	}
+	return out
+}
+
+// warnSocketHooksCannotReachTheServer says out loud that a --socket install
+// writes hooks which cannot talk to the server it just registered.
+//
+// ⚠ THE HOOKS ARE HTTP AND A SOCKET-ONLY SERVER HAS NO PORT. `--socket`
+// registers the agent's MCP over the stdio bridge and leaves `i.mcpURL` alone,
+// while `hookCommand` exports that URL — and only that URL — into every hook
+// command. `listenerFor` (cmd/server/listen.go) binds EITHER the socket OR the
+// TCP address, never both, so the endpoint those hooks carry is a port nothing
+// is listening on. The recall hook shells out to `aiagentmemory mcp`, which has
+// no socket flag at all; verify and stats use curl.
+//
+// This warns rather than fixes, and the distinction is deliberate. Making the
+// hooks work over a socket needs a transport the `mcp` subcommand does not have
+// — new capability, and a product decision about whether hooks should follow the
+// bridge or the server should also bind a loopback port. What is cheap and
+// correct today is to stop the failure being silent: a hook that cannot reach
+// its palace exits quietly, which is exactly what a hook with nothing to say
+// looks like.
+func (i *Installer) warnSocketHooksCannotReachTheServer() {
+	if i.socket == "" {
+		return
+	}
+	i.warn("the hooks this install writes CANNOT reach a socket-only server. They carry "+
+		"%s=%s, and a server started with --socket binds that socket instead of a TCP port, "+
+		"so every hook will fail to connect and go quiet — which looks identical to a hook "+
+		"with nothing to report. The MCP registration itself is fine: it reaches the server "+
+		"over the stdio bridge. Give the server a TCP address as well if you want the hooks.",
+		mcpURLEnvVar, i.mcpURL)
 }
 
 // shellQuote renders one literal POSIX-shell argument. Hook commands are stored

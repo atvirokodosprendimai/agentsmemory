@@ -506,6 +506,7 @@ func TestEveryRegisteredArmIsScorable(t *testing.T) {
 		ArmProduction:         "goes through Search, which is the point of it",
 		ArmProductionDeep:     "the same Search at a deeper page, which is the point of it",
 		ArmProductionRetrieve: "the same Search at the default page with a retrieve-k floor matching the eval pool",
+		ArmFactRetrieval:      "scores a triple gold on its own path, not a re-ranking of the shared drawer pool",
 		ArmHybridRerank:       "fusion then the cross-encoder, scored in the rerank branch",
 		ArmReranked:           "fusion then the cross-encoder, scored in the rerank branch",
 	}

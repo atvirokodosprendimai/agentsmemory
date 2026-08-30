@@ -20,6 +20,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -108,6 +109,7 @@ func rootCommand(def config.Config) *cli.Command {
 			stdioCommand(def),
 			syncCommand(def),
 			wingCommand(def),
+			drawerCommand(def),
 			importCommand(),
 			evalCommand(def),
 			kgExtractCommand(def),
@@ -377,9 +379,14 @@ func run(ctx context.Context, cfg config.Config) error {
 	// BILLING_PROVIDER). Always constructed so the dashboard wiring stays simple; it
 	// is inert until the active provider's env is set (billingSrv.Enabled() gates
 	// the upgrade UI). It flips teams.plan_id, so it reuses tenants as its PlanStore.
-	// OpenCollective has no signed webhook, so with that provider activation is an
-	// operator action (the set-plan CLI) rather than a webhook flip.
-	billingSrv := billing.NewService(billingConfig(), tenants, billing.NewRepo(svc.gdb))
+	//
+	// OpenCollective sends no SIGNED webhook, so a payment is learned by asking its
+	// API on a schedule rather than by being told (ADR-042). The intent store is what
+	// lets a landed contribution be attributed to the workspace that started it.
+	billingCfg := billingConfig()
+	billingSrv := billing.NewService(billingCfg, tenants, billing.NewRepo(svc.gdb)).
+		WithIntents(billing.NewIntentRepo(svc.gdb))
+	startOpenCollectiveReconciler(ctx, billingCfg, billingSrv, svc.gdb)
 
 	// Per-workspace data export (BDAR right of access): builds a scoped SQLite
 	// archive of a tenant's data from the same source-of-truth database.
@@ -760,6 +767,27 @@ func billingConfig() billing.Config {
 			"pro_monthly": os.Getenv("OPENCOLLECTIVE_CHECKOUT_PRO_MONTHLY"),
 			"pro_annual":  os.Getenv("OPENCOLLECTIVE_CHECKOUT_PRO_ANNUAL"),
 		}
+		// Reconciliation wiring, read only on this branch because it is only read in
+		// this mode (ADR-006). An unset personal token leaves reconciliation off and
+		// activation manual, which is the documented rollback.
+		cfg.OpenCollectivePersonalToken = os.Getenv("OPENCOLLECTIVE_PERSONAL_TOKEN")
+		cfg.OpenCollectiveSlug = os.Getenv("OPENCOLLECTIVE_COLLECTIVE_SLUG")
+		cfg.OpenCollectiveAPIURL = strings.TrimSpace(os.Getenv("OPENCOLLECTIVE_API_URL"))
+		if cfg.OpenCollectiveAPIURL == "" {
+			cfg.OpenCollectiveAPIURL = billing.DefaultOpenCollectiveAPIURL
+		}
+		// A zero interval would spin the loop, so an unset or unparseable value falls
+		// back to the default rather than being taken literally.
+		cfg.ReconcileInterval = billing.DefaultReconcileInterval
+		if raw := strings.TrimSpace(os.Getenv("OPENCOLLECTIVE_RECONCILE_INTERVAL")); raw != "" {
+			if d, err := time.ParseDuration(raw); err != nil {
+				log.Printf("warning: OPENCOLLECTIVE_RECONCILE_INTERVAL=%q is not a duration; using %s", raw, billing.DefaultReconcileInterval)
+			} else if d <= 0 {
+				log.Printf("warning: OPENCOLLECTIVE_RECONCILE_INTERVAL=%q is not positive; using %s", raw, billing.DefaultReconcileInterval)
+			} else {
+				cfg.ReconcileInterval = d
+			}
+		}
 	default:
 		cfg.PriceByPlanCode = map[string]string{
 			"pro_monthly": os.Getenv("STRIPE_PRICE_PRO_MONTHLY"),
@@ -988,6 +1016,24 @@ func buildServicesWith(cfg config.Config, prepare bool) (*services, error) {
 		if err := migrate(sqlDB); err != nil {
 			return nil, fmt.Errorf("migrate: %w", err)
 		}
+		// ADR-038 T2: stamp the content key on any row that has none.
+		//
+		// Beside migrate, inside `prepare`, so the read-only inspection path
+		// (doctor, which opens the database with query_only(1)) never reaches a
+		// write. It runs on EVERY prepared boot, gated on rows-still-empty rather
+		// than on the goose version: goose records a migration's version the first
+		// time its SQL runs and never runs it again, so a backfill expressed as
+		// "runs once" would never resume after an abort and the corpus would sit
+		// permanently half-keyed with nothing reporting it. On a fully-keyed
+		// palace this costs one bounded SELECT.
+		//
+		// A collision FAILS THE BOOT rather than being logged and skipped: two
+		// current rows hashing to one key is a corpus fact somebody must look at,
+		// and a server that starts anyway serves a store whose dedup is silently
+		// wrong for exactly the rows that collided.
+		if err := palace.NewRepo(gdb).BackfillContentKeys(context.Background()); err != nil {
+			return nil, fmt.Errorf("backfill content keys: %w", err)
+		}
 	}
 
 	// Bounded contexts: tenant (auth + workspaces), skill (load_skill), and
@@ -1099,9 +1145,11 @@ func buildVectorStoreWith(cfg config.Config, gdb *gorm.DB, reconcile bool) (stor
 		}
 		hybrid := store.NewHybrid(sot, index)
 		if reconcile {
-			if err := reconcileChromem(context.Background(), sot, index, hybrid); err != nil {
+			report, err := reconcileChromem(context.Background(), sot, index, hybrid)
+			if err != nil {
 				return nil, err
 			}
+			log.Print(report.String())
 		}
 		log.Printf("chromem index: %s", dir)
 		return hybrid, nil
@@ -1285,25 +1333,88 @@ func publishedLoopback() bool {
 // Only wholly empty namespaces are replayed. An index that merely fell behind is
 // a different problem (rebuild it deliberately by deleting the directory), and
 // re-writing every vector on every boot would make startup scale with the palace.
-func reconcileChromem(ctx context.Context, sot store.SourceOfTruth, index *chromemvec.Index, hybrid *store.Hybrid) error {
+// Partial fall-behind is not repaired here — it is NAMED here, because an index
+// at 800 of 1000 points boots clean today and nothing reports the 200 missing
+// (ADR-033 R2's population check catches it at search time instead).
+func reconcileChromem(ctx context.Context, sot store.SourceOfTruth, index *chromemvec.Index, hybrid *store.Hybrid) (ReconcileReport, error) {
+	var report ReconcileReport
 	namespaces, err := sot.Namespaces(ctx)
 	if err != nil {
-		return fmt.Errorf("list source-of-truth namespaces: %w", err)
+		return report, fmt.Errorf("list source-of-truth namespaces: %w", err)
 	}
 	for _, ns := range namespaces {
-		indexed, err := index.Count(ns)
+		indexed, err := index.Count(ctx, ns)
 		if err != nil {
-			return fmt.Errorf("count chromem namespace %q: %w", ns, err)
+			return report, fmt.Errorf("count chromem namespace %q: %w", ns, err)
 		}
-		if indexed > 0 {
+		expected, err := sot.Count(ctx, ns)
+		if err != nil {
+			return report, fmt.Errorf("count source-of-truth namespace %q: %w", ns, err)
+		}
+		if indexed == 0 {
+			if err := hybrid.Rebuild(ctx, ns); err != nil {
+				return report, fmt.Errorf("rebuild chromem namespace %q: %w", ns, err)
+			}
+			report.Rebuilt = append(report.Rebuilt, ns)
 			continue
 		}
-		if err := hybrid.Rebuild(ctx, ns); err != nil {
-			return fmt.Errorf("rebuild chromem namespace %q: %w", ns, err)
+		switch {
+		case indexed < expected:
+			if report.Under == nil {
+				report.Under = map[string]int{}
+			}
+			report.Under[ns] = expected - indexed
+		case indexed > expected:
+			if report.Over == nil {
+				report.Over = map[string]int{}
+			}
+			report.Over[ns] = indexed - expected
 		}
-		log.Printf("chromem index: rebuilt namespace %q from the SQLite source of truth", ns)
 	}
-	return nil
+	return report, nil
+}
+
+// ReconcileReport names what a boot reconcile found per namespace. The empty
+// case (rebuilt) is the repair; the under and over cases are what used to be
+// invisible. indexed > expected is not necessarily corruption — the embed
+// worker upserts a vector before stamping embedded_at, so during a normal async
+// batch the index briefly holds points whose rows are still pending — but it is
+// always worth a line at boot.
+type ReconcileReport struct {
+	Rebuilt []string       // wholly-empty namespaces replayed from the source of truth
+	Under   map[string]int // partial fall-behind: namespace -> points missing from the index
+	Over    map[string]int // namespace -> points the index holds beyond the source of truth
+}
+
+// String renders the report the way an operator reads a boot log: one line when
+// nothing was found, one clause per namespace when it was.
+func (r ReconcileReport) String() string {
+	if len(r.Rebuilt) == 0 && len(r.Under) == 0 && len(r.Over) == 0 {
+		return "chromem index: every namespace already holds a point"
+	}
+	var parts []string
+	if len(r.Rebuilt) > 0 {
+		parts = append(parts, fmt.Sprintf("rebuilt %d empty namespace(s): %s", len(r.Rebuilt), strings.Join(r.Rebuilt, ", ")))
+	}
+	for _, ns := range sortedReportNamespaces(r.Under) {
+		parts = append(parts, fmt.Sprintf("namespace %q is %d point(s) behind the source of truth", ns, r.Under[ns]))
+	}
+	for _, ns := range sortedReportNamespaces(r.Over) {
+		parts = append(parts, fmt.Sprintf("namespace %q holds %d point(s) the source of truth does not", ns, r.Over[ns]))
+	}
+	return "chromem index reconcile: " + strings.Join(parts, "; ")
+}
+
+// sortedReportNamespaces returns the keys of m in sorted order, so the boot
+// log's namespace clauses render identically run to run — a random map order
+// would make the same report diff differently between boots.
+func sortedReportNamespaces(m map[string]int) []string {
+	ns := make([]string, 0, len(m))
+	for n := range m {
+		ns = append(ns, n)
+	}
+	sort.Strings(ns)
+	return ns
 }
 
 // openDB opens a pure-Go (no cgo) SQLite database through gorm's glebarez

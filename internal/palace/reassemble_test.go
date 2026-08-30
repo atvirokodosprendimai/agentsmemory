@@ -120,7 +120,7 @@ func TestReassembleMemoryMatchesTheNaiveImplementation(t *testing.T) {
 				chunks[c] = Drawer{Content: b.String(), ChunkIndex: c}
 			}
 			if got, want := reassembleMemory(chunks), reassembleMemoryNaive(chunks); got != want {
-				t.Fatalf("case %d differs:\n got %q\nwant %q\nchunks %q", i, got, want, chunks)
+				t.Fatalf("case %d differs:\n got %q\nwant %q\nchunks %+v", i, got, want, chunks)
 			}
 		}
 	})

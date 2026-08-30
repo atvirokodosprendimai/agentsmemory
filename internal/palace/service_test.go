@@ -247,13 +247,15 @@ func TestServiceGetUpdateDelete(t *testing.T) {
 	}
 
 	newContent := "rewritten text"
-	if _, err := svc.Update(ctx, team, id, DrawerPatch{Content: &newContent}); err != nil {
+	up, err := svc.Update(ctx, team, id, DrawerPatch{Content: &newContent, Reason: "the first draft was wrong"})
+	if err != nil {
 		t.Fatalf("update: %v", err)
 	}
-	got, _ = svc.Get(ctx, team, id)
+	got, _ = svc.Get(ctx, team, up.Drawer.ID)
 	if got.Content != newContent {
 		t.Fatalf("update did not persist: %q", got.Content)
 	}
+	id = up.Drawer.ID
 
 	if _, err := svc.Delete(ctx, team, id); err != nil {
 		t.Fatalf("delete: %v", err)
@@ -360,12 +362,14 @@ func TestServiceReAddNamedSourcePurgesStaleChunks(t *testing.T) {
 	}
 	mustAdd(t, svc, team, AddInput{Wing: "w", Room: "r", SourceFile: "notes.md", Content: short})
 
-	list, err := svc.List(ctx, team, "w", "r", 50, 0)
+	// CURRENT rows: a re-file now ENDS the chunks it dropped rather than deleting
+	// them (ADR-038 T3), and List does not filter by validity until T5.
+	list, err := svc.repo.CurrentDrawers(ctx, team, "w")
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
 	if len(list) != 1 {
-		t.Fatalf("re-adding a shorter source should purge stale chunks; want 1 drawer, got %d", len(list))
+		t.Fatalf("re-adding a shorter source should leave one CURRENT drawer; got %d", len(list))
 	}
 }
 
@@ -513,17 +517,17 @@ func TestRerankBlendsRatherThanOverwrites(t *testing.T) {
 	svc.rerank = &staticReranker{scores: []float64{1, 2}} // B scored higher
 	svc.rerankPool = 2
 
-	blended, _ := svc.applyRerankWith(context.Background(), "q", "q", nil, survivors, ranked, DefaultRerankWeight)
+	blended, _, _ := svc.applyRerankWith(context.Background(), "q", "q", nil, survivors, ranked, DefaultRerankWeight)
 	if survivors[blended[0].Index].Drawer.ID != "A" {
 		t.Errorf("a mild cross-encoder preference overturned a confident fused score at w=%.2f", DefaultRerankWeight)
 	}
 
 	// w=1 is the handover, kept reachable so the eval can measure what it costs.
-	if over, _ := svc.applyRerankWith(context.Background(), "q", "q", nil, survivors, ranked, 1); survivors[over[0].Index].Drawer.ID != "B" {
+	if over, _, _ := svc.applyRerankWith(context.Background(), "q", "q", nil, survivors, ranked, 1); survivors[over[0].Index].Drawer.ID != "B" {
 		t.Error("w=1 must hand the decision to the cross-encoder")
 	}
 	// w=0 does not consult it at all.
-	if none, _ := svc.applyRerankWith(context.Background(), "q", "q", nil, survivors, ranked, 0); survivors[none[0].Index].Drawer.ID != "A" {
+	if none, _, _ := svc.applyRerankWith(context.Background(), "q", "q", nil, survivors, ranked, 0); survivors[none[0].Index].Drawer.ID != "A" {
 		t.Error("w=0 must leave the hybrid order alone")
 	}
 }
@@ -540,7 +544,7 @@ func TestRerankKeepsTheWholePage(t *testing.T) {
 	// Wrong count: upstream's guard rejects it and the hybrid order stands.
 	svc.rerank = &staticReranker{scores: []float64{5}}
 	svc.rerankPool = 3
-	if got, _ := svc.applyRerankWith(context.Background(), "q", "q", nil, survivors, ranked, DefaultRerankWeight); len(got) != 3 {
+	if got, _, _ := svc.applyRerankWith(context.Background(), "q", "q", nil, survivors, ranked, DefaultRerankWeight); len(got) != 3 {
 		t.Fatalf("page shrank to %d", len(got))
 	}
 }
@@ -696,14 +700,18 @@ func TestRerankPresenceSurvivesAZeroScore(t *testing.T) {
 // session hit: an update that reports success while half the memory keeps
 // contradicting it.
 //
-// A memory over ChunkSize is stored as several rows sharing a parent. Update
-// rewrites ONE row, so patching the parent's content left the children live,
+// A memory over ChunkSize is stored as several rows sharing a parent. Update used
+// to rewrite ONE row, so patching the parent's content left the children live,
 // individually embedded, and still returning the retracted claim — ranked ABOVE
 // the correction, with nothing marking them superseded. The call returned the
 // updated drawer and reported success throughout.
 //
-// A memory store whose correction competes with the text it corrects is worse
-// than one that refuses the edit, so it refuses and says what to do instead.
+// It was fixed by REFUSING a multi-chunk content edit and telling the caller to
+// delete the memory and file it again by hand. ADR-038 T4 does that correctly and
+// without the delete: a correction supersedes, so EVERY old chunk ends and one new
+// set is written. What still refuses is a MOVE, and for a different reason — a
+// move relocates one chunk and splits the memory across two scopes, so no single
+// search returns all of it and the fragment does not say it is one.
 func TestUpdateRefusesToHalfRewriteAMultiChunkMemory(t *testing.T) {
 	ctx := context.Background()
 	svc := newTestService(t)
@@ -720,25 +728,35 @@ func TestUpdateRefusesToHalfRewriteAMultiChunkMemory(t *testing.T) {
 	parent := res.Drawers[0].ID
 
 	corrected := "CORRECTED: the retention window is NINETY days."
-	if _, err := svc.Update(ctx, team, parent, DrawerPatch{Content: &corrected}); err == nil {
-		t.Fatal("updating one chunk of a multi-chunk memory was accepted — the other chunks stay " +
-			"live with the old text and outrank the correction in search")
-	} else if !strings.Contains(err.Error(), "chunk") {
-		t.Errorf("the refusal must say why: %v", err)
+	up, err := svc.Update(ctx, team, parent, DrawerPatch{
+		Content: &corrected, Reason: "the window was changed to ninety days",
+	})
+	if err != nil {
+		t.Fatalf("correcting a multi-chunk memory must be possible — refusing it was the old fix, "+
+			"and it made correction impossible for exactly the long documents that most need it: %v", err)
 	}
 
-	// And the memory must be untouched: a refused edit that partially applied
-	// would be the worst of both.
+	// EVERY old chunk ends. The defect this test was written for is a chunk left
+	// current with the retracted claim, and it does not matter whether that
+	// happened by a partial write or a partial ending.
 	after, err := svc.repo.MemoryChunks(ctx, team, parent)
 	if err != nil {
 		t.Fatalf("MemoryChunks: %v", err)
 	}
 	if len(after) != len(res.Drawers) {
-		t.Errorf("the memory has %d chunk(s) after the refusal, want %d", len(after), len(res.Drawers))
+		t.Errorf("the memory has %d chunk(s) after the correction, want %d — ending is not deleting",
+			len(after), len(res.Drawers))
 	}
 	for _, c := range after {
+		if c.ValidTo == "" {
+			t.Errorf("chunk %d of the superseded memory is still current; it holds the old text, so "+
+				"it still outranks the correction in search", c.ChunkIndex)
+		}
+		if c.SupersededBy != up.Drawer.ID {
+			t.Errorf("chunk %d links to %q, want the successor %q", c.ChunkIndex, c.SupersededBy, up.Drawer.ID)
+		}
 		if strings.Contains(c.Content, "CORRECTED") {
-			t.Error("the refused update still wrote to a chunk")
+			t.Error("a superseded chunk was rewritten in place; the old text is what survives")
 		}
 	}
 
@@ -771,8 +789,10 @@ func TestUpdateRefusesToHalfRewriteAMultiChunkMemory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("add short: %v", err)
 	}
-	if _, err := svc.Update(ctx, team, one.Drawers[0].ID, DrawerPatch{Content: &corrected}); err != nil {
-		t.Errorf("a single-chunk memory must still be updatable: %v", err)
+	if _, err := svc.Update(ctx, team, one.Drawers[0].ID, DrawerPatch{
+		Content: &corrected, Reason: "the window was changed to ninety days",
+	}); err != nil {
+		t.Errorf("a single-chunk memory must still be correctable: %v", err)
 	}
 }
 

@@ -38,8 +38,14 @@ write a line of code, confirm the `am_*` MCP tools are actually reachable:
    and a `workspace` block carrying its `slug` and `name`. **That** is what
    proves you are home — a global registration carrying another project's token
    answers every probe happily, and only the workspace it names tells you whose
-   palace you just opened. Working on your own machine expects
-   `mode: "local"`; a hosted session expects your team's workspace slug.
+   palace you just opened.
+
+   ⚠ **`mode` tells you WHICH SERVER answered, not where you are sitting, and it
+   is NOT the identity check.** A local checkout pointed at the hosted palace —
+   this repo's ordinary development setup — returns `mode: "hosted"`, and that is
+   correct rather than a warning. **The `workspace` slug is the identity check:**
+   compare it against the one this team uses. `mode` only tells you whether that
+   workspace lives on the SaaS or on a server you run.
 
    A workspace you do not recognise is worse than a connection error: you would
    recall another project's decisions as if they were this team's, and every
@@ -199,13 +205,199 @@ Two rules follow, and both are enforced mechanically rather than trusted:
   changes nothing when they do). `TestEveryFlagIsRead` fails when a flag is
   declared and never consulted — `--help` is documentation like any other.
 
+**A setting is read only if it is read in the MODE THAT IS RUNNING** (ADR-006,
+Accepted). "Is it read anywhere" is the weaker question and it passes knobs that
+are inert under the configuration an operator is actually using.
+`TestEveryKnobIsSweptOrNamed` derives its universe from `configureRanking`'s own
+body, so a field that joins the wiring joins the check on the same commit; a knob
+it finds inert must be listed with a reason, never just listed.
+`TestDiscoveredPairsAdmitTheirCondition` then requires the `--help` text to name
+the gating knob **greppably** — an honest sentence phrased without that name fails.
+
+**Documentation is load-bearing in BOTH directions, and the reverse arrow is the
+one that bit.** `TestDocumentedEnvVarsAreRead` fails when something advertised in
+`.env.example`, a `docker-compose*.yml` `environment:` block, or a Go comment
+showing a value is read by nothing — it caught a shipped compose file promising a
+rerank pool the server never read. `TestReadEnvVarsAreDocumented` runs the other
+way, because a variable the code reads and no operator doc mentions is a knob only
+its author knows exists. The escape hatch is `notOperatorFacing`, and
+`TestNotOperatorFacingIsJustified` refuses an entry without a written reason — the
+reason is the review.
+
+**An IDENTITY has a role, and a gate keeps it.** ADR-038 made a drawer's id opaque —
+minted once, never recomputed — and moved the derived hash to `content_key`.
+`TestNoPathRederivesADrawerID` parses this package and fails when anything other
+than `contentKeyOf` calls `DrawerID`, because `contentKeyOf` is where the diary
+exemption lives: a key computed anywhere else enters the partial unique index and
+dedupes two identical journal entries into one. That is not hypothetical — four of
+the five mint paths did it, and an import of two identical reflections produced one
+row and reported two. `TestEveryDrawerMintWritesAContentKey` derives its universe
+from the source, so a mint path added tomorrow joins the check on the same commit.
+`TestNoCommentClaimsADrawerIdIsDerivedFromItsContent` keeps the prose from going
+false one instance at a time, and is in two parts because its first draft matched
+ZERO of the instances that motivated it.
+
+**A HOOK'S EVENT IS ITS WIRING, and the tests that drive the script cannot see it.**
+ADR-041 T4 shipped a hook that performed a recall and printed it — registered on
+`PreCompact`, whose stdout Claude Code writes to the debug log. Only `SessionStart`,
+`UserPromptSubmit` and `UserPromptExpansion` put a hook's plain stdout into the
+model's context. The recall ran every compaction and was thrown away, and every test
+passed, because every test drove the SCRIPT and asserted what it wrote. Two mutants
+were killed against a mechanism that could not work: a mutant proves a test notices a
+change, never that the thing under test is reachable.
+`TestEveryInjectingHookIsOnAnInjectingEvent` derives its universe from the hooks
+directory and fails when a script declaring `# hook-output: stdout-injected` is
+registered on an event that discards stdout; `TestEveryHookScriptDeclaresItsOutputChannel`
+is what stops a new script from being invisible to it, and
+`TestANonInjectedChannelIsJustified` refuses a quieter channel without a written
+reason, so the declaration cannot become the dodge.
+
+**A REGISTRATION IS THE OTHER HALF OF A HOOK, AND NO TEST CAN SEE THE ONE ON DISK.**
+`TestEveryInjectingHookIsOnAnInjectingEvent` gates the installer's PLAN; the
+`settings.json` in front of an operator — hand-edited, copied from another config
+dir with `--copy`, or written by an older install — is gated by nothing.
+`aiagentmemory doctor` reads that file, finds every registration naming a script
+that declares `# hook-output: stdout-injected`, and exits non-zero on three states:
+installed and registered by no event, registered on an event whose stdout goes to
+the debug log, or unable to run. `TestDoctorIsRegistered` covers the rung the
+command's own tests cannot: they build their own root, so all of them passed with
+`doctorCommand(),` deleted from `main.go`.
+
+⚠ **It does NOT fail on silence, and that limit is the finding.** Both shipped
+injecting hooks are silent when healthy — the verify hook prints only on drift, the
+recall hook only when the palace has something for the branch — so an earlier
+version that called zero bytes MUTE failed on a correct install. One run cannot tell
+healthy silence from muteness, and resolving that in an exit code is a guess wearing
+a check. `TestDoctorDoesNotFailOnSilence` keeps it out. What closes the gap instead
+costs nothing: each hook writes what it asked and what came back to stderr, which no
+event injects, and `doctor` prints it verbatim so a human judges the silence.
+
+**A corpus check an operator can run.** Every finding behind ADR-038 — 27 drifted
+rows, 39 of 41 anchored drawers one re-file from losing their pin, 16 facts naming
+a drawer that no longer existed — was produced by a throwaway script and by nothing
+in the tree. `doctor --corpus` exits non-zero on a finding like `--index` and
+`--schema` do, and reports THREE states rather than two: a reference to a current
+row, a reference to an ENDED row (the system working — provenance is historical),
+and a reference to nothing. `TestDoctorCorpusIsReachable` covers the rung
+`TestEveryFlagIsRead` cannot see: a flag that is declared, documented and read
+inside a block nothing can reach.
+
+**A CITATION IS A POINTER, AND A POINTER TO NOTHING READS AS PROVENANCE.** A doc
+comment naming ADR-031 is the only route from that code to the reasoning behind it,
+and it is worth exactly what the record it names is worth. Nothing checked them:
+`adr-lint` reads record-to-record cross-references and never opens Go source, `go
+vet` does not know what a record is, and a rename passes every test in the tree.
+`TestEveryCitedADRResolves` walks the same view of the tree the other hygiene checks
+read and fails naming file, line and number. It judges resolution and nothing else —
+comment length and presence were measured and rejected in ADR-037's Alternatives.
+Its falsifiability is a subtest rather than a sibling, because a corpus with zero
+unresolved citations cannot exercise the branch that reports one, and the acceptance
+fence runs one test name. That subtest drives the verdict through a substitutable
+`testing.TB`: a test cannot pin its own reporting, and without the shim a disabled
+gate stayed green and announced "all resolved" over a tree carrying a real offender.
+
+**A FIELD A CALLER CANNOT DISCOVER IS UNREACHABLE EVEN WHEN IT IS EMITTED.** An
+`omitempty` response field is absent by construction until the case that produces it,
+so a caller who has never hit that case has no way to learn it exists — and every
+gate here is blind to that: the field is emitted, so reachability passes; the value
+is right, so behaviour passes. `TestEveryOmitemptyWireKeyInThisPackageIsDescribed`
+requires each one to be named in a tool or parameter description, matched on a WORD
+BOUNDARY because a substring check credited `stale` to the word "staleness" in an
+unrelated sentence. Its name says "in this package" because the universe is
+`internal/mcpserver` — 26 keys against 79 repo-wide — and a gate whose name claims
+more than it covers is worse than a narrower one.
+`TestUndescribedOnPurposeIsJustified` refuses an exemption with no written reason,
+one naming a field nothing emits, and one that is no longer needed.
+
+**A SPEC BINDING IS A POINTER TOO, AND THE SPEC'S OWN GATE NEVER FOLLOWS IT.** A Facts
+row binds an assertion to a `<file>::<test function>` string, and that string is the
+only route from a requirement to its proof. `spec-verify` parses the table and checks the binding is
+PRESENT — it never opens the file. Renaming a bound test, or deleting the stub,
+leaves `spec-verify --draft` at `[PASS]` while the document goes on claiming a fact
+is proved by a test nothing runs. Demonstrated 2026-08-28: renaming one binding in
+`docs/specs/2026-08-28-a-read-as-cheap-as-a-grep.md` kept spec-verify green.
+`TestEverySpecBindingNamesATestThatExists` walks `docs/specs/` and resolves every
+binding with `go/parser` rather than by running anything, so a deliberately-red
+binding parked behind a build tag is checked exactly like a green one — which is
+the property that matters, because during `@spec` no bound test passes by
+definition. `TestASpecBindingThatNamesNothingIsCaught` drives `unresolvedBindings` — the same
+function, not a copy — over fixtures that ARE broken, since a corpus with zero
+broken bindings cannot exercise the branch that reports one. Its first draft
+reimplemented the loop, and severing the real resolution check then left it green
+with the whole suite at exit 0: a falsifiability half that shares nothing with the
+gate pins nothing. It resolves a subtest binding on its PARENT only, which the
+declaration says out loud rather than leaving a reader to assume otherwise.
+
+**A POINTER IN PROSE IS WORTH WHAT THE THING IT NAMES IS WORTH, AND MOST OF THIS
+CORPUS'S POINTERS ARE IN PROSE.** `TestEveryCitedADRResolves` reads `.go` and only
+`.go`, while the large majority of this corpus's ADR citations sit in ADRs, task
+files, the README and the backlog, where a renamed or withdrawn record leaves a
+pointer to nothing that still reads as provenance. (No count is written here: two
+frozen ones shipped in the first draft of this section and one was false at the
+commit carrying it, which is the recurrence `citation_test.go` already records. Both
+gates log their live figures on a `-v` run.) `TestEveryCitedADRResolvesInDocsToo` is a
+sibling rather than a widening, because the Go gate's scope is what lets it need no
+exemptions and docs need three: a Numbering line naming which numbers a PR claims,
+and two records that must SHOW an unresolvable number to explain the gate itself. A
+mention is not a pointer, and telling them apart in prose is the whole difficulty —
+shipped without that list the gate would have been all false alarms on day one.
+Exemptions are keyed by FILE AND NUMBER, because keying by file alone took 36
+working pointers out of the gate to hide one word, and the number is stored without
+its `ADR-` prefix so this list does not itself cite a record that does not exist.
+`TestDocCitedADRExemptionsAreJustified` refuses an entry with no reason and one that
+has stopped earning its place.
+
+**AND A LINE NUMBER IN THE FILE DOING THE CITING CANNOT SURVIVE ITS OWN FILE.** One
+backlog entry cited a sibling bullet and drifted `:690` → `:716` → `:744` → `:763`
+across four review rounds — every correction wrong again by the next, because the
+entry doing the citing kept inserting lines above its target.
+`TestNoDocCitesItsOwnLineNumbers` bans the form outright: cite the heading or quote
+the sentence, both of which survive an insert. The corpus holds zero today, which
+makes it a gate against recurrence rather than a cleanup.
+
+⚠ **It CAN cry wolf, and the first version did** — an earlier draft of this paragraph
+claimed otherwise. It compared basenames, and this tree holds 31 `README.md` and 28
+`CLAUDE.md`, so one README citing ANOTHER by line read as self-reference; review
+reproduced it with a correct cross-file pointer. Self-reference is decided by PATH
+now, and ambiguity is declined rather than reported: a bare `README.md:5` that 31
+files could mean is left alone, which costs a real false negative and buys the
+gate's credibility. Line citations into OTHER files stay legal, including into
+pinned third-party source, which is what this corpus's apparently-dangling ones are.
+Source `file:line` refs pointing past the end of a real file are recorded in
+`BACKLOG.md` as a command rather than gated, because most point into refactored
+files where the right line is unknowable.
+
+**AN ACCEPTANCE THAT REPORTS ITS VERDICT IN PROSE IS READ BY NOTHING.** Every acceptance
+route here reports a verdict a tool can act on — an exit code plus a fence digest,
+and a task is done only when both match. The human-observed route carries neither:
+`adr-next` counts such an entry done on its GRAMMAR, date and marker and `.+`, so
+any text after the marker reads as success. Measured 2026-08-28: ADR-001 T3 signed
+off *"decision BLOCKED — neither ship nor withdraw … T4/T5/T6 not started"* and
+every routing tool answered `done T3` / `READY T1`, with `adr-lint` passing over a
+README that still said `pending`. T3's Stop Condition says *"Stop the ADR — not
+just this task"*; the stop is stated in three sections and read by none of them.
+The half that is ours was a missing vocabulary, not a lax regex — T3's acceptance
+hint offered `decision <ship|withdraw>`, two values, and the run reached a third.
+`TestAHumanObservedSignOffAgreesWithTheIndex` requires each human sign-off to name
+`ship`, `withdraw` or `blocked` and requires the sibling README to carry the status
+it maps to. `TestASignOffThatSaysStopIsCaught` drives the same function over
+fixtures that are wrong, sharing the comparison rather than copying it — the first
+draft reimplemented it, and severing the real check left the subtest green. The same shape
+recurred one file over: `TestAHumanObservedSignOffAgreesWithTheIndex`'s first version pinned only its
+comparison helper, so severing the CALL to it left the suite at exit 0 while the gate printed that
+every sign-off agreed with its index — over a corpus where one did not. Both now route the verdict
+through a `testing.TB` the falsifiability half substitutes, which is the only form that catches a
+severed call site.
+
 The same principle covers the gates already in the tree: `internal/doclint`
 (a doc comment must document the declaration it sits on), `TestEveryDeclaredArmIsRegistered`
 (an eval arm that no code path registers appears in no table, silently), and
 `TestCatalogSizeIsWhatTheReadmeClaims` (the README's tool count must be the real one).
 
 Prose belongs where a human reads it and nowhere else. Anything that must stay
-true gets a command whose exit code says so.
+true gets a command whose exit code says so — including this section, which
+`TestAgentsMdNamesGatesThatExist` pins so the list cannot rot into a claim about
+tests nobody kept.
 
 ---
 
@@ -299,40 +491,45 @@ review it and also quickly fix what I find" is the gate's case, not this one.
 
 Normal operation. Recall before you act, persist before you stop.
 
-**Recall, in this order:**
+**How to recall and persist is NOT this file's business.** Call `am_skillset`, then
+**load `start-here` FIRST if it exists.** That is the general entry point: it carries
+the entry protocol, the correction checks and the write-back contract, and it is
+maintained where the palace is maintained — so it is right when the palace changes,
+and this file cannot be. Whatever a team needs beyond it follows from there, in that
+team's own skills.
 
-1. `am_skillset` — the server's own wake-up playbook and live tool catalogue.
-2. `am_status` — workspace identity (`mode` + `workspace`), palace shape, quota.
-   This repo's wing is **`wing_agentmemories`**; if it is not in the list yet,
-   this is the first session here and your first write creates it.
-3. **Your root is `wing_agentmemories`, room `llm_init`.** Load it with
-   `am_list_drawers(wing:"wing_agentmemories", room:"llm_init")` before you plan or
-   write code. It is a routing table plus a floor plan: which rooms load whole,
-   which are searched, and the name+id of every drawer worth reaching first.
-   Everything else in the palace resolves from there — this is the only address you
-   have to know.
-4. `am_search(<task>)` — past decisions and rationale. This is the *only* source
-   of cross-session *why*; don't reconstruct from code what memory explains.
-5. `am_list_skills` → `am_load_skill(<name>)` — the team's centralised
-   conventions for the stack you're touching. This repo is Go, so `effective-go`
-   at minimum; add `cqrs` when the work is live/realtime or fans out across
-   subagents.
+⚠ **CONDITIONAL, BECAUSE THE SKILL IS NOT GUARANTEED PRESENT.** Measured 2026-08-30
+across the two palaces this project runs against: `am_load_skill("start-here")`
+resolved at v13 on the hosted palace and returned `skill: not found` on the local
+one. The rest of the catalogue had diverged too, in both directions — `laravel-7`
+and `writing-memories` exist only on local, `memory-layers` only on hosted, and
+`human-decisions` is v1 local against v11 hosted. So `if it exists` is a fact about
+this project's deployments, not a hedge.
 
-**Recall mid-session too, not just at the start.** Before any broad grep over
-unfamiliar code, `am_search` for the symbol or subsystem first and grep only the
-gap. Same for tools: if your hand hesitates on a tool's parameters, that
-hesitation is the cue to `am_search` for its usage before guessing.
+⚠ **AND DO NOT SUBSTITUTE "LOAD WHATEVER THE CATALOGUE HOLDS".** A catalogue is
+per-project — it follows that team's stack and its work — so no document can name
+its contents in advance, and enumerating is not a general instruction. The
+*convention* `start-here` is the one thing that travels; the catalogue behind it is
+nobody else's business. (This paragraph replaces an earlier "enumerate, do not name"
+version of this section, which had it backwards.)
 
-**Persist before you stop:**
+⚠ **This file used to restate that protocol, and it drifted.** On 2026-08-29 it was
+still teaching a traversal that returns 62,952 bytes and spills to a file — three
+independent reproductions that day — and still instructing sessions to load a skill
+that had been merged away. **A second copy of a protocol is a second thing to get
+wrong, and the copy nobody maintains is the one that stays wrong.**
 
-- `am_diary_write` — an AAAK session entry (what you built, decided, learned, and
-  any open thread) under a stable `agent_name` so the journal threads.
-- `am_kg_add` — durable facts as `subject → predicate → object`.
-- `am_add_drawer` — notable decisions and code, verbatim, into the right
-  wing/room.
-- `am_create_tunnel` — when the work connects to another project; check
-  `am_find_tunnels` / `am_follow_tunnels` first so you reinforce rather than
-  duplicate.
+**What is project scope, and stays in this file:**
 
-A verified change that isn't written back is memory lost. Skip only when the
-session produced nothing worth recalling — and say so.
+- **This repo's wing is `wing_agentmemories`.** If `am_status` does not list it yet,
+  this is the first session here and your first write creates it.
+- **Craft goes to `wing_craft`, not here.** If a lesson would still be true in a
+  repository that shares no code with this one, it is not this project's memory.
+- **`docs/adr/`, specs, README and `BACKLOG.md` are authoritative and the palace does
+  NOT index them.** Silence from `am_search` proves nothing about what was decided.
+  Name the sources you searched; a list of one establishes nothing.
+- The gate above, the reachability defect below, and the read-only review exception
+  are project policy and belong here.
+
+A verified change that isn't written back is memory lost. Skip only when the session
+produced nothing worth recalling — and say so.

@@ -4,7 +4,7 @@
 **Date:** 2026-08-20
 **Owner:** unassigned
 **Spec:** None — no spec stage
-**Cross-references:** ADR-008 (the end-to-end harness that made the measurement cheap), ADR-010 (supersession — the other half of "memory must be able to say it is no longer true")
+**Cross-references:** ADR-008 (the end-to-end harness that made the measurement cheap), ADR-010 (supersession — the other half of "memory must be able to say it is no longer true"; **superseded by ADR-038 on 2026-08-27**)
 **Invalidates:** none — checked (no accepted ADR consumes anchor coverage; ADR-010 references anchors only as an existing mechanism)
 
 > **Withdrawn before implementation, on its own evidence.** It was proposed, designed three ways,

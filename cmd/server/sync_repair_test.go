@@ -21,6 +21,10 @@ func (r *recordingPayloadStore) SetPayload(_ context.Context, _ string, ids []st
 	return nil
 }
 
+// Count completes the interface the embedded nil VectorStore leaves open — the
+// serving gate (ADR-033 R2) records the index count after a successful write.
+func (r *recordingPayloadStore) Count(context.Context, string) (int, error) { return 0, nil }
+
 // TestRepairWritesBothStores: `sync --repair-payload` must correct the SOURCE OF
 // TRUTH as well as the index.
 //

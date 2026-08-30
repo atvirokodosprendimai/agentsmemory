@@ -53,7 +53,7 @@ func seedWing(t *testing.T, svc *Service, team, wing string) {
 	if _, err := svc.Mine(ctx, team, MineInput{Content: content, Wing: wing, Room: "notes", Source: wing + ".md"}); err != nil {
 		t.Fatalf("mine %s: %v", wing, err)
 	}
-	if err := svc.repo.ReplaceWingHallways(ctx, team, wing, []Hallway{{
+	if _, err := svc.repo.ReplaceWingHallways(ctx, team, wing, []Hallway{{
 		ID: wing + "-h1", TeamID: team, Wing: wing, EntityA: "Postgres", EntityB: "cache",
 		CoOccurrence: 2, Rooms: []string{"notes"}, Label: "seeded",
 	}}); err != nil {

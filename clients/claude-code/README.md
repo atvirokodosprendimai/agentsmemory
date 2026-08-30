@@ -120,6 +120,21 @@ reporting success.
 - `agentsmemory-session-end-hook.sh` → the `SessionEnd` hook: what recall actually
   did across the whole session. It is the only one of the hooks that can report
   that, because at `Stop` the session has barely begun.
+- `agentsmemory-recall-hook.sh` → a second `SessionStart` hook: it PERFORMS a
+  recall for the current branch and injects the result, so a fresh context does
+  not start blind. It is the one mechanism here that asks nothing of the agent —
+  ADR-017 named it in 2026-08 ("a subagent cannot skip a recall that already
+  happened") and left it unbuilt pending measurement, which ADR-041 supplied. It
+  prints nothing when the recall returns nothing; `AGENTSMEMORY_RECALL=off`
+  disables it.
+
+  It shipped first on `PreCompact` and could not work there: Claude Code adds a
+  hook's plain stdout to the model's context for `SessionStart`,
+  `UserPromptSubmit` and `UserPromptExpansion` only, and writes every other
+  event's stdout to the debug log. The recall ran and was discarded.
+  `SessionStart` is also the correct side of a compaction — output injected
+  before one is part of the context being compacted. `TestEveryInjectingHookIsOnAnInjectingEvent`
+  is what keeps that a gate rather than a paragraph.
 - `agentsmemory-bootstrap.md` → the always-on operating protocol, pulled into
   the config dir's `CLAUDE.md` via a managed `@agentsmemory-bootstrap.md` import.
   Claude Code loads `$CLAUDE_CONFIG_DIR/CLAUDE.md` as user memory, so the
@@ -186,10 +201,44 @@ aiagentmemory wrap [args]                      run Claude against the global con
 aiagentmemory wrap --agent codex [args]        run codex against ~/.codex
 aiagentmemory mcp                              list the memory tools you can call
 aiagentmemory mcp <tool> [arg] [-a k=v]        call one and print what it returns
+aiagentmemory doctor [--agent <a>]             can the installed hooks reach a session?
 ```
 
 `--agent` is only read in the leading position of `run`/`wrap` — everything after
 the sandbox name is forwarded to the agent untouched.
+
+### `doctor` — are the hooks actually wired?
+
+A hook is two things: a script, and a line in `settings.json` selecting it. The
+script half is easy to check and the registration half is where installs break —
+hand-edited settings, a config dir inherited with `--copy`, or an older install that
+registered a hook on an event Claude Code no longer injects.
+
+```console
+$ aiagentmemory doctor
+config:  ~/.claude
+project: ~/code/your-repo
+
+  agentsmemory-recall-hook.sh            SessionStart   speaks       3909 bytes
+      | agentsmemory-recall: query=… room=diary max_distance=0.42 count=1
+  agentsmemory-verify-hook.sh            SessionStart   silent       no output; see its stderr for what it asked
+
+  all 2 injecting hook(s) are registered on an injecting event and ran
+```
+
+It exits non-zero on three states, and only these three:
+
+| verdict | what it means |
+|---|---|
+| `UNREGISTERED` | the script is installed and no event runs it — re-run `install` |
+| `DISCARDED` | registered on an event whose stdout goes to the debug log; only `SessionStart`, `UserPromptSubmit` and `UserPromptExpansion` reach the model |
+| `FAILED` | it exited non-zero; the indented line under it is the hook's own stderr |
+
+**`silent` is not a failure.** Both of these hooks are silent when everything is
+fine — the verify hook prints only when a memory drifted, the recall hook only when
+the palace has something for your branch. Nothing can tell that apart from a broken
+hook in one run, so `doctor` prints what each hook wrote to stderr (which no event
+injects, and which the model therefore never sees) and lets you read it.
 
 ### `install` flags
 

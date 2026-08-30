@@ -54,7 +54,7 @@ func TestRecomputePreservesWhenAHallwayWasFirstDerived(t *testing.T) {
 		seeded[i].CreatedAt = lastRecompute
 		seeded[i].LastActivated = firstDerived
 	}
-	if err := svc.repo.ReplaceWingHallways(ctx, team, wing, seeded); err != nil {
+	if _, err := svc.repo.ReplaceWingHallways(ctx, team, wing, seeded); err != nil {
 		t.Fatalf("seed the inverted stamps: %v", err)
 	}
 

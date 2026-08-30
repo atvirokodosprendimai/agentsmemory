@@ -67,14 +67,27 @@ func fromHallwayRow(r hallwayRow) Hallway {
 	}
 }
 
+// ReplaceStats reports what one ReplaceWingHallways write actually landed, per
+// leg of the transaction, so a recompute can verify the insert leg against what
+// it derived instead of trusting the computation.
+type ReplaceStats struct {
+	Deleted  int // rows deleted from the wing (the old set)
+	Inserted int // rows inserted (the freshly derived set)
+}
+
 // ReplaceWingHallways atomically swaps a wing's hallways: it deletes the wing's
 // existing rows and inserts the freshly derived set in one transaction, so a
 // recompute replaces rather than accumulates. An empty set just clears the wing.
-func (r *Repo) ReplaceWingHallways(ctx context.Context, teamID, wing string, halls []Hallway) error {
-	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Where("team_id = ? AND wing = ?", teamID, wing).Delete(&hallwayRow{}).Error; err != nil {
-			return err
+// It returns what each leg actually landed (the driver's RowsAffected), so a
+// recompute can catch a driver-level silent row loss instead of blending it.
+func (r *Repo) ReplaceWingHallways(ctx context.Context, teamID, wing string, halls []Hallway) (ReplaceStats, error) {
+	var stats ReplaceStats
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		del := tx.Where("team_id = ? AND wing = ?", teamID, wing).Delete(&hallwayRow{})
+		if del.Error != nil {
+			return del.Error
 		}
+		stats.Deleted = int(del.RowsAffected)
 		if len(halls) == 0 {
 			return nil
 		}
@@ -82,8 +95,14 @@ func (r *Repo) ReplaceWingHallways(ctx context.Context, teamID, wing string, hal
 		for i, h := range halls {
 			rows[i] = toHallwayRow(h)
 		}
-		return tx.Create(&rows).Error
+		ins := tx.Create(&rows)
+		if ins.Error != nil {
+			return ins.Error
+		}
+		stats.Inserted = int(ins.RowsAffected)
+		return nil
 	})
+	return stats, err
 }
 
 // ListHallways returns a team's hallways, optionally narrowed to one wing,
@@ -167,15 +186,18 @@ func (r *Repo) UpsertExplicitTunnel(ctx context.Context, t Tunnel, now string) e
 }
 
 // SaveTunnels upserts many tunnels at once (the recompute path). Empty is a no-op.
-func (r *Repo) SaveTunnels(ctx context.Context, tunnels []Tunnel) error {
+// It returns the rows the upsert landed, so a recompute can verify the count
+// against the driver instead of trusting the derivation.
+func (r *Repo) SaveTunnels(ctx context.Context, tunnels []Tunnel) (int, error) {
 	if len(tunnels) == 0 {
-		return nil
+		return 0, nil
 	}
 	rows := make([]tunnelRow, len(tunnels))
 	for i, t := range tunnels {
 		rows[i] = toTunnelRow(t)
 	}
-	return r.db.WithContext(ctx).Clauses(clause.OnConflict{UpdateAll: true}).Create(&rows).Error
+	res := r.db.WithContext(ctx).Clauses(clause.OnConflict{UpdateAll: true}).Create(&rows)
+	return int(res.RowsAffected), res.Error
 }
 
 // GetTunnel loads one tunnel by id, or gorm.ErrRecordNotFound if absent.

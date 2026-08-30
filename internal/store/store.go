@@ -41,6 +41,28 @@ type Hit struct {
 	Payload map[string]any
 }
 
+// SearchResult is what a search returns: the hits, plus whether the index that
+// served them was behind the source of truth when it did.
+//
+// StaleIndex is the carrier of the behind-index flag (ADR-033). It lives on the
+// interface's return type — not as a parallel method — because every production
+// caller consumes the interface: the flag is reachable from serving or it is
+// not reachable at all. A single backend (sqlite, qdrant, chromem) is its own
+// truth and reports false; only Hybrid, which compares the two halves, can set
+// it, and only when it served from the source of truth because the index lagged.
+type SearchResult struct {
+	H          []Hit
+	StaleIndex bool
+}
+
+// ExactCountCap is the largest namespace a coverage check counts exactly. Exact
+// counts on a large namespace are the accuracy/cost lever of the backing
+// stores; above the cap the check may use an approximate count, flagged as
+// sampled (the raw fields' count_quality), and an approximate count ALONE never
+// triggers a rebuild (ADR-033) — the corroborating signal is the index-ingested
+// watermark.
+const ExactCountCap = 100_000
+
 // Filter narrows a search to points whose payload matches every entry, compared
 // as strings. An empty (or nil) Filter matches everything.
 //
@@ -74,7 +96,20 @@ type VectorStore interface {
 	// ordered closest-first, restricted to points whose payload matches filter.
 	// Fewer than k hits means the namespace held fewer matching points; a k <= 0
 	// returns no hits. A nil or empty filter searches the whole namespace.
-	Search(ctx context.Context, namespace string, vector []float32, k int, filter Filter) ([]Hit, error)
+	//
+	// The result's StaleIndex carries whether the index that served the query was
+	// behind the source of truth when it did. A single backend is its own truth
+	// and always reports false; only Hybrid, which can compare the two halves,
+	// may set it.
+	Search(ctx context.Context, namespace string, vector []float32, k int, filter Filter) (SearchResult, error)
+
+	// Count returns how many points the namespace currently holds, for the
+	// coverage check: comparing the two halves tells a caller whether the index
+	// ingested everything the source of truth holds. The count is exact for an
+	// unfiltered namespace — the only shape this check uses; a driver is not
+	// asked to be exact under a filter, because the caller never filters a
+	// count.
+	Count(ctx context.Context, namespace string) (int, error)
 
 	// Delete removes points by ID. IDs that are not present are ignored; an
 	// empty slice is a no-op.
@@ -135,4 +170,18 @@ type SourceOfTruth interface {
 	// well as the payload — the read half of copying memory between tenants
 	// without re-embedding. The interface method is declared on VectorStore; this
 	// is the stronger promise the durable store makes about it.
+}
+
+// ApproximateCounter is an OPTIONAL refinement of VectorStore, satisfied by an
+// index that can report its population cheaply at the cost of exactness. The
+// serving gate (Hybrid, ADR-033 R2) reads it instead of Count once a namespace
+// is expected to hold more than the gate's ExactCountCap points; the value can
+// lag the durable count, so the gate never lets a sampled read alone trigger a
+// rebuild — it corroborates against the index-ingested watermark.
+//
+// A backend whose Count is exact and cheap at any size (chromem counts an
+// in-memory collection) simply does not implement this; the gate keeps using
+// Count for it.
+type ApproximateCounter interface {
+	ApproximateCount(ctx context.Context, namespace string) (int, error)
 }

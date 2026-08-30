@@ -17,7 +17,7 @@ type recordingVectors struct {
 	ks []int
 }
 
-func (r *recordingVectors) Search(ctx context.Context, ns string, vec []float32, k int, f store.Filter) ([]store.Hit, error) {
+func (r *recordingVectors) Search(ctx context.Context, ns string, vec []float32, k int, f store.Filter) (store.SearchResult, error) {
 	r.ks = append(r.ks, k)
 	return r.VectorStore.Search(ctx, ns, vec, k, f)
 }

@@ -227,8 +227,8 @@ func TestHostedMCPAuthenticationAndIsolation(t *testing.T) {
 	}
 
 	for tool, args := range map[string]map[string]any{
-		"am_get_drawer":    {"id": id},
-		"am_delete_drawer": {"id": id},
+		"am_get_drawer":        {"id": id},
+		"am_invalidate_drawer": {"id": id, "reason": "a cross-tenant retraction must not land"},
 	} {
 		beta.MustRefuse(t, tool, args)
 	}
@@ -241,7 +241,7 @@ func TestHostedMCPAuthenticationAndIsolation(t *testing.T) {
 		t.Errorf("beta recalled alpha's data through the vector path:\n%s", got)
 	}
 	if got := admin.MustCall(t, "am_get_drawer", map[string]any{"id": id}); !contains(got, "ALPHA-PRIVATE-MARKER") {
-		t.Errorf("beta's cross-tenant delete attempt affected the owner:\n%s", got)
+		t.Errorf("beta's cross-tenant retraction attempt affected the owner:\n%s", got)
 	}
 
 	beta.MustCall(t, "am_add_drawer", map[string]any{

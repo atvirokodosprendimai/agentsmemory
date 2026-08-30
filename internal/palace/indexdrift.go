@@ -31,17 +31,108 @@ type DriftedPoint struct {
 	Missing bool `json:"missing,omitempty"`
 }
 
+// NamespaceSplit names a count split across the two namespaces, so every
+// per-namespace raw field has a named residence instead of one combined number.
+// The recovery tools act per namespace (rebuild/relabel take a namespace), so
+// the breakdown is visible wherever the blend is reported.
+type NamespaceSplit struct {
+	Drawers int `json:"drawers"`
+	Closets int `json:"closets"`
+}
+
 // DriftReport is what IndexDrift found. Drifted is sorted for a stable report and
 // bounded: a fully drifted palace must produce a report an operator can read and
 // a process can hold in memory, so the count is exact and the listing is a sample.
+//
+// The counters are per store half and per namespace: the source-of-truth half's
+// drift does not depress a SERVING number (it is invisible to serving until the
+// next sync), so coverage is built from the Index* counters only, while the Sot*
+// counters keep the other half's state in the same report. Checked and Pending
+// split the same way, so expected and pending have a named residence per
+// namespace rather than one combined number.
 type DriftReport struct {
-	Checked int            `json:"checked"`
-	Total   int            `json:"total_drifted"`
-	Drifted []DriftedPoint `json:"drifted"`
-	// Pending is how many drawers are legitimately awaiting their first embedding
-	// — a row exists, no vector does yet, and that is a queue rather than a fault.
-	// Counted rather than reported, so a busy palace does not look broken.
-	Pending int `json:"pending_embedding"`
+	Checked          NamespaceSplit `json:"checked"`
+	Total            int            `json:"total_drifted"`
+	Drifted          []DriftedPoint `json:"drifted"`
+	Pending          NamespaceSplit `json:"pending_embedding"`
+	IndexMissing     NamespaceSplit `json:"index_missing"`
+	IndexMislabelled NamespaceSplit `json:"index_mislabelled"`
+	// IndexCount is the index half's REAL point population per namespace, read
+	// from the index's own Count rather than derived from the checked rows. An
+	// over-count (orphans, or the transient upsert-before-stamp window) renders
+	// Indexed > Expected in the coverage view; without it the raw fields show
+	// indexed == expected and the over-count is indistinguishable from a perfect
+	// index (ADR-033 R3).
+	IndexCount     NamespaceSplit `json:"index_count"`
+	SotMissing     NamespaceSplit `json:"sot_missing"`
+	SotMislabelled NamespaceSplit `json:"sot_mislabelled"`
+}
+
+// NamespaceCoverageView is one namespace's serving-health view: the number plus
+// the raw fields it is built from, so a clamped or over-counted value never
+// hides the inputs. Indexed is the INDEX's REAL point population — an over-count
+// (orphans, or the transient upsert-before-stamp window) reads indexed >
+// expected, never masked as a perfect index — while Expected is the row count
+// that should hold a point.
+type NamespaceCoverageView struct {
+	Coverage    float64 `json:"coverage"`
+	Expected    int     `json:"expected"`
+	Indexed     int     `json:"indexed"`
+	Missing     int     `json:"index_missing"`
+	Mislabelled int     `json:"index_mislabelled"`
+}
+
+// Coverage is the serving-side population health number: the fraction of rows
+// that should hold a point in the index half that actually do. The source of
+// truth half's drift does not depress it (that half does not serve) and is
+// reported separately. Pending rows are excluded from the denominator by
+// construction — Checked is embedded rows only — so a busy palace reads healthy.
+// Nothing embedded yet is 1.0, vacuously.
+func (r DriftReport) Coverage() float64 {
+	return coverage(r.Checked.Drawers+r.Checked.Closets,
+		r.IndexMissing.Drawers+r.IndexMissing.Closets,
+		r.IndexMislabelled.Drawers+r.IndexMislabelled.Closets)
+}
+
+// CoverageView reports the serving coverage per namespace, each with the raw
+// fields it is built from. The blend (Coverage) is the row-weighted version of
+// these two numbers. Indexed is the index half's REAL population (IndexCount),
+// so an over-count renders indexed > expected instead of saturating at expected.
+func (r DriftReport) CoverageView() map[string]NamespaceCoverageView {
+	return map[string]NamespaceCoverageView{
+		"drawers": coverageView(r.Checked.Drawers, r.IndexCount.Drawers, r.IndexMissing.Drawers, r.IndexMislabelled.Drawers),
+		"closets": coverageView(r.Checked.Closets, r.IndexCount.Closets, r.IndexMissing.Closets, r.IndexMislabelled.Closets),
+	}
+}
+
+func coverageView(expected, indexed, missing, mislabelled int) NamespaceCoverageView {
+	return NamespaceCoverageView{
+		Coverage:    coverage(expected, missing, mislabelled),
+		Expected:    expected,
+		Indexed:     indexed,
+		Missing:     missing,
+		Mislabelled: mislabelled,
+	}
+}
+
+// coverage is the index-half serving number, clamped to [0, 1]. The clamp is
+// defensive: missing and mislabelled are disjoint subsets of expected, so a
+// negative value is reachable only through a counting bug — and the clamp must
+// not hide the inputs, which is why the raw fields ride alongside in
+// CoverageView. An over-count (indexed > expected, orphans) saturates at 1.0;
+// the raw indexed/expected fields carry the divergence.
+func coverage(expected, missing, mislabelled int) float64 {
+	if expected == 0 {
+		return 1.0 // nothing embedded yet is vacuously healthy
+	}
+	c := float64(expected-missing-mislabelled) / float64(expected)
+	if c < 0 {
+		return 0
+	}
+	if c > 1 {
+		return 1
+	}
+	return c
 }
 
 // driftSample bounds the listing. The COUNT is always exact; only the listing is
@@ -79,13 +170,19 @@ type splitStore interface {
 func (s *Service) IndexDrift(ctx context.Context, teamID string) (DriftReport, error) {
 	var report DriftReport
 
-	// Name each store so a reader can tell which half is wrong.
+	// Name each store so a reader can tell which half is wrong. The index half
+	// also supplies the REAL population count: the per-id audit below only asks
+	// for drawer ids, so an over-count (orphans, or the transient
+	// upsert-before-stamp window) is invisible to it — the coverage view's
+	// indexed field must come from the index's own Count (ADR-033 R3).
+	var indexHalf store.VectorStore
 	stores := []struct {
 		name string
 		vs   store.VectorStore
 	}{}
 	if split, ok := s.vectors.(splitStore); ok {
 		sot, index := split.Halves()
+		indexHalf = index
 		stores = append(stores, struct {
 			name string
 			vs   store.VectorStore
@@ -94,10 +191,18 @@ func (s *Service) IndexDrift(ctx context.Context, teamID string) (DriftReport, e
 			vs   store.VectorStore
 		}{"index", index})
 	} else {
+		indexHalf = s.vectors
 		stores = append(stores, struct {
 			name string
 			vs   store.VectorStore
 		}{"index", s.vectors})
+	}
+
+	// Best-effort: the real population is a display input, so a count failure
+	// leaves the raw field absent rather than failing the read-only check (the
+	// audit below fails first when the half is genuinely down).
+	if n, err := indexHalf.Count(ctx, teamID); err == nil {
+		report.IndexCount.Drawers = n
 	}
 
 	// Closets are a second namespace with a second copy of the same wing, and a
@@ -111,8 +216,13 @@ func (s *Service) IndexDrift(ctx context.Context, teamID string) (DriftReport, e
 	if err != nil {
 		return DriftReport{}, fmt.Errorf("load drawer wings: %w", err)
 	}
-	report.Checked = len(wings)
-	report.Pending = len(pending)
+	pendingClosets, err := s.repo.PendingClosetCount(ctx, teamID)
+	if err != nil {
+		return DriftReport{}, fmt.Errorf("count pending closets: %w", err)
+	}
+	report.Checked.Drawers = len(wings)
+	report.Pending.Drawers = len(pending)
+	report.Pending.Closets = int(pendingClosets)
 
 	ids := make([]string, 0, len(wings))
 	for id := range wings {
@@ -128,6 +238,11 @@ func (s *Service) IndexDrift(ctx context.Context, teamID string) (DriftReport, e
 	}
 
 	for _, st := range stores {
+		missing := &report.IndexMissing
+		mislabelled := &report.IndexMislabelled
+		if st.name == "source of truth" {
+			missing, mislabelled = &report.SotMissing, &report.SotMislabelled
+		}
 		for start := 0; start < len(ids); start += driftBatch {
 			end := start + driftBatch
 			if end > len(ids) {
@@ -156,10 +271,12 @@ func (s *Service) IndexDrift(ctx context.Context, teamID string) (DriftReport, e
 				indexed, ok := seen[id]
 				if !ok {
 					record(DriftedPoint{Store: st.name, DrawerID: id, Actual: wings[id], Missing: true})
+					missing.Drawers++
 					continue
 				}
 				if indexed != wings[id] {
 					record(DriftedPoint{Store: st.name, DrawerID: id, Indexed: indexed, Actual: wings[id]})
+					mislabelled.Drawers++
 				}
 			}
 		}
@@ -172,9 +289,17 @@ func (s *Service) IndexDrift(ctx context.Context, teamID string) (DriftReport, e
 			closetIDs = append(closetIDs, id)
 		}
 		sort.Strings(closetIDs)
-		report.Checked += len(closetIDs)
+		report.Checked.Closets = len(closetIDs)
 		ns := closetNamespace(teamID)
+		if n, err := indexHalf.Count(ctx, ns); err == nil {
+			report.IndexCount.Closets = n
+		}
 		for _, st := range stores {
+			missing := &report.IndexMissing
+			mislabelled := &report.IndexMislabelled
+			if st.name == "source of truth" {
+				missing, mislabelled = &report.SotMissing, &report.SotMislabelled
+			}
 			for start := 0; start < len(closetIDs); start += driftBatch {
 				end := start + driftBatch
 				if end > len(closetIDs) {
@@ -197,10 +322,12 @@ func (s *Service) IndexDrift(ctx context.Context, teamID string) (DriftReport, e
 					indexed, ok := seen[id]
 					if !ok {
 						record(DriftedPoint{Store: st.name + " (closets)", DrawerID: id, Actual: closetWings[id], Missing: true})
+						missing.Closets++
 						continue
 					}
 					if indexed != closetWings[id] {
 						record(DriftedPoint{Store: st.name + " (closets)", DrawerID: id, Indexed: indexed, Actual: closetWings[id]})
+						mislabelled.Closets++
 					}
 				}
 			}

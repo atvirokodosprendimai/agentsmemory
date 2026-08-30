@@ -88,13 +88,13 @@ func (s *Store) Upsert(ctx context.Context, namespace string, points []store.Poi
 // Search scans the namespace and ranks every stored vector by cosine similarity.
 // Brute force is intentional: the SQLite tier is the dev/fallback path, while
 // Qdrant is the scale path for real query volume.
-func (s *Store) Search(ctx context.Context, namespace string, vector []float32, k int, filter store.Filter) ([]store.Hit, error) {
+func (s *Store) Search(ctx context.Context, namespace string, vector []float32, k int, filter store.Filter) (store.SearchResult, error) {
 	if k <= 0 {
-		return nil, nil
+		return store.SearchResult{}, nil
 	}
 	rows, err := s.rows(ctx, namespace)
 	if err != nil {
-		return nil, err
+		return store.SearchResult{}, err
 	}
 	queryNorm := norm(vector) // precomputed once; reused for every candidate
 	hits := make([]store.Hit, 0, len(rows))
@@ -116,7 +116,7 @@ func (s *Store) Search(ctx context.Context, namespace string, vector []float32, 
 	if len(hits) > k {
 		hits = hits[:k]
 	}
-	return hits, nil
+	return store.SearchResult{H: hits}, nil
 }
 
 // payloadMatches reports whether a payload satisfies every entry of filter,
@@ -240,6 +240,18 @@ func (s *Store) PointsByIDs(ctx context.Context, namespace string, ids []string)
 		})
 	}
 	return points, nil
+}
+
+// Count returns how many vectors the namespace currently holds, for the coverage
+// check against the index half. It is a COUNT, not a load: the check compares
+// population, and loading every vector to count them is the cost the primitive
+// exists to avoid.
+func (s *Store) Count(ctx context.Context, namespace string) (int, error) {
+	var n int64
+	if err := s.db.WithContext(ctx).Model(&vectorRow{}).Where("namespace = ?", namespace).Count(&n).Error; err != nil {
+		return 0, err
+	}
+	return int(n), nil
 }
 
 // rows loads all rows for a namespace — the shared read path for Search and

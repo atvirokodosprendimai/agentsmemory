@@ -55,7 +55,19 @@ type ImportDrawer struct {
 func (s *Service) AbsorbDrawers(ctx context.Context, teamID string, in []ImportDrawer) (int, error) {
 	now := time.Now().UTC().Format(time.RFC3339)
 	drawers := make([]Drawer, 0, len(in))
+	keys := make([]string, 0, len(in))
 	for _, r := range in {
+		wing, room := strings.TrimSpace(r.Wing), strings.TrimSpace(r.Room)
+		keys = append(keys, contentKeyOf(teamID, wing, room, r.SourceFile, r.ChunkIndex, r.Content))
+	}
+	// import.go:21's contract — "re-running an import upserts rather than
+	// duplicates" — now rests on the content key rather than on a derived id, so
+	// the ids must be reused for the same reason Add reuses them.
+	existing, err := s.repo.IDsByContentKeys(ctx, teamID, keys)
+	if err != nil {
+		return 0, fmt.Errorf("look up rows already holding these content keys: %w", err)
+	}
+	for i, r := range in {
 		wing := strings.TrimSpace(r.Wing)
 		room := strings.TrimSpace(r.Room)
 		// Validate emptiness on a trimmed copy, but store the content VERBATIM:
@@ -79,7 +91,8 @@ func (s *Service) AbsorbDrawers(ctx context.Context, teamID string, in []ImportD
 			entities = extractEntities(r.Content)
 		}
 		drawers = append(drawers, Drawer{
-			ID:          DrawerID(teamID, wing, room, r.SourceFile, r.ChunkIndex, r.Content),
+			ID:          mintOrReuse(existing, keys[i]),
+			ContentKey:  keys[i],
 			TeamID:      teamID,
 			Wing:        wing,
 			Room:        room,
@@ -99,6 +112,17 @@ func (s *Service) AbsorbDrawers(ctx context.Context, teamID string, in []ImportD
 	if err := s.repo.SaveUnembedded(ctx, drawers); err != nil {
 		return 0, fmt.Errorf("absorb drawers: %w", err)
 	}
+
+	// Imported drawers get the same containment edge every other write path
+	// attaches. Without this an entire imported dataset is filed and unreachable
+	// by traversal — the exact orphan state ADR-036 T6 exists to end, arriving
+	// through a path T6 never looked at because ADR-035 landed after it was
+	// written.
+	//
+	// One edge per SOURCE, not per row: an import is many drawers from one file,
+	// and edging each row would put thousands of derived triples in the graph to
+	// express one fact about where the dataset lives.
+	s.attachDerivedEdgeTo(ctx, teamID, drawers)
 	return len(drawers), nil
 }
 

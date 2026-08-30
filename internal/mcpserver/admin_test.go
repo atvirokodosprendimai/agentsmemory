@@ -21,9 +21,9 @@ import (
 // the tool names it advertised. The services are nil because registration only
 // builds tools and closures — no handler runs — so this exercises the wiring
 // without standing up a database, an embedder and a usage meter.
-func adminCatalog(local bool) map[string]bool {
+func adminCatalog() map[string]bool {
 	reg := &registrar{srv: server.NewMCPServer("test", "0.0.0", server.WithToolCapabilities(true))}
-	registerAdmin(reg, nil, nil, local)
+	registerAdmin(reg, nil, nil)
 	names := make(map[string]bool, len(reg.catalog))
 	for _, e := range reg.catalog {
 		names[e.Name] = true
@@ -31,27 +31,28 @@ func adminCatalog(local bool) map[string]bool {
 	return names
 }
 
-// TestDeleteWingIsLocalOnly pins the gate that keeps an unrecoverable mass delete
-// off the multi-tenant server. It is a one-line condition guarding a tool that
-// cannot be undone, which is exactly the kind of line that gets flipped by
-// accident during an unrelated refactor.
-func TestDeleteWingIsLocalOnly(t *testing.T) {
-	const deleteWing = mcpprotocol.ToolPrefix + "delete_wing"
-
-	saas := adminCatalog(false)
-	if saas[deleteWing] {
-		t.Fatalf("%s must not be exposed on the multi-tenant server", deleteWing)
+// TestAdminOffersNoErasure replaces TestDeleteWingIsLocalOnly, which pinned a gate
+// ADR-038 removed.
+//
+// That test asserted delete_wing was hidden on the multi-tenant server and PRESENT
+// in local mode, on the reasoning that self-hosted the agent and the operator are
+// one person, so hiding it would leave nobody able to delete a wing. The wrong half
+// was "local means it is safe": local is the case where the boundary is absent,
+// which is when an agent's mistake is unrecoverable rather than when it is
+// acceptable. Erasure moved to `agentsmemory wing delete`.
+//
+// merge_wing stays, and asserting it is here also proves the catalogue was
+// populated at all — otherwise an empty map passes the absence check by accident.
+func TestAdminOffersNoErasure(t *testing.T) {
+	catalog := adminCatalog()
+	if catalog[mcpprotocol.ToolPrefix+"delete_wing"] {
+		t.Errorf("delete_wing is still registered. An unrecoverable mass delete is not a verb an "+
+			"agent should be able to reach for, on either deployment: got %v", catalog)
 	}
-	// The neighbours prove the catalogue was actually populated, so an empty map
-	// cannot pass the check above by accident.
 	for _, want := range []string{mcpprotocol.ToolPrefix + "merge_wing", mcpprotocol.ToolPrefix + "memories_filed_away"} {
-		if !saas[want] {
-			t.Fatalf("expected %s in the admin catalogue, got %v", want, saas)
+		if !catalog[want] {
+			t.Fatalf("expected %s in the admin catalogue, got %v", want, catalog)
 		}
-	}
-
-	if !adminCatalog(true)[deleteWing] {
-		t.Fatalf("%s must be exposed in local mode — it is the only way to delete a wing there", deleteWing)
 	}
 }
 

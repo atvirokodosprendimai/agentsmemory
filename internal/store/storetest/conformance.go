@@ -92,8 +92,80 @@ func RunPointsConformance(t *testing.T, name string, newStore Factory) {
 	})
 }
 
-// RunSetPayloadConformance exercises SetPayload against one backend.
+// RunCountConformance exercises Count against one backend.
 //
+// Count exists for the coverage check (ADR-033): comparing the two halves'
+// counts tells a caller whether the index ingested everything the source of
+// truth holds. The contract pinned here: the count equals what was written,
+// re-upserting an id REPLACES rather than inflates, Delete decrements, and a
+// payload patch leaves the count untouched. A backend that cannot count its
+// own points cannot corroborate a rebuild trigger, and the whole fallback is
+// built on that comparison.
+func RunCountConformance(t *testing.T, name string, newStore Factory) {
+	t.Helper()
+	t.Run(name+"/Count", func(t *testing.T) {
+		ctx := context.Background()
+		s := newStore(t)
+		const ns = "team-count"
+
+		if err := s.EnsureNamespace(ctx, ns, 3); err != nil {
+			t.Fatalf("EnsureNamespace: %v", err)
+		}
+		// An empty namespace is a legitimate state (a workspace before its first
+		// drawer), not an error.
+		n, err := s.Count(ctx, ns)
+		if err != nil {
+			t.Fatalf("Count on an empty namespace: %v", err)
+		}
+		if n != 0 {
+			t.Fatalf("Count on an empty namespace = %d, want 0", n)
+		}
+
+		pts := []store.Point{
+			{ID: "a", Vector: []float32{1, 0, 0}, Payload: map[string]any{"wing": "wing_acme"}},
+			{ID: "b", Vector: []float32{0, 1, 0}, Payload: map[string]any{"wing": "wing_acme"}},
+			{ID: "c", Vector: []float32{0, 0, 1}},
+		}
+		if err := s.Upsert(ctx, ns, pts); err != nil {
+			t.Fatalf("Upsert: %v", err)
+		}
+		if n, err = s.Count(ctx, ns); err != nil || n != 3 {
+			t.Fatalf("Count after Upsert = %d, want 3 (err %v)", n, err)
+		}
+
+		// Re-upserting an id replaces: the count must not inflate. A driver that
+		// duplicates on Upsert would feed a coverage check a forever-growing
+		// expected and never see the index catch up.
+		if err := s.Upsert(ctx, ns, []store.Point{{ID: "a", Vector: []float32{1, 0, 0}, Payload: map[string]any{"wing": "wing_alpha"}}}); err != nil {
+			t.Fatalf("re-upsert: %v", err)
+		}
+		if n, err = s.Count(ctx, ns); err != nil || n != 3 {
+			t.Fatalf("Count after a same-id re-upsert = %d, want 3 (err %v)", n, err)
+		}
+
+		// Delete decrements.
+		if err := s.Delete(ctx, ns, []string{"b"}); err != nil {
+			t.Fatalf("Delete: %v", err)
+		}
+		if n, err = s.Count(ctx, ns); err != nil || n != 2 {
+			t.Fatalf("Count after Delete = %d, want 2 (err %v)", n, err)
+		}
+
+		// A payload patch is a label change, not a population change.
+		if err := s.SetPayload(ctx, ns, []string{"a"}, map[string]string{"wing": "wing_beta"}); err != nil {
+			t.Fatalf("SetPayload: %v", err)
+		}
+		if n, err = s.Count(ctx, ns); err != nil || n != 2 {
+			t.Fatalf("Count after SetPayload = %d, want 2 (err %v)", n, err)
+		}
+
+		// Count is per-namespace: another team's namespace stays at zero.
+		if n, err = s.Count(ctx, "team-other"); err != nil || n != 0 {
+			t.Fatalf("Count on an untouched namespace = %d, want 0 (err %v)", n, err)
+		}
+	})
+}
+
 // The contract it pins: the patch MERGES (a field not named is untouched), the
 // VECTOR survives (this is a label change, not a re-embed), an unknown id is
 // ignored, and an empty id list or empty patch is a no-op.
@@ -102,6 +174,7 @@ func RunPointsConformance(t *testing.T, name string, newStore Factory) {
 // patches `wing` and nothing else; a driver that replaces the payload would
 // silently erase `room` on every point it corrected, turning a fix for one
 // broken filter into a break of another.
+// RunSetPayloadConformance exercises SetPayload against one backend.
 func RunSetPayloadConformance(t *testing.T, name string, newStore Factory) {
 	t.Helper()
 	t.Run(name+"/SetPayload", func(t *testing.T) {
@@ -145,10 +218,15 @@ func RunSetPayloadConformance(t *testing.T, name string, newStore Factory) {
 		// The vector must survive: this is a label change, and the whole reason
 		// SetPayload exists rather than an Upsert is that re-embedding a memory
 		// to correct its wing is a model call per drawer for a string edit.
-		hits, err := s.Search(ctx, ns, []float32{1, 0, 0}, 2, nil)
+		res, err := s.Search(ctx, ns, []float32{1, 0, 0}, 2, nil)
 		if err != nil {
 			t.Fatalf("Search after SetPayload: %v", err)
 		}
+		if res.StaleIndex {
+			t.Errorf("a freshly written store reported a stale index — StaleIndex is the carrier " +
+				"of the behind-index flag and must default false on a backend that is its own truth")
+		}
+		hits := res.H
 		if len(hits) == 0 || hits[0].ID != "a" {
 			t.Errorf("after patching its payload, point a is no longer the nearest neighbour of its "+
 				"own vector (hits %+v) — the patch replaced or dropped the vector", hits)
@@ -160,29 +238,29 @@ func RunSetPayloadConformance(t *testing.T, name string, newStore Factory) {
 		// only the readable copy leaves every scoped query matching the OLD value.
 		// That is precisely the bug this method exists to repair, so a repair that
 		// reproduced it in another backend would be invisible.
-		oldWing, err := s.Search(ctx, ns, []float32{1, 0, 0}, 5, store.Filter{"wing": "wing_acme-legacy"})
+		oldRes, err := s.Search(ctx, ns, []float32{1, 0, 0}, 5, store.Filter{"wing": "wing_acme-legacy"})
 		if err != nil {
 			t.Fatalf("filtered search on the old wing: %v", err)
 		}
-		for _, h := range oldWing {
+		for _, h := range oldRes.H {
 			if h.ID == "a" {
 				t.Errorf("point a still matches a filter on its OLD wing after the patch — the copy " +
 					"the index filters on was not updated, so every scoped search still sees the old value")
 			}
 		}
-		newWing, err := s.Search(ctx, ns, []float32{1, 0, 0}, 5, store.Filter{"wing": "wing_acme"})
+		newRes, err := s.Search(ctx, ns, []float32{1, 0, 0}, 5, store.Filter{"wing": "wing_acme"})
 		if err != nil {
 			t.Fatalf("filtered search on the new wing: %v", err)
 		}
 		found := false
-		for _, h := range newWing {
+		for _, h := range newRes.H {
 			if h.ID == "a" {
 				found = true
 			}
 		}
 		if !found {
 			t.Errorf("point a does not match a filter on its NEW wing after the patch (hits %+v) — "+
-				"the memory is unreachable from the wing it now belongs to", newWing)
+				"the memory is unreachable from the wing it now belongs to", newRes.H)
 		}
 
 		// Unknown ids and empty inputs are no-ops, matching Delete.

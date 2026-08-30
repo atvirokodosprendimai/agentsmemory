@@ -3,6 +3,7 @@ package palace
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/atvirokodosprendimai/agentsmemory/internal/store"
@@ -20,7 +21,7 @@ const maxCandidateWidening = 8
 
 // scopeDrops counts what the scope rule removed, split by cause.
 //
-// The three are NOT interchangeable. OutOfScope is an ALARM rather than a metric:
+// The four are NOT interchangeable. OutOfScope is an ALARM rather than a metric:
 // the wing/room comparison is documented as redundant when the index honoured the
 // filter, and kept solely so a stale index cannot surface another wing's memory —
 // so a non-zero count there means the vector index and the durable rows have
@@ -35,10 +36,24 @@ type scopeDrops struct {
 	Orphan       int
 	OutOfScope   int
 	OverDistance int
+	// Superseded counts records the validity filter removed (ADR-038 T5), and it
+	// is deliberately its OWN field rather than folded into any of the three
+	// above.
+	//
+	// An ended drawer keeps its vector, so the index still returns it and the
+	// filter drops it here — which means a page can come back shorter than limit
+	// with nothing saying why. Reporting is the chosen answer rather than
+	// over-fetching, because over-fetching changes what the pool means and every
+	// measurement taken against it. A page short because records were superseded
+	// and a page short because of wing policy are different facts about the
+	// system, and one merged counter answers neither.
+	Superseded int
 }
 
 // Any reports whether the predicate dropped anything at all.
-func (d scopeDrops) Any() bool { return d.Orphan+d.OutOfScope+d.OverDistance > 0 }
+func (d scopeDrops) Any() bool {
+	return d.Orphan+d.OutOfScope+d.OverDistance+d.Superseded > 0
+}
 
 // survivorsFrom applies the scope rule to a retrieved prefix: it drops orphan
 // vectors, rows outside the wing/room the caller asked for, and rows beyond the
@@ -52,7 +67,7 @@ func (d scopeDrops) Any() bool { return d.Orphan+d.OutOfScope+d.OverDistance > 0
 // rule surfaces another wing's memory.
 //
 // The index filter is an optimization; the durable row remains the authority.
-func survivorsFrom(hits []store.Hit, rows map[string]Drawer, q SearchQuery) ([]SearchHit, int, scopeDrops) {
+func survivorsFrom(hits []store.Hit, rows map[string]Drawer, q SearchQuery, stale bool) ([]SearchHit, int, scopeDrops) {
 	survivors := make([]SearchHit, 0, len(hits))
 	distinct := make(map[string]struct{}, len(hits))
 	var drops scopeDrops
@@ -66,13 +81,20 @@ func survivorsFrom(hits []store.Hit, rows map[string]Drawer, q SearchQuery) ([]S
 			drops.OutOfScope++
 			continue
 		}
+		// AFTER the wing/room check, so OutOfScope keeps its meaning as a
+		// divergence alarm: a superseded record counted there would look like the
+		// vector index and the durable rows had drifted apart.
+		if d.ValidTo != "" && !q.IncludeHistory {
+			drops.Superseded++
+			continue
+		}
 		distance := distanceFromScore(h.Score)
 		if q.MaxDistance > 0 && distance > q.MaxDistance {
 			drops.OverDistance++
 			continue
 		}
 		memoryID := memoryOf(d)
-		survivors = append(survivors, SearchHit{Drawer: d, MemoryID: memoryID, Distance: distance})
+		survivors = append(survivors, SearchHit{Drawer: d, MemoryID: memoryID, Distance: distance, StaleIndex: stale})
 		distinct[memoryID] = struct{}{}
 	}
 	return survivors, len(distinct), drops
@@ -91,7 +113,7 @@ func survivorsFrom(hits []store.Hit, rows map[string]Drawer, q SearchQuery) ([]S
 // make. Filtering here is for the widening decision only; rankRetrieved rebuilds
 // the survivors from survivorsFrom, the same predicate, over an in-memory slice
 // bounded by candidateK.
-func (s *Service) searchCandidates(ctx context.Context, teamID string, q SearchQuery, vec []float32, candidateK int) ([]store.Hit, map[string]Drawer, error) {
+func (s *Service) searchCandidates(ctx context.Context, teamID string, q SearchQuery, vec []float32, candidateK int) ([]store.Hit, map[string]Drawer, bool, error) {
 	retrieveCtx, retrieve := telemetry.Start(ctx, telemetry.StageRetrieve, attribute.Int("am.k", candidateK))
 	hydrateCtx, hydrate := telemetry.Start(retrieveCtx, telemetry.StageHydrate)
 	k := candidateK
@@ -126,13 +148,21 @@ func (s *Service) searchCandidates(ctx context.Context, teamID string, q SearchQ
 		}
 		retrieve.End(telemetry.Ran, attrs...)
 	}
+	stale := false // the last round's index staleness; every surviving hit of this recall shares it
 	for {
 		rounds++
-		hits, err := s.vectors.Search(retrieveCtx, teamID, vec, k, searchFilter(q))
+		res, err := s.vectors.Search(retrieveCtx, teamID, vec, k, searchFilter(q))
 		if err != nil {
+			// The widen loop's only error exit, and it must route through finish:
+			// finish records the failed-closed outcome, ends the retrieve/hydrate
+			// spans (and their counters). A bare return here would leave both
+			// spans dangling and the failure invisible to exactly the telemetry a
+			// debugging session needs.
 			finish(nil, err, "")
-			return nil, nil, fmt.Errorf("vector search: %w", err)
+			return nil, nil, false, fmt.Errorf("vector search: %w", err)
 		}
+		hits := res.H
+		stale = res.StaleIndex
 
 		missing := make([]string, 0, len(hits))
 		for _, h := range hits {
@@ -145,7 +175,7 @@ func (s *Service) searchCandidates(ctx context.Context, teamID string, q SearchQ
 			fetched, err := s.repo.GetMany(hydrateCtx, teamID, missing)
 			if err != nil {
 				finish(nil, err, "")
-				return nil, nil, fmt.Errorf("load drawer rows: %w", err)
+				return nil, nil, false, fmt.Errorf("load drawer rows: %w", err)
 			}
 			hydrated += len(fetched)
 			for id, d := range fetched {
@@ -162,7 +192,7 @@ func (s *Service) searchCandidates(ctx context.Context, teamID string, q SearchQ
 		// round, so recording them would multiply the counts by the number of rounds.
 		// rankRetrieved calls the same predicate once over the final pool and records
 		// them there.
-		_, distinct, _ := survivorsFrom(hits, rows, q)
+		_, distinct, _ := survivorsFrom(hits, rows, q, stale)
 
 		stop := retrieveStop(distinct, candidateK, len(hits), k, q, hits)
 		widen := []attribute.KeyValue{
@@ -176,7 +206,7 @@ func (s *Service) searchCandidates(ctx context.Context, teamID string, q SearchQ
 		retrieve.Event("widen", widen...)
 		if stop != "" {
 			finish(hits, nil, stop)
-			return hits, rows, nil
+			return hits, rows, stale, nil
 		}
 		k *= 2
 	}
@@ -235,6 +265,19 @@ func (s *Service) collapseCandidatesToMemories(ctx context.Context, teamID strin
 		return nil, fmt.Errorf("load logical memories: %w", err)
 	}
 
+	// The correction sweep, once for the whole page. A correction attaches to the
+	// record it corrects as an INCOMING edge, so nothing an outgoing walk does
+	// can see it — which is why a session that bootstraps perfectly still reads
+	// whatever the tier got wrong and believes it.
+	//
+	// Non-fatal: a page that cannot resolve corrections is worse than one that
+	// can, and still better than no page.
+	corrections, cerr := s.CorrectionsFor(ctx, teamID, roots, s.wingPolicyFor(ctx, teamID, q.Wing))
+	if cerr != nil {
+		slog.WarnContext(ctx, "corrections not resolved; the page may present a contradicted record as current", "err", cerr)
+		corrections = nil
+	}
+
 	out := make([]SearchHit, 0, len(roots))
 	for _, root := range roots {
 		representative := best[root]
@@ -246,9 +289,24 @@ func (s *Service) collapseCandidatesToMemories(ctx context.Context, teamID strin
 		memoryChunks := byRoot[root]
 		inScope := make([]Drawer, 0, len(memoryChunks))
 		for _, d := range memoryChunks {
-			if drawerMatchesSearch(d, q) {
-				inScope = append(inScope, d)
+			if !drawerMatchesSearch(d, q) {
+				continue
 			}
+			// The ended-sibling filter, and it is NOT redundant with the one in
+			// survivorsFrom. That one runs over the RETRIEVED chunk; this expansion
+			// re-reads every sibling under the root through MemoryChunksByRoots,
+			// which is history-inclusive — so an ended sibling of a current root is
+			// reassembled into MemoryContent, scored by BM25 and the cross-encoder,
+			// and returned as part of the memory.
+			//
+			// The mixed state is ROUTINE rather than exotic: purgeSource ends only
+			// the chunks whose content key left the source, so any re-file that
+			// drops a trailing chunk leaves a current root with an ended child. A
+			// supersede ends a memory whole; a re-file does not.
+			if d.ValidTo != "" && !q.IncludeHistory {
+				continue
+			}
+			inScope = append(inScope, d)
 		}
 		representative.MemoryID = root
 		representative.MemoryContent = reassembleMemory(inScope)
@@ -256,6 +314,10 @@ func (s *Service) collapseCandidatesToMemories(ctx context.Context, teamID strin
 			representative.MemoryContent = representative.Drawer.Content
 		}
 		representative.ChunksMatched = matched[root]
+		// Marked in its normal rank position. Hiding or demoting a corrected
+		// record would be a ranking decision made on somebody else's assertion,
+		// and a retraction can itself be wrong.
+		representative.Corrections = corrections[normalizeEntityID(root)]
 		out = append(out, representative)
 	}
 	return out, nil

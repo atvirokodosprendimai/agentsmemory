@@ -1,0 +1,14 @@
+// Synthetic fact-retrieval cases for ADR-036 T1. Invented entities, invented
+// questions, invented triple ids. No content from any palace appears here — see
+// internal/repohygiene/adr036_fixtures_test.go, which enforces that mechanically.
+//
+// The REAL corpus is built from the live palace and stays untracked (.gitignore).
+// factcases-manifest-2026-08-26.json is its redacted record.
+{"synthetic": true, "question": "which database does the billing service use", "expect_triple": "billing_service|uses|postgres", "wing": "wing_acme"}
+{"synthetic": true, "question": "who owns the payments runbook", "expect_triple": "payments_runbook|owned_by|platform_team", "wing": "wing_acme"}
+{"synthetic": true, "question": "what replaced the legacy scheduler", "expect_triple": "legacy_scheduler|replaced_by|cron_service", "wing": "wing_acme"}
+{"synthetic": true, "question": "where do nightly exports get written", "expect_triple": "nightly_exports|written_to|object_store", "wing": "wing_acme"}
+{"synthetic": true, "question": "which region serves the read replicas", "expect_triple": "read_replicas|served_from|eu_west", "wing": "wing_acme"}
+{"synthetic": true, "question": "what is the retention window for audit rows", "expect_triple": "audit_rows|retained_for|seven_years", "wing": "wing_acme"}
+{"synthetic": true, "question": "which team reviews schema migrations", "expect_triple": "schema_migrations|reviewed_by|platform_team", "wing": "wing_acme"}
+{"synthetic": true, "question": "what protocol does the ingest worker speak", "expect_triple": "ingest_worker|speaks|grpc", "wing": "wing_acme"}

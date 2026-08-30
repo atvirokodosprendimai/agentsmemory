@@ -2,8 +2,11 @@ package palace
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"log/slog"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/atvirokodosprendimai/agentsmemory/internal/telemetry"
@@ -257,6 +260,28 @@ type RecomputeResult struct {
 	Hallways       int      `json:"hallways"`
 	EntityTunnels  int      `json:"entity_tunnels"`
 	PrunedHallways int      `json:"pruned_hallways"`
+	// EntityLabelsIndexed is how many KG entity labels were re-embedded, so an
+	// operator can see the fact-lookup index was rebuilt and not merely the
+	// hallways.
+	EntityLabelsIndexed int `json:"entity_labels_indexed"`
+}
+
+// ErrRecomputeMismatch is returned by RecomputeGraph when a write landed fewer
+// rows than the recompute derived. Both writes are single batch transactions, so
+// any divergence is driver-level silent row loss — a wiring regression, not a
+// data difference.
+var ErrRecomputeMismatch = errors.New("recompute mismatch")
+
+// verifyRecomputeCount is R1's gate: the recompute's written count must equal
+// what it derived, per leg. Named so the gate is testable without simulating a
+// driver that lies (a real sqlite driver reports honest batch counts, so the
+// divergence path is by construction unreachable on it — the gate is the net,
+// and the net's mesh is what is pinned here).
+func verifyRecomputeCount(scope string, expected, landed int) error {
+	if landed != expected {
+		return fmt.Errorf("%w: %s: expected %d rows, write landed %d", ErrRecomputeMismatch, scope, expected, landed)
+	}
+	return nil
 }
 
 // RecomputeGraph rebuilds the derived graph from current drawers, no source files
@@ -264,7 +289,9 @@ type RecomputeResult struct {
 // given), then regenerates the entity tunnels globally from the full hallway set
 // (delete-and-rebuild, so stale ones are pruned). With prune on a full recompute,
 // hallways for wings that no longer have drawers are cleared. Topic tunnels are
-// not generated (no topic registry yet).
+// not generated (no topic registry yet). The returned counts are verified: they
+// come from what the writes actually landed, and a write that landed fewer rows
+// than derived is an error (ErrRecomputeMismatch), not a blended number.
 func (s *Service) RecomputeGraph(ctx context.Context, teamID, wing string, prune bool) (result RecomputeResult, err error) {
 	_, sp := telemetry.Start(ctx, telemetry.StageRecompute, attribute.Bool("am.prune", prune), attribute.Bool("am.has_wing", wing != ""))
 	defer func() {
@@ -300,19 +327,24 @@ func (s *Service) RecomputeGraph(ctx context.Context, teamID, wing string, prune
 		targets = []string{wing}
 	}
 
-	res := RecomputeResult{}
 	for _, w := range targets {
 		halls, err := s.computeHallwaysForWing(ctx, teamID, w, now)
 		if err != nil {
 			return RecomputeResult{}, err
 		}
-		if err := s.repo.ReplaceWingHallways(ctx, teamID, w, halls); err != nil {
+		stats, err := s.repo.ReplaceWingHallways(ctx, teamID, w, halls)
+		if err != nil {
 			return RecomputeResult{}, err
 		}
-		res.WingsRebuilt = append(res.WingsRebuilt, w)
-		res.Hallways += len(halls)
+		// R1: verify the insert leg — the delete leg exists only to be excluded.
+		// Hallways name the wing; tunnels are team-wide and name the scope instead.
+		if err := verifyRecomputeCount("wing "+w, len(halls), stats.Inserted); err != nil {
+			return RecomputeResult{}, err
+		}
+		result.WingsRebuilt = append(result.WingsRebuilt, w)
+		result.Hallways += stats.Inserted
 	}
-	sort.Strings(res.WingsRebuilt)
+	sort.Strings(result.WingsRebuilt)
 
 	// Prune hallways for wings that no longer have drawers (full recompute only).
 	if prune && full {
@@ -327,10 +359,14 @@ func (s *Service) RecomputeGraph(ctx context.Context, teamID, wing string, prune
 			}
 		}
 		for w := range stale {
-			if err := s.repo.ReplaceWingHallways(ctx, teamID, w, nil); err != nil {
+			stats, err := s.repo.ReplaceWingHallways(ctx, teamID, w, nil)
+			if err != nil {
 				return RecomputeResult{}, err
 			}
-			res.PrunedHallways++
+			if err := verifyRecomputeCount("wing "+w, 0, stats.Inserted); err != nil {
+				return RecomputeResult{}, err
+			}
+			result.PrunedHallways++
 		}
 	}
 
@@ -358,11 +394,33 @@ func (s *Service) RecomputeGraph(ctx context.Context, teamID, wing string, prune
 			entityTunnels = append(entityTunnels, t)
 		}
 	}
-	if err := s.repo.SaveTunnels(ctx, entityTunnels); err != nil {
+	landed, err := s.repo.SaveTunnels(ctx, entityTunnels)
+	if err != nil {
 		return RecomputeResult{}, err
 	}
-	res.EntityTunnels = len(entityTunnels)
-	return res, nil
+	if err := verifyRecomputeCount("entity tunnels", len(entityTunnels), landed); err != nil {
+		return RecomputeResult{}, err
+	}
+	// The VERIFIED count, not len(entityTunnels): ADR-027's R1 gate exists
+	// because a write can land fewer rows than the recompute derived, and
+	// reporting the derived number would describe the intent rather than the
+	// database.
+	result.EntityTunnels = landed
+
+	// The entity-label index is derived structure too, so it is rebuilt here
+	// rather than living only in a test. BackfillEntityLabels had NO production
+	// caller, so entities that existed before ADR-036 never entered the vector
+	// namespace and no question could reach their facts — a capability complete
+	// and unreachable, which is this repository's named defect.
+	//
+	// Non-fatal: a recompute that rebuilt the graph should not report failure
+	// because the label index could not be refreshed.
+	if n, err := s.BackfillEntityLabels(ctx, teamID); err != nil {
+		slog.WarnContext(ctx, "entity labels not reindexed; facts about pre-existing entities stay unreachable by question", "err", err)
+	} else {
+		result.EntityLabelsIndexed = n
+	}
+	return result, nil
 }
 
 // --- small set helpers ----------------------------------------------------
@@ -402,4 +460,96 @@ func intersectSorted(a, b []string) []string {
 		}
 	}
 	return out
+}
+
+// EntryRoom is the room a wing's entry point lives in by convention.
+//
+// A convention rather than a schema column: which room a team calls its front
+// door is a team decision, and the server's job is to RESOLVE it, not to bless
+// it. The name matches what this workspace's own operating skill already uses,
+// so an existing palace answers without being rebuilt.
+const EntryRoom = "llm_init"
+
+// EntryPointResult is a wing's front door: the node an agent starts from and
+// what that node points at.
+type EntryPointResult struct {
+	// Wing is the wing this answers for, echoed so a caller cannot mistake whose
+	// entry point it is holding.
+	Wing string `json:"wing"`
+	// Node is the entry node's identifier, empty when the wing has none.
+	Node string `json:"node,omitempty"`
+	// Edges are the entry node's OUTGOING edges — what it holds.
+	Edges []KGFact `json:"edges,omitempty"`
+	// Resolution reuses T2's vocabulary rather than inventing a second way to say
+	// "nothing here". unknown_term means this wing has no entry point at all,
+	// which is a fact about the wing and not an error; known_term_no_facts means
+	// it has one that points at nothing yet.
+	Resolution KGResolution `json:"resolution"`
+	// Refused counts entry edges dropped because their target is not readable
+	// from this wing. A count discloses no identifier, so it is the one thing
+	// WingPolicy permits saying about a refused edge — and without it the drop
+	// is silent: the caller sees a shorter edge list and cannot distinguish a
+	// smaller front door from a filtered one.
+	Refused int `json:"refused,omitempty"`
+}
+
+// EntryPoint resolves a wing's entry node and its outgoing edges DIRECTLY.
+//
+// Deliberately not via Traverse. `am_traverse`'s max_hops is provably inert: the
+// `via` set is an intersection carried forward, so a node at hop >= 2 can only be
+// admitted if it shares a wing with everything on the path already — which the
+// hop-1 neighbours have already satisfied. Verified 2026-08-26 from this
+// workspace's own llm_init root (25 nodes, all hop <= 1) and from a leaf drawer in
+// the same room (10 nodes, all hop 1). Building a front door on a walk that
+// silently returns only hop 1 would look like it worked.
+//
+// Fixing traverse is out of scope and stays that way for a reason: whether
+// traversal should be transitive across wings or confined to the start node's own
+// is an unmade product decision, and those are different products.
+func (s *Service) EntryPoint(ctx context.Context, teamID, wing string) (EntryPointResult, error) {
+	// A wing is REQUIRED here, and "required" in a tool schema only means the key
+	// is present — an empty string satisfies it. Left unchecked, WingPolicy reads
+	// an empty viewer as "unscoped" and treats every resolvable record as local,
+	// which turns a missing argument into a cross-wing read.
+	if strings.TrimSpace(wing) == "" {
+		return EntryPointResult{}, fmt.Errorf("%w: entry_point needs a wing", ErrInvalidInput)
+	}
+	out := EntryPointResult{Wing: wing}
+	node := DerivedEdgeSubject(wing, EntryRoom)
+
+	q, err := s.KGQuery(ctx, teamID, KGQueryInput{
+		Entity: node, Direction: "outgoing", Status: KGStatusCurrent,
+	})
+	if err != nil {
+		return EntryPointResult{}, err
+	}
+	out.Resolution = q.Resolution
+	if q.Resolution == KGResolutionUnknownTerm {
+		// The wing has no entry point. That is a fact about the wing, reported
+		// distinguishably from an error and from an entry point that is merely
+		// empty — three different situations a bare count of zero would merge.
+		return out, nil
+	}
+	out.Node = node
+
+	// Every edge is authorized on the identifier it EXPOSES — f.Object, the
+	// record the edge names — and not on f.SourceDrawerID, which is where the
+	// edge came from.
+	//
+	// The two are independent: provenance is optional and describes the drawer a
+	// fact was extracted from, while the object is the drawer being pointed at.
+	// An edge whose provenance is local and whose target is foreign passed a
+	// provenance check and disclosed the foreign id, and the comment that used to
+	// sit here named that exact threat while the code beneath it checked the
+	// other identifier.
+	policy := s.wingPolicyFor(ctx, teamID, wing)
+	for _, f := range q.Facts {
+		placement, _ := policy.Place(ctx, f.Object)
+		if policy.MayReturnContent(placement) {
+			out.Edges = append(out.Edges, f)
+			continue
+		}
+		out.Refused++
+	}
+	return out, nil
 }

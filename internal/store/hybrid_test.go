@@ -32,9 +32,11 @@ func (f *fakeSoT) Upsert(_ context.Context, ns string, pts []store.Point) error 
 	return nil
 }
 
-func (f *fakeSoT) Search(_ context.Context, _ string, _ []float32, _ int, _ store.Filter) ([]store.Hit, error) {
-	return nil, errors.New("source of truth should not serve search")
+func (f *fakeSoT) Search(_ context.Context, _ string, _ []float32, _ int, _ store.Filter) (store.SearchResult, error) {
+	return store.SearchResult{}, errors.New("source of truth should not serve search")
 }
+
+func (f *fakeSoT) Count(_ context.Context, ns string) (int, error) { return len(f.points[ns]), nil }
 
 func (f *fakeSoT) Delete(_ context.Context, ns string, ids []string) error {
 	f.deletes++
@@ -103,9 +105,11 @@ func (f *fakeIndex) Upsert(_ context.Context, ns string, pts []store.Point) erro
 	return nil
 }
 
-func (f *fakeIndex) Search(_ context.Context, _ string, _ []float32, _ int, _ store.Filter) ([]store.Hit, error) {
-	return f.searchHits, nil
+func (f *fakeIndex) Search(_ context.Context, _ string, _ []float32, _ int, _ store.Filter) (store.SearchResult, error) {
+	return store.SearchResult{H: f.searchHits}, nil
 }
+
+func (f *fakeIndex) Count(_ context.Context, ns string) (int, error) { return len(f.upserted[ns]), nil }
 
 func (f *fakeIndex) Delete(_ context.Context, _ string, _ []string) error {
 	f.deletes++
@@ -216,12 +220,12 @@ func TestHybridSearchRoutesToIndex(t *testing.T) {
 	idx.searchHits = []store.Hit{{ID: "a", Score: 0.9}}
 	h := store.NewHybrid(sot, idx)
 
-	hits, err := h.Search(context.Background(), "team1", []float32{1, 0}, 5, nil)
+	res, err := h.Search(context.Background(), "team1", []float32{1, 0}, 5, nil)
 	if err != nil {
 		t.Fatalf("search: %v", err) // would error if it hit the SoT
 	}
-	if len(hits) != 1 || hits[0].ID != "a" {
-		t.Fatalf("search not served by index: %+v", hits)
+	if len(res.H) != 1 || res.H[0].ID != "a" {
+		t.Fatalf("search not served by index: %+v", res.H)
 	}
 }
 

@@ -122,7 +122,7 @@ func TestScopeDropsCountEachCauseSeparately(t *testing.T) {
 		{ID: "far", Score: 0.10},
 	}
 
-	survivors, distinct, drops := survivorsFrom(hits, rows, SearchQuery{Wing: "wing_beta", MaxDistance: 0.5})
+	survivors, distinct, drops := survivorsFrom(hits, rows, SearchQuery{Wing: "wing_beta", MaxDistance: 0.5}, false)
 
 	if drops.Orphan != 1 {
 		t.Errorf("Orphan = %d, want 1 — an index row with no durable row is a divergence and must "+
@@ -148,7 +148,7 @@ func TestScopeDropsCountEachCauseSeparately(t *testing.T) {
 	// The healthy case: nothing dropped, so nothing is annotated and the alarm is
 	// silent. A test that only ever saw non-zero counts could not tell an alarm
 	// from a number that is always on.
-	_, _, clean := survivorsFrom([]store.Hit{{ID: "in", Score: 0.95}}, rows, SearchQuery{Wing: "wing_beta"})
+	_, _, clean := survivorsFrom([]store.Hit{{ID: "in", Score: 0.95}}, rows, SearchQuery{Wing: "wing_beta"}, false)
 	if clean.Any() {
 		t.Errorf("a healthy prefix reported drops %+v; the alarm must be silent when the index and "+
 			"the rows agree", clean)

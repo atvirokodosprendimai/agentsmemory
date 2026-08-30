@@ -2,9 +2,11 @@ package palace
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
+	"github.com/atvirokodosprendimai/agentsmemory/internal/store"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/telemetry"
 
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
@@ -85,6 +87,58 @@ func TestSearchEmitsSemanticStageSpans(t *testing.T) {
 	}
 	if !under[telemetry.StageRetrieve][telemetry.StageHydrate] {
 		t.Errorf("%s is not a child of %s", telemetry.StageHydrate, telemetry.StageRetrieve)
+	}
+}
+
+// failVectors is a VectorStore whose Search fails on demand, to prove the
+// failed-closed path of searchCandidates records telemetry.
+type failVectors struct {
+	store.VectorStore
+	err error
+}
+
+func (f *failVectors) Search(ctx context.Context, namespace string, vector []float32, k int, filter store.Filter) (store.SearchResult, error) {
+	if f.err != nil {
+		return store.SearchResult{}, f.err
+	}
+	return f.VectorStore.Search(ctx, namespace, vector, k, filter)
+}
+
+// TestSearchRecordsVectorFailureClosed is the searchCandidates error-exit gate:
+// a vector-search failure must end the retrieve and hydrate spans with
+// failed_closed. A bare early return skips finish entirely — both spans dangle
+// (never End()ed), the failed-closed outcome is never recorded, and the failure
+// vanishes from exactly the telemetry a debugging session needs.
+func TestSearchRecordsVectorFailureClosed(t *testing.T) {
+	sr := tracetest.NewSpanRecorder()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(sr))
+	t.Cleanup(func() { _ = tp.Shutdown(context.Background()) })
+	ctx := telemetry.WithProvider(context.Background(), tp)
+
+	svc := newTestService(t)
+	svc.vectors = &failVectors{VectorStore: svc.vectors, err: errors.New("vector backend down")}
+	const team = "team-otel-fail"
+	mustAdd(t, svc, team, AddInput{
+		Wing: "w", Room: "r", Content: "the failed-closed needle is unique here",
+	})
+
+	if _, err := svc.Search(ctx, team, SearchQuery{Query: "failed-closed needle", Limit: 3}); err == nil {
+		t.Fatal("search succeeded despite the vector backend erroring")
+	}
+
+	retrieve := spansByName(sr)[telemetry.StageRetrieve]
+	hydrate := spansByName(sr)[telemetry.StageHydrate]
+	if retrieve == nil {
+		t.Fatal("retrieve span never ended on a failed vector search — the failure vanishes from telemetry")
+	}
+	if hydrate == nil {
+		t.Fatal("hydrate span never ended on a failed vector search — the failure vanishes from telemetry")
+	}
+	if got := spanAttrs(retrieve)["am.outcome"]; got != string(telemetry.FailedClosed) {
+		t.Errorf("retrieve outcome = %q, want %q", got, telemetry.FailedClosed)
+	}
+	if got := spanAttrs(hydrate)["am.outcome"]; got != string(telemetry.FailedClosed) {
+		t.Errorf("hydrate outcome = %q, want %q", got, telemetry.FailedClosed)
 	}
 }
 

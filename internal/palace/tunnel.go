@@ -149,7 +149,12 @@ func (s *Service) connection(ctx context.Context, teamID, direction string, t Tu
 		Label: t.Label, DrawerID: far.DrawerID, TunnelID: t.ID,
 	}
 	if far.DrawerID != "" {
-		if d, err := s.repo.Get(ctx, teamID, far.DrawerID); err == nil {
+		// Service.Get, not repo.Get: the current-only rule lives in the service and
+		// this preview is a DEFAULT read route returning a memory's text. A tunnel
+		// outlives the drawer it names, so an endpoint pointing at a retracted
+		// record is ordinary — and previewing its text is the retracted claim
+		// arriving through a door the recall filter does not watch.
+		if d, err := s.Get(ctx, teamID, far.DrawerID); err == nil {
 			r := []rune(d.Content)
 			if len(r) > followPreviewLen {
 				r = r[:followPreviewLen]

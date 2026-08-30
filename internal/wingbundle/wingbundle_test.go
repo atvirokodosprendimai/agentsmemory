@@ -26,14 +26,24 @@ func (f *fakeSource) Wings(context.Context, string) ([]palace.WingStat, error) {
 	return f.wings, nil
 }
 
-// List honours limit/offset because the paging loop in Export depends on it: a
-// stub that ignored them would loop forever or silently truncate.
-func (f *fakeSource) List(_ context.Context, _, wing, _ string, limit, offset int) ([]palace.Drawer, error) {
-	all := f.drawers[wing]
-	if offset >= len(all) {
+// ListCurrent honours limit/offset because the paging loop in Export depends on
+// it: a stub that ignored them would loop forever or silently truncate.
+//
+// It also SKIPS ended rows, so the double is honest about the one property the
+// real ListCurrent was chosen for. A stub that returned everything would let a
+// bundle carrying retracted text pass — and the format has no validity window, so
+// that text would arrive in the destination asserted as current.
+func (f *fakeSource) ListCurrent(_ context.Context, _, wing, _ string, limit, offset int) ([]palace.Drawer, error) {
+	current := make([]palace.Drawer, 0, len(f.drawers[wing]))
+	for _, d := range f.drawers[wing] {
+		if d.ValidTo == "" {
+			current = append(current, d)
+		}
+	}
+	if offset >= len(current) {
 		return nil, nil
 	}
-	return all[offset:min(offset+limit, len(all))], nil
+	return current[offset:min(offset+limit, len(current))], nil
 }
 
 func (f *fakeSource) ClosetsByWing(_ context.Context, _, wing string) ([]palace.Closet, error) {

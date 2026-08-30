@@ -34,3 +34,10 @@ graphify-out/
 
 # Claude Code session state, worktrees and local agent config — never the repo's business
 .claude/
+
+# ADR-036: the REAL fact-retrieval corpus and the real bootstrap transcript.
+# ADR-003 T2 closed this permanently — case files carry queries and drawer ids
+# from a private palace. The repo carries synthetic fixtures and redacted
+# manifests instead; these patterns keep the real ones from ever being staged.
+internal/palace/testdata/factcases-real*.jsonl
+internal/palace/testdata/bootstrap-baseline-real*.json

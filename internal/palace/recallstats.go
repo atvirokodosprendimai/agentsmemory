@@ -42,7 +42,13 @@ type searchEventRow struct {
 	// separated them by 0.022 and "no threshold separates them at any value".
 	TopRerankScore float64 `gorm:"column:top_rerank_score"`
 	Reranked       int     `gorm:"column:reranked"`
-	CreatedAt      string  `gorm:"column:created_at"`
+	// RerankSkipReason is WHY the cross-encoder did not order this page, using
+	// telemetry's reason vocabulary so a span and this row cannot say different
+	// words about one recall. Empty when reranking ran; NULL on rows written
+	// before the column existed, which the aggregate excludes rather than
+	// counting as healthy.
+	RerankSkipReason string `gorm:"column:rerank_skip_reason"`
+	CreatedAt        string `gorm:"column:created_at"`
 }
 
 // TableName pins the table name so gorm does not pluralise the struct name.
@@ -94,10 +100,16 @@ type WingRecall struct {
 	// Reranked is how many answered searches a cross-encoder actually ordered, and
 	// it is the denominator AvgTopRerank was divided by. Reported so nobody reads
 	// an average over three searches as a property of the wing.
-	Reranked  int
-	Drawers   int    // drawers currently filed in this wing
-	LastUsed  string // most recent search against this wing, RFC3339 ("" if none)
-	LastFiled string // most recent drawer filed into it ("" if none)
+	Reranked int
+	// RerankSkips counts, per reason, the answered recalls where a cross-encoder
+	// did NOT order the page. Rows where it ran contribute to nothing, and rows
+	// predating the column (NULL) are excluded — "not recorded" is not "nothing
+	// skipped". This is what tells a disabled reranker from a failing one, which
+	// `Reranked` alone cannot: it is 0 for both.
+	RerankSkips map[string]int
+	Drawers     int    // drawers currently filed in this wing
+	LastUsed    string // most recent search against this wing, RFC3339 ("" if none)
+	LastFiled   string // most recent drawer filed into it ("" if none)
 }
 
 // AnsweredPct is the share of searches that returned something, 0 when the wing
@@ -222,6 +234,43 @@ func (s *Service) RecallStats(ctx context.Context, teamID, wing string, since ti
 		return RecallStats{}, fmt.Errorf("aggregate search events: %w", err)
 	}
 
+	// The skip breakdown is a SECOND query rather than more columns on the one
+	// above, because it groups by (wing, reason) and that one groups by wing.
+	// Folding them together would need a pivot over a value set that is defined
+	// in Go, not in SQL — and would silently drop any reason added later.
+	//
+	// NULL is excluded, not counted: a row written before this column existed
+	// says "not recorded", and treating that as "nothing was skipped" would
+	// report every historical recall as healthy.
+	type skipAgg struct {
+		Wing   string
+		Reason string
+		N      int
+	}
+	var skipRows []skipAgg
+	skips := s.repo.db.WithContext(ctx).
+		Model(&searchEventRow{}).
+		Select("wing, rerank_skip_reason AS reason, COUNT(*) AS n").
+		Where("team_id = ? AND created_at >= ?", teamID, cutoff).
+		Where("rerank_skip_reason IS NOT NULL AND rerank_skip_reason != ''")
+	if wing != "" {
+		skips = skips.Where("wing = ?", wing)
+	}
+	if err := skips.Group("wing, rerank_skip_reason").Scan(&skipRows).Error; err != nil {
+		return RecallStats{}, fmt.Errorf("aggregate rerank skips: %w", err)
+	}
+	skipsByWing := map[string]map[string]int{}
+	for _, r := range skipRows {
+		w := r.Wing
+		if w == "" {
+			w = "(unscoped)"
+		}
+		if skipsByWing[w] == nil {
+			skipsByWing[w] = map[string]int{}
+		}
+		skipsByWing[w][r.Reason] = r.N
+	}
+
 	byWing := map[string]*WingRecall{}
 	for _, a := range rows {
 		wing := a.Wing
@@ -235,6 +284,7 @@ func (s *Service) RecallStats(ctx context.Context, teamID, wing string, since ti
 			w.AvgTop = a.SumTop / float64(a.Answered)
 		}
 		w.Reranked = a.Reranked
+		w.RerankSkips = skipsByWing[wing]
 		if a.Reranked > 0 {
 			w.AvgTopRerank = a.SumTopRerank / float64(a.Reranked)
 		}

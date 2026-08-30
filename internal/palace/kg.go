@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"log/slog"
 	"regexp"
 	"strings"
 	"time"
@@ -172,6 +173,14 @@ type kgTripleRow struct {
 	SourceFile     string  `gorm:"column:source_file"`
 	SourceDrawerID string  `gorm:"column:source_drawer_id"`
 	ExtractedAt    string  `gorm:"column:extracted_at"`
+	// Derived marks an edge the server inferred rather than one a writer
+	// authored. A nil pointer means the row predates the distinction, which is
+	// not the same claim as "authored" — see 00028_kg_triples_derived.sql.
+	Derived *bool `gorm:"column:derived"`
+	// EndedReason is WHY the fact stopped being true. The store already kept THAT
+	// a fact ended, in valid_to; the reason is the expensive half and it had
+	// nowhere to land until 00032_kg_ended_reason.sql.
+	EndedReason string `gorm:"column:ended_reason"`
 }
 
 func (kgTripleRow) TableName() string { return "kg_triples" }
@@ -216,10 +225,10 @@ func (r *Repo) CurrentTriples(ctx context.Context, teamID, subject, predicate, o
 
 // InvalidateKGTriples ends every current triple for a subject/predicate/object by
 // setting its valid_to, reporting how many it ended.
-func (r *Repo) InvalidateKGTriples(ctx context.Context, teamID, subject, predicate, object, ended string) (int64, error) {
+func (r *Repo) InvalidateKGTriples(ctx context.Context, teamID, subject, predicate, object, ended, reason string) (int64, error) {
 	res := r.db.WithContext(ctx).Model(&kgTripleRow{}).
 		Where("team_id = ? AND subject = ? AND predicate = ? AND object = ? AND valid_to = ''", teamID, subject, predicate, object).
-		Update("valid_to", ended)
+		Updates(map[string]any{"valid_to": ended, "ended_reason": reason})
 	return res.RowsAffected, res.Error
 }
 
@@ -441,6 +450,33 @@ type KGQueryInput struct {
 	Status    string
 }
 
+// KGResolution says which of three things a successful lookup found. The three
+// are exhaustive and mutually exclusive BY STAGE, which "absence versus failure"
+// was not: that phrase is two words for four things, and two of them overlap.
+//
+// Stage A resolves the term: it is either known to the graph or it is not.
+// Stage B, reached only when the term is known, either matches triples or does
+// not. So:
+//
+//	matched               the term is known and triples matched
+//	known_term_no_facts   the term is known and nothing matched
+//	unknown_term          the term is not in the graph at all
+//
+// A backend failure is deliberately NOT a fourth value. It is returned as an
+// error, out of band, exactly as this package already does — a failed lookup has
+// no result to carry a state on. What matters is that it never FAILS OPEN into
+// one of the three: measured 2026-08-26, a nonexistent entity and a nonexistent
+// predicate both returned count:0 with no error, which is indistinguishable from
+// a real empty answer and is what made a sibling-wing pointer untrustworthy.
+type KGResolution string
+
+// The three resolution states. See KGResolution for why there is no fourth.
+const (
+	KGResolutionMatched         KGResolution = "matched"
+	KGResolutionKnownTermNoFact KGResolution = "known_term_no_facts"
+	KGResolutionUnknownTerm     KGResolution = "unknown_term"
+)
+
 // KGQueryResult is a graph query's answer together with what it did not return.
 //
 // Withheld is the count the status filter removed, taken from the store rather
@@ -456,6 +492,15 @@ type KGQueryResult struct {
 	Status         string
 	Withheld       int64
 	WithheldStatus string
+	// Resolution distinguishes a real empty answer from a term the graph has
+	// never heard of. Without it a caller cannot tell "nothing is filed about
+	// this" from "you asked about something that does not exist here", and a
+	// pointer built on the second is a pointer to nowhere.
+	Resolution KGResolution
+	// Unresolved names WHICH entry point did not resolve — "entity" or
+	// "predicate" — when Resolution is unknown_term. A query may give both, and
+	// "something you named is unknown" is not actionable without knowing which.
+	Unresolved string
 }
 
 // KGFact is one fact a query/timeline returns, with display names resolved and the
@@ -484,6 +529,15 @@ type KGFact struct {
 	SourceDrawerID string  `json:"source_drawer_id,omitempty"`
 	RecordedAt     string  `json:"recorded_at,omitempty"`
 	Current        bool    `json:"current"`
+	// Derived says the SERVER inferred this edge rather than a writer authoring
+	// it. False covers both "authored" and "filed before the distinction
+	// existed" — the row keeps that difference (a NULL), but a reader acting on
+	// a fact only needs to know whether to trust it as somebody's decision.
+	Derived bool `json:"derived,omitempty"`
+	// EndedReason is WHY the fact stopped being true, and it is the half of a
+	// retraction a reader cannot reconstruct: valid_to already says THAT it ended.
+	// Empty on a current fact, and on any fact ended before ADR-038 required one.
+	EndedReason string `json:"ended_reason,omitempty"`
 }
 
 // kgRowFieldRenames maps a kgTripleRow field to the KGFact field that returns it,
@@ -546,24 +600,68 @@ func (s *Service) KGAdd(ctx context.Context, teamID, subject, predicate, object,
 		return KGAddResult{}, fmt.Errorf("%w: valid_to=%q is before valid_from=%q; an inverted interval is invisible to every query", ErrInvalidInput, vt, vf)
 	}
 
-	subID, objID, p := normalizeEntityID(subj), normalizeEntityID(obj), normalizePredicate(pred)
-	now := time.Now().UTC().Format(time.RFC3339)
-	if err := s.repo.UpsertKGEntity(ctx, teamID, subID, subj, now); err != nil {
+	res, err := kgAddOn(ctx, s.repo, teamID, subj, pred, obj, vf, vt, sourceCloset, sourceFile, sourceDrawerID)
+	if err != nil {
 		return KGAddResult{}, err
 	}
-	if err := s.repo.UpsertKGEntity(ctx, teamID, objID, obj, now); err != nil {
+	s.indexFactLabels(ctx, teamID, subj, obj)
+	return res, nil
+}
+
+// kgAddOn writes a fact through the repo it is handed — s.repo for an ordinary
+// add, a TRANSACTION-BOUND copy for a supersede. It exists so KGSupersede can put
+// the end and the add in one transaction without a second copy of the
+// upsert/dedupe/insert sequence drifting away from this one.
+//
+// It deliberately does NOT index the endpoint labels. That is a network call to
+// the embedder, and holding SQLite's single write transaction open across one is
+// how a slow embedder becomes a locked database. The caller indexes after the
+// write has landed.
+//
+// Its arguments are already sanitized; it is unexported and both callers validate
+// first, so re-validating here would only be a second place for the rules to
+// disagree.
+func kgAddOn(ctx context.Context, r *Repo, teamID, subj, pred, obj, vf, vt, sourceCloset, sourceFile, sourceDrawerID string) (KGAddResult, error) {
+	// Provenance is checked against the CORPUS, which is why it sits here rather
+	// than with the shape validation the doc above says not to repeat: no amount of
+	// looking at the string tells you whether the row is there.
+	//
+	// It runs BEFORE the entity upserts so a refused fact leaves nothing behind. The
+	// upserts mint kg_entities rows, and a check placed after them would refuse the
+	// write while still having created the two nodes it was called with.
+	if sourceDrawerID != "" {
+		exists, err := r.DrawerExists(ctx, teamID, sourceDrawerID)
+		if err != nil {
+			return KGAddResult{}, fmt.Errorf("check the source drawer: %w", err)
+		}
+		if !exists {
+			return KGAddResult{}, fmt.Errorf(
+				"%w: source_drawer_id %s names no drawer in this team, so the fact would "+
+					"carry provenance that resolves to nothing. Copy the id whole: a shortened or "+
+					"retyped one lands here, which is the point of the check. Omit "+
+					"source_drawer_id if this fact does not come from a drawer",
+				ErrSourceDrawerNotFound, short12(sourceDrawerID))
+		}
+	}
+
+	subID, objID, p := normalizeEntityID(subj), normalizeEntityID(obj), normalizePredicate(pred)
+	now := time.Now().UTC().Format(time.RFC3339)
+	if err := r.UpsertKGEntity(ctx, teamID, subID, subj, now); err != nil {
+		return KGAddResult{}, err
+	}
+	if err := r.UpsertKGEntity(ctx, teamID, objID, obj, now); err != nil {
 		return KGAddResult{}, err
 	}
 
 	fact := subj + " → " + p + " → " + obj
-	if existing, err := s.repo.CurrentTripleID(ctx, teamID, subID, p, objID); err != nil {
+	if existing, err := r.CurrentTripleID(ctx, teamID, subID, p, objID); err != nil {
 		return KGAddResult{}, err
 	} else if existing != "" {
 		return KGAddResult{TripleID: existing, Fact: fact}, nil
 	}
 
 	id := tripleID(subID, p, objID, vf, now)
-	if err := s.repo.InsertKGTriple(ctx, kgTripleRow{
+	if err := r.InsertKGTriple(ctx, kgTripleRow{
 		TeamID: teamID, ID: id, Subject: subID, Predicate: p, Object: objID,
 		ValidFrom: vf, ValidTo: vt, Confidence: 1.0,
 		SourceCloset: sourceCloset, SourceFile: sourceFile, SourceDrawerID: sourceDrawerID, ExtractedAt: now,
@@ -573,25 +671,57 @@ func (s *Service) KGAdd(ctx context.Context, teamID, subject, predicate, object,
 	return KGAddResult{TripleID: id, Fact: fact}, nil
 }
 
-// KGInvalidate ends a current fact by setting its valid_to (defaulting to today).
-// It rejects an end that precedes the fact's own start. Ending a fact never
-// deletes it — the history stays queryable as-of an earlier time.
-func (s *Service) KGInvalidate(ctx context.Context, teamID, subject, predicate, object, ended string) (fact, resolvedEnded string, err error) {
+// indexFactLabels indexes both endpoint labels so the fact is reachable by a
+// QUESTION, not only by spelling the entity exactly. This is the incremental half
+// of the lifecycle: an index built once at backfill is stale by its second day and
+// never says so — it just answers with yesterday's graph.
+//
+// Non-fatal. The fact is written; the label index is only how it is found, and
+// refusing the write because the embedder is down is the trade this codebase
+// already declined on the drawer path.
+func (s *Service) indexFactLabels(ctx context.Context, teamID, subj, obj string) {
+	for _, e := range []struct{ id, label string }{
+		{normalizeEntityID(subj), subj},
+		{normalizeEntityID(obj), obj},
+	} {
+		if err := s.IndexEntityLabel(ctx, teamID, e.id, e.label); err != nil {
+			slog.WarnContext(ctx, "entity label not indexed; the fact is stored but unreachable by question",
+				"entity", e.id, "err", err)
+		}
+	}
+}
+
+// KGInvalidate ends a current fact by setting its valid_to (defaulting to today)
+// and recording WHY. It rejects an end that precedes the fact's own start.
+// Ending a fact never deletes it — the history stays queryable as-of an earlier
+// time.
+//
+// The reason is REQUIRED (ADR-038). valid_to already recorded that a fact stopped
+// being true; the reason is the half a later reader cannot reconstruct from the
+// row, and the store kept the cheap one and dropped the expensive one for as long
+// as there was nowhere to put it.
+func (s *Service) KGInvalidate(ctx context.Context, teamID, subject, predicate, object, ended, reason string) (endedFacts int64, fact, resolvedEnded string, err error) {
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		return 0, "", "", fmt.Errorf("%w: a reason is required to end a fact — an invalidation that "+
+			"records only THAT a fact ended keeps the cheapest half and drops the expensive one. "+
+			"Say what changed, or use kg_supersede if something replaces it", ErrInvalidInput)
+	}
 	subj, err := sanitizeKGValue(subject, "subject")
 	if err != nil {
-		return "", "", err
+		return 0, "", "", err
 	}
 	pred, err := SanitizeName(predicate, "predicate")
 	if err != nil {
-		return "", "", err
+		return 0, "", "", err
 	}
 	obj, err := sanitizeKGValue(object, "object")
 	if err != nil {
-		return "", "", err
+		return 0, "", "", err
 	}
 	e, err := sanitizeISOTemporal(ended, "ended")
 	if err != nil {
-		return "", "", err
+		return 0, "", "", err
 	}
 	if e == "" {
 		e = time.Now().UTC().Format("2006-01-02")
@@ -601,17 +731,42 @@ func (s *Service) KGInvalidate(ctx context.Context, teamID, subject, predicate, 
 	// Reject an end before any matching fact's start (the inverted-interval guard).
 	current, err := s.repo.CurrentTriples(ctx, teamID, subID, p, objID)
 	if err != nil {
-		return "", "", err
+		return 0, "", "", err
 	}
 	for _, row := range current {
 		if row.ValidFrom != "" && temporalEndKey(e) < temporalStartKey(row.ValidFrom) {
-			return "", "", fmt.Errorf("%w: ended=%q is before valid_from=%q", ErrInvalidInput, e, row.ValidFrom)
+			return 0, "", "", fmt.Errorf("%w: ended=%q is before valid_from=%q", ErrInvalidInput, e, row.ValidFrom)
 		}
 	}
-	if _, err := s.repo.InvalidateKGTriples(ctx, teamID, subID, p, objID, e); err != nil {
-		return "", "", err
+	// RowsAffected is the ANSWER here, not a diagnostic, and discarding it was the
+	// defect M reported on 2026-08-27: this returned nil for a fact it had never
+	// touched and the MCP handler rendered a hardcoded "success": true. Reproduced
+	// against the running server — invalidating a triple that had never existed
+	// answered success while kg_triples ended nothing.
+	//
+	// It is this repository's characteristic defect wearing a temporal hat: a
+	// write that reports success and changes nothing. Worse here than elsewhere,
+	// because the entire purpose of an invalidation is that the fact stops being
+	// returned, so an agent that retracts a wrong fact, is told it worked, and
+	// finds it still current has been misled by the one operation that exists to
+	// keep the store honest.
+	n, err := s.repo.InvalidateKGTriples(ctx, teamID, subID, p, objID, e, reason)
+	if err != nil {
+		return 0, "", "", err
 	}
-	return subj + " → " + p + " → " + obj, e, nil
+	if n == 0 {
+		// Name the NORMALIZED terms, not the caller's spelling. normalizeEntityID
+		// and normalizePredicate rewrite all three, so the likeliest cause of a
+		// legitimate miss is a spelling that resolved somewhere the caller did not
+		// expect — and echoing their own input back explains nothing. The other
+		// cause is an already-ended fact, which is named too because it is the
+		// case that looks most like a bug from the outside.
+		return 0, "", "", fmt.Errorf(
+			"%w: %s → %s → %s. Either it was never filed, or it is already ended "+
+				"(am_kg_query with status \"ended\" shows it). Nothing was changed",
+			ErrFactNotFound, subID, p, objID)
+	}
+	return n, subj + " → " + p + " → " + obj, e, nil
 }
 
 // kgComplementStatus returns the status a withheld tally must count: what a query
@@ -710,6 +865,9 @@ func (s *Service) KGQuery(ctx context.Context, teamID string, in KGQueryInput) (
 			}
 			out.Withheld += n
 		}
+		if out.Resolution, out.Unresolved, err = s.classifyKGResult(ctx, teamID, out, "", "", pred); err != nil {
+			return KGQueryResult{}, err
+		}
 		return out, nil
 	}
 
@@ -760,7 +918,49 @@ func (s *Service) KGQuery(ctx context.Context, teamID string, in KGQueryInput) (
 			out.Withheld += n
 		}
 	}
+	if out.Resolution, out.Unresolved, err = s.classifyKGResult(ctx, teamID, out, eid, ent, pred); err != nil {
+		return KGQueryResult{}, err
+	}
 	return out, nil
+}
+
+// classifyKGResult sets the resolution state for a completed lookup.
+func (s *Service) classifyKGResult(ctx context.Context, teamID string, out KGQueryResult, eid, ent, pred string) (KGResolution, string, error) {
+	if len(out.Facts) > 0 {
+		return KGResolutionMatched, "", nil
+	}
+	return s.resolveKGTerms(ctx, teamID, eid, ent, pred)
+}
+
+// resolveKGTerms classifies a lookup that returned no facts: is the term known to
+// the graph, or has the graph never heard of it?
+//
+// It runs ONLY when nothing matched. The classification costs a query, and when
+// facts came back the answer is already known — spending it on every call would
+// make the common path pay for the rare one.
+func (s *Service) resolveKGTerms(ctx context.Context, teamID, eid, ent, pred string) (KGResolution, string, error) {
+	if ent != "" {
+		names, err := s.repo.KGEntityNames(ctx, teamID, []string{eid})
+		if err != nil {
+			return "", "", err
+		}
+		if names[eid] == "" {
+			return KGResolutionUnknownTerm, "entity", nil
+		}
+	}
+	if pred != "" {
+		// A predicate is known when ANY triple uses it, in any status. Asking
+		// under the caller's own status filter would report a predicate whose
+		// every fact has ended as unknown, which is a different thing entirely.
+		rows, err := s.repo.KGTriplesByPredicate(ctx, teamID, pred, KGStatusAll)
+		if err != nil {
+			return "", "", err
+		}
+		if len(rows) == 0 {
+			return KGResolutionUnknownTerm, "predicate", nil
+		}
+	}
+	return KGResolutionKnownTermNoFact, "", nil
 }
 
 // KGStats summarizes the team's graph: entity and triple totals, current vs
@@ -824,8 +1024,9 @@ func kgFact(direction, subject, predicate, object string, row kgTripleRow) KGFac
 		Direction: direction, Subject: subject, Predicate: predicate, Object: object,
 		ValidFrom: row.ValidFrom, ValidTo: row.ValidTo, Confidence: row.Confidence,
 		SourceCloset: row.SourceCloset, SourceFile: row.SourceFile,
-		SourceDrawerID: row.SourceDrawerID, RecordedAt: row.ExtractedAt,
+		SourceDrawerID: row.SourceDrawerID, RecordedAt: row.ExtractedAt, EndedReason: row.EndedReason,
 		Current: row.ValidTo == "",
+		Derived: row.Derived != nil && *row.Derived,
 	}
 }
 
@@ -857,4 +1058,249 @@ func inEffectAt(row kgTripleRow, asOfKey string) bool {
 		return false
 	}
 	return true
+}
+
+// DerivedEdgePredicate is the one reserved verb a server-derived containment edge
+// uses. It is fixed rather than inferred: a predicate the server picks per drawer
+// would be a vocabulary nobody agreed to, spread across the whole corpus, and
+// unremovable without knowing which verbs were the server's.
+const DerivedEdgePredicate = "holds"
+
+// DerivedEdgeSubject is the node a derived edge hangs a drawer from: the drawer's
+// own room, as a stable label.
+//
+// The room is chosen over the wing because it is the finest scope the drawer
+// already carries, and over a per-drawer node because that would make an edge
+// from a thing to itself — reachable from nothing, which is where the corpus
+// already is.
+func DerivedEdgeSubject(wing, room string) string {
+	return "room:" + wing + "/" + room
+}
+
+// EdgeAttachment says what attachDerivedEdge actually did, because "no error"
+// covered three different outcomes and the caller reported all of them as a
+// freshly derived edge — so a drawer a writer had deliberately placed came back
+// claiming the server had guessed for it.
+type EdgeAttachment int
+
+// The three outcomes. Authored and AlreadyDerived both mean "nothing was written".
+const (
+	EdgeAuthored EdgeAttachment = iota
+	EdgeAlreadyDerived
+	EdgeNewlyDerived
+)
+
+// attachDerivedEdge makes a newly filed drawer reachable by traversal.
+//
+// Measured 2026-08-26 on the live palace: 57 of 1,985 drawers carry any edge
+// (2.9%), and 0 are named as a triple OBJECT — so the taxonomy pattern the team's
+// own operating skill is built on has zero adoption in the workspace that wrote
+// it. This is the write-path half of the fix; the existing 1,928 orphans need a
+// backfill, which is deferred with a receipt in BACKLOG.md.
+//
+// An AUTHORED edge always wins. If any triple already names this drawer as its
+// object, nothing is derived: the writer has said where it belongs, and a server
+// guess must not sit beside a human decision as though the two were equivalent.
+func (s *Service) attachDerivedEdge(ctx context.Context, teamID string, d Drawer) (EdgeAttachment, error) {
+	existing, err := s.repo.KGTriplesByObject(ctx, teamID, normalizeEntityID(d.ID), KGStatusAll, "")
+	if err != nil {
+		return EdgeAuthored, err
+	}
+	for _, row := range existing {
+		if row.Derived == nil || !*row.Derived {
+			return EdgeAuthored, nil // authored; leave it alone
+		}
+	}
+
+	subj := DerivedEdgeSubject(d.Wing, d.Room)
+	subID, objID := normalizeEntityID(subj), normalizeEntityID(d.ID)
+	p := normalizePredicate(DerivedEdgePredicate)
+	now := time.Now().UTC().Format(time.RFC3339)
+	if err := s.repo.UpsertKGEntity(ctx, teamID, subID, subj, now); err != nil {
+		return EdgeAuthored, err
+	}
+	if err := s.repo.UpsertKGEntity(ctx, teamID, objID, d.ID, now); err != nil {
+		return EdgeAuthored, err
+	}
+	if id, err := s.repo.CurrentTripleID(ctx, teamID, subID, p, objID); err != nil {
+		return EdgeAuthored, err
+	} else if id != "" {
+		return EdgeAlreadyDerived, nil
+	}
+	derived := true
+	return EdgeNewlyDerived, s.repo.InsertKGTriple(ctx, kgTripleRow{
+		TeamID: teamID, ID: tripleID(subID, p, objID, "", now),
+		Subject: subID, Predicate: p, Object: objID,
+		Confidence: 1.0, SourceDrawerID: d.ID, ExtractedAt: now,
+		Derived: &derived,
+	})
+}
+
+// AllKGEntities returns every entity a team owns, for the label backfill.
+//
+// Unpaged deliberately: the whole point is a one-shot index build, and the live
+// palace holds 342 entities (measured 2026-08-26). If a workspace ever grows to
+// where this matters, the backfill is the thing to page, not this read.
+func (r *Repo) AllKGEntities(ctx context.Context, teamID string) ([]kgEntityRow, error) {
+	var rows []kgEntityRow
+	err := r.db.WithContext(ctx).Where("team_id = ?", teamID).Find(&rows).Error
+	return rows, err
+}
+
+// WingsForDrawers resolves specific drawer ids to the wing each is filed in, for
+// WingPolicy. Absent ids are simply omitted, which is what makes a dangling
+// provenance pointer UNLOCATABLE rather than an error.
+//
+// Distinct from DrawerWings, which loads the whole team for the drift check: this
+// one is asked about the handful of ids a single recall's facts point at.
+func (r *Repo) WingsForDrawers(ctx context.Context, teamID string, ids []string) (map[string]string, error) {
+	out := map[string]string{}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	// Scanned into a narrow anonymous struct, not []Drawer: Drawer carries an
+	// Entities slice gorm cannot map, and Find would error on a type this query
+	// never asked for.
+	var rows []struct {
+		ID   string
+		Wing string
+	}
+	if err := r.db.WithContext(ctx).Model(&drawerRow{}).Select("id", "wing").
+		Where("team_id = ? AND id IN ?", teamID, ids).Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		out[row.ID] = row.Wing
+	}
+	return out, nil
+}
+
+// CorrectionPredicates are the three ways a record can be corrected by a later
+// one. All three, always — running only `retracts` on 2026-08-25 shipped a
+// pointer to an ADR that was not on main, because the edge that mattered that day
+// was a `qualifies`.
+var CorrectionPredicates = []string{"retracts", "supersedes", "qualifies"}
+
+// Correction is one record's correction by another, as returned to a reader.
+type Correction struct {
+	// Predicate is which of the three kinds of correction this is.
+	Predicate string `json:"predicate"`
+	// ReplacementID is the record that corrects this one, when the correcting
+	// record is itself a drawer this viewer may see. Empty when the correcting
+	// record lives in another wing — the fact that a correction EXISTS still
+	// travels, because a reader who is not told is a reader acting on something
+	// somebody has already contradicted.
+	ReplacementID string `json:"replacement_id,omitempty"`
+	// ElsewhereWing names the wing holding the correcting record when it is not
+	// this viewer's. A name, never content — the same rule the fact block obeys.
+	ElsewhereWing string `json:"elsewhere_wing,omitempty"`
+}
+
+// CorrectionsFor resolves, for each given record id, the corrections attached to
+// it — read INCOMING.
+//
+// Direction is the whole point and it is easy to get backwards. A correction
+// attaches to the record it corrects as an INCOMING edge, so an outgoing walk
+// from a record can never see that it has been retracted. That is why the team's
+// own operating skill instructs agents to run three predicate queries by hand:
+// this is the server doing it once, correctly, instead.
+//
+// One resolver, consumed by both the search path (T5) and the bootstrap (T8).
+// Two implementations of the same sweep diverge on the path nobody tested, and
+// the one that diverges silently serves contradicted records as current.
+func (s *Service) CorrectionsFor(ctx context.Context, teamID string, recordIDs []string, policy WingPolicy) (map[string][]Correction, error) {
+	out := map[string][]Correction{}
+	if len(recordIDs) == 0 {
+		return out, nil
+	}
+	want := map[string]bool{}
+	for _, id := range recordIDs {
+		want[normalizeEntityID(id)] = true
+	}
+
+	for _, pred := range CorrectionPredicates {
+		rows, err := s.repo.KGTriplesByPredicate(ctx, teamID, normalizePredicate(pred), KGStatusCurrent)
+		if err != nil {
+			return nil, err
+		}
+		for _, row := range rows {
+			// The OBJECT is the record being corrected; the SUBJECT is the record
+			// doing the correcting.
+			if !want[row.Object] {
+				continue
+			}
+			c := Correction{Predicate: pred}
+			// Authorized on row.Subject — the correcting record, whose id is what
+			// ReplacementID exposes — and not on row.SourceDrawerID, which is
+			// merely where the fact was extracted from. The two are independent,
+			// so checking provenance both disclosed foreign replacements (local
+			// provenance, foreign corrector) and suppressed local ones (absent
+			// provenance, local corrector).
+			placement, wing := policy.Place(ctx, row.Subject)
+			if policy.MayReturnContent(placement) {
+				c.ReplacementID = row.Subject
+			} else if placement == PlacementForeign {
+				c.ElsewhereWing = wing
+			}
+			out[row.Object] = append(out[row.Object], c)
+		}
+	}
+	return out, nil
+}
+
+// KGTriplesForEntities loads every current triple touching ANY of the given
+// entity ids, in one statement per direction rather than one query per entity.
+//
+// factsFor previously issued a full KGQuery per candidate entity — each costing
+// several statements — across every entity on every drawer in the candidate pool.
+// At the shipped limit of 10 the pool is 30 drawers, so a single am_search could
+// reach four figures of serial SQL. This is the batched replacement: the cost
+// becomes two statements plus one name resolution, independent of how many
+// entities the page mentions.
+func (r *Repo) KGTriplesForEntities(ctx context.Context, teamID string, ids []string, status string) ([]kgTripleRow, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	var rows []kgTripleRow
+	q := r.db.WithContext(ctx).Where("team_id = ? AND (subject IN ? OR object IN ?)", teamID, ids, ids)
+	switch status {
+	case KGStatusCurrent:
+		q = q.Where("valid_to = ''")
+	case KGStatusEnded:
+		q = q.Where("valid_to <> ''")
+	}
+	// Ordered, because which duplicate SPELLING survives factsFor's
+	// canonical-key dedup is decided by iteration order over these rows: the
+	// canonical key collapses both spellings of a two-directional walk, so the
+	// final sort over facts cannot repair a nondeterministic winner. Without
+	// this the winner is backend row order.
+	if err := q.Order("subject, predicate, object, valid_from, extracted_at").Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
+// DropDerivedEdgesFor removes the server-derived edges naming any of these
+// drawers, and only those.
+//
+// Deletion paths purge drawer rows and vectors and left their derived triples
+// behind, still current, pointing at ids that no longer resolve. That is worse
+// than an orphan drawer: it is an edge asserting a record exists where none
+// does, and it accumulates on every re-file of changed content because a changed
+// drawer gets a NEW id and a new edge beside the stale one.
+//
+// AUTHORED edges are never touched. A writer's placement outliving the drawer it
+// named is a fact about the graph a human should resolve, not something a purge
+// should silently erase.
+func (r *Repo) DropDerivedEdgesFor(ctx context.Context, teamID string, drawerIDs []string) error {
+	if len(drawerIDs) == 0 {
+		return nil
+	}
+	ids := make([]string, 0, len(drawerIDs))
+	for _, id := range drawerIDs {
+		ids = append(ids, normalizeEntityID(id))
+	}
+	return r.db.WithContext(ctx).
+		Where("team_id = ? AND object IN ? AND derived = ?", teamID, ids, true).
+		Delete(&kgTripleRow{}).Error
 }

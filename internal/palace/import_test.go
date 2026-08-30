@@ -44,8 +44,13 @@ func TestImportDrawersVerbatim(t *testing.T) {
 	}
 
 	// Provenance and dates are preserved verbatim, not re-derived.
-	id := DrawerID(team, "acme", "backend", "notes.md", 2,
-		"the websocket hub fans out messages to subscribers")
+	//
+	// Looked up by CONTENT KEY rather than by a derived id: after ADR-038 the id is
+	// opaque and computing it here would be the coupling that decision removes.
+	// DrawerID is now the key recipe, which is why the same call still locates the
+	// row — through a different column.
+	id := mustIDByContentKey(t, svc, team, DrawerID(team, "acme", "backend", "notes.md", 2,
+		"the websocket hub fans out messages to subscribers"))
 	got, err := svc.Get(ctx, team, id)
 	if err != nil {
 		t.Fatalf("get imported drawer: %v", err)
@@ -155,8 +160,8 @@ func TestAbsorbPreservesEmbeddedOnReabsorb(t *testing.T) {
 	if p, _ := svc.PendingCount(ctx, team); p != 0 {
 		t.Errorf("pending after re-absorb = %d, want 0 (embedded_at must be preserved)", p)
 	}
-	// Metadata must be refreshed.
-	id := DrawerID(team, "w", "r", "s", 0, "stable content")
+	// Metadata must be refreshed. By content key — the id is opaque after ADR-038.
+	id := mustIDByContentKey(t, svc, team, DrawerID(team, "w", "r", "s", 0, "stable content"))
 	got, err := svc.Get(ctx, team, id)
 	if err != nil {
 		t.Fatalf("get: %v", err)
@@ -239,4 +244,20 @@ func TestAbsorbDerivesEntitiesOnlyWhenSourceGaveNone(t *testing.T) {
 			t.Errorf("the source gave no entities, so they must be derived from the content: %v", b.Entities)
 		}
 	}
+}
+
+// mustIDByContentKey resolves the row holding a content key. After ADR-038 a test
+// cannot derive a drawer's id, and that is the point — the key is the only thing
+// a caller may compute, and the id is the only thing it may point at.
+func mustIDByContentKey(t *testing.T, svc *Service, team, key string) string {
+	t.Helper()
+	got, err := svc.repo.IDsByContentKeys(context.Background(), team, []string{key})
+	if err != nil {
+		t.Fatalf("look up by content key: %v", err)
+	}
+	id, ok := got[key]
+	if !ok {
+		t.Fatalf("no current row holds content key %s", short12(key))
+	}
+	return id
 }

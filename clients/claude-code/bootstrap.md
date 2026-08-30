@@ -337,6 +337,46 @@ whenever the answer would change what you do next:
   local list is not an absent skill** — check the catalogue before you decide the
   team has no convention and fall back to your own judgement.
 
+## What these tools do not say out loud
+
+One behaviour still returns a confident WRONG answer rather than an error, and two
+fields exist so the other cases stop being silent — but only if you read them. A
+tool that REFUSES is on none of these lists however sharp its edge: a refusal you
+can read is the system working.
+
+⚠**`am_get_drawer` RETURNS ONE CHUNK, AND IT SAYS SO — BUT ONLY IF YOU READ THE
+FLAG.** A memory past the chunk size is several drawers sharing a parent, and a
+fetch hands back only the one you named. It now arrives marked: `content_truncated`
+with `content_length`, the WHOLE memory's rune count, so a fragment is never
+mistakable for a complete short memory. That marking is keyed on the chunk count,
+so chunk 0 of a 47-chunk memory is marked like any other — a root chunk has no
+parent, and an earlier reading that keyed on `parent_id` left exactly that case
+looking whole.
+
+Pass `whole: true` when you mean to READ a memory rather than confirm it exists.
+The flag tells you a fetch was partial; it does not complete it, and `whole: true`
+is the only completion path — there is no cursor.
+
+⚠ **This paragraph was FALSE from 2026-08-25 until 2026-08-29** and said "nothing
+marks the fragment as partial" for four days after ADR-044 T4 made it untrue. The
+installer writes this file into every agent's config directory, so a stale warning
+here teaches every new session to distrust a field that works. `TestTheShippedProtocolDoesNotSayAFragmentIsUnmarked`
+now fails if the claim comes back.
+
+**READ `resolution` ON A GRAPH ANSWER.** `am_kg_query` returning `count: 0` is not
+one answer, it is three: `matched`, `known_term_no_facts` (the graph knows the term
+and has nothing filed) and `unknown_term` (it has never heard of it — usually your
+spelling). Reporting "nothing is filed" on an `unknown_term` is how a pointer to
+nowhere gets written down as a finding.
+
+**READ `content_truncated` ON A PAGE OR A LISTING.** Both `am_search` and
+`am_list_drawers` bound what they return and mark every record they cut, with
+`full_length` and a note naming the remedy. Take the mark seriously: a big enough
+result does not reach you smaller, it can fail to reach you at all — spilled to a
+file nothing reads — and an oversized listing then reads as "this room holds
+nothing". Page a large room instead of asking for it whole. **An empty-looking room
+is not evidence of an empty room.**
+
 ## Step 2 — Plan
 
 Build the structured, multi-step plan directly from the loaded context, using
