@@ -4,17 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"strings"
 	"testing"
 
-	"github.com/atvirokodosprendimai/agentsmemory/db"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/store/sqlitevec"
 
-	glebarez "github.com/glebarez/sqlite"
-	"github.com/pressly/goose/v3"
-	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
 	"time"
 )
 
@@ -59,24 +53,7 @@ func newTestService(t *testing.T) *Service {
 // what it returns.
 func newTestServiceWith(t *testing.T, embedder Embedder) *Service {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "palace_test.db")
-	gdb, err := gorm.Open(glebarez.Open(path), &gorm.Config{
-		Logger: logger.Default.LogMode(logger.Silent),
-	})
-	if err != nil {
-		t.Fatalf("open db: %v", err)
-	}
-	sqlDB, err := gdb.DB()
-	if err != nil {
-		t.Fatalf("sql handle: %v", err)
-	}
-	goose.SetBaseFS(db.Migrations)
-	if err := goose.SetDialect("sqlite3"); err != nil {
-		t.Fatalf("dialect: %v", err)
-	}
-	if err := goose.Up(sqlDB, "migrations"); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	gdb := newMigratedDB(t, "palace_test.db")
 	return NewService(NewRepo(gdb), embedder, sqlitevec.New(gdb), fakeDim)
 }
 
