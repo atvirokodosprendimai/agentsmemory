@@ -3119,3 +3119,63 @@ gate earns its place the day an offender exists.
 
 **The general rule:** a guard that has never fired is not evidence that it works. Before trusting
 one, make its condition true and watch the exit code.
+
+## The must-load tier is reachable by a chosen name on ONE palace, by hand, outside the product — 2026-08-30
+
+Deferred here from ADR-039 (PR #75) when M rescoped that record on 2026-08-30. The record was
+titled after this problem; the rescope removed it from that record's scope without deciding it, so
+it lands here rather than vanishing.
+
+**What the shipped code does.** `am_entry_point(wing)` resolves exactly one label:
+
+```go
+const EntryRoom = "llm_init"                          // internal/palace/graphquery.go:471
+node := DerivedEdgeSubject(wing, EntryRoom)           // internal/palace/graphquery.go:518
+func DerivedEdgeSubject(wing, room string) string {   // internal/palace/kg.go:1076
+	return "room:" + wing + "/" + room
+}
+```
+
+The only writer is `attachDerivedEdge` (`internal/palace/kg.go:1115`), which mints
+`room:<wing>/<room>` for **the room a drawer was actually filed into**. No seed, no backfill, no
+special case. So a wing has an entry node **if and only if something was filed into a room literally
+named `llm_init`.**
+
+**Local has no such room** — `wing_agentmemories` holds `llm_index`, `llm_open_threads`,
+`llm_corrections` — so `am_entry_point("wing_agentmemories")` returns `unknown_term`, and so does a
+query for the named node. Measured 2026-08-30 against `main` at `bd36e11`. That is the mechanism
+working with its precondition unmet, not a missing feature and not a stale backfill.
+
+**⚠ The hosted palace answers, and not through this mechanism.** Reported 2026-08-30 by a session
+working against hosted: `am_kg_query(entity: "wing_agentmemories.root", direction: "outgoing")`
+returns `matched` with three edges inline, no spill. `<wing>.root` is **not a label anything in
+`main` mints or reads** — `grep -rn '\.root"' --include='*.go'` over non-test source returns no
+matches. It exists because someone wrote those facts by hand, and the live edge states its own
+provenance: *"hand-authored entry edge 2026-08-27 because attachDerivedEdge only stamps drawers
+filed after it shipped."*
+
+⚠ **Not verifiable from this tree.** The hosted figures above are a peer session's report, not a
+measurement taken here. Treat them as a lead with a named source rather than as evidence.
+
+**Why this is worth deciding rather than closing.** Both easy summaries are false. *"Solved"* is
+false: nothing in the product produces the thing that works. *"Unsolved"* is false too: a chosen
+literal really does return the tier in three edges on one deployment, which is a working prototype
+of the shape ADR-039 proposed. What is missing is that it is not reproducible — a second palace
+gets `unknown_term`, and the only route to parity today is for a human to hand-author facts in a
+convention no code knows about.
+
+**The three shapes a decision could take**, none of them taken here:
+
+- **Bless the convention** — make `<wing>.root` a name the code mints and resolves, which is
+  roughly ADR-039's original addressing half re-proposed at a smaller size.
+- **Make the existing mechanism reachable** — file the tier into a room named `llm_init` so
+  `attachDerivedEdge` mints the node it already looks for. Cheapest, and it works today with no code
+  change; it also means the entry point's address is a room-naming convention, which is the
+  derived-not-chosen property ADR-039 objected to.
+- **Leave it hand-authored and say so** — acceptable only if the hand-authoring is documented
+  somewhere a new palace's operator will find it, which it currently is not.
+
+Related and NOT the same thing: this corpus already records (2026-08-28) that a derived-edge
+backfill would make `am_entry_point` answer `matched` while returning only the root room's own
+drawers and never the `must.*` tier. A backfill is therefore not a shortcut to any of the above.
+

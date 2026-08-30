@@ -4,10 +4,40 @@
 **Date:** 2026-08-27
 **Owner:** M
 **Spec:** None — no spec stage. Grounded in the declarations at `internal/palace/chunk.go:56` (`MaxEmbedRunes`), `:140` (`DrawerID`), `internal/palace/contentkey.go:297` (`mintOrReuse`), `internal/palace/kg.go:35` (`MaxKGValueLen`), `internal/mcpserver/drawers.go:56` (`wholeMemoryBudget`), `db/migrations/00001_init.sql:61` (`skills`), `db/migrations/00010_kg.sql:22` (`kg_triples`), plus a serialisation measurement recorded inline. ⚠ Line numbers are as of `main` at `5760bca`, re-checked 2026-08-27 after review; this record was first written against `7e8870a`, and three of its citations had already moved.
-**Cross-references:** ADR-027 (a maintained document is a set of records — **qualified here, see Invalidates**), ADR-036 (the bootstrap surface this complements), ADR-038 (opaque ids — **it landed under this record and rewrote its Context; see below**), ADR-040 (the schema carries the pairing — where per-tool guidance is being decided, PR #77), ADR-003 (retire the closet prior — the ranking cost this protects), ADR-010 (supersede, do not overwrite — **CLOSED, absorbed in full by ADR-038**), ADR-013 (a page of memories, not chunks), ADR-016 (a memory an agent files must be navigable), `internal/mcpserver/catalog_test.go:429` (`TestEveryCatalogToolIsNamedInTheReadme`)
+**Cross-references:** ADR-027 (a maintained document is a set of records — **qualified here, see Invalidates**), ADR-036 (the bootstrap surface this complements), ADR-038 (opaque ids — **it landed under this record and rewrote its Context; see below**), ADR-040 (the schema carries the pairing — where per-tool guidance is being decided, PR #77), ADR-003 (retire the closet prior — the ranking cost this protects), ADR-010 (supersede, do not overwrite — **CLOSED, absorbed in full by ADR-038**), ADR-013 (a page of memories, not chunks), ADR-016 (a memory an agent files must be navigable), `internal/mcpserver/catalog_test.go:430` (`TestEveryCatalogToolIsNamedInTheReadme`)
 **Numbering:** next free after ADR-038, whose status line reads **Accepted** and which **merged 2026-08-27** (PR #72 at 08:09:36Z, execution PR #76 at 13:54:56Z). This branch now carries `main`, so ADR-038 is present in-tree and its citations resolve from here. Union-checked across every open PR head 2026-08-27: only ADR-039 (PR #75) and ADR-040 (PR #77) are claimed, no collision. ⚠ **Allocate at merge** — a per-branch check is blind to cross-branch collisions, the rule this repo recorded after its ADR-number collision. Same for the migration: **`00033` is head on `main`** (ADR-038 took `00030`–`00033`), so the next free is **`00034`**.
 **Invalidates:** none outright. ⚠ **QUALIFIES ADR-027 (Accepted)** for one class of document — see below. Checked by grepping ADR-001..038 on `main`, plus ADR-039/040 on their open branches, for `key/value`, `kv_`, `author-chosen`, `addressed by name`: no accepted ADR governs a name-addressed store. ADR-027 governs the adjacent question and its rule 3 phrase ("the spine stores how to traverse, never what is there") is adopted here verbatim rather than displaced.
 **Served-path change:** **Yes.** One new table, one new MCP tool. No existing tool signature, default, or ranking path changes.
+
+## ⚠ RESCOPED 2026-08-30 — read this before the Context below
+
+**M's decision: this record is narrowed to two claims, and the title is no longer
+what it is about.** The text below is kept as written, superseded rather than
+excised, because this record's own convention is that a correction stays readable
+beside what it corrects — see the two ⚠ paragraphs in Context that already do this.
+
+**What this record now argues, in this order:**
+
+1. **A WRITE BOUNDARY.** `am_kg_add`'s subject and object are never validated — the
+   tool's own description says so: *"subject and object are entity labels in a
+   schemaless graph and are never checked, so a mistyped one still mints a NEW node
+   silently."* Any project in the workspace can therefore write into another's
+   must-load tier, and a typo mints a dead node reporting `success: true`. Observed
+   unprompted on 2026-08-30, on hosted, by a session that was not looking for it: a
+   fact filed with an HTML-escaped subject (`adr-verify &lt;task file&gt;`) created a
+   node nothing will ever resolve. That is this record's line 168 risk happening,
+   and it is a **designed hazard nobody gated** rather than a bug. It leads because
+   it is the sharper of the two: an unreviewed write path into the one tier every
+   session loads without judgement.
+
+2. **A PAYLOAD SLOT.** `MaxKGValueLen = 128` (`internal/palace/kg.go:35`) means the
+   graph stores labels, not payloads. The tier works today as edges → drawers; a
+   single addressed blob does not exist. Second because it is a capability gap
+   rather than a live hazard.
+
+**What has left this record:** the addressing argument its title names. See Out of
+Scope — it is deferred with an accurate statement of what serves it today, not
+declared solved.
 
 ## Context
 
@@ -291,7 +321,7 @@ it is the mitigation for the one axis above that is answered by discipline alone
 - **A positional `[cmd, payload, version]` dispatcher** (the original proposal). REJECTED. A tool
   description is the strongest guidance surface — present at the moment of the call, in every client
   — and an opaque dispatcher deletes it at the call every session makes first.
-  `TestEveryCatalogToolIsNamedInTheReadme` (`catalog_test.go:429`) already fails the build over
+  `TestEveryCatalogToolIsNamedInTheReadme` (`catalog_test.go:430`) already fails the build over
   undiscoverable capability. The flexibility is preserved without the cost: the server enforces only
   the namespace segment (Decision property 5); everything below it is the project's own vocabulary,
   written in its `AGENTS.md`.
@@ -327,7 +357,7 @@ implementation must touch are named here rather than discovered later.
 | `am_kv_delete(id)` | **add** via `registrar.addWrite` — role-gated, removes every version | `internal/mcpserver` | ⚠ see Follow-ups: ADR-038 T4's precedent argues this belongs on the OPERATOR surface, not the agent one |
 | Tool registration | **add** — all five must go through `newTool` + `registrar.add`/`addWrite` | `internal/mcpserver/server.go` | ⚠ `mcp.NewTool`/`AddTool` compile fine and silently skip the `am_` prefix, the catalogue **and** the role gate — this repo's own recorded trap, and reachability is its signature defect |
 | Write-gate correctness | **add** — the read/write split is per TOOL, which is why there are five | `internal/mcpserver/server.go` | `TestEveryMutatingToolIsRegisteredAsAWrite` (`writeauth_test.go:61`) fails the build if a mutating command hides inside a read tool |
-| README tool count + tool list | **change** — all five named; the count moves by five | `README.md` | `TestEveryCatalogToolIsNamedInTheReadme` (`catalog_test.go:429`) and `TestCatalogSizeIsWhatTheReadmeClaims` both fail the build otherwise |
+| README tool count + tool list | **change** — all five named; the count moves by five | `README.md` | `TestEveryCatalogToolIsNamedInTheReadme` (`catalog_test.go:430`) and `TestCatalogSizeIsWhatTheReadmeClaims` both fail the build otherwise |
 | Key namespace validation | **add** — first dotted segment required on `am_kv_write` and `am_kv_list` (property 6) | `internal/palace` | every caller; enforced server-side, not by convention |
 | `am_kv_read` on a missing key | **add** — errors, and an *unqualified* key errors naming the namespaces that hold it | `internal/mcpserver` | the fail-closed property this record rests on |
 | Byte-cap enforcement | **add** — refuse a write whose SERIALIZED form exceeds the cap (property 7) | `internal/palace` | the cap is bytes because `wholeMemoryBudget` is bytes |
@@ -363,7 +393,8 @@ last-N can be added later without an API change, because `history` is paged from
 - **`kg_supersede`** — ⚠ this entry is what the gap looked like before it was closed, and it is kept rather than deleted because the next reader will check it. The first draft called it "a real, separate gap … ADR-010 (Proposed) already covers the principle. Filed to `wing_agentmemories`/`inbox`." All three clauses have since gone false: `am_kg_supersede` landed in ADR-038 T4 — `KGSupersede` at `internal/palace/supersede.go:205`, registered at `internal/mcpserver/kg.go:126`, in one transaction with `reason` required — and ADR-010 is CLOSED, absorbed by ADR-038. The inbox item is stale and its atomic-verb half is closed; only the boundary-overlap half survives, in issue #47 (permanent: shipped in ADR-038 T4, and not this record's work)
 - **A shared guidance home for the KV commands** — ⚠ this was a dependency and **is now dissolved**, which is the clearest downstream effect of splitting the tool. The first review proposed MCP's `instructions` field as somewhere to put guidance for five commands sharing one description. With five tools there is no shared description to compensate for: each carries its own at the moment of its own call, which is this record's stated reason for rejecting a dispatcher in the first place. The related finding stands and belongs to its own record: ADR-040 establishes there is **no per-tool `instructions` field** in mcp-go v0.55.1 and rejects lengthening the server-level one at 1,143 bytes of a tested budget — `TestInstructionsStayShort`, `instructions_test.go:151`, where ADR-040 itself cites `:153` (permanent: five tools need no shared guidance channel)
 - **ADR-027's remaining open question** — a reference pointing at a non-parent chunk that a re-chunk deletes. It is *upstream* of this record's ADR-027 qualification above: both concern where ADR-027's authority ends now that ids are opaque, and the first review asked for them in one pass. ⚠ **Answered here only for the name-addressed half**: a `kv_entries` payload has no chunks, so re-chunking cannot strand a reference into one, and that half needs no new record. The drawer-side half — a KG fact naming a non-parent chunk id that a re-chunk removes — is untouched by this record and stays where ADR-038 filed it (deferred: `docs/adr/ADR-038-refer-by-the-id-and-end-instead-of-overwrite.md`)
-- **Deploying `am_bootstrap`/`am_entry_point`** — the hosted catalogue serves both, verified 2026-08-27 (permanent: already built, merged and deployed)
+- **THE ADDRESSING ARGUMENT THIS RECORD IS TITLED AFTER** — ⚠ removed from scope on 2026-08-30 by M's decision, and the reason has to be stated precisely because both easy summaries are false. It is **not solved by a shipped mechanism**: `am_entry_point` resolves exactly one label, `room:<wing>/llm_init` (`internal/palace/graphquery.go:471` and `:518`, via `DerivedEdgeSubject` at `internal/palace/kg.go:1076`), minted only by `attachDerivedEdge` when a drawer is filed into a room of that name. It is **also not unserved**: the hosted palace answers a chosen literal in three edges inline, through hand-authored facts in a `<wing>.root` convention that nothing in `main` mints or reads. That prototype demonstrates the shape and is not reproducible — the local palace returns `unknown_term` for both `am_entry_point` and the named node. ⚠ The hosted side is **not verifiable from this tree**: it was reported by a session working against that palace on 2026-08-30, and the live edge there states its own provenance as a hand-authored 2026-08-27 backfill. Deferred rather than permanent, because a working prototype outside the product is a reason to decide, not a reason to stop (deferred: `docs/adr/BACKLOG.md`)
+- **Deploying `am_bootstrap`/`am_entry_point`** — the hosted catalogue serves both, verified 2026-08-27. ⚠ **SERVED IS NOT POPULATED**, measured 2026-08-30: `am_entry_point("wing_agentmemories")` returns `unknown_term` on the local palace, because no drawer has ever been filed into a room named `llm_init` and that room name is the entry node's only source. The tools are deployed; the data they resolve is not a deployment question (permanent: already built, merged and deployed — the empty result is the Out of Scope entry above, not this one)
 
 ## Risks
 
