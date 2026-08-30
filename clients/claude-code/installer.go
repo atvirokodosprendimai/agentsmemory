@@ -218,9 +218,14 @@ type Installer struct {
 	agentBin       string   // resolved agent CLI name to drive for mcp/plugin ops
 	mcpURL         string   // agentsmemory remote MCP endpoint
 	socket         string   // non-empty ⇒ reach a --local server over this Unix socket, via the mcp-stdio bridge
-	serverBin      string   // agentsmemory server binary the stdio bridge is spawned from (socket mode only)
-	scope          string   // Claude MCP/plugin scope (user|local|project)
-	local          bool     // target a self-hosted `agentsmemory --local` server
+	// serverBin is the agentsmemory server binary the stdio bridge is spawned from.
+	// It is the SOURCE for placeServerBin, never the path that gets registered:
+	// every registration names the copy placed under targetDir/bin instead. (This
+	// comment said "socket mode only" until Claude Desktop began using it too, and
+	// went on saying it for the commit that made the change.)
+	serverBin string
+	scope     string // Claude MCP/plugin scope (user|local|project)
+	local     bool   // target a self-hosted `agentsmemory --local` server
 	// wing is the project this registration files memories into. It travels as a
 	// header on every MCP call, so writes from THIS project land in THIS project's
 	// wing whether or not the agent remembers to pass one. Empty keeps the old
@@ -849,6 +854,89 @@ func (i *Installer) writeFile(path string, data []byte, perm os.FileMode) error 
 	return os.WriteFile(path, data, perm)
 }
 
+// installedServerBinName is the filename the placed server binary takes inside a
+// kit's own config directory.
+const installedServerBinName = "aiagentmemory-server"
+
+// placeServerBin copies the resolved server binary into the kit's OWN config
+// directory and returns the path to write into the MCP registration.
+//
+// ⚠ THE REGISTRATION USED TO FREEZE WHEREVER THE BINARY HAPPENED TO BE. It
+// recorded the absolute path resolveServerBin found on $PATH at install time, and
+// nothing ever re-resolved it: not a later install, not an upgrade, not doctor.
+// Measured 2026-08-30 on the author's machine — Claude Desktop had been spawning a
+// FIVE-DAY-OLD binary from one directory while a current one sat on PATH in
+// another, and the only symptom was a server quietly serving old code. It was
+// found by listing processes, not by any check.
+//
+// Copying makes the path the installer's to own: every install refreshes it, so
+// the registration cannot drift from the binary the operator just built. The
+// absolute-path reasoning in resolveServerBin still holds and is unchanged — this
+// only decides WHICH absolute path, replacing "wherever it was that day" with
+// "the one this kit installs".
+//
+// ⚠ STAGE THEN RENAME, NEVER WRITE OVER THE LIVE PATH. Two failures meet here and
+// only an atomic swap avoids both. macOS caches an executable's code signature by
+// inode, so truncating a mapped binary in place leaves the next exec dying with
+// SIGKILL — and with a checksum identical to a copy that runs fine, which is why
+// it cost an afternoon to attribute. Measured 2026-08-30, twice. But the obvious
+// remedy, os.Remove followed by os.WriteFile, is worse than it looks: between
+// those two calls there is NO file at a path an agent config already points at,
+// so an interrupted or failing install leaves a registration aimed at nothing.
+// Review found it before it shipped. Renaming a staged file within the same
+// directory is atomic, gives the new file a fresh inode, and leaves the previous
+// binary untouched on any failure — the pattern replaceBinary already uses for
+// self-update, for the same reasons.
+func (i *Installer) placeServerBin() (string, error) {
+	dest := filepath.Join(i.targetDir, "bin", installedServerBinName)
+	if i.dryRun {
+		fmt.Fprintf(i.out, "  would install the server binary: %s → %s\n", i.serverBin, dest)
+		return dest, nil
+	}
+
+	// ⚠ NO SAME-PATH SHORTCUT. An earlier version returned early when
+	// filepath.Abs(i.serverBin) equalled dest, on the theory that re-installing an
+	// unchanged binary need not copy. But filepath.Abs is lexical — it resolves no
+	// symlinks — so the shortcut also accepted a symlink, a non-executable file, or
+	// nothing at all sitting at the canonical path, and returned it as though this
+	// install owned it. Copying unconditionally is cheap on an install path and is
+	// the only version that makes the ownership claim true. Review found this.
+	data, err := os.ReadFile(i.serverBin)
+	if err != nil {
+		return "", fmt.Errorf("read the server binary %s: %w", i.serverBin, err)
+	}
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		return "", err
+	}
+
+	// Stage beside the destination so the rename below stays within one filesystem;
+	// os.Rename across devices fails, and a temp dir may well be on another.
+	tmp, err := os.CreateTemp(filepath.Dir(dest), ".aiagentmemory-server-*")
+	if err != nil {
+		return "", fmt.Errorf("stage the server binary next to %s: %w", dest, err)
+	}
+	staged := tmp.Name()
+	defer os.Remove(staged) // a no-op once the rename has consumed it
+
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return "", fmt.Errorf("write the staged server binary: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return "", fmt.Errorf("close the staged server binary: %w", err)
+	}
+	// Chmod explicitly rather than trusting CreateTemp's 0600-and-umask: the file
+	// must be executable, and an unusual umask must not be able to decide otherwise.
+	if err := os.Chmod(staged, 0o755); err != nil {
+		return "", fmt.Errorf("make the staged server binary executable: %w", err)
+	}
+	if err := os.Rename(staged, dest); err != nil {
+		return "", fmt.Errorf("install the server binary to %s: %w", dest, err)
+	}
+	i.ok("installed server binary → %s", dest)
+	return dest, nil
+}
+
 // registerStopHook adds the Stop hook idempotently: Claude's JSON registration
 // is merged into settings.json, while Codex's native TOML registration is one
 // marked block in config.toml. Both hand the script a Stop event carrying
@@ -1283,14 +1371,22 @@ func (i *Installer) registerSocketMCP() error {
 		return fmt.Errorf("--socket is not supported for pi (its bridge extension connects over HTTP): run the server on --addr and install pi with --mcp-url")
 	}
 
+	// The registration names the binary this install PLACED, for the same reason
+	// the Desktop one does — see placeServerBin. Socket mode froze a PATH lookup
+	// into the agent's config exactly like Desktop did, and a rebuild elsewhere
+	// left the bridge spawning a stale server with nothing able to say so.
+	placed, err := i.placeServerBin()
+	if err != nil {
+		return err
+	}
 	argv := []string{"mcp-stdio", "--socket", i.socket}
 	if i.wing != "" {
 		argv = append(argv, "--wing", i.wing)
 	}
-	if err := i.addStdioMCP(mcpName, i.serverBin, argv...); err != nil {
+	if err := i.addStdioMCP(mcpName, placed, argv...); err != nil {
 		return err
 	}
-	i.ok("registered MCP %q → %s (stdio bridge to %s)", mcpName, i.socket, i.serverBin)
+	i.ok("registered MCP %q → %s (stdio bridge to %s)", mcpName, i.socket, placed)
 	return nil
 }
 
@@ -1510,6 +1606,12 @@ func (i *Installer) registerClaudeDesktopMCP(token string) error {
 			"(go build -o ~/.local/bin/aiagentmemory-server ./cmd/server) or pass --server-bin "+
 			"<path>. A Docker-only install produces no host binary", i.kit.name)
 	}
+	// The registration names the binary this install PLACED, not whatever was on
+	// PATH when someone last ran it — see placeServerBin.
+	placed, err := i.placeServerBin()
+	if err != nil {
+		return err
+	}
 	path := filepath.Join(i.targetDir, i.kit.mcpConfigFile)
 	args := []any{"mcp-stdio", "--url", i.mcpURL}
 	if i.wing != "" {
@@ -1518,10 +1620,10 @@ func (i *Installer) registerClaudeDesktopMCP(token string) error {
 	if token != "" {
 		args = append(args, "--token", token)
 	}
-	entry := map[string]any{"command": i.serverBin, "args": args}
+	entry := map[string]any{"command": placed, "args": args}
 	if i.dryRun {
 		fmt.Fprintf(i.out, "  would register the agentsmemory MCP in %s → %s mcp-stdio --url %s\n",
-			path, i.serverBin, i.mcpURL)
+			path, placed, i.mcpURL)
 		return nil
 	}
 	changed, err := ensureMCPServer(path, mcpName, entry)
@@ -1529,7 +1631,7 @@ func (i *Installer) registerClaudeDesktopMCP(token string) error {
 		return err
 	}
 	if changed {
-		i.ok("registered MCP %q in %s → %s mcp-stdio", mcpName, i.kit.mcpConfigFile, i.serverBin)
+		i.ok("registered MCP %q in %s → %s mcp-stdio", mcpName, i.kit.mcpConfigFile, placed)
 	} else {
 		i.ok("MCP %q already registered in %s", mcpName, i.kit.mcpConfigFile)
 	}

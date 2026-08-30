@@ -32,9 +32,14 @@ func newSocketInstaller(t *testing.T, kit agentKit, socket, serverBin string) (*
 // TestRegisterSocketMCPClaude pins the exact command Claude is given. The server
 // arguments must land after the `--` separator, or the agent CLI would try to
 // parse --socket as one of its own flags.
+//
+// ⚠ THE BINARY IS THE PLACED COPY, not whatever --server-bin resolved to. Socket
+// mode used to freeze a PATH lookup into the agent's config, so a rebuild
+// elsewhere left the bridge spawning a stale server and nothing could say so.
 func TestRegisterSocketMCPClaude(t *testing.T) {
-	inst, rr := newSocketInstaller(t, claudeKit, "/tmp/am.sock", "/opt/bin/agentsmemory")
+	inst, rr := newSocketInstaller(t, claudeKit, "/tmp/am.sock", fakeBuiltServerBin(t))
 	inst.wing = "wing_acme"
+	placed := filepath.Join(inst.targetDir, "bin", installedServerBinName)
 
 	if err := inst.registerSocketMCP(); err != nil {
 		t.Fatalf("registerSocketMCP: %v", err)
@@ -42,7 +47,7 @@ func TestRegisterSocketMCPClaude(t *testing.T) {
 
 	want := []string{
 		"mcp remove --scope user agentsmemory",
-		"mcp add --transport stdio --scope user agentsmemory -- /opt/bin/agentsmemory mcp-stdio --socket /tmp/am.sock --wing wing_acme",
+		"mcp add --transport stdio --scope user agentsmemory -- " + placed + " mcp-stdio --socket /tmp/am.sock --wing wing_acme",
 	}
 	if got := renderAll(rr.calls); !equalStrings(got, want) {
 		t.Errorf("command sequence mismatch\n got: %v\nwant: %v", got, want)
@@ -52,8 +57,9 @@ func TestRegisterSocketMCPClaude(t *testing.T) {
 // TestRegisterSocketMCPCodex covers the other spelling: codex infers stdio from a
 // trailing command and takes no --scope.
 func TestRegisterSocketMCPCodex(t *testing.T) {
-	inst, rr := newSocketInstaller(t, codexKit, "/tmp/am.sock", "/opt/bin/agentsmemory")
+	inst, rr := newSocketInstaller(t, codexKit, "/tmp/am.sock", fakeBuiltServerBin(t))
 	inst.wing = "wing_acme"
+	placed := filepath.Join(inst.targetDir, "bin", installedServerBinName)
 
 	if err := inst.registerSocketMCP(); err != nil {
 		t.Fatalf("registerSocketMCP: %v", err)
@@ -61,7 +67,7 @@ func TestRegisterSocketMCPCodex(t *testing.T) {
 
 	want := []string{
 		"mcp remove agentsmemory",
-		"mcp add agentsmemory -- /opt/bin/agentsmemory mcp-stdio --socket /tmp/am.sock --wing wing_acme",
+		"mcp add agentsmemory -- " + placed + " mcp-stdio --socket /tmp/am.sock --wing wing_acme",
 	}
 	if got := renderAll(rr.calls); !equalStrings(got, want) {
 		t.Errorf("command sequence mismatch\n got: %v\nwant: %v", got, want)
@@ -72,7 +78,7 @@ func TestRegisterSocketMCPCodex(t *testing.T) {
 // is stored in plain config and visible in `ps`, so a token must never appear in
 // it.
 func TestRegisterSocketMCPNoToken(t *testing.T) {
-	inst, rr := newSocketInstaller(t, claudeKit, "/tmp/am.sock", "/opt/bin/agentsmemory")
+	inst, rr := newSocketInstaller(t, claudeKit, "/tmp/am.sock", fakeBuiltServerBin(t))
 	inst.token = "SECRET-TOKEN"
 
 	if err := inst.registerSocketMCP(); err != nil {
