@@ -35,6 +35,29 @@ type CapLookup interface {
 	MonthlyCap(ctx context.Context, teamID string) (int, error)
 }
 
+// FixedCap is a CapLookup that answers the same cap for every workspace,
+// ignoring plans entirely.
+//
+// It is what makes the cap configurable for a self-hosted install. The plan-derived
+// cap prices a hosted service; a server running on someone's own machine has no
+// billing relationship to price, and before this the only way to lift the seeded
+// Free plan's 10,000/month was the `set-plan` superadmin CLI, per workspace.
+//
+// Deliberately a decorator rather than a branch inside Service: enforcement then
+// has exactly one shape — ask the CapLookup — and the choice of policy is made
+// once, at wiring time, where an operator's configuration is already being read.
+// A branch inside Allow would have to be repeated in Snapshot, and the two
+// disagreeing is how a dashboard comes to show a limit that is not enforced.
+//
+// A negative value means unlimited, matching what Service already does with any
+// cap <= 0 and what the Unlimited plan row carries.
+type FixedCap int
+
+// MonthlyCap returns the fixed cap. The context and workspace are ignored by
+// construction: this is a process-wide deployment policy, and consulting the
+// workspace here would make it something else.
+func (c FixedCap) MonthlyCap(context.Context, string) (int, error) { return int(c), nil }
+
 // Repo persists the counters.
 type Repo struct{ db *gorm.DB }
 

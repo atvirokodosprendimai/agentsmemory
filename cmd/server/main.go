@@ -161,6 +161,7 @@ func configFromCmd(c *cli.Command, def config.Config) config.Config {
 		RerankTimeout:          c.Duration("rerank-timeout"),
 		HTTPTimeout:            c.Duration("http-timeout"),
 		OTELEndpoint:           strings.TrimSpace(c.String("otel-endpoint")),
+		MonthlyRequestCap:      c.Int("monthly-request-cap"),
 		Debug:                  c.Bool("debug"),
 		Local:                  c.Bool("local"),
 		// Trimmed because the presented credential is: auth.bearerToken strips the
@@ -220,6 +221,7 @@ func dataFlags(def config.Config) []cli.Flag {
 		&cli.FloatFlag{Name: "rerank-weight", Sources: cli.EnvVars("RERANK_WEIGHT"), Value: def.RerankWeight, Usage: "how much the cross-encoder decides the order, 0..1 (1 = it overrides the hybrid score entirely)"},
 		&cli.StringFlag{Name: "rerank-norm", Sources: cli.EnvVars("RERANK_NORM"), Value: def.RerankNorm, Usage: "how a raw cross-encoder score is scaled before blending: sigmoid (preserves confidence; the default), minmax (the original — scale-free, and on a small pool at weight 0.5 it ties and discards the cross-encoder), or rank (position only)"},
 		&cli.DurationFlag{Name: "rerank-timeout", Sources: cli.EnvVars("RERANK_TIMEOUT"), Value: def.RerankTimeout, Usage: "budget for a rerank call; it does real inference, unlike the other outbound calls"},
+		&cli.IntFlag{Name: "monthly-request-cap", Sources: cli.EnvVars("AGENTSMEMORY_MONTHLY_REQUEST_CAP"), Value: def.MonthlyRequestCap, Usage: "override the monthly metered-request cap for EVERY workspace this process serves: 0 (default) leaves the workspace's plan deciding, a positive number caps every workspace there, and a negative number uncaps them. For a self-hosted install with no billing, where the seeded Free plan's 10000/month prices a service nobody is selling"},
 		&cli.BoolFlag{Name: "debug", Sources: cli.EnvVars("APP_DEBUG"), Value: def.Debug, Usage: "verbose logging: per-request HTTP access logs + gorm SQL"},
 	}
 }
@@ -1062,7 +1064,7 @@ func buildServicesWith(cfg config.Config, prepare bool) (*services, error) {
 	tenants := tenant.NewRepo(gdb, tenant.WithTokenSecret(tokenSecret()))
 	skills := skill.NewService(skill.NewRepo(gdb))
 	skillsets := skillset.NewService(skillset.NewRepo(gdb))
-	usageSvc := usage.NewService(usage.NewRepo(gdb), tenants)
+	usageSvc := usage.NewService(usage.NewRepo(gdb), capLookupFor(cfg, tenants))
 
 	// Vector storage: SQLite is always the source of truth; cfg.VectorBackend
 	// selects whether it also serves search or Qdrant indexes it.
@@ -1141,6 +1143,25 @@ func buildEmbedder(cfg config.Config) (palace.Embedder, error) {
 
 func buildVectorStore(cfg config.Config, gdb *gorm.DB) (store.VectorStore, error) {
 	return buildVectorStoreWith(cfg, gdb, true)
+}
+
+// capLookupFor decides what prices a workspace's monthly request cap: the
+// workspace's own plan, or one process-wide override an operator configured.
+//
+// It is a named function rather than three lines at the call site so the choice
+// is testable without a database — the call site opens one — and so this repo's
+// reachability rule has something to pin: a test that asserts the override is
+// consulted must fail when the wiring goes, and it cannot see an inline branch
+// inside buildServicesWith.
+//
+// The zero value returns the plan lookup unchanged, which is what keeps an
+// operator who configures nothing on exactly today's behaviour rather than on a
+// new default nobody chose.
+func capLookupFor(cfg config.Config, plans usage.CapLookup) usage.CapLookup {
+	if cfg.MonthlyRequestCap == 0 {
+		return plans
+	}
+	return usage.FixedCap(cfg.MonthlyRequestCap)
 }
 
 // buildVectorStoreWith is buildVectorStore with preparation made optional for
