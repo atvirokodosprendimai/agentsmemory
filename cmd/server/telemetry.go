@@ -2,8 +2,13 @@
 // every command through it.
 //
 // Issue #53: --otel-endpoint is declared in dataFlags, so it appears in the help
-// of a dozen commands, while telemetry.Setup was called from run() and runEval()
-// only. On every other command the flag parsed, landed in cfg.OTELEndpoint, and
+// of every command carrying those flags, while telemetry.Setup was called from
+// run() and runEval() only. (No count is written here on purpose — an earlier
+// draft of this comment and of AGENTS.md both froze one, and review of PR #138
+// found the AGENTS.md figure already stale in the section that bans frozen
+// counts. TestEveryActionInTheCommandTreeIsWrapped names the live set when it
+// fails.)
+// On every other command the flag parsed, landed in cfg.OTELEndpoint, and
 // no TracerProvider or MeterProvider was installed — so every span became a
 // nonRecordingSpan and nothing was recorded or exported, with no signal that the
 // flag had been seen. `agentsmemory mcp` was the worst one to lose: it runs the
@@ -23,12 +28,30 @@ package main
 import (
 	"context"
 	"log"
+	"time"
 
 	"github.com/atvirokodosprendimai/agentsmemory/internal/config"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/telemetry"
 
 	"github.com/urfave/cli/v3"
 )
+
+// telemetryFlushTimeout bounds how long a finished command will wait for its
+// spans to reach the collector before giving up and exiting.
+//
+// The number is chosen against what it is protecting, not against a round
+// figure. The OTLP path batches on a 2s timer, so the flush this bounds is
+// normally one export of one batch — sub-second against a healthy collector, and
+// five seconds is generous for it. What it must not do is inherit OTel's own
+// default: the metric and trace providers shut down one after the other, each
+// with a 30s export timeout, so an unbounded flush against a collector that
+// accepts a connection and then stalls costs a minute on a command that has
+// already done its work and printed its answer.
+//
+// It is deliberately NOT configurable. A knob here would be one more setting an
+// operator can set to something that reintroduces the hang, and this repository's
+// own defect list is what unread and half-wired knobs cost.
+const telemetryFlushTimeout = 5 * time.Second
 
 // withTelemetry returns action with an OpenTelemetry provider installed for its
 // whole run and flushed afterwards, so any span the command creates is exported
@@ -61,7 +84,31 @@ func withTelemetry(def config.Config, action cli.ActionFunc) cli.ActionFunc {
 		// Flush before the process exits. The OTLP path batches on a 2s timer, so
 		// a short-lived subcommand that returned straight to main would drop its
 		// spans on the floor — which is indistinguishable from the bug above.
-		defer func() { _ = shutdown(context.Background()) }()
+		//
+		// ⚠ BOUNDED, and from Background rather than from ctx. Two separate
+		// reasons, and dropping either one reintroduces a hang:
+		//
+		// Bounded, because telemetry.Setup's shutdown closes the metric and trace
+		// providers SEQUENTIALLY and each honours the context it is given — so an
+		// unbounded one lets a syntactically valid but unresponsive collector hold
+		// a short-lived command for two OTel export timeouts back to back. Review
+		// of PR #138 caught this: it was already true when two commands installed
+		// providers, and this PR is what put it on every command in the tree.
+		//
+		// From Background, because a flush must still run when the action's own
+		// context is already dead — which is the ordinary case the moment anything
+		// cancels ctx. Deriving the flush deadline from a cancelled parent expires
+		// it instantly and drops exactly the spans this defer exists to save.
+		defer func() {
+			ctx, cancel := context.WithTimeout(context.Background(), telemetryFlushTimeout)
+			defer cancel()
+			if err := shutdown(ctx); err != nil {
+				// ADR-025 again: a flush that could not complete is
+				// instrument-health. Say so and let the command's own exit
+				// status stand.
+				log.Printf("otel: flush failed (%v) — some spans were not exported", err)
+			}
+		}()
 		if endpoint != "" {
 			log.Printf("otel: exporting traces to %s", endpoint)
 		}
