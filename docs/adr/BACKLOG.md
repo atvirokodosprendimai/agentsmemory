@@ -3213,3 +3213,27 @@ one, make its condition true and watch the exit code.
   unreachable in practice and therefore a comment rather than a fix. **Trigger: before adding any
   second caller of the reassembly path, or the first entry record that reads with a duplicated
   passage.**
+
+## From ADR-045 (retire the reinforcement fields nothing writes)
+
+Receipts for that record's two deferrals, written with it rather than after it, so `adr-debt` finds
+the destination knows about them.
+
+- **The four dynamics columns on `hallways` and `tunnels` are still there.** ADR-045 removed
+  `strength`, `stability`, `last_activated` and `access_count` from the wire only. The columns keep
+  their `NOT NULL` defaults, and `palace.Dynamics` keeps its json tags, because
+  `internal/palace/hallway.go` still reads `LastActivated` as a fallback input to `earliestStamp`
+  when preserving a hallway's `created_at` across a rebuild — the #38 stamp repair. Dropping the
+  columns needs a migration with no path back for the data, and buys nothing until something either
+  revives a verified-access signal or confirms nothing will. **Decide it then, not before.** Note the
+  asymmetry that makes this safe to leave: storage that nobody reads costs bytes, whereas the wire
+  fields cost a reader a wrong belief, which is why only one half was urgent.
+
+- **Entity extraction quality — issue #41's second half — is untouched and still needs a
+  measurement.** `internal/palace/entity.go` harvests capitalised Go identifiers through a general
+  proper-noun regex, which is why the wings holding pasted source produce hallways by the thousand
+  and the prose wings produce none. The obvious narrowing is already known to be wrong: `GitHub`,
+  `PostgreSQL`, `API` and `Handler` are the same lexical shape, and ADR-016's T1 measurement
+  overturned an ALL-CAPS exclusion once already because it would have killed `HTTP`, `MCP`, `ADR`,
+  `TEI` and `RRF`. So this wants a preregistered measurement over the real corpus before any
+  heuristic ships — the same discipline ADR-014 applies to a ranking default.

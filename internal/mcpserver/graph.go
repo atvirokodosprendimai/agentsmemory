@@ -31,19 +31,22 @@ type endpointView struct {
 	DrawerID string `json:"drawer_id,omitempty"`
 }
 
-// tunnelView is a tunnel's JSON shape, flattening the L7 dynamics fields.
+// tunnelView is a tunnel's JSON shape.
+//
+// It deliberately carries none of palace.Dynamics. ADR-045 retired strength,
+// stability, last_activated and access_count from this surface: initDynamics
+// stamps them once and nothing in the tree writes them again, so publishing them
+// advertised a reinforcement layer the server does not implement. The owner's
+// 2026-08-28 ruling rejects wiring one up, so this view stays a subset of the
+// domain type rather than a mirror of it — which is why the view exists at all.
 type tunnelView struct {
-	ID            string       `json:"id"`
-	Source        endpointView `json:"source"`
-	Target        endpointView `json:"target"`
-	Label         string       `json:"label"`
-	Kind          string       `json:"kind"`
-	CreatedAt     string       `json:"created_at"`
-	UpdatedAt     string       `json:"updated_at,omitempty"`
-	Strength      float64      `json:"strength"`
-	Stability     float64      `json:"stability"`
-	LastActivated string       `json:"last_activated,omitempty"`
-	AccessCount   int          `json:"access_count"`
+	ID        string       `json:"id"`
+	Source    endpointView `json:"source"`
+	Target    endpointView `json:"target"`
+	Label     string       `json:"label"`
+	Kind      string       `json:"kind"`
+	CreatedAt string       `json:"created_at"`
+	UpdatedAt string       `json:"updated_at,omitempty"`
 }
 
 func toTunnelView(t palace.Tunnel) tunnelView {
@@ -52,25 +55,27 @@ func toTunnelView(t palace.Tunnel) tunnelView {
 		Source: endpointView{Wing: t.Source.Wing, Room: t.Source.Room, DrawerID: t.Source.DrawerID},
 		Target: endpointView{Wing: t.Target.Wing, Room: t.Target.Room, DrawerID: t.Target.DrawerID},
 		Label:  t.Label, Kind: string(t.Kind), CreatedAt: t.CreatedAt, UpdatedAt: t.UpdatedAt,
-		Strength: t.Strength, Stability: t.Stability, LastActivated: t.LastActivated, AccessCount: t.AccessCount,
 	}
 }
 
-// hallwayView is a hallway's JSON shape, flattening the L7 dynamics fields.
+// hallwayView is a hallway's JSON shape.
+//
+// Like tunnelView it carries none of palace.Dynamics, per ADR-045. The measurement
+// behind that: access_count > 0 held for 0 of 1,338 hallways on 2026-08-25, because
+// initDynamics is the only writer in the tree — a fact internal/palace/hallway.go
+// already records in prose. CreatedAt survives and LastActivated does not, which is
+// the right way round: the hallway stamp repair still reads LastActivated
+// internally, it is simply not a number a caller can learn anything from.
 type hallwayView struct {
-	ID            string   `json:"id"`
-	Wing          string   `json:"wing"`
-	EntityA       string   `json:"entity_a"`
-	EntityB       string   `json:"entity_b"`
-	CoOccurrence  int      `json:"co_occurrence_count"`
-	Rooms         []string `json:"rooms"`
-	Label         string   `json:"label"`
-	CreatedAt     string   `json:"created_at"`
-	CreatedBy     string   `json:"created_by"`
-	Strength      float64  `json:"strength"`
-	Stability     float64  `json:"stability"`
-	LastActivated string   `json:"last_activated,omitempty"`
-	AccessCount   int      `json:"access_count"`
+	ID           string   `json:"id"`
+	Wing         string   `json:"wing"`
+	EntityA      string   `json:"entity_a"`
+	EntityB      string   `json:"entity_b"`
+	CoOccurrence int      `json:"co_occurrence_count"`
+	Rooms        []string `json:"rooms"`
+	Label        string   `json:"label"`
+	CreatedAt    string   `json:"created_at"`
+	CreatedBy    string   `json:"created_by"`
 }
 
 func toHallwayView(h palace.Hallway) hallwayView {
@@ -78,7 +83,6 @@ func toHallwayView(h palace.Hallway) hallwayView {
 		ID: h.ID, Wing: h.Wing, EntityA: h.EntityA, EntityB: h.EntityB,
 		CoOccurrence: h.CoOccurrence, Rooms: h.Rooms, Label: h.Label,
 		CreatedAt: h.CreatedAt, CreatedBy: h.CreatedBy,
-		Strength: h.Strength, Stability: h.Stability, LastActivated: h.LastActivated, AccessCount: h.AccessCount,
 	}
 }
 
