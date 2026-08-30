@@ -3047,10 +3047,75 @@ also runs `apk add`, `go vet`, a second `grep` against `internal/web/windows-gui
 established is that the row deserves the second look the other 195 do not, and that nobody has given
 it one.
 
-**Cheap resolution, not yet run:** re-run that mutation and see which code it takes now. ADR-021 T3
-is still pending on its human-observed half, so the task is live rather than archived.
+**RUN, 2026-08-30 at `0ebdad2`: the kill path exits 1.** Applied the mutation this row describes —
+typoed both `--agent claude-desktop` occurrences in `README.md` — and ran T3's Acceptance fence
+verbatim, tree clean before and after:
+
+```
+FENCE_EXIT=1
+installer_test.go:1880: README.md never shows `--agent claude-desktop`, so a reader cannot tell the kit installs for it
+--- FAIL: TestReadmeNamesEveryInstallableAgent (0.00s)
+```
+
+It fails exactly where this entry predicted, at the `grep -q -- "--- PASS: …"` line. The recorded
+`exit 2` is now measurably inconsistent with the path this fence takes when it kills. **Still not
+established that the row is false** — the tree was dirty at `8c3167d*`, and the reproduction rules
+out the detection path, not every other command in the fence. ADR-021 T3 is still pending on its
+human-observed half, so the task is live rather than archived.
 
 **The general rule, worth more than this row:** a fence's detection path has a KNOWN exit code, and
 an entry whose code differs took a different path. `exit 127` is the signature to grep for first;
 `exit 2` from a gate is the one that needs reading rather than grepping.
 
+## `! grep …` cannot fail a `set -e` fence, and 50 of our vacuity guards are written that way — 2026-08-30
+
+Found while reading the fence above. POSIX specifies that `set -e` is IGNORED for a command whose
+exit status is inverted with `!`. So the guard every fence here writes to mean *"the output must not
+contain a failure marker"* fires and the script carries straight on:
+
+```
+$ printf 'FAIL\n' > /tmp/x.out
+$ sh   -c 'set -e; ! grep -q FAIL /tmp/x.out; echo REACHED; exit 7'   -> REACHED, rc=7
+$ bash -c 'set -e; ! grep -q FAIL /tmp/x.out; echo REACHED; exit 7'   -> REACHED, rc=7
+$ sh   -c 'set -e;   grep -q NOPE /tmp/x.out; echo REACHED; exit 7'   -> rc=1   (control)
+```
+
+Both shells. The `! grep … && next` form is inert for the same reason — the `&&` short-circuits and
+the script continues.
+
+**Two forms, and only one is broken.** Swept `docs/adr/**/*.md` by fence block:
+
+| | count |
+|---|---|
+| guards inside an `&&` chain with no `set -e` (short-circuits — **works**) | 5 |
+| guards inside a `set -e` script (**inert**) | 50 |
+| inert **and** the only detector in that block | **0** |
+
+⚠ **NOTHING IS BROKEN TODAY, and that is the finding's actual shape rather than a softening of it.**
+Every one of the 50 sits beside a POSITIVE assertion — `grep -q -- "--- PASS: …"` or
+`grep -q "^ok"` — and a lane that scored no tests prints neither, so the positive check already
+catches the vacuous case the negated one was written for. The `! grep` line is redundant, not
+load-bearing. That redundancy is precisely why its inertness never produced a failure anyone
+investigated.
+
+It is a **latent hazard, not a live defect**: it READS like the vacuity check, and the first fence
+written or edited without the positive assertion beside it loses the vacuity check silently. The
+un-negated form costs nothing:
+
+```bash
+if grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/out; then exit 1; fi
+```
+
+**Why this is the same finding as the classifier one, from the other side.** PR #117 records that
+`adr-verify` cannot tell a fence that scored no tests and PASSED (vacuous — inconclusive is right)
+from one that scored no tests and FAILED BECAUSE IT DETECTED THAT (a kill). This is the guard that
+was supposed to produce the second case, unable to produce it at all inside `set -e`. Reported to
+the quality-harness session 2026-08-30.
+
+**Not gated.** A check would have to parse a fence block, tell a `set -e` script from an `&&` chain,
+and decide whether a positive assertion covers the same lane — and with zero live offenders it would
+be a gate against a hypothesis. Recorded here so the next fence author reaches for the `if` form; a
+gate earns its place the day an offender exists.
+
+**The general rule:** a guard that has never fired is not evidence that it works. Before trusting
+one, make its condition true and watch the exit code.
