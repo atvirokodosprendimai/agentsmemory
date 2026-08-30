@@ -83,6 +83,82 @@ func doctorCommand() *cli.Command {
 	}
 }
 
+// binVerdict is what `doctor` concluded about a stdio bridge's recorded binary.
+type binVerdict struct {
+	kit      string
+	recorded string // the path written into the agent's MCP config
+	onPath   string // what resolveServerBin finds today, if anything
+	label    string // ok | MISSING | STALE-PATH | NOT-EXECUTABLE
+	detail   string
+	bad      bool
+}
+
+// judgeServerBin checks the binary an agent's MCP config actually spawns.
+//
+// ⚠ THE RECORDED PATH IS FROZEN AT INSTALL TIME AND NOTHING RE-RESOLVES IT. A
+// stdio registration stores an absolute path — correctly, because the agent
+// launches it from a working directory and PATH that need not match the
+// installer's — but "correct at the time" becomes "silently stale" the moment the
+// operator builds a newer binary somewhere else. Measured 2026-08-30: Claude
+// Desktop had been spawning a five-day-old server from one directory while a
+// current one sat on PATH in another. It connected fine and served old code, and
+// the only way it was found was listing processes.
+//
+// Three states are reported, and only the first two are failures the operator can
+// act on. STALE-PATH is deliberately NOT fatal on its own: an operator may have
+// pointed a kit at a deliberate build, and a check that fails on a legitimate
+// choice is one that gets switched off.
+func judgeServerBin(kit agentKit, targetDir string) *binVerdict {
+	if !kitNeedsServerBin(kit) {
+		return nil // this kit hands over a URL; there is no binary to drift
+	}
+	path := filepath.Join(targetDir, kit.mcpConfigFile)
+	recorded, err := recordedMCPCommand(path)
+	if err != nil || recorded == "" {
+		return nil // no registration to judge; the hook report covers the rest
+	}
+
+	v := &binVerdict{kit: kit.name, recorded: recorded, label: "ok"}
+	if onPath, err := resolveServerBin("", false); err == nil {
+		v.onPath = onPath
+	}
+
+	info, err := os.Stat(recorded)
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		v.label, v.bad = "MISSING", true
+		v.detail = "the registration names a binary that does not exist; the MCP will never connect"
+	case err != nil:
+		v.label, v.bad = "MISSING", true
+		v.detail = err.Error()
+	case info.Mode()&0o111 == 0:
+		v.label, v.bad = "NOT-EXECUTABLE", true
+		v.detail = "the registration names a file that cannot be executed"
+	case v.onPath != "" && v.onPath != recorded:
+		v.label = "STALE-PATH"
+		v.detail = "a different binary is on PATH at " + v.onPath +
+			" — the registration is frozen at install time and this one may be older"
+	}
+	return v
+}
+
+// recordedMCPCommand reads the `command` an agent's MCP config spawns for us.
+func recordedMCPCommand(path string) (string, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	var cfg struct {
+		MCPServers map[string]struct {
+			Command string `json:"command"`
+		} `json:"mcpServers"`
+	}
+	if err := json.Unmarshal(raw, &cfg); err != nil {
+		return "", err
+	}
+	return cfg.MCPServers[mcpName].Command, nil
+}
+
 // hookVerdict is what `doctor` concluded about one installed hook.
 type hookVerdict struct {
 	name   string
@@ -193,6 +269,19 @@ func runHookDoctor(ctx context.Context, c *cli.Command, out io.Writer) error {
 			}
 		}
 	}
+	// The binary the bridge spawns, for kits that spawn one. Reported beside the
+	// hooks because it is the same question one layer down: is the thing that was
+	// installed the thing that runs.
+	if bv := judgeServerBin(kit, dir); bv != nil {
+		if bv.bad {
+			bad++
+		}
+		fmt.Fprintf(out, "  %-38s %-14s %-12s %s\n", "mcp bridge binary", bv.kit, bv.label, bv.recorded)
+		if bv.detail != "" {
+			fmt.Fprintf(out, "      | %s\n", bv.detail)
+		}
+	}
+
 	fmt.Fprintln(out)
 
 	if bad > 0 {

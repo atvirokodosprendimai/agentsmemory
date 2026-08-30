@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"io"
 	"net/url"
@@ -849,6 +850,61 @@ func (i *Installer) writeFile(path string, data []byte, perm os.FileMode) error 
 	return os.WriteFile(path, data, perm)
 }
 
+// installedServerBinName is the filename the placed server binary takes inside a
+// kit's own config directory.
+const installedServerBinName = "aiagentmemory-server"
+
+// placeServerBin copies the resolved server binary into the kit's OWN config
+// directory and returns the path to write into the MCP registration.
+//
+// ⚠ THE REGISTRATION USED TO FREEZE WHEREVER THE BINARY HAPPENED TO BE. It
+// recorded the absolute path resolveServerBin found on $PATH at install time, and
+// nothing ever re-resolved it: not a later install, not an upgrade, not doctor.
+// Measured 2026-08-30 on the author's machine — Claude Desktop had been spawning a
+// FIVE-DAY-OLD binary from one directory while a current one sat on PATH in
+// another, and the only symptom was a server quietly serving old code. It was
+// found by listing processes, not by any check.
+//
+// Copying makes the path the installer's to own: every install refreshes it, so
+// the registration cannot drift from the binary the operator just built. The
+// absolute-path reasoning in resolveServerBin still holds and is unchanged — this
+// only decides WHICH absolute path, replacing "wherever it was that day" with
+// "the one this kit installs".
+//
+// ⚠ REMOVE BEFORE WRITE, NOT TRUNCATE-IN-PLACE. macOS caches an executable's code
+// signature by inode: overwriting a mapped binary leaves the next exec dying with
+// SIGKILL and a byte-identical checksum to a copy that runs fine. Measured the
+// same day, twice. os.Remove first gives the new file a fresh inode.
+func (i *Installer) placeServerBin() (string, error) {
+	dest := filepath.Join(i.targetDir, "bin", installedServerBinName)
+
+	// Already the canonical copy — a re-install of an unchanged binary.
+	if abs, err := filepath.Abs(i.serverBin); err == nil && abs == dest {
+		return dest, nil
+	}
+	if i.dryRun {
+		fmt.Fprintf(i.out, "  would install the server binary: %s → %s\n", i.serverBin, dest)
+		return dest, nil
+	}
+
+	data, err := os.ReadFile(i.serverBin)
+	if err != nil {
+		return "", fmt.Errorf("read the server binary %s: %w", i.serverBin, err)
+	}
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		return "", err
+	}
+	// Ignore a missing file; the point is that no OLD inode survives.
+	if err := os.Remove(dest); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return "", fmt.Errorf("replace the installed server binary: %w", err)
+	}
+	if err := os.WriteFile(dest, data, 0o755); err != nil {
+		return "", fmt.Errorf("install the server binary to %s: %w", dest, err)
+	}
+	i.ok("installed server binary → %s", dest)
+	return dest, nil
+}
+
 // registerStopHook adds the Stop hook idempotently: Claude's JSON registration
 // is merged into settings.json, while Codex's native TOML registration is one
 // marked block in config.toml. Both hand the script a Stop event carrying
@@ -1510,6 +1566,12 @@ func (i *Installer) registerClaudeDesktopMCP(token string) error {
 			"(go build -o ~/.local/bin/aiagentmemory-server ./cmd/server) or pass --server-bin "+
 			"<path>. A Docker-only install produces no host binary", i.kit.name)
 	}
+	// The registration names the binary this install PLACED, not whatever was on
+	// PATH when someone last ran it — see placeServerBin.
+	placed, err := i.placeServerBin()
+	if err != nil {
+		return err
+	}
 	path := filepath.Join(i.targetDir, i.kit.mcpConfigFile)
 	args := []any{"mcp-stdio", "--url", i.mcpURL}
 	if i.wing != "" {
@@ -1518,10 +1580,10 @@ func (i *Installer) registerClaudeDesktopMCP(token string) error {
 	if token != "" {
 		args = append(args, "--token", token)
 	}
-	entry := map[string]any{"command": i.serverBin, "args": args}
+	entry := map[string]any{"command": placed, "args": args}
 	if i.dryRun {
 		fmt.Fprintf(i.out, "  would register the agentsmemory MCP in %s → %s mcp-stdio --url %s\n",
-			path, i.serverBin, i.mcpURL)
+			path, placed, i.mcpURL)
 		return nil
 	}
 	changed, err := ensureMCPServer(path, mcpName, entry)
@@ -1529,7 +1591,7 @@ func (i *Installer) registerClaudeDesktopMCP(token string) error {
 		return err
 	}
 	if changed {
-		i.ok("registered MCP %q in %s → %s mcp-stdio", mcpName, i.kit.mcpConfigFile, i.serverBin)
+		i.ok("registered MCP %q in %s → %s mcp-stdio", mcpName, i.kit.mcpConfigFile, placed)
 	} else {
 		i.ok("MCP %q already registered in %s", mcpName, i.kit.mcpConfigFile)
 	}
