@@ -839,6 +839,14 @@ func (s *Service) attachDerivedEdgeTo(ctx context.Context, teamID string, drawer
 			logAttachFailure(ctx, d.ID, err)
 			continue
 		}
+		// A drawer landing in the entry room also gives the wing its by-name root,
+		// so `<wing>.root` resolves to the node am_entry_point already reads. A
+		// failure here costs the address and not the write.
+		if d.Room == EntryRoom {
+			if err := s.attachWingRootEdge(ctx, teamID, d.Wing); err != nil {
+				logAttachFailure(ctx, d.ID, err)
+			}
+		}
 		// Reported from what actually happened. Setting both flags unconditionally
 		// made a drawer a writer had deliberately placed come back claiming the
 		// server guessed for it.
