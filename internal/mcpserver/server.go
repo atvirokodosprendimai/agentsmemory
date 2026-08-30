@@ -638,6 +638,9 @@ func registerStatus(reg *registrar, drawers *palace.Service, skills *skill.Servi
 			// is waiting, at that first. The hint changes with the inbox because a
 			// line that is always there is a line nobody reads.
 			"hint": statusHint(inbox, entrySkillNames),
+			// omitempty by construction: the key is absent when the workspace has
+			// no entry protocol, so its presence is itself the signal.
+			"entry_protocol": entryProtocolBlock(entrySkillNames),
 		})
 		return mcp.NewToolResultText(string(out)), nil
 	})

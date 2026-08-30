@@ -190,3 +190,45 @@ func TestStatusHintNamesTheEntryProtocolWhenOneExists(t *testing.T) {
 		t.Errorf("a waiting inbox drops the entry-protocol pointer:\n%s", busy)
 	}
 }
+
+// TestEntryProtocolLeadsTheHintAndHasItsOwnField pins an ORDERING that was
+// measured, not preferred.
+//
+// ⚠ THE SENTENCE WAS THIRD AND IT LOST. It sat after the inbox's own imperative
+// ("read them first with am_list_drawers(...)"), and three sessions reported the
+// same thing on 2026-08-30 without being asked: two "do this first"s in one field
+// compete, and position decides. depozitas-d1, re-reading it: "I read the inbox
+// sentence as the instruction and the ⚠ as an aside." wcag-ec: "those two
+// literally contradict on ordering… moved, yes; loaded FIRST, probably not."
+// playtrix-b7: "a hint reads as a list, and a list gets triaged."
+//
+// So the entry protocol leads the string AND is carried as its own field, because
+// a field cannot be skimmed past on position the way a clause can.
+func TestEntryProtocolLeadsTheHintAndHasItsOwnField(t *testing.T) {
+	names := []string{"effective-go", EntrySkill}
+
+	busy := statusHint(inboxStatus("wing_agentmemories", 3, nil), names)
+	entryAt := strings.Index(busy, EntrySkill)
+	inboxAt := strings.Index(busy, "am_list_drawers")
+	if entryAt < 0 || inboxAt < 0 {
+		t.Fatalf("hint is missing one of the two instructions:\n%s", busy)
+	}
+	if entryAt > inboxAt {
+		t.Errorf("the inbox instruction comes before the entry protocol — two imperatives in "+
+			"one field compete and the first one wins, which is the defect three sessions "+
+			"reported:\n%s", busy)
+	}
+
+	// The field is the robust half: present with a skill, absent without.
+	if b := entryProtocolBlock(names); b == nil {
+		t.Error("no entry_protocol block when the workspace has one")
+	} else {
+		call, _ := b["call"].(string)
+		if !strings.Contains(call, "am_load_skill") || !strings.Contains(call, EntrySkill) {
+			t.Errorf("the block does not carry the literal call to make: %v", b)
+		}
+	}
+	if b := entryProtocolBlock([]string{"effective-go"}); b != nil {
+		t.Errorf("a workspace with no entry protocol still gets a block: %v", b)
+	}
+}

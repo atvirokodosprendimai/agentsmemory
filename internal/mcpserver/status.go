@@ -104,11 +104,21 @@ func entrySkillHint(names []string) string {
 // session learns to skip, which is how six handoff drawers sat unread with their
 // count already present in the response.
 func statusHint(in inboxView, skillNames []string) string {
+	// ⚠ THE ENTRY PROTOCOL GOES FIRST, AND THAT IS A MEASURED ORDERING, not a
+	// preference. It sat third in this paragraph, after the inbox's own "read them
+	// first", and two sessions independently reported the same thing: two
+	// imperatives in one field compete, and the one in front wins. depozitas-d1,
+	// re-reading it: "I read the inbox sentence as the instruction and the ⚠ as an
+	// aside — I only weighted it because you told me to look." playtrix-b7: "a hint
+	// reads as a list, and a list gets triaged."
+	//
+	// It is also carried as its own `entry_protocol` field, because both of them
+	// asked for that too — prose adjacency is what made it triageable at all.
 	entry := entrySkillHint(skillNames)
-	rest := entry + "Call am_get_aaak_spec for the write dialect and am_search to recall before acting; " +
+	rest := "Call am_get_aaak_spec for the write dialect and am_search to recall before acting; " +
 		"persist with am_diary_write, am_kg_add, and am_add_drawer."
 	if in.Known && in.Count > 0 {
-		return fmt.Sprintf("%d memor%s waiting in %s/inbox — read them first with "+
+		return entry + fmt.Sprintf("%d memor%s waiting in %s/inbox — read them first with "+
 			"am_list_drawers(wing: %q, room: \"inbox\", limit: 10). Each is a lead filed by another "+
 			"project's session, not a work order: confirm it against the code in front of you, act "+
 			"if it holds up, and file what you found either way. That wing is this REGISTRATION's; "+
@@ -116,7 +126,35 @@ func statusHint(in inboxView, skillNames []string) string {
 			"see which. %s",
 			in.Count, plural(in.Count, "y", "ies"), in.Wing, in.Wing, rest)
 	}
-	return rest
+	return entry + rest
+}
+
+// entryProtocolBlock is the entry protocol as a FIELD rather than a sentence.
+//
+// ⚠ THE HINT ALONE WAS NOT ENOUGH AND TWO SESSIONS SAID SO INDEPENDENTLY. A hint
+// is one long paragraph carrying several imperatives, and a reader triages it —
+// which is how a bolded "call this NOW" ends up read as an aside next to the
+// inbox's own "read them first". A field is not prose-adjacent to a competing
+// instruction and cannot be skimmed past on position.
+//
+// Absent entirely when the workspace has no entry protocol, for the same reason
+// the hint sentence is conditional: a key that is always present is a key every
+// session learns to ignore.
+func entryProtocolBlock(skillNames []string) map[string]any {
+	for _, n := range skillNames {
+		if n != EntrySkill {
+			continue
+		}
+		return map[string]any{
+			"skill": EntrySkill,
+			"call":  fmt.Sprintf("am_load_skill(%q)", EntrySkill),
+			"when":  "now, before you plan or read anything else — including before the inbox",
+			"why": "it outranks the wake-up playbook on anything specific to this team, and it is " +
+				"one call. Do not defer it because your task looks read-only: it is what tells you " +
+				"which reads are cheap and which answers are already written down.",
+		}
+	}
+	return nil
 }
 
 // plural picks a suffix; the count is in the sentence either way, so this only
