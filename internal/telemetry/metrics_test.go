@@ -2,7 +2,12 @@ package telemetry
 
 import (
 	"context"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
+	"strconv"
+	"strings"
 	"testing"
 
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
@@ -85,21 +90,50 @@ func delta(t *testing.T, fn func()) map[[2]string]int64 {
 // eligible traffic from eligible-but-never-selected" was unmet by construction
 // rather than by a bug.
 //
-// The table is the whole outcome vocabulary, so an outcome added to
-// telemetry.Outcome without a counter mapping shows up here as an unasserted case
-// rather than as silence.
+// "Every outcome" is DERIVED from the production vocabulary by declaredOutcomes,
+// not restated here. A hand-maintained second list is the defect this file exists
+// to close, not a way to close it: an earlier draft carried one, and adding a
+// fifth Outcome constant left this test green — the exact silence ADR-025
+// criterion 7 is about. The table below is now checked against the declaration,
+// so a new outcome fails here on the commit that adds it.
 func TestEveryOutcomeIncrementsItsCounters(t *testing.T) {
 	const stage = "am.test.outcomes"
 
 	cases := []struct {
 		outcome Outcome
 		want    map[string]int64
+		// unpinned names counters whose behaviour for this outcome is a decision
+		// nobody has taken yet: neither required nor forbidden here. It is not a
+		// TODO — it is the difference between a test that records a decision and
+		// a test that manufactures one by asserting the current code.
+		unpinned []string
 	}{
 		// Start always counts eligible; End adds the outcome's own counters.
-		{Ran, map[string]int64{CounterEligible: 1, CounterSelected: 1, CounterEffect: 1}},
-		{Bypassed, map[string]int64{CounterEligible: 1, CounterFallback: 1}},
-		{FailedOpen, map[string]int64{CounterEligible: 1, CounterSelected: 1, CounterFallback: 1}},
-		{FailedClosed, map[string]int64{CounterEligible: 1, CounterSelected: 1}},
+		//
+		// CounterEffect is unpinned on Ran. Span.End increments it today, but
+		// issue #54 leaves "does running imply an effect on the served result?"
+		// open for a human: under option 1 effect is declared separately, and a
+		// test requiring End(Ran) to emit it would REJECT that fix. Pinning the
+		// current collapse here would settle by assertion a question this PR
+		// exists to keep open. TestEffectIsRecordableIndependently covers the
+		// half that is decided — that the counter works at all.
+		{outcome: Ran, want: map[string]int64{CounterEligible: 1, CounterSelected: 1}, unpinned: []string{CounterEffect}},
+		{outcome: Bypassed, want: map[string]int64{CounterEligible: 1, CounterFallback: 1}},
+		{outcome: FailedOpen, want: map[string]int64{CounterEligible: 1, CounterSelected: 1, CounterFallback: 1}},
+		{outcome: FailedClosed, want: map[string]int64{CounterEligible: 1, CounterSelected: 1}},
+	}
+
+	mapped := map[string]bool{}
+	for _, tc := range cases {
+		mapped[string(tc.outcome)] = true
+	}
+	for _, declared := range declaredOutcomes(t) {
+		if !mapped[declared] {
+			t.Errorf("outcome %q is declared in the telemetry package and has no case here, so "+
+				"nothing says which counters it moves. An outcome that increments nothing is "+
+				"invisible to the unsampled report — add its row rather than deleting this check.",
+				declared)
+		}
 	}
 
 	for _, tc := range cases {
@@ -119,8 +153,12 @@ func TestEveryOutcomeIncrementsItsCounters(t *testing.T) {
 			// Nothing beyond the expected set moved: an outcome that also bumped a
 			// counter it does not mean would make "eligible but never selected"
 			// unreadable, which is the exact question ADR-025 asks these to answer.
+			unpinned := map[string]bool{}
+			for _, c := range tc.unpinned {
+				unpinned[c] = true
+			}
 			for key, moved := range got {
-				if key[0] != stage {
+				if key[0] != stage || unpinned[key[1]] {
 					continue
 				}
 				if _, expected := tc.want[key[1]]; !expected {
@@ -164,17 +202,128 @@ func TestStartCountsEligibleBeforeAnyOutcome(t *testing.T) {
 func TestASecondEndCountsOnce(t *testing.T) {
 	const stage = "am.test.double-end"
 
-	got := delta(t, func() {
+	first := delta(t, func() {
+		_, sp := Start(context.Background(), stage)
+		sp.End(Ran)
+	})
+	repeat := delta(t, func() {
 		_, sp := Start(context.Background(), stage)
 		sp.End(Ran)
 		sp.End(Ran)
 		sp.End(FailedClosed) // a different outcome must not re-count either
 	})
 
-	if got[[2]string{stage, CounterSelected}] != 1 {
-		t.Errorf("selected moved by %d across three End calls, want 1",
-			got[[2]string{stage, CounterSelected}])
+	// The COMPLETE delta, not just selected. Idempotence is a promise about the
+	// whole counter block inside sync.Once, so an increment accidentally moved
+	// outside it would be caught wherever it sits — including CounterEffect,
+	// whose per-outcome semantics this file deliberately leaves unpinned. That
+	// is exactly why the comparison is against the single-End delta rather than
+	// against a literal: it holds whichever way issue #54 is decided.
+	for key, moved := range repeat {
+		if key[0] != stage {
+			continue
+		}
+		if moved != first[key] {
+			t.Errorf("%q moved by %d across three End calls but by %d across one — End is meant to "+
+				"be idempotent so a defer can fire beside an explicit call, and double-counting "+
+				"inflates the denominator an operator reads the unsampled report for",
+				key[1], moved, first[key])
+		}
 	}
+	for key, moved := range first {
+		if key[0] == stage && repeat[key] == 0 {
+			t.Errorf("%q moved by %d on a single End and not at all across three", key[1], moved)
+		}
+	}
+}
+
+// TestEffectIsRecordableIndependently pins the half of CounterEffect that IS
+// decided: the counter exists, is reachable, and lands on its own series.
+//
+// It deliberately does not go through Span.End. ADR-025 defines "unused" as
+// eligible > 0 with selected and effect at 0, so effect has to be recordable by
+// a stage that knows it changed the served result — which is a different fact
+// from the stage having run. Issue #54 is open on whether End(Ran) should imply
+// it; whichever way that goes, this assertion stands.
+func TestEffectIsRecordableIndependently(t *testing.T) {
+	const stage = "am.test.effect-alone"
+
+	got := delta(t, func() {
+		Inc(context.Background(), stage, CounterEffect)
+	})
+
+	if got[[2]string{stage, CounterEffect}] != 1 {
+		t.Errorf("effect moved by %d when incremented directly, want 1 — if this counter is not "+
+			"recordable on its own then ADR-025's \"eligible but no effect\" window cannot be "+
+			"answered by any caller",
+			got[[2]string{stage, CounterEffect}])
+	}
+	for _, c := range []string{CounterEligible, CounterSelected, CounterFallback} {
+		if moved := got[[2]string{stage, c}]; moved != 0 {
+			t.Errorf("%q moved by %d while only effect was incremented", c, moved)
+		}
+	}
+}
+
+// declaredOutcomes returns every Outcome constant's wire value, read from this
+// package's non-test sources.
+//
+// Derived rather than listed because a hand-kept copy of a vocabulary is the
+// failure this whole file is a gate against: the universe has to come from the
+// declaration, so a constant added tomorrow joins the check on the same commit.
+// Same shape as the repo's other house gates, which derive their universes from
+// source for the same reason (AGENTS.md, "Reachability").
+func declaredOutcomes(t *testing.T) []string {
+	t.Helper()
+	fset := token.NewFileSet()
+	pkgs, err := parser.ParseDir(fset, ".", func(fi os.FileInfo) bool {
+		return !strings.HasSuffix(fi.Name(), "_test.go")
+	}, 0)
+	if err != nil {
+		t.Fatalf("parse telemetry package: %v", err)
+	}
+
+	var out []string
+	for _, pkg := range pkgs {
+		for _, file := range pkg.Files {
+			for _, decl := range file.Decls {
+				gen, ok := decl.(*ast.GenDecl)
+				if !ok || gen.Tok != token.CONST {
+					continue
+				}
+				// A const block carries its type down from the first spec that
+				// names one, so track it rather than reading each spec alone.
+				var typeName string
+				for _, spec := range gen.Specs {
+					vs, ok := spec.(*ast.ValueSpec)
+					if !ok {
+						continue
+					}
+					if id, ok := vs.Type.(*ast.Ident); ok {
+						typeName = id.Name
+					}
+					if typeName != "Outcome" {
+						continue
+					}
+					for _, v := range vs.Values {
+						lit, ok := v.(*ast.BasicLit)
+						if !ok || lit.Kind != token.STRING {
+							continue
+						}
+						value, err := strconv.Unquote(lit.Value)
+						if err != nil {
+							t.Fatalf("unquote %s: %v", lit.Value, err)
+						}
+						out = append(out, value)
+					}
+				}
+			}
+		}
+	}
+	if len(out) == 0 {
+		t.Fatal("no Outcome constants found — this check has stopped checking anything")
+	}
+	return out
 }
 
 // TestIncIgnoresEmptyNames: an unnamed feature or counter would land as an empty
