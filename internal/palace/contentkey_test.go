@@ -3,16 +3,9 @@ package palace
 import (
 	"context"
 	"errors"
-	"path/filepath"
 	"strings"
 	"testing"
 
-	"github.com/glebarez/sqlite"
-	"github.com/pressly/goose/v3"
-	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
-
-	"github.com/atvirokodosprendimai/agentsmemory/db"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/store/sqlitevec"
 )
 
@@ -353,19 +346,8 @@ func TestAnEndedRowDoesNotBlockRefilingItsOwnText(t *testing.T) {
 // catching; a failed one is recoverable, a half-done one is invisible.
 func TestBackfillAbortsOnCollision(t *testing.T) {
 	ctx := context.Background()
-	path := filepath.Join(t.TempDir(), "collide.db")
-	gdb, err := gorm.Open(sqlite.Open(path), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
-	if err != nil {
-		t.Fatalf("open: %v", err)
-	}
+	gdb := newMigratedDB(t, "collide.db")
 	sqlDB, _ := gdb.DB()
-	goose.SetBaseFS(db.Migrations)
-	if err := goose.SetDialect("sqlite3"); err != nil {
-		t.Fatalf("dialect: %v", err)
-	}
-	if err := goose.Up(sqlDB, "migrations"); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
 	for _, id := range []string{"id-alpha", "id-beta"} {
 		if _, err := sqlDB.Exec(
 			`INSERT INTO drawers (team_id,id,wing,room,source_file,chunk_index,content,entities,parent_id,filed_at,content_date,agent,topic,valid_to,superseded_by,ended_reason,ended_at,content_key)
@@ -374,7 +356,7 @@ func TestBackfillAbortsOnCollision(t *testing.T) {
 		}
 	}
 	svc := NewService(NewRepo(gdb), fakeEmbedder{}, sqlitevec.New(gdb), fakeDim)
-	err = svc.repo.BackfillContentKeys(ctx)
+	err := svc.repo.BackfillContentKeys(ctx)
 	if err == nil {
 		t.Fatal("the backfill succeeded on a corpus where two rows hash to one key; it must ABORT, " +
 			"because skipping the row leaves a half-keyed corpus nothing reports")

@@ -9,14 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/atvirokodosprendimai/agentsmemory/db"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/store"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/store/sqlitevec"
-
-	glebarez "github.com/glebarez/sqlite"
-	"github.com/pressly/goose/v3"
-	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
 )
 
 // Spec: docs/specs/2026-08-26-a-recall-that-answers.md
@@ -669,21 +663,10 @@ func TestAFactLookupDistinguishesAbsenceFromFailure(t *testing.T) {
 // have caught it is the code being tested.
 func brokenBackendService(t *testing.T) (*Service, func()) {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "broken.db")
-	gdb, err := gorm.Open(glebarez.Open(path), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
-	if err != nil {
-		t.Fatalf("open db: %v", err)
-	}
+	gdb := newMigratedDB(t, "broken.db")
 	sqlDB, err := gdb.DB()
 	if err != nil {
 		t.Fatalf("sql handle: %v", err)
-	}
-	goose.SetBaseFS(db.Migrations)
-	if err := goose.SetDialect("sqlite3"); err != nil {
-		t.Fatalf("dialect: %v", err)
-	}
-	if err := goose.Up(sqlDB, "migrations"); err != nil {
-		t.Fatalf("migrate: %v", err)
 	}
 	return NewService(NewRepo(gdb), fakeEmbedder{}, sqlitevec.New(gdb), fakeDim), func() { _ = sqlDB.Close() }
 }

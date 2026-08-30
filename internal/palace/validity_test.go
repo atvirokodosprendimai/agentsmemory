@@ -11,9 +11,10 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 
+	"path/filepath"
+
 	"github.com/atvirokodosprendimai/agentsmemory/db"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/store/sqlitevec"
-	"path/filepath"
 )
 
 // ADR-038 T1. A drawer can be current or ended, ending never deletes, and every
