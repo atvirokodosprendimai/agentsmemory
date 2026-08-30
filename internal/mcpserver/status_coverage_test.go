@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/atvirokodosprendimai/agentsmemory/internal/auth"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/mcpprotocol"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/palace"
+	"github.com/atvirokodosprendimai/agentsmemory/internal/skill"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/store/sqlitevec"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/tenant"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/usage"
@@ -112,5 +114,74 @@ func TestFailedDriftAuditRendersNoCoverageNumber(t *testing.T) {
 	}
 	if _, ok := healthy["coverage"]; !ok {
 		t.Fatal("healthy audit rendered no coverage number")
+	}
+}
+
+// TestAmStatusServesTheEntryProtocolPointer is the SELECTION rung, and it is a
+// different question from TestStatusHintNamesTheEntryProtocolWhenOneExists.
+//
+// ⚠ THAT TEST CALLS statusHint DIRECTLY, so it stays green while the served
+// am_status response says nothing — the component exercised instead of the
+// selection, which is this repository's signature defect. This one drives the
+// real registered handler, with a real skill in a real workspace, and reads the
+// hint out of the JSON an agent would actually receive.
+//
+// The compiler catches one severing (dropping `entrySkillNames` from the call
+// leaves it declared and not used) but not the other: deleting the lookup and
+// passing nil compiles perfectly and goes silent. This is the test for that.
+func TestAmStatusServesTheEntryProtocolPointer(t *testing.T) {
+	gdb := graphTestDB(t)
+	drawers := palace.NewService(palace.NewRepo(gdb), graphTestEmbedder{}, sqlitevec.New(gdb), graphTestDim)
+	skills := skill.NewService(skill.NewRepo(gdb))
+	srv := New(Deps{
+		Drawers: drawers,
+		Skills:  skills,
+		Usage:   usage.NewService(usage.NewRepo(gdb), graphTestCaps{}),
+	})
+	const team = "team-entryskill"
+	ctx := context.Background()
+	callCtx := auth.WithTenant(ctx, tenant.Tenant{TeamID: team, UserID: "u1", Role: tenant.RoleAdmin})
+
+	hintOf := func(t *testing.T) string {
+		t.Helper()
+		st := srv.GetTool(mcpprotocol.ToolPrefix + "status")
+		if st == nil {
+			t.Fatal("am_status is not registered — this check has stopped checking anything")
+		}
+		res, err := st.Handler(callCtx, mcp.CallToolRequest{
+			Params: mcp.CallToolParams{Name: mcpprotocol.ToolPrefix + "status"},
+		})
+		if err != nil {
+			t.Fatalf("am_status: %v", err)
+		}
+		var body struct {
+			Hint string `json:"hint"`
+		}
+		if err := json.Unmarshal([]byte(errText(res)), &body); err != nil {
+			t.Fatalf("decode status: %v", err)
+		}
+		return body.Hint
+	}
+
+	// Before: no entry protocol in this workspace, so no sentence about one.
+	if before := hintOf(t); strings.Contains(before, EntrySkill) {
+		t.Errorf("a workspace with no entry protocol is told to load one:\n%s", before)
+	}
+
+	// Seeded through the repo, not the service: this test is about what am_status
+	// SERVES, and routing the fixture through skill authorization would make an
+	// authz change able to break a hint test for reasons that are not about hints.
+	if _, err := skill.NewRepo(gdb).Upsert(ctx, team, EntrySkill,
+		"the team's entry protocol", "# start-here\n\nbody", "u1"); err != nil {
+		t.Fatalf("seed the entry skill: %v", err)
+	}
+
+	after := hintOf(t)
+	if !strings.Contains(after, EntrySkill) {
+		t.Errorf("the SERVED am_status hint never names %q, so the one call every session makes "+
+			"still does not point at the entry protocol:\n%s", EntrySkill, after)
+	}
+	if !strings.Contains(after, "am_load_skill") {
+		t.Errorf("the served hint names the skill but not the call that loads it:\n%s", after)
 	}
 }

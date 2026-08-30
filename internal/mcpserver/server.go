@@ -370,7 +370,7 @@ Call am_skillset for the rest: which tool answers which question, and how to wri
 // services and no database, which is what makes the tool surface itself
 // assertable rather than something a reader has to count by hand.
 func registerAll(reg *registrar, deps Deps) {
-	registerStatus(reg, deps.Drawers, deps.Usage, deps.Workspaces, deps.Local)
+	registerStatus(reg, deps.Drawers, deps.Skills, deps.Usage, deps.Workspaces, deps.Local)
 	registerLoadSkill(reg, deps.Skills, deps.Usage)
 	// Skill-registry management: list + update (write is role-gated).
 	registerSkills(reg, deps.Skills, deps.Usage)
@@ -527,7 +527,7 @@ func coverageBlockFor(drift palace.DriftReport, err error) map[string]any {
 // in the shape of its memory before searching, mirroring mempalace's status. The
 // taxonomy read is best-effort: a status call still succeeds (with an empty
 // overview) if the aggregation fails, so liveness never depends on it.
-func registerStatus(reg *registrar, drawers *palace.Service, usageSvc *usage.Service, workspaces WorkspaceLookup, local bool) {
+func registerStatus(reg *registrar, drawers *palace.Service, skills *skill.Service, usageSvc *usage.Service, workspaces WorkspaceLookup, local bool) {
 	// One cache for the server, shared by every session: the wake-up call runs
 	// the coverage audit at most once per driftTTL per team instead of on every
 	// first call of every session.
@@ -599,6 +599,21 @@ func registerStatus(reg *registrar, drawers *palace.Service, usageSvc *usage.Ser
 		drift, driftErr := statusDrift.get(ctx, t.TeamID)
 		coverageBlock := coverageBlockFor(drift, driftErr)
 
+		// The names only — the hint needs to know WHETHER an entry protocol
+		// exists, never what it says. A failure here costs the sentence and
+		// nothing else, so it degrades to "no entry skill" rather than failing
+		// the one call every session makes first.
+		// ⚠ nil IS A LEGITIMATE STATE, not a defensive habit: the server is
+		// constructed without a skill service on some paths, and the first draft
+		// of this block dereferenced it unconditionally and panicked the wake-up
+		// call — caught by TestAmStatusReportsCoverage, which builds exactly that
+		// server. The hint degrades to "no entry protocol"; nothing else changes.
+		var entrySkillNames []string
+		if summaries, err := listSkillNames(ctx, skills, t.TeamID); err == nil {
+			entrySkillNames = make([]string, 0, len(summaries))
+			entrySkillNames = summaries
+		}
+
 		out, _ := json.Marshal(map[string]any{
 			"ok":      true,
 			"team_id": t.TeamID,
@@ -622,7 +637,7 @@ func registerStatus(reg *registrar, drawers *palace.Service, usageSvc *usage.Ser
 			// Point the agent at the rest of the wake-up loop — and, when something
 			// is waiting, at that first. The hint changes with the inbox because a
 			// line that is always there is a line nobody reads.
-			"hint": statusHint(inbox),
+			"hint": statusHint(inbox, entrySkillNames),
 		})
 		return mcp.NewToolResultText(string(out)), nil
 	})

@@ -29,13 +29,13 @@ func TestStatusNamesAWaitingInbox(t *testing.T) {
 		t.Error("a counted inbox must report as known")
 	}
 
-	hint := statusHint(waiting)
+	hint := statusHint(waiting, nil)
 	if !strings.Contains(hint, "3") || !strings.Contains(hint, "wing_agentmemories") {
 		t.Errorf("the hint does not name the count and the wing, so nothing distinguishes it "+
 			"from the hint on a quiet session:\n%s", hint)
 	}
 
-	quiet := statusHint(inboxStatus("wing_agentmemories", 0, nil))
+	quiet := statusHint(inboxStatus("wing_agentmemories", 0, nil), nil)
 	if quiet == hint {
 		t.Error("the hint is identical with and without items waiting — an unconditional " +
 			"reminder is one every session learns to skip")
@@ -56,7 +56,7 @@ func TestStatusInboxWithoutADefaultWing(t *testing.T) {
 	if unknown.Note == "" {
 		t.Error("an unknown inbox must say why, or it reads as an empty one")
 	}
-	if h := statusHint(unknown); strings.Contains(h, "inbox") && !strings.Contains(h, "no wing") {
+	if h := statusHint(unknown, nil); strings.Contains(h, "inbox") && !strings.Contains(h, "no wing") {
 		t.Errorf("the hint sends the agent to an inbox it cannot name:\n%s", h)
 	}
 }
@@ -133,7 +133,7 @@ func TestTheInboxCountSaysWhoseInboxItCounted(t *testing.T) {
 			"without the reason the caveat reads as boilerplate: %q", in.Note)
 	}
 
-	hint := statusHint(in)
+	hint := statusHint(in, nil)
 	if !strings.Contains(hint, "REGISTRATION") {
 		t.Errorf("the hint is the sentence an agent actually reads and it does not carry the "+
 			"caveat the note carries: %q", hint)
@@ -145,5 +145,48 @@ func TestTheInboxCountSaysWhoseInboxItCounted(t *testing.T) {
 	if !strings.Contains(hint, "limit:") {
 		t.Errorf("the hint recommends a listing with no limit; past a client's result cap the "+
 			"whole page leaves the context and the room reads as empty: %q", hint)
+	}
+}
+
+// TestStatusHintNamesTheEntryProtocolWhenOneExists pins the pointer that the
+// wake-up playbook could not deliver.
+//
+// ⚠ THE PLAYBOOK'S OWN LINE WAS MEASURED AND IT DOES NOT FIRE. Step 4 says "if a
+// skill named start-here exists, load it FIRST", bolded, in the first am_skillset
+// response every session reads. Measured 2026-08-30 across three fresh sessions in
+// three repositories: all three read it, none loaded the skill, none learned it
+// existed — because the directive is conditional on am_list_skills, the very call
+// step 4 is asking them to make, and a read-only task prunes it. am_status is the
+// call nobody prunes, and the server can answer the existence question itself.
+func TestStatusHintNamesTheEntryProtocolWhenOneExists(t *testing.T) {
+	quiet := inboxStatus("wing_agentmemories", 0, nil)
+
+	with := statusHint(quiet, []string{"effective-go", EntrySkill, "cqrs"})
+	if !strings.Contains(with, EntrySkill) {
+		t.Errorf("the hint never names %q, so the one call every session makes still does not "+
+			"point at the entry protocol:\n%s", EntrySkill, with)
+	}
+	// Naming it is not enough: a session has to be told to CALL it, by name.
+	if !strings.Contains(with, "am_load_skill") {
+		t.Errorf("the hint names the skill but not the call that loads it — that is the same "+
+			"defect one level down:\n%s", with)
+	}
+
+	// ⚠ CONDITIONAL, for the reason statusHint documents: a line that is always
+	// there is a line every session learns to skip. A workspace with no entry
+	// skill must get no sentence about one.
+	without := statusHint(quiet, []string{"effective-go", "cqrs"})
+	if strings.Contains(without, EntrySkill) {
+		t.Errorf("a workspace with no entry protocol is told to load one anyway:\n%s", without)
+	}
+	if with == without {
+		t.Error("the hint is identical with and without an entry skill — an unconditional " +
+			"line is one every session learns to skip")
+	}
+
+	// And it survives the other axis: an inbox with items must not swallow it.
+	busy := statusHint(inboxStatus("wing_agentmemories", 3, nil), []string{EntrySkill})
+	if !strings.Contains(busy, EntrySkill) {
+		t.Errorf("a waiting inbox drops the entry-protocol pointer:\n%s", busy)
 	}
 }

@@ -1,6 +1,11 @@
 package mcpserver
 
-import "fmt"
+import (
+	"context"
+	"fmt"
+
+	"github.com/atvirokodosprendimai/agentsmemory/internal/skill"
+)
 
 // inboxView is the am_status block naming what is waiting in the session's own
 // wing. It carries Known separately from Count because zero and unknown are
@@ -54,12 +59,53 @@ func inboxStatus(wing string, count int, err error) inboxView {
 	}
 }
 
+// EntrySkill is the conventional name for a team's own entry protocol — the one
+// skill a session should load before it decides anything else.
+const EntrySkill = "start-here"
+
+// entrySkillHint names the entry protocol, and only when the workspace actually
+// has one.
+//
+// ⚠ IT IS HERE, IN am_status, BECAUSE THE PLAYBOOK'S OWN POINTER DOES NOT FIRE.
+// The wake-up playbook's step 4 says "if a skill named start-here exists, load it
+// FIRST" — bolded, unambiguous, and read by every session in its first
+// am_skillset response. Measured 2026-08-30 on three fresh sessions in three
+// different repositories: all three READ that line, none of them loaded the
+// skill, and none even learned it existed. The reason is structural rather than
+// wording, and all three named it independently: the directive is conditional on
+// am_list_skills, which is the call step 4 is itself asking them to make, and a
+// session with a read-only task prunes it as preparation for work it was told not
+// to do. One session missed `laravel-7` ("ALWAYS LOAD at Step 0 for PHP work")
+// the same way, in a Laravel repository — so it is the shape, not the skill.
+//
+// am_status is the one call every session makes unconditionally, and the SERVER
+// can answer "does this workspace have one" without the session spending a call.
+// That moves the existence check off the agent, which is the whole defect.
+//
+// It stays CONDITIONAL for the reason statusHint documents below: a line that is
+// always present is a line every session learns to skip. A workspace with no
+// entry skill gets no sentence about one.
+func entrySkillHint(names []string) string {
+	for _, n := range names {
+		if n != EntrySkill {
+			continue
+		}
+		return "⚠ THIS WORKSPACE HAS AN ENTRY PROTOCOL: call " +
+			"am_load_skill(\"" + EntrySkill + "\") NOW, before you plan or read anything else. " +
+			"It outranks this hint and the wake-up playbook on anything specific to this team, " +
+			"and it is one call. Do not defer it because your task looks read-only — it is what " +
+			"tells you which reads are cheap and which answers are already written down. "
+	}
+	return ""
+}
+
 // statusHint is the sentence an agent actually reads, so it CHANGES when there
 // is something to read. An unconditional "check your inbox" is a line every
 // session learns to skip, which is how six handoff drawers sat unread with their
 // count already present in the response.
-func statusHint(in inboxView) string {
-	const rest = "Call am_get_aaak_spec for the write dialect and am_search to recall before acting; " +
+func statusHint(in inboxView, skillNames []string) string {
+	entry := entrySkillHint(skillNames)
+	rest := entry + "Call am_get_aaak_spec for the write dialect and am_search to recall before acting; " +
 		"persist with am_diary_write, am_kg_add, and am_add_drawer."
 	if in.Known && in.Count > 0 {
 		return fmt.Sprintf("%d memor%s waiting in %s/inbox — read them first with "+
@@ -80,4 +126,26 @@ func plural(n int, one, many string) string {
 		return one
 	}
 	return many
+}
+
+// listSkillNames returns the workspace's skill names, or nothing when there is no
+// skill service to ask.
+//
+// ⚠ THE nil CHECK IS THE POINT. am_status is the one call every session makes
+// first, so a nil dereference here is a wake-up that panics rather than a hint
+// that is missing a sentence. The server is built without a skill service on some
+// paths and the first draft of the caller assumed otherwise.
+func listSkillNames(ctx context.Context, skills *skill.Service, teamID string) ([]string, error) {
+	if skills == nil {
+		return nil, nil
+	}
+	summaries, err := skills.List(ctx, teamID)
+	if err != nil {
+		return nil, err
+	}
+	names := make([]string, 0, len(summaries))
+	for _, sk := range summaries {
+		names = append(names, sk.Name)
+	}
+	return names, nil
 }
