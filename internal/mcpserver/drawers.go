@@ -190,10 +190,18 @@ func registerAddDrawer(reg *registrar, drawers *palace.Service, usageSvc *usage.
 				"threshold binds at CREATION: a multi-chunk memory can be CORRECTED (am_update_drawer "+
 				"with content supersedes the whole memory) but never MOVED, because moving one chunk "+
 				"would split the memory across two scopes and no single search would return all of it. "+
-				"A memory created at or under %d runes stays ONE row and can be relocated for life.",
-			palace.ChunkSize, palace.ChunkSize)),
+				"A memory created at or under %d runes stays ONE row and can be relocated for life. "+
+				"⚠ONE ROOM IS DIFFERENT: a memory filed into %q is REFUSED if it would chunk, on "+
+				"creation AND on correction, because am_bootstrap serves that room's records one "+
+				"chunk at a time — a longer one arrives cut with nothing marking it partial. Keep an "+
+				"entry record under %d runes and point it at ordinary memories for the detail.",
+			palace.ChunkSize, palace.ChunkSize, palace.EntryRoom, palace.ChunkSize)),
 		mcp.WithString("wing", mcp.Description("Project namespace the memory belongs to. Optional when this MCP was registered for a project — then it defaults to that project's wing.")),
-		mcp.WithString("room", mcp.Required(), mcp.Description("Aspect within the wing, e.g. \"backend\" or \"decisions\".")),
+		mcp.WithString("room", mcp.Required(), mcp.Description(fmt.Sprintf(
+			"Aspect within the wing, e.g. \"backend\" or \"decisions\". ⚠%q is the ENTRY room and "+
+				"behaves differently: it is what am_entry_point and am_bootstrap resolve, filing here "+
+				"mints the wing's by-name root, and a record that would chunk is refused.",
+			palace.EntryRoom))),
 		mcp.WithString("content", mcp.Required(), mcp.Description("The verbatim text to remember — stored exactly, never summarised.")),
 		mcp.WithString("source_file", mcp.Description("Optional provenance of the content (a path or label).")),
 		mcp.WithString("content_date", mcp.Description("Optional date the memory is about (e.g. 2026-06-26).")),

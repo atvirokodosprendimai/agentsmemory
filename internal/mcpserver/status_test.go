@@ -1,10 +1,14 @@
 package mcpserver
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/atvirokodosprendimai/agentsmemory/internal/mcpprotocol"
+	"github.com/atvirokodosprendimai/agentsmemory/internal/palace"
 )
 
 var errCounting = errors.New("count failed")
@@ -230,5 +234,48 @@ func TestEntryProtocolLeadsTheHintAndHasItsOwnField(t *testing.T) {
 	}
 	if b := entryProtocolBlock(false); b != nil {
 		t.Errorf("a workspace with no entry protocol still gets a block: %v", b)
+	}
+}
+
+// TestAddDrawerDescribesTheEntryRoomsDifferentRules pins a description against the
+// behaviour it describes.
+//
+// ⚠ THE DESCRIPTION MADE A POSITIVE CLAIM THAT HAD STOPPED BEING TRUE. It said
+// "Content over N runes is chunked into several drawers sharing a parent",
+// unconditionally, while a memory filed into the entry room is now REFUSED rather
+// than chunked — and the sentence after it elaborated on multi-chunk entry
+// memories that can no longer exist. Found in review 2026-08-30, with the note
+// that "nothing currently gates a tool description against the behaviour it
+// describes, which is why this got through". This is that gate.
+//
+// The audience that hits the refusal is exactly the one the rule was written for:
+// an agent that cannot count runes, reading a description promising chunking.
+func TestAddDrawerDescribesTheEntryRoomsDifferentRules(t *testing.T) {
+	srv := New(Deps{})
+	tool := srv.GetTool(mcpprotocol.ToolPrefix + "add_drawer")
+	if tool == nil {
+		t.Fatal("am_add_drawer is not registered — this check has stopped checking anything")
+	}
+
+	desc := tool.Tool.Description
+	if !strings.Contains(desc, palace.EntryRoom) {
+		t.Errorf("the am_add_drawer description never names %q, the one room whose writes are "+
+			"refused rather than chunked — so the rule is undiscoverable until an agent hits "+
+			"it:\n%s", palace.EntryRoom, desc)
+	}
+	// Naming the room is not enough: the description must not still promise the
+	// behaviour that room does not have.
+	if !strings.Contains(desc, "REFUSED") {
+		t.Errorf("the description names %q but never says the write is refused, so it still reads "+
+			"as a promise that everything chunks:\n%s", palace.EntryRoom, desc)
+	}
+
+	raw, err := json.Marshal(tool.Tool.InputSchema)
+	if err != nil {
+		t.Fatalf("marshal the input schema: %v", err)
+	}
+	if !strings.Contains(string(raw), palace.EntryRoom) {
+		t.Errorf("the `room` parameter description never names %q, so a caller choosing a room "+
+			"cannot learn that one of them behaves differently", palace.EntryRoom)
 	}
 }
