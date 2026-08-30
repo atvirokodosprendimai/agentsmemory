@@ -97,11 +97,22 @@ func (s *Service) EndDrawer(ctx context.Context, teamID, id, reason string) erro
 			ErrInvalidInput, short12(id), current.ValidTo, current.EndedReason)
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
-	err = s.repo.db.WithContext(ctx).Model(&drawerRow{}).
-		Where("team_id = ? AND id = ?", teamID, id).
-		Updates(map[string]any{"valid_to": now, "ended_at": now, "ended_reason": reason}).Error
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return ErrNotFound
-	}
-	return err
+	// Both writes in ONE transaction: a retraction that ended the row and then
+	// failed to end its derived edges would leave the front door pointing at a
+	// record the same call had just withdrawn.
+	return s.repo.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		err := tx.Model(&drawerRow{}).
+			Where("team_id = ? AND id = ?", teamID, id).
+			Updates(map[string]any{"valid_to": now, "ended_at": now, "ended_reason": reason}).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ErrNotFound
+		}
+		if err != nil {
+			return err
+		}
+		// The server's derived edges go with it; an authored pointer survives,
+		// because retracting a record does not retract someone's reference to it.
+		return endDerivedEdgesFor(tx, teamID, []string{id}, now,
+			"the drawer this derived edge points at was retracted")
+	})
 }

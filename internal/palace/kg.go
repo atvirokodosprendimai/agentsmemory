@@ -1198,6 +1198,34 @@ func (s *Service) attachWingRootEdge(ctx context.Context, teamID, wing string) e
 	})
 }
 
+// endDerivedEdgesFor ends every CURRENT DERIVED edge pointing at these drawers,
+// on the handle it is given, and leaves AUTHORED edges alone.
+//
+// ⚠ ONE HELPER BECAUSE THERE ARE FOUR DOORS, and the first fix only closed one.
+// A row can stop being current through a correction, through a re-file that
+// purges a source, or through an outright retraction — and every one of them
+// used to leave the server's own derived edge pointing at ended content. Review
+// 2026-08-30 found the three this missed after supersede was fixed.
+//
+// ⚠ THE ASYMMETRY IS THE RULE. A DERIVED edge is the server's: it minted it from
+// the room, no call lets an author end one, so the server must clean it up. An
+// AUTHORED edge is a person's deliberate pointer and must survive even when the
+// row it names is superseded — the author may mean exactly that. `derived IS
+// NULL` is left alone too: those rows predate the distinction and "not marked
+// derived" is not the same claim as "authored" (00028).
+//
+// It takes a *gorm.DB so a caller inside a transaction passes its tx — reaching
+// for s.repo.db there would open a second connection to a file the transaction
+// already holds a write lock on.
+func endDerivedEdgesFor(db *gorm.DB, teamID string, drawerIDs []string, endedAt, reason string) error {
+	if len(drawerIDs) == 0 {
+		return nil
+	}
+	return db.Model(&kgTripleRow{}).
+		Where("team_id = ? AND object IN ? AND valid_to = '' AND derived = ?", teamID, drawerIDs, true).
+		Updates(map[string]any{"valid_to": endedAt, "ended_reason": reason}).Error
+}
+
 // AllKGEntities returns every entity a team owns, for the label backfill.
 //
 // Unpaged deliberately: the whole point is a one-shot index build, and the live

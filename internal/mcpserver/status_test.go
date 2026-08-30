@@ -29,13 +29,13 @@ func TestStatusNamesAWaitingInbox(t *testing.T) {
 		t.Error("a counted inbox must report as known")
 	}
 
-	hint := statusHint(waiting, nil)
+	hint := statusHint(waiting, false)
 	if !strings.Contains(hint, "3") || !strings.Contains(hint, "wing_agentmemories") {
 		t.Errorf("the hint does not name the count and the wing, so nothing distinguishes it "+
 			"from the hint on a quiet session:\n%s", hint)
 	}
 
-	quiet := statusHint(inboxStatus("wing_agentmemories", 0, nil), nil)
+	quiet := statusHint(inboxStatus("wing_agentmemories", 0, nil), false)
 	if quiet == hint {
 		t.Error("the hint is identical with and without items waiting — an unconditional " +
 			"reminder is one every session learns to skip")
@@ -56,7 +56,7 @@ func TestStatusInboxWithoutADefaultWing(t *testing.T) {
 	if unknown.Note == "" {
 		t.Error("an unknown inbox must say why, or it reads as an empty one")
 	}
-	if h := statusHint(unknown, nil); strings.Contains(h, "inbox") && !strings.Contains(h, "no wing") {
+	if h := statusHint(unknown, false); strings.Contains(h, "inbox") && !strings.Contains(h, "no wing") {
 		t.Errorf("the hint sends the agent to an inbox it cannot name:\n%s", h)
 	}
 }
@@ -133,7 +133,7 @@ func TestTheInboxCountSaysWhoseInboxItCounted(t *testing.T) {
 			"without the reason the caveat reads as boilerplate: %q", in.Note)
 	}
 
-	hint := statusHint(in, nil)
+	hint := statusHint(in, false)
 	if !strings.Contains(hint, "REGISTRATION") {
 		t.Errorf("the hint is the sentence an agent actually reads and it does not carry the "+
 			"caveat the note carries: %q", hint)
@@ -161,7 +161,7 @@ func TestTheInboxCountSaysWhoseInboxItCounted(t *testing.T) {
 func TestStatusHintNamesTheEntryProtocolWhenOneExists(t *testing.T) {
 	quiet := inboxStatus("wing_agentmemories", 0, nil)
 
-	with := statusHint(quiet, []string{"effective-go", EntrySkill, "cqrs"})
+	with := statusHint(quiet, true)
 	if !strings.Contains(with, EntrySkill) {
 		t.Errorf("the hint never names %q, so the one call every session makes still does not "+
 			"point at the entry protocol:\n%s", EntrySkill, with)
@@ -175,7 +175,7 @@ func TestStatusHintNamesTheEntryProtocolWhenOneExists(t *testing.T) {
 	// ⚠ CONDITIONAL, for the reason statusHint documents: a line that is always
 	// there is a line every session learns to skip. A workspace with no entry
 	// skill must get no sentence about one.
-	without := statusHint(quiet, []string{"effective-go", "cqrs"})
+	without := statusHint(quiet, false)
 	if strings.Contains(without, EntrySkill) {
 		t.Errorf("a workspace with no entry protocol is told to load one anyway:\n%s", without)
 	}
@@ -185,7 +185,7 @@ func TestStatusHintNamesTheEntryProtocolWhenOneExists(t *testing.T) {
 	}
 
 	// And it survives the other axis: an inbox with items must not swallow it.
-	busy := statusHint(inboxStatus("wing_agentmemories", 3, nil), []string{EntrySkill})
+	busy := statusHint(inboxStatus("wing_agentmemories", 3, nil), true)
 	if !strings.Contains(busy, EntrySkill) {
 		t.Errorf("a waiting inbox drops the entry-protocol pointer:\n%s", busy)
 	}
@@ -205,7 +205,7 @@ func TestStatusHintNamesTheEntryProtocolWhenOneExists(t *testing.T) {
 // So the entry protocol leads the string AND is carried as its own field, because
 // a field cannot be skimmed past on position the way a clause can.
 func TestEntryProtocolLeadsTheHintAndHasItsOwnField(t *testing.T) {
-	names := []string{"effective-go", EntrySkill}
+	const names = true
 
 	busy := statusHint(inboxStatus("wing_agentmemories", 3, nil), names)
 	entryAt := strings.Index(busy, EntrySkill)
@@ -220,7 +220,7 @@ func TestEntryProtocolLeadsTheHintAndHasItsOwnField(t *testing.T) {
 	}
 
 	// The field is the robust half: present with a skill, absent without.
-	if b := entryProtocolBlock(names); b == nil {
+	if b := entryProtocolBlock(true); b == nil {
 		t.Error("no entry_protocol block when the workspace has one")
 	} else {
 		call, _ := b["call"].(string)
@@ -228,7 +228,7 @@ func TestEntryProtocolLeadsTheHintAndHasItsOwnField(t *testing.T) {
 			t.Errorf("the block does not carry the literal call to make: %v", b)
 		}
 	}
-	if b := entryProtocolBlock([]string{"effective-go"}); b != nil {
+	if b := entryProtocolBlock(false); b != nil {
 		t.Errorf("a workspace with no entry protocol still gets a block: %v", b)
 	}
 }

@@ -3,8 +3,8 @@
 // binary.
 //
 // ⚠ IT EXISTS BECAUSE A LOCAL INSTALL HAD NO ROUTE TO ITS OWN PLAYBOOK AT ALL.
-// The row has exactly two writers, and on a self-hosted server neither of them
-// reaches the operator:
+// Before this command the row had exactly two writers, and on a self-hosted
+// server neither of them reached the operator:
 //
 //   - seedGlobalSkillset (main.go) writes only when the row is ABSENT, and that
 //     is correct — it must never clobber a superadmin's authored text on restart.
@@ -79,7 +79,17 @@ func playbookCommand(def config.Config) *cli.Command {
 // uses — rather than SQL, so the version bump and the updated_at stamp keep being
 // decided in one place. A second writer that reimplemented them would drift.
 func runPlaybook(ctx context.Context, cfg config.Config, reseed, force bool) error {
-	svc, err := buildServices(cfg)
+	// ⚠ THE READ-ONLY RUN MUST NOT MIGRATE. buildServices applies migrations and
+	// reconciles the vector backend; inspectServices leaves both stores alone.
+	// The first version used buildServices on BOTH branches, so an operator asking
+	// only "does the stored playbook differ from this binary" mutated authoritative
+	// and derived state to find out — with the command's own help calling the
+	// default read-only. Found in review 2026-08-30.
+	open := inspectServices
+	if reseed {
+		open = buildServices
+	}
+	svc, err := open(cfg)
 	if err != nil {
 		return err
 	}
@@ -122,6 +132,9 @@ func runPlaybook(ctx context.Context, cfg config.Config, reseed, force bool) err
 type playbookStore interface {
 	Get(ctx context.Context) (skillset.Skillset, error)
 	Set(ctx context.Context, content, updatedBy string) (skillset.Skillset, error)
+	// SetIfSeeded is the unforced path: it writes only while the row is still
+	// seeded, so a concurrent authored edit is refused rather than overwritten.
+	SetIfSeeded(ctx context.Context, content string) (bool, error)
 }
 
 // reseedInto holds the guard and the write, in one place, so the test drives THIS
@@ -139,6 +152,30 @@ func reseedInto(ctx context.Context, repo playbookStore, force bool) error {
 			"pass --force if replacing it with the binary's text is what you mean", stored.UpdatedBy)
 	}
 
+	// ⚠ THE UNFORCED WRITE IS A COMPARE-AND-SWAP, not a decision followed by a
+	// write. Reading UpdatedBy and then calling Set left a window in which a
+	// dashboard edit landed and was overwritten by the command whose whole promise
+	// is that it will not do that. The database makes the decision now: the update
+	// applies only while updated_by is still empty, and a zero row count means
+	// somebody authored it in the meantime.
+	if err == nil && !force {
+		ok, serr := repo.SetIfSeeded(ctx, skillset.DefaultPlaybook)
+		if serr != nil {
+			return fmt.Errorf("reseed the playbook: %w", serr)
+		}
+		if !ok {
+			return fmt.Errorf("the stored playbook was authored while this command was running, so " +
+				"nothing was changed — re-read it and decide again, or pass --force")
+		}
+		after, gerr := repo.Get(ctx)
+		if gerr != nil {
+			return fmt.Errorf("read the reseeded playbook back: %w", gerr)
+		}
+		fmt.Printf("\nreseeded version %d, %d runes, updated %s\n",
+			after.Version, len([]rune(after.Content)), after.UpdatedAt)
+		return nil
+	}
+
 	next, err := repo.Set(ctx, skillset.DefaultPlaybook, seededBy)
 	if err != nil {
 		return fmt.Errorf("reseed the playbook: %w", err)
@@ -151,7 +188,12 @@ func reseedInto(ctx context.Context, repo playbookStore, force bool) error {
 // printing an empty field a reader has to interpret.
 func authorText(updatedBy string) string {
 	if updatedBy == "" {
-		return "(seeded — no human has edited this row)"
+		// ⚠ "SEEDED" MEANS "not authored through the dashboard", which after a
+		// forced reseed also covers a row this command replaced — that write
+		// deliberately restores the empty stamp so the next reseed is not refused
+		// for a reason the previous one created. It is not a claim that no human
+		// ever ran anything against this row.
+		return "(seeded — not edited through the dashboard)"
 	}
 	return updatedBy
 }

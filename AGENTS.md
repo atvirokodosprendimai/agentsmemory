@@ -30,7 +30,13 @@ write a line of code, confirm the `am_*` MCP tools are actually reachable:
    Likewise, a server that answers is not the right server: a workspace token
    from another project still returns OK. Only step 4's workspace check proves
    you're home.
-3. **Probe, don't assume.** Call `am_skillset` and then `am_status`. A non-error
+3. **Probe, don't assume.** Call **`am_status` first**, then `am_skillset`.
+   ⚠ That order is deliberate and was measured. `am_status` is the call no session
+   prunes, and it carries the `entry_protocol` block naming the one skill this team
+   wants loaded before anything else — three sessions in three repositories read
+   the skillset playbook's own pointer and none of them acted on it, because it was
+   conditional on a catalogue call they skipped. This file used to say
+   `am_skillset` then `am_status`, which put the reachable pointer second. A non-error
    return from both means the tools are present and the workspace token is valid
    — for *some* workspace. That is not enough.
 4. **Verify the workspace identity.** `am_status` names the workspace it is

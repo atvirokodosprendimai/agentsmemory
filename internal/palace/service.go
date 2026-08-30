@@ -644,30 +644,6 @@ func (s *Service) Add(ctx context.Context, teamID string, in AddInput) (result A
 	if err != nil {
 		return AddResult{}, err
 	}
-	// ⚠ AN ENTRY RECORD THAT CHUNKS IS REFUSED, because the limit it breaks is one
-	// no agent can measure before writing.
-	//
-	// am_bootstrap's eager tier serves ONE chunk, so a longer entry record arrives
-	// cut mid-sentence with truncation.omitted:0 and nothing marking it partial —
-	// the front door silently losing whatever came after the seam.
-	//
-	// Reported 2026-08-30 by a session that filed a ~1750-rune entry record in the
-	// same turn it read the instruction "keep it under 1600 runes": "I did not
-	// estimate, because I cannot count runes and did not try to bound it. Nothing
-	// warned me; am_add_drawer returned chunks: 2 as a success. A rune limit an
-	// agent cannot measure is a limit on nothing." The author was right, so the
-	// server counts instead of asking, and REFUSES rather than warning — a warning
-	// beside a success is the shape that got ignored the first time.
-	//
-	// It binds only the entry room. Every other room may chunk freely; this is the
-	// one whose read path cannot reassemble.
-	if in.Room == EntryRoom && len(prepared.drawers) > 1 {
-		return AddResult{}, fmt.Errorf("%w: an entry record for room %q must fit in ONE chunk and "+
-			"this one is %d — am_bootstrap serves the eager tier one chunk at a time, so the rest "+
-			"would arrive cut with nothing marking it partial. Shorten it to about %d runes and "+
-			"file the detail as an ordinary memory the entry record points at",
-			ErrInvalidInput, EntryRoom, len(prepared.drawers), ChunkSize)
-	}
 	if err := s.persistWrite(ctx, s.repo, teamID, prepared); err != nil {
 		return AddResult{}, err
 	}
@@ -713,6 +689,37 @@ func (s *Service) prepareWrite(ctx context.Context, teamID string, in AddInput) 
 	}
 
 	chunks := ChunkText(content, ChunkSize, ChunkOverlap, ChunkMin)
+
+	// ⚠ AN ENTRY RECORD THAT CHUNKS IS REFUSED, and the check lives HERE rather
+	// than in Add for three reasons that are one reason: this is the only place
+	// that sees the write as it will actually be stored.
+	//
+	//   - `room` is normalised above, so " llm_init " is caught. Add sees the raw
+	//     argument and would wave it through.
+	//   - Supersede and content-Update call prepareWrite DIRECTLY and never touch
+	//     Add, so a guard in Add left a CORRECTION free to produce a multi-chunk
+	//     entry record — and correcting an entry record is precisely the case that
+	//     motivated the limit.
+	//   - It runs before embedOrDefer, so a refused write costs no embedding call.
+	//
+	// The limit exists because am_bootstrap's eager tier serves ONE chunk: a
+	// longer entry record arrives cut mid-sentence with truncation.omitted:0 and
+	// nothing marking it partial — the front door silently losing whatever came
+	// after the seam.
+	//
+	// It REFUSES rather than warning because a warning beside a success is the
+	// shape that was already ignored twice: two authors filed an over-long entry
+	// record in the same turn they read the rule, both saying the same thing —
+	// "I cannot count runes". A limit an agent cannot measure is a limit on
+	// nothing, so the server counts.
+	if room == EntryRoom && len(chunks) > 1 {
+		return preparedWrite{}, fmt.Errorf("%w: an entry record for room %q must fit in ONE chunk "+
+			"and this one is %d — am_bootstrap serves the eager tier one chunk at a time, so the "+
+			"rest would arrive cut with nothing marking it partial. Shorten it to about %d runes "+
+			"and file the detail as an ordinary memory the entry record points at",
+			ErrInvalidInput, EntryRoom, len(chunks), ChunkSize)
+	}
+
 	// A failed embed does not fail the write — see embedOrDefer. vectors is nil in
 	// that case and the rows are absorbed onto the background queue instead.
 	vectors := s.embedOrDefer(ctx, chunks)
@@ -845,6 +852,7 @@ func (s *Service) attachDerivedEdgeTo(ctx context.Context, teamID string, drawer
 	// that preceded it, and invisible for the same reason: the batch that was
 	// tested had one source.
 	seen := map[string]bool{}
+	rootedWings := map[string]bool{}
 	for i := range drawers {
 		d := drawers[i]
 		// The ROOT chunk of each memory. A chunked memory must not contribute one
@@ -864,11 +872,20 @@ func (s *Service) attachDerivedEdgeTo(ctx context.Context, teamID string, drawer
 			continue
 		}
 		// A drawer landing in the entry room also gives the wing its by-name root,
-		// so `<wing>.root` resolves to the node am_entry_point already reads. A
-		// failure here costs the address and not the write.
-		if d.Room == EntryRoom {
+		// so `<wing>.root` resolves to the node am_entry_point already reads.
+		//
+		// ⚠ ONCE PER WING PER BATCH. The loop runs per drawer, and several entry
+		// sources in one call would otherwise repeat a check-then-insert whose
+		// whole job is idempotence.
+		//
+		// A failure costs the ADDRESS and not the write, and it is logged as its
+		// own thing: the drawer and its room edge are already durable, so reusing
+		// the generic attach failure would claim the memory is unreachable when
+		// only the chosen name is.
+		if d.Room == EntryRoom && !rootedWings[d.Wing] {
+			rootedWings[d.Wing] = true
 			if err := s.attachWingRootEdge(ctx, teamID, d.Wing); err != nil {
-				logAttachFailure(ctx, d.ID, err)
+				logRootFailure(ctx, d.Wing, err)
 			}
 		}
 		// Reported from what actually happened. Setting both flags unconditionally
@@ -885,6 +902,19 @@ func (s *Service) attachDerivedEdgeTo(ctx context.Context, teamID string, drawer
 func logAttachFailure(ctx context.Context, drawerID string, err error) {
 	slog.WarnContext(ctx, "derived edge not attached; drawer is filed but unreachable by traversal",
 		"drawer_id", drawerID, "err", err)
+}
+
+// logRootFailure records a wing root that was not minted.
+//
+// ⚠ SEPARATE FROM logAttachFailure BECAUSE THE CONSEQUENCE IS DIFFERENT. By the
+// time this can fail the drawer and its room edge are durable, so the memory IS
+// reachable — through am_entry_point and through search. What was lost is the
+// chosen name a session can guess. Reusing the attach warning would tell an
+// operator the memory is unreachable, which is false and sends them looking in
+// the wrong place.
+func logRootFailure(ctx context.Context, wing string, err error) {
+	slog.WarnContext(ctx, "wing root not minted; the memory is reachable but <wing>.root is not",
+		"wing", wing, "err", err)
 }
 
 // embedChunks embeds a batch of chunks, returning one vector per chunk in order.
@@ -1022,13 +1052,24 @@ func (s *Service) purgeSourceOn(ctx context.Context, r *Repo, teamID, wing, room
 			return fmt.Errorf("end drawer %s dropped from the source: %w", short12(id), err)
 		}
 	}
+	// The server's own derived edges go with them. A re-file that drops a chunk
+	// leaves the room's `holds` edge pointing at an ended row otherwise, and the
+	// author has no call that would end it — the same defect a correction had.
+	if err := endDerivedEdgesFor(r.db.WithContext(ctx), teamID, ids, now, reason); err != nil {
+		return fmt.Errorf("end the derived edges of drawers dropped from the source: %w", err)
+	}
 	return nil
 }
 
-// An ended row KEEPS its vector and its derived edges. Nothing is deleted by a
-// re-file any more: T5 composes current() into recall, which is what stops an
-// ended row being returned, and destroying the vector would make an ending
-// irreversible in the one store a rollback cannot repair.
+// An ended row KEEPS its vector. Nothing is deleted by a re-file: T5 composes
+// current() into recall, which is what stops an ended row being returned, and
+// destroying the vector would make an ending irreversible in the one store a
+// rollback cannot repair.
+//
+// ⚠ ITS DERIVED EDGES DO NOT SURVIVE, and this comment used to say they did.
+// A derived edge naming an ended row is a pointer the server minted and the
+// author cannot remove; leaving it current puts dead records at the front of
+// am_entry_point. Authored edges are untouched — see endDerivedEdgesFor.
 
 // Get returns one drawer, mapping an unknown id to ErrNotFound.
 func (s *Service) Get(ctx context.Context, teamID, id string) (d Drawer, err error) {

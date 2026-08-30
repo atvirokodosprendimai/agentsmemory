@@ -112,6 +112,30 @@ func TestAnEntryRecordThatChunksIsRefused(t *testing.T) {
 		t.Errorf("a multi-chunk memory in an ordinary room was refused: %v", err)
 	}
 
+	// ⚠ THE TWO BYPASSES A REVIEW FOUND, both of which the first version allowed
+	// because the guard sat in Add rather than in prepareWrite.
+	//
+	// (a) A CORRECTION. Supersede and content-Update call prepareWrite DIRECTLY and
+	// never touch Add — so a correction could still produce a multi-chunk entry
+	// record, and correcting an entry record is the case that motivated the limit.
+	short, err := svc.Add(ctx, team, AddInput{
+		Wing: wing, Room: EntryRoom, Content: "WHAT MUST I LOAD AT THE START OF A SESSION? — v1",
+	})
+	if err != nil {
+		t.Fatalf("seed a short entry record: %v", err)
+	}
+	if _, err := svc.Supersede(ctx, team, short.Drawers[0].ID, long, "made it too long"); err == nil {
+		t.Error("a CORRECTION grew an entry record past one chunk; Supersede reaches prepareWrite " +
+			"without passing through Add, so a guard in Add never sees it")
+	}
+
+	// (b) NORMALISATION. prepareWrite trims the room; a guard reading the raw
+	// argument is walked past by a space.
+	if _, err := svc.Add(ctx, team, AddInput{Wing: wing, Room: " " + EntryRoom + " ", Content: long}); err == nil {
+		t.Errorf("a multi-chunk entry record was accepted for room %q — the guard must read the "+
+			"NORMALISED room, not the raw argument", " "+EntryRoom+" ")
+	}
+
 	// A short one is fine, and still mints the root.
 	if _, err := svc.Add(ctx, team, AddInput{
 		Wing: wing, Room: EntryRoom, Content: "WHAT MUST I LOAD AT THE START OF A SESSION? — short enough",
@@ -217,4 +241,72 @@ func TestCorrectingADrawerLeavesAuthoredEdgesAlone(t *testing.T) {
 		t.Errorf("correcting the drawer ended an AUTHORED edge pointing at it — that pointer is "+
 			"someone's deliberate act and there is no call that would restore it:\n%+v", q.Facts)
 	}
+}
+
+// TestEveryDoorThatEndsARowEndsItsDerivedEdge covers the three paths the first
+// fix missed.
+//
+// ⚠ A REVIEW FOUND THEM AFTER SUPERSEDE WAS ALREADY FIXED. A row stops being
+// current through a correction, through a re-file that purges a source, or
+// through an outright retraction — and only the first was ending the server's own
+// derived edge. The other two left the room's `holds` edge pointing at ended
+// content, which an author has no call to remove.
+func TestEveryDoorThatEndsARowEndsItsDerivedEdge(t *testing.T) {
+	ctx := context.Background()
+	const wing = "wing_alpha"
+
+	edgesFor := func(t *testing.T, svc *Service, team, id string) bool {
+		t.Helper()
+		q, err := svc.KGQuery(ctx, team, KGQueryInput{Entity: id, Direction: "incoming", Status: KGStatusCurrent})
+		if err != nil {
+			t.Fatalf("read incoming: %v", err)
+		}
+		for _, f := range q.Facts {
+			if f.Predicate == DerivedEdgePredicate {
+				return true
+			}
+		}
+		return false
+	}
+
+	t.Run("retraction", func(t *testing.T) {
+		svc := newTestService(t)
+		const team = "team-retract"
+		got, err := svc.Add(ctx, team, AddInput{Wing: wing, Room: EntryRoom, Content: "WHAT MUST I LOAD AT THE START OF A SESSION? — v1"})
+		if err != nil {
+			t.Fatalf("seed: %v", err)
+		}
+		id := got.Drawers[0].ID
+		if !edgesFor(t, svc, team, id) {
+			t.Fatal("fixture has no derived edge, so this test would pass whatever the code does")
+		}
+		if err := svc.EndDrawer(ctx, team, id, "withdrawn"); err != nil {
+			t.Fatalf("retract: %v", err)
+		}
+		if edgesFor(t, svc, team, id) {
+			t.Error("a retracted drawer keeps its derived edge — the front door still points at a " +
+				"record the same call withdrew, and no author call can end it")
+		}
+	})
+
+	t.Run("re-file that drops a chunk", func(t *testing.T) {
+		svc := newTestService(t)
+		const team, src = "team-refile", "notes.md"
+		first, err := svc.Add(ctx, team, AddInput{Wing: wing, Room: "decisions", SourceFile: src, Content: longNote(headA, tailA)})
+		if err != nil {
+			t.Fatalf("seed: %v", err)
+		}
+		dropped := first.Drawers[len(first.Drawers)-1].ID
+		if !edgesFor(t, svc, team, first.Drawers[0].ID) {
+			t.Fatal("fixture has no derived edge on the root, so this proves nothing")
+		}
+		// Re-file the same source with a much shorter body: the tail chunk's
+		// content key leaves the source and that row is ended.
+		if _, err := svc.Add(ctx, team, AddInput{Wing: wing, Room: "decisions", SourceFile: src, Content: "a much shorter note"}); err != nil {
+			t.Fatalf("re-file: %v", err)
+		}
+		if edgesFor(t, svc, team, dropped) {
+			t.Error("a chunk dropped by a re-file keeps its derived edge, pointing at ended content")
+		}
+	})
 }

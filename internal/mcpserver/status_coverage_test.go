@@ -142,6 +142,33 @@ func TestAmStatusServesTheEntryProtocolPointer(t *testing.T) {
 	ctx := context.Background()
 	callCtx := auth.WithTenant(ctx, tenant.Tenant{TeamID: team, UserID: "u1", Role: tenant.RoleAdmin})
 
+	// ⚠ THE KEY'S PRESENCE IS READ FROM THE SERVED JSON, not from the helper. The
+	// first version asserted on entryProtocolBlock() and therefore could not see
+	// that a nil value marshals as `"entry_protocol": null` — present on the wire
+	// while the doc comment claimed it was absent. Testing the helper instead of
+	// the response is this repository's signature defect, committed inside the
+	// commit that claimed to avoid it; a review caught it.
+	keyPresent := func(t *testing.T) bool {
+		t.Helper()
+		st := srv.GetTool(mcpprotocol.ToolPrefix + "status")
+		res, err := st.Handler(callCtx, mcp.CallToolRequest{
+			Params: mcp.CallToolParams{Name: mcpprotocol.ToolPrefix + "status"},
+		})
+		if err != nil {
+			t.Fatalf("am_status: %v", err)
+		}
+		var raw map[string]json.RawMessage
+		if err := json.Unmarshal([]byte(errText(res)), &raw); err != nil {
+			t.Fatalf("decode status: %v", err)
+		}
+		v, ok := raw["entry_protocol"]
+		if ok && string(v) == "null" {
+			t.Errorf("entry_protocol is on the wire as null; a key that is always present is a " +
+				"key every session learns to ignore, which is why it is meant to be conditional")
+		}
+		return ok
+	}
+
 	hintOf := func(t *testing.T) string {
 		t.Helper()
 		st := srv.GetTool(mcpprotocol.ToolPrefix + "status")
@@ -163,9 +190,13 @@ func TestAmStatusServesTheEntryProtocolPointer(t *testing.T) {
 		return body.Hint
 	}
 
-	// Before: no entry protocol in this workspace, so no sentence about one.
+	// Before: no entry protocol in this workspace, so no sentence about one and no
+	// key on the wire.
 	if before := hintOf(t); strings.Contains(before, EntrySkill) {
 		t.Errorf("a workspace with no entry protocol is told to load one:\n%s", before)
+	}
+	if keyPresent(t) {
+		t.Error("entry_protocol is served by a workspace that has no entry protocol")
 	}
 
 	// Seeded through the repo, not the service: this test is about what am_status
@@ -183,5 +214,8 @@ func TestAmStatusServesTheEntryProtocolPointer(t *testing.T) {
 	}
 	if !strings.Contains(after, "am_load_skill") {
 		t.Errorf("the served hint names the skill but not the call that loads it:\n%s", after)
+	}
+	if !keyPresent(t) {
+		t.Error("entry_protocol is missing from the served response for a workspace that has one")
 	}
 }

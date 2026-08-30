@@ -162,3 +162,47 @@ func newTestGormDB(t *testing.T) *gorm.DB {
 	}
 	return gdb
 }
+
+// TestUnforcedReseedIsACompareAndSwap pins the promise against a concurrent edit.
+//
+// ⚠ CHECK-THEN-SET IS NOT THE SAME PROMISE, and a review found the window. The
+// first version read UpdatedBy, decided, then called Set — which rereads and
+// saves unconditionally. A dashboard edit landing between those two steps was
+// silently overwritten by the command whose entire contract is that it will not
+// do that. The guard is the write now, so the database decides.
+func TestUnforcedReseedIsACompareAndSwap(t *testing.T) {
+	ctx := context.Background()
+	repo := skillset.NewRepo(newTestGormDB(t))
+	if _, err := repo.Set(ctx, "seeded text", ""); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	// A seeded row reseeds.
+	ok, err := repo.SetIfSeeded(ctx, skillset.DefaultPlaybook)
+	if err != nil {
+		t.Fatalf("SetIfSeeded on a seeded row: %v", err)
+	}
+	if !ok {
+		t.Fatal("SetIfSeeded refused a row that was still seeded")
+	}
+
+	// An authored row does NOT, and the refusal is the row count rather than a
+	// prior read — which is what closes the window.
+	if _, err := repo.Set(ctx, "a human wrote this", "someone@example.com"); err != nil {
+		t.Fatalf("author: %v", err)
+	}
+	ok, err = repo.SetIfSeeded(ctx, skillset.DefaultPlaybook)
+	if err != nil {
+		t.Fatalf("SetIfSeeded on an authored row: %v", err)
+	}
+	if ok {
+		t.Error("SetIfSeeded overwrote a human-authored playbook")
+	}
+	after, err := repo.Get(ctx)
+	if err != nil {
+		t.Fatalf("read back: %v", err)
+	}
+	if after.Content != "a human wrote this" {
+		t.Errorf("the authored playbook was replaced anyway: %.40q", after.Content)
+	}
+}

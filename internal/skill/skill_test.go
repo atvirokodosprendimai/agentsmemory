@@ -31,6 +31,13 @@ func (f *fakeStore) Upsert(_ context.Context, teamID, name, desc, content, by st
 	return s, nil
 }
 
+// HasSkill answers existence without a body, the way the real store does — the
+// cheap path am_status uses on every session's first call.
+func (f *fakeStore) HasSkill(_ context.Context, teamID, name string) (bool, error) {
+	_, ok := f.skills[teamID+"|"+name]
+	return ok, nil
+}
+
 func (f *fakeStore) List(_ context.Context, teamID string) ([]Skill, error) {
 	var out []Skill
 	for _, s := range f.skills {

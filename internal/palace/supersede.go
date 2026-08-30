@@ -203,29 +203,14 @@ func (s *Service) supersedeInto(ctx context.Context, teamID, id, content, reason
 			return fmt.Errorf("end the superseded memory: %w", res.Error)
 		}
 		// ⚠ AND END THE DERIVED EDGES THAT POINT AT THOSE ROWS, in this same
-		// transaction, because the author cannot do it and nothing else will.
-		//
-		// `start-here` already warns that "every correction mints a new id and
-		// nothing repoints your edges" — but that is advice about edges a writer
-		// OWNS and can repoint. A derived `holds` edge is minted by the server from
-		// the room a drawer was filed in: there is no call that lets an author end
-		// one, so the advice has no action behind it.
-		//
-		// Reported 2026-08-30 by a session that corrected its own wing's entry
-		// record and then found am_entry_point returning BOTH rows — the ENDED one
-		// listed first, because it is older. A front door whose first edge errors on
-		// read is a broken door, and the person who broke it had no way to fix it.
-		//
-		// Only `derived = true` is touched. A NULL predates the distinction and is
-		// not the same claim as "authored" (00028), and an AUTHORED edge is someone's
-		// deliberate pointer — ending that silently would be the opposite defect.
-		if res2 := tx.Model(&kgTripleRow{}).
-			Where("team_id = ? AND object IN ? AND valid_to = '' AND derived = ?", teamID, open, true).
-			Updates(map[string]any{
-				"valid_to":     endedAt,
-				"ended_reason": "the drawer this derived edge points at was superseded",
-			}); res2.Error != nil {
-			return fmt.Errorf("end the superseded memory's derived edges: %w", res2.Error)
+		// transaction, because the author cannot do it and nothing else will. A
+		// derived edge is minted by the server from the room; no call lets an
+		// author end one, so advice about repointing your edges has no action
+		// behind it. See endDerivedEdgesFor for the full reasoning and the other
+		// three doors that end rows.
+		if err := endDerivedEdgesFor(tx, teamID, open, endedAt,
+			"the drawer this derived edge points at was superseded"); err != nil {
+			return fmt.Errorf("end the superseded memory's derived edges: %w", err)
 		}
 		// THE COMPARE-AND-SWAP. RowsAffected is the answer, not a diagnostic — the
 		// same discard that made am_kg_invalidate report success for a fact it never

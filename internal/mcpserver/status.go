@@ -85,11 +85,8 @@ const EntrySkill = "start-here"
 // It stays CONDITIONAL for the reason statusHint documents below: a line that is
 // always present is a line every session learns to skip. A workspace with no
 // entry skill gets no sentence about one.
-func entrySkillHint(names []string) string {
-	for _, n := range names {
-		if n != EntrySkill {
-			continue
-		}
+func entrySkillHint(has bool) string {
+	if has {
 		return "⚠ THIS WORKSPACE HAS AN ENTRY PROTOCOL: call " +
 			"am_load_skill(\"" + EntrySkill + "\") NOW, before you plan or read anything else. " +
 			"It outranks this hint and the wake-up playbook on anything specific to this team, " +
@@ -103,7 +100,7 @@ func entrySkillHint(names []string) string {
 // is something to read. An unconditional "check your inbox" is a line every
 // session learns to skip, which is how six handoff drawers sat unread with their
 // count already present in the response.
-func statusHint(in inboxView, skillNames []string) string {
+func statusHint(in inboxView, hasEntry bool) string {
 	// ⚠ THE ENTRY PROTOCOL GOES FIRST, AND THAT IS A MEASURED ORDERING, not a
 	// preference. It sat third in this paragraph, after the inbox's own "read them
 	// first", and two sessions independently reported the same thing: two
@@ -114,7 +111,7 @@ func statusHint(in inboxView, skillNames []string) string {
 	//
 	// It is also carried as its own `entry_protocol` field, because both of them
 	// asked for that too — prose adjacency is what made it triageable at all.
-	entry := entrySkillHint(skillNames)
+	entry := entrySkillHint(hasEntry)
 	rest := "Call am_get_aaak_spec for the write dialect and am_search to recall before acting; " +
 		"persist with am_diary_write, am_kg_add, and am_add_drawer."
 	if in.Known && in.Count > 0 {
@@ -140,11 +137,8 @@ func statusHint(in inboxView, skillNames []string) string {
 // Absent entirely when the workspace has no entry protocol, for the same reason
 // the hint sentence is conditional: a key that is always present is a key every
 // session learns to ignore.
-func entryProtocolBlock(skillNames []string) map[string]any {
-	for _, n := range skillNames {
-		if n != EntrySkill {
-			continue
-		}
+func entryProtocolBlock(has bool) map[string]any {
+	if has {
 		return map[string]any{
 			"skill": EntrySkill,
 			"call":  fmt.Sprintf("am_load_skill(%q)", EntrySkill),
@@ -166,24 +160,21 @@ func plural(n int, one, many string) string {
 	return many
 }
 
-// listSkillNames returns the workspace's skill names, or nothing when there is no
-// skill service to ask.
+// hasEntrySkill reports whether this workspace has an entry protocol, without
+// reading any skill body.
 //
-// ⚠ THE nil CHECK IS THE POINT. am_status is the one call every session makes
-// first, so a nil dereference here is a wake-up that panics rather than a hint
-// that is missing a sentence. The server is built without a skill service on some
-// paths and the first draft of the caller assumed otherwise.
-func listSkillNames(ctx context.Context, skills *skill.Service, teamID string) ([]string, error) {
+// ⚠ nil IS A LEGITIMATE STATE, not a defensive habit: the server is constructed
+// without a skill service on some paths, and an unconditional dereference turned
+// the one call every session makes first into a panic. The hint degrades to "no
+// entry protocol"; nothing else changes.
+//
+// ⚠ AND IT ASKS FOR EXISTENCE, NOT FOR A LIST. The first version called List,
+// which SELECTs every skill body — up to 1MB each — to compare one string, on the
+// hottest path in the server. Found in review 2026-08-30.
+func hasEntrySkill(ctx context.Context, skills *skill.Service, teamID string) bool {
 	if skills == nil {
-		return nil, nil
+		return false
 	}
-	summaries, err := skills.List(ctx, teamID)
-	if err != nil {
-		return nil, err
-	}
-	names := make([]string, 0, len(summaries))
-	for _, sk := range summaries {
-		names = append(names, sk.Name)
-	}
-	return names, nil
+	ok, err := skills.HasSkill(ctx, teamID, EntrySkill)
+	return err == nil && ok
 }
