@@ -2,7 +2,14 @@
 
 # ---- build stage ----
 # The builder version tracks go.mod (go 1.25); 1.26 is backward compatible.
-FROM golang:1.26-alpine AS build
+#
+# --platform=$BUILDPLATFORM pins this stage to the ARCHITECTURE OF THE MACHINE
+# DOING THE BUILDING, never the one being built for, so a linux/arm64 image is
+# produced by an amd64 runner cross-compiling rather than by emulating an arm64
+# toolchain under QEMU. Go cross-compiles natively and CGO is off (pure-Go
+# SQLite via modernc), so the expensive step costs the same for every target;
+# emulating it instead would turn a ~1 minute compile into many.
+FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS build
 WORKDIR /src
 
 # Download modules first so this layer caches when only source changes.
@@ -13,8 +20,15 @@ RUN go mod download
 # means no cgo is needed; the goose migrations and the dashboard's static
 # assets are embedded, so the resulting binary is entirely self-contained.
 ARG VERSION=dev
+# TARGETOS/TARGETARCH are supplied by buildx for each entry in --platform. They
+# are what makes the pinned builder above correct: without them the build would
+# inherit the BUILDER's architecture and every platform of the manifest would
+# carry an amd64 binary, which fails at exec time rather than at build time.
+ARG TARGETOS
+ARG TARGETARCH
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" \
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+    go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" \
     -o /out/agentsmemory ./cmd/server
 
 # ---- runtime stage ----

@@ -7,6 +7,406 @@ pointers that lead here.
 An entry leaves this file in one of two ways: it becomes an ADR, or it is re-tagged
 `(permanent: <why>)` in its originating ADR because we decided it should never happen.
 
+
+## A pointer in prose is checked by nothing, and most of this corpus's pointers are prose — 2026-08-28
+
+Surveyed after four review rounds in which a majority of findings were claims nothing in the tree
+could contradict.
+
+⚠ **NO FROZEN COUNTS LIVE HERE.** The first draft of this entry carried five, and one was false at
+the commit carrying it — the entry's own prose added three ADR citations to the number it was
+reporting. That is verbatim the recurrence `internal/repohygiene/citation_test.go` already records
+about two shipped counts, with the remedy written beside it: *"a hand-maintained integrity number is
+not a check, it is a second source of truth… the gate logs the live figure on every `-v` run; read
+it there."* A second count differed from a reviewer's by 30% purely because we extracted it with
+different regexes, so these numbers are METHOD-dependent as well as time-dependent. Both live
+figures come from the gates:
+
+```bash
+go test ./internal/repohygiene -run 'TestEveryCitedADRResolvesInDocsToo|TestNoDocCitesItsOwnLineNumbers' -v
+```
+
+For the ungated rows, the method is the command rather than the answer:
+
+⚠ **The first version of this command could not reproduce its own answer**, and that is worth
+keeping visible because it inverted the argument it was published to make. `tracked` was a `set` and
+the resolver took `c[0]` from it, so a bare basename with more than one candidate — a third of the
+references in this corpus — resolved to whichever file the set happened to yield. Six verbatim runs
+on one clean tree returned six different figures for the third number. A frozen count is at least
+falsifiable; a method that returns a different answer each run is worse than the number it replaced.
+
+It sorts now, and it no longer resolves an ambiguous basename at all — the same rule the Go gate
+adopted: 31 `README.md` in this tree means a basename is not an identity, so an ambiguous reference
+is reported as its own class rather than guessed into one of the other two.
+
+```bash
+# source file:line citations written in docs, split by whether the file resolves
+python3 - <<'EOF'
+import re,subprocess
+tracked=sorted(subprocess.run(["git","ls-files"],capture_output=True,text=True).stdout.split())
+pl=re.compile(r"([A-Za-z0-9_./-]+\.(?:go|sh|yml|yaml)):(\d+)")
+tot=nofile=amb=oob=0
+for d in (t for t in tracked if t.endswith(".md")):
+    for m in pl.finditer(open(d,encoding="utf-8",errors="replace").read()):
+        p,ln=m.group(1),int(m.group(2)); tot+=1
+        c=[t for t in tracked if t==p or t.endswith("/"+p)]
+        if not c: nofile+=1
+        elif len(c)>1: amb+=1          # a basename several files can mean: never guessed
+        elif ln>sum(1 for _ in open(c[0],encoding="utf-8",errors="replace")): oob+=1
+print(tot,"total,",nofile,"naming no tracked file,",amb,"ambiguous,",oob,"out of bounds")
+EOF
+```
+
+**Two pointer classes are now gated; two deliberately are not.**
+
+**Gated — ADR citations in docs.** `TestEveryCitedADRResolvesInDocsToo`. The Go gate reads `.go`
+only, so the large majority of this corpus's ADR citations — the ones in ADRs, task files, the README
+and this file — were unchecked. A renamed or withdrawn record leaves a pointer to nothing that still
+reads as provenance.
+
+Every unresolved citation the survey found turned out to be a MENTION rather than a pointer: a
+Numbering line saying which numbers an open PR still claims, and two records that must DISPLAY an
+unresolvable number to explain the citation gate itself. Shipped without an exemption list this gate
+would have been all false alarms on day one, which is how a gate gets switched off; this repo has
+already had one such incident (issue #16, the AGENTS.md gate false-positiving on every fresh
+install). Exemptions are keyed by **file and number** — keying by file alone took 36 working
+pointers out of the gate to hide one word — and `TestDocCitedADRExemptionsAreJustified` refuses a
+blank reason or one that no longer applies.
+
+**Gated — a doc citing its own line numbers.** `TestNoDocCitesItsOwnLineNumbers`. Zero findings, and
+that is the point: a gate against recurrence, not a cleanup. The form cannot survive its own file —
+one entry's self-citation drifted `:690` to `:716` to `:744` to `:763` across four review rounds
+because the entry doing the citing kept inserting lines above its own target, and a second sat in
+ADR-038 pointing at a receipt that had moved.
+
+⚠ **A basename is not an identity here.** The first version compared `filepath.Base`, and this tree
+holds 31 files called `README.md` and 28 called `CLAUDE.md` — so one README citing ANOTHER by line
+read as self-reference. Reproduced in review by appending a correct cross-file pointer to a nested
+README and watching the gate go red, with an error telling the author to cite a heading instead.
+Self-reference is now decided by PATH, and **ambiguity is not a finding**: a bare `README.md:5` that
+31 files could mean is left alone. That costs a real false negative and buys the gate's credibility,
+which is the right trade — a missed finding costs one drifted pointer; a false alarm costs the gate.
+
+**NOT gated — unresolved repo-relative paths.** Most are legitimate FORWARD references: a task file
+naming files it will create (`cmd/server/abstain_test.go` in ADR-001 T4,
+`internal/palace/anchor_evidence_test.go` in ADR-002 T3, both unexecuted). Telling a planned artifact
+from a stale one needs the task's status — more machinery than the finding is worth.
+
+**NOT gated — `file:line` refs whose file does not resolve.** Suggested in review as the cheap
+subclass where the forward-reference objection does not apply. It does not survive reading the four
+instances: `server/session.go:301` and `server/server.go:581` are mcp-go's source, and `up.go:82` is
+goose's — the citing sentence names `goose v3.27.1` beside it. They are deliberate citations into
+pinned third-party source, and a gate over them would be four findings and four false alarms. The
+same shape as the mentions above, one class over.
+
+**NOT gated — `file:line` refs pointing past the end of a file that does exist.** Real, and the floor
+of the true number, since a citation naming the wrong-but-existing line is undetectable. Left as a
+command rather than a gate because most point into refactored files where the correct line is
+unknowable, so "fix them" means guesses that drift again — the fix this corpus has already disproved
+four times.
+
+**Scope, stated honestly.** These two gates cover ADR citations and self-references. By the survey's
+own commands that is well under half of the pointers in the corpus, and the largest ungated class —
+source `file:line` — is the one the title is about. This retires two classes and measures the rest;
+it does not retire the problem.
+
+**What none of it catches, and it is the larger half.** The two sharpest findings of the last four
+rounds were a sentence that CONCEDED the premise it was meant to reinforce, and a check whose scope
+could not see the defect it was written to prevent. Both semantic; no linter finds either. The
+mechanical gates exist so review attention goes where only a reader can judge.
+
+## adr-lint cannot express a cross-record dependency — 2026-08-28
+
+**The general finding stands; the instance I filed it with was refuted in review and is corrected
+below. Both halves are kept, because the way the instance was wrong is the more useful lesson.**
+
+**The limitation, verified 2026-08-28 against the quality-harness plugin cache on the authoring machine**, where `adr-lint` on `PATH` resolves to **2.23.0**, and identical in the 2.19.0 and 2.21.0 copies present there — same line numbers in all three. ⚠ A reviewer whose machine carries only 2.19.0 can confirm that copy and nothing else, so read the multi-version claim as "not a version artefact *here*" rather than as reproducible anywhere. The behaviour is what matters and it reproduces on the version everybody has. It is stronger than "the DAG cannot see
+these edges" — the schema forbids writing one:
+
+- `bin/adr-lint:272-276` validates every `Depends-on` entry against `all_stems`, the SIBLING task
+  files of that ADR, and emits *"Depends-on 'X' matches no sibling task file"*. So a cross-record
+  dependency is a hard lint error: the field designed to carry the constraint refuses it.
+- `bin/adr-next:136-160` builds the same edge set filtered to `if d in infos`, this ADR's tasks
+  only. A foreign T-id is discarded silently. Its docstring says this is deliberate — *"Same edge
+  set as adr-lint's DAG, so readiness here cannot disagree"*.
+- The failure direction is what matters: **an unseen edge reads as NO edge**, so `adr-next` prints
+  `ready` rather than `unknown`.
+
+In this corpus **41 of 94 task files (44%) reference a foreign ADR** across 44 distinct pairs. Not
+all imply ordering, but none of them can be represented.
+
+**⚠ THE INSTANCE I USED WAS WRONG, and it is worth reading before reusing this entry.** I claimed
+ADR-002 T3 was gated on ADR-003 T3/T4, quoting ADR-003's Decision. That sentence sits inside a
+paragraph opening *"an earlier draft of this ADR was wrong"* (`ADR-003:68`) — it is **subjunctive**,
+describing a hazard that draft *would have* created and which the accepted design removed at source
+in **T1**, which is `done`. Four things say so, all four pre-existing. The round-1 change
+edited two files and two of the four cited things lived in them; this head edits only `BACKLOG.md`,
+so none of them does now:
+
+- `T3-measure-both-normalizers.md:11-18` — *"the confound the control existed for is gone rather
+  than being controlled for"*. That is 55 lines above where the retracted paragraph was added,
+  in the same file. (The paragraph is gone from this branch, so the file is now byte-identical to
+  `main`; the citation is to what was already there.)
+- `ADR-014:51-53` — T3 is *"a check on a shipped default rather than a gate before one"*.
+- `BACKLOG.md`, the bullet *"ADR-003 T3's two-corpus measurement is now a check, not a gate"* —
+  which reports ADR-014's finding in its own words rather than quoting it. The flip already
+  happened: `internal/config/config.go:374` ships `ClosetBoost: 0`. (No line number on purpose;
+  this entry inserts lines above that bullet, so any number written here is wrong in the tree the
+  entry produces — which is exactly what happened in round 1.)
+- `ADR-002:157` — record B **already carried its own constraint**, and carried it better: scoped to
+  T4 alone and stated as a conditional, *"If T4 ships closet-ON after all"*. T4 shipped closet-OFF,
+  so the condition never fired.
+
+That last one cuts at the thesis I was arguing. I wrote that the constraint "exists only in ADR-003's
+prose"; ADR-002 had it, correctly, all along.
+
+**What survives, and it is not nothing.** Two rules, both earned here:
+
+1. **A quotation carries its mood.** Lifting a sentence out of a subjunctive paragraph turns a hazard
+   that was designed out into one that is live. Before citing a record's Decision, read the sentence
+   that opens its paragraph.
+2. **A record that states a cross-record constraint should state it as a CONDITION with its
+   trigger**, the way `ADR-002:157` does — not as a standing prerequisite. A conditional expires
+   visibly when its condition resolves; a prerequisite has to be remembered and retired by hand, and
+   nobody does.
+
+**Still open for the harness owner:** let `Depends-on` name a qualified foreign task, resolve it
+against the corpus, and make `adr-next` report `blocked: cannot evaluate X` rather than `ready` for
+an edge it could not evaluate. Cycle checking would then need to run over the union rather than per
+record.
+
+⚠ **"A different project, not ours to change" is NOT settled here, and this entry said it was.**
+The section *"The ADR evidence chain depends on a tool outside the repository"* treats the same
+externality as an open decision and names **vendoring the checker into the repo** as one of two
+ways out. And this repo already binds Go tests to a harness artefact twice —
+`internal/mcpserver/recallcue_spec_test.go` (`taskIndexRow` + `statusOfTask`) and
+`clients/claude-code/recallrate_spec_test.go` (`indexRow` :325 + `taskStatus` :328). The gate is
+`status[m.task] == "done"` at `:386`; `:401` reads the same map into `st` and gates on `""` /
+`"pending"` — both are status gates, only `:386` is that expression. Both read an ADR task README's status column. So a
+gate on this side of the boundary is not hypothetical; it is precedent. Whether to add a third is
+a decision, not a foregone no.
+
+*(Found by a reviewer who first "corrected" the count from two to one and then retracted the
+correction: the second precedent implements the same pattern under different identifiers, so a grep
+for the first one's names missed it. Ask which entries exist, not which files contain this string.)*
+
+## A human sign-off that said STOP reads to every routing tool as PROCEED — 2026-08-28
+
+Found by checking what ADR-001 T3 decided before executing anything downstream of it.
+
+**The observation.** `docs/adr/ADR-001-recall-answers-or-abstains/tasks/T3-run-the-gate.md` holds
+one human-observed sign-off ending *"eval --calibrate --gate exit 1; no threshold on the curve
+clears both bars … decision BLOCKED — neither ship nor withdraw, because the preflight names this
+corpus unfit to decide; T4/T5/T6 not started"*. Against that:
+
+- `adr-next ADR-001 --all` prints **`done T3`** and **`READY T1`**.
+- `tasks/README.md` said **`pending`** for the same task, so the index and the router disagreed and
+  neither said `blocked`.
+- `adr-lint ADR-001` **PASSES** over that divergence. Its README↔evidence check is one-directional:
+  it rejects `done` without evidence, never `pending` with it.
+- `work-next` named ADR-001's remaining tasks as the next work in the whole repository.
+
+So every tool that routes work pointed an executor at T1 — the first step of the sequence T3 had
+just forbidden. The record is not vague about this. T3's **Stop Condition** says *"Stop the ADR —
+not just this task"* and *"a gate that cannot fail authorises T4–T6 on a verdict that means
+nothing"*; its **Out of Scope** says T4/T5/T6 start only *"until this task's log holds a `ship`
+sign-off"*. The stop is stated three times in three sections and read by nothing.
+
+**The cause, verified in source** (`bin/adr-next:96-106`; read on the authoring machine's plugin
+cache, where `adr-lint` on `PATH` resolves to 2.23.0 and the 2.19.0 and 2.21.0 copies present there
+are byte-identical here — ⚠ a reviewer carrying only one of those can confirm that one, and 2.19.0
+is the version everybody has):
+
+```python
+VLOG_HUMAN_RE = re.compile(r"^- \d{4}-\d{2}-\d{2} · human-observed · .+$")
+...
+if human and VLOG_HUMAN_RE.match(line):
+    return True
+```
+
+A human sign-off is counted done by its **grammar**: date, marker, and `.+`. Every other acceptance
+route reports a verdict the tooling reads — a tool-written entry carries an exit code and a fence
+digest, and a task is done only when both match. The human route carries neither, so any text after
+the marker reads as success, including text that says to stop. `adr-lint` skips the same path
+explicitly (`evidenced_task_ids`: `if inf.get("human"): continue`).
+
+**The half that is ours, and it is the more useful half.** The schema had no representation for
+*"ran, and the answer is stop"*. T3's own acceptance hint prescribes `decision <ship|withdraw>` —
+**two** values — and the run reached a third. The executor recorded it correctly and it landed in
+free text because there was nowhere else for it to go.
+
+`TestAHumanObservedSignOffAgreesWithTheIndex` (`internal/repohygiene/humansignoff_test.go`) now
+requires every human sign-off to name EXACTLY ONE outcome from `ship` / `withdraw` / `blocked`,
+requires the sibling README to carry the status that outcome maps to (`done` / `failed` / `blocked`),
+and requires the FENCED TEMPLATE in the task's Acceptance section — the command an operator copies,
+not the prose around it — to offer all three — because the defect was a template prescribing
+two values, and a gate demanding three beside a template offering two reproduces the dead end for
+the next operator. It derives its universe from the corpus. ADR-001 T3's row now reads `blocked` and
+its hint reads `decision <ship|withdraw|blocked>`.
+
+**And this is a class rather than a one-off, which answers "why gate for a single case".** ADR-004's
+supersession gate reached the identical third state on 2026-08-24 — recorded in the palace as
+*"REFUSED — NOT 'no' … the gate could not answer. Those are different facts"* — a run that completed,
+produced a third outcome, and had two slots to record it in. Issue #34 has been open on that
+ambiguity since, before this finding existed. Two ADRs, two routes, one missing value.
+
+⚠ **Exactly one, because no position rule works.** Three were tried: first match rejected a valid
+sign-off ("…the decision is recorded in evidence/x.md; decision ship" → "is"), last match rejected
+its mirror, and last-in-vocabulary admitted a FALSE PASS on the very failure this entry is about — a
+verdict of BLOCKED indexed `done` passed the gate because a later "do not record decision ship"
+clause won. Position was standing in for grammar. Counting refuses to guess instead: two outcome
+DIFFERENT outcome words is reported rather than resolved.
+
+⚠ **That is a cost, not a claim that a reader cannot resolve it.** The earlier wording said an entry
+a machine cannot resolve is one a reader cannot resolve either, and this gate's own fixture is the
+counter-example: *"decision blocked — saturated; the decision withdraw option was considered and
+rejected"*, indexed `blocked`, reads unambiguously to a person and is rejected here — because "was
+considered and rejected" is exactly the clause a machine cannot read. It is a deliberate casualty.
+
+⚠ **DISTINCT words, not occurrences.** Counting occurrences rejected one verdict stated twice —
+*"decision ship; recorded in evidence/x.md; per the stop condition T4 starts only on a decision
+ship"* — which is what an author writes when the entry names the index it just updated. A false
+alarm on a correct sign-off is what killed both position rules, and it nearly arrived again inside
+the fix for them.
+
+⚠ **The floor: it reads only the `decision <word>` template form.** A verdict in prose beside one
+template mention — *"the decision is blocked … do not record decision ship until the corpus grows"* —
+resolves to `ship` and passes. The remedy is to state the verdict in template form, and the gate
+cannot say so, because recognising that shape is the thing it cannot do.
+
+⚠ **`blocked` now carries three meanings across three tools**, and `statusForDecision`'s doc comment
+is where that is written down: `adr-next --all` prints it for a task whose DEPENDENCIES are unmet,
+`adr-lint:636-646` treats it as externally blocked with a green fence, and this gate means the task
+RAN and its verdict was stop. No task is in two of those states today, so nothing conflicts — but a
+reader comparing tools should know the word is overloaded.
+
+⚠ **What this does NOT fix, stated plainly: `adr-next` still prints `done T3` / `READY T1`.** The
+gate makes the corpus self-consistent and makes a future divergence fail a command; it cannot change
+what a tool in another tree computes from the task file. An executor who trusts `adr-next` over the
+README is still routed into forbidden work — and `/adr-execute`'s own instructions tell them to,
+because where the two disagree the task files are supposed to win.
+
+**Still open for the harness owner:** count a human-observed entry as done only when it names a
+success outcome, and report a recorded stop as `blocked` rather than `done`. That is a four-line
+change to `is_done` plus a vocabulary. It shares the externality question with two entries that both
+resolve in this file: *"The ADR evidence chain depends on a tool outside the repository"* and
+*"adr-lint cannot express a cross-record dependency"*. Three findings in one external tool is itself
+an argument that the vendoring option deserves a decision.
+
+*(This sentence has now been wrong in both directions. It first cited the third entry by a heading
+that existed only in its own paragraph — a pointer to nothing. The correction said the entry "lands
+with PR #91 and is NOT in this file yet", which went false the moment #91 merged, nine lines above
+the heading it claimed was absent. A cross-reference written in the future tense expires; one
+written by quoted heading does not, which is the rule this file already carries.)*
+
+**Not taken here, because it is the owner's:** ADR-001 is `Accepted` and its own T3 said to stop the
+ADR. Whether that means re-running T3 against a corpus that is not saturated, or withdrawing the
+record, is a decision this entry files rather than makes.
+
+## ADR-041 T2 — the recall-before-assertion baseline, measured 2026-08-28
+
+⚠ **RE-TAKEN 2026-08-28 UNDER v3.** "Preceded" now means A RECALL SINCE THE LAST USER TURN, decided
+by Zy from the measured distribution of all three candidate readings. Under v2 it meant "this
+session touched the palace at some earlier point" — a latch that flipped at the first recall and
+never reset, which nobody chose; it is simply what the code computed. Rates under the two are NOT
+comparable, which is what the version stamp is for, and the v2 figure is kept below rather than
+deleted because it is what the earlier evidence proved.
+
+**7.6%** — of 341 no-change assertions across 24 sessions, 26 had a recall since the user turn that
+asked for the work.
+
+| | |
+|---|---|
+| transcripts scanned | 48 |
+| sessions with at least one assertion | 24 |
+| assertions | 341 |
+| preceded by a recall (since the last user turn) | 26 |
+| **rate** | **7.6%** |
+| classifier | v3 |
+
+Cross-readings on the same corpus, so the choice stays auditable: v2's latched reading **52.8%**;
+since the last compaction **43.4%**; within 100 tool calls 28.7%, within 50 17.6%, within 25 12.3%,
+within 10 **7.3%**, within 5 5.3%, within 1 1.8%.
+
+The user-turn reading lands within half a point of the within-10-calls window from a completely
+different derivation, which is the only evidence any particular window is more than a number
+someone picked. `TestTheRecordedBaselineNamesTheVersionTheCodeStamps` pins the `classifier` row
+above to the constant the code stamps, so a future redefinition cannot ship without re-taking this.
+
+### T6 shipped 2026-08-28, into a window it shares with T4
+
+T6 shipped — `serverInstructions` names the class of claim and carries no imperative — and was
+verified against the RUNNING server rather than the build log: the live handshake returns 1194 bytes
+carrying `WHAT SOURCE CANNOT SETTLE` and not `RECALL BEFORE YOU ACT`.
+
+**The before-state, re-taken with the shipped binary at the moment the window opened**, and it
+reproduces the baseline exactly, as it must — every transcript on disk predates T6 by minutes:
+
+| | |
+|---|---|
+| sessions with at least one assertion | 24 |
+| assertions | 341 |
+| preceded (since the last user turn) | 26 = **7.6%** |
+| made before ANY recall | 161 = 47.2% |
+| recall calls | 128 |
+| classifier | v3 |
+
+⚠ **AND IT IS NOT A CLEAN WINDOW — F-9 IS VIOLATED IN FACT.** Raised in review and confirmed against
+source: T4's recall hook is registered on `SessionStart` UNCONDITIONALLY, so on a hosted install it
+went live the same day, hours before T6. T4's record reads `blocked`, but that describes the record
+rather than the deployment — it is `blocked` only because it is mute on a `--local` install. Two
+mechanisms went live after the 7.6% baseline was taken, so **no delta from this window is
+attributable to either of them.**
+
+Nothing is un-shipped to manufacture a window that is already spent. The next clean one needs a
+fresh JOINT baseline taken with both live — which `observed_at` now makes computable — and then
+exactly one further mechanism. F-10 records what happened, and this is what happened.
+
+**The after-measurement therefore cannot be a T6 delta.** What it can be is a joint after-state, and
+it still needs real sessions with `minBaselineSessions = 20` as the floor.
+
+⚠ **AND THE STORE COULD NOT HAVE SEPARATED THE TWO WINDOWS.** Asked at the moment the window opened
+how the after-measurement would know which rows were after, the answer was: it would not. Every
+observation was UNDATED, so a store holding both windows answers "the rate over everything ever
+recorded" and nothing else — the delta F-10 requires is not computable from it. The whole
+before/ship-one/after design rested on a field that did not exist.
+
+`observed_at` (RFC3339 UTC) is on every observation now, pinned by
+`TestAnObservationCanBePlacedInAMeasurementWindow` with two mutants: the clock read from the wrong
+place, and a format nothing can parse. Additive, so `preceded_by_recall` and the v3 stamp are
+untouched. Rows written before today carry no `observed_at`, which is the correct reading — they are
+the pre-T6 window by construction.
+
+### Superseded: the v2 baseline, 2026-08-28
+
+**27.6%** — of 221 no-change assertions across 46 sessions, 61 were preceded by a recall.
+
+| | |
+|---|---|
+| sessions | 46 |
+| assertions | 221 |
+| preceded by a recall | 61 |
+| **rate** | **27.6%** |
+| classifier-v2 | v2 |
+| **precision** | **48%** (12/25 hand-judged, 2026-08-27) |
+| window | 2026-08-01 .. 2026-08-28 |
+
+⚠ **THE PRECISION IS NOT A FOOTNOTE.** At 48%, roughly 110 of those 221 sentences are not the class,
+so the 27.6% is a blend of the real rate and whatever rate the noise class happens to sit at —
+measured at ~15% for the noise that could be isolated. The true rate on genuine assertions is
+plausibly nearer 40%. **Do not quote 27.6% without 48% beside it**, and do not compare it against
+any rate taken under a different classifier version (F-16).
+
+**What this number is for:** the mechanisms in T3-T6 ship one per measurement window and are judged
+against it. A mechanism that does not move it is recorded as not shown to work (F-10), which is the
+outcome that retires an idea rather than extending it. At 48% precision an effect is attenuated by
+roughly half, so a real improvement will show smaller than it is — an argument for measuring more
+sessions per window, not for adjusting the number afterwards.
+
+**Two narrowings were built, measured and rejected** before settling here; both traded away most of
+the true class for a better-looking precision figure. See ADR-041 T1's evaluation sections.
+
+
 ## From ADR-001 (recall answers or abstains)
 
 - **Contradiction reporting** — recall says "this changed on `<date>`: it was X, it is now Y".
@@ -162,7 +562,7 @@ The server registers 41 tools; roughly eight are in regular use. What is built, 
 | capability | live count | why it is idle |
 |---|---|---|
 | closets | **0** | Built by `am_mine` only, and mining is retired for now — the prior it feeds measured harmful on mined corpora (~0.10 MRR) and `CLOSET_BOOST` defaults to 0. The summary index itself is untested against a curated corpus, which is a different question from the ranking prior and has never been asked. |
-| hallways | **0**, and structurally so | Not "nobody ran the build step" — `am_recompute_graph` was run across all 8 wings on 2026-08-20 and returned `hallways: 0, entity_tunnels: 0`. Hallways are entity co-occurrence, and 82 of 82 drawers have an empty `entities` column: `Service.Add` (`internal/palace/service.go:305`) builds its `Drawer` literal without one, and the only code that ever calls `extractEntities` is `internal/palace/mine.go`. Mining is retired, so nothing writes the input. |
+| hallways | **0** | ⚠ The 2026-08-20 reason — an empty `entities` column on every drawer — is NO LONGER TRUE and the correction is in item 2 below. `Service.Add` writes entities (ADR-016). Still 0, for a different reason: the extractor yields too few and too generic entities for any pair to co-occur in the two drawers `hallwayMinCount` requires. |
 | tunnels | **0** | Explicit tunnels have never been created by a session, and derived ones cannot exist: `entityTunnelsForWing` (`internal/palace/tunnel.go:180`) takes hallways as its input, so it inherits the zero above. The craft/project wing split is exactly what explicit tunnels are for, and that half is available today. |
 | skills (centralised) | 2 | Was **0** for the project's whole life: every session reported `am_list_skills` empty and fell back to generic conventions while the bootstrap called loading them a hard gate, so the gate passed vacuously. `memory-orchestration` and `writing-memories` were published 2026-08-20 and sessions began loading them the same hour. `effective-go` and `cqrs` — the two this repo's protocol names by name — were published the same day, so the catalogue holds 4 and the promise in `AGENTS.md` and `CLAUDE.md` is true for the first time. |
 | anchors | 5 | Used, and the cross-repo verdict bug that deleted memories is fixed. Adoption is still incidental rather than routine. |
@@ -179,27 +579,77 @@ Three of these are worth acting on, in order:
    missing is a seed path (skill bodies in the repo tree, pushed at install) plus the gate that
    naturally follows: a test failing when the protocol names a skill the tree does not carry.
 
-2. **Decide the entity graph: feed it or retire it.** This is the repository's own named defect,
-   and the largest instance of it yet. Hallways, derived entity tunnels and the entity half of
-   `am_traverse` are written, tested and reachable by tool call — three MCP tools and a rebuild
-   command — and all of them return nothing, because their single input is written by one retired
-   code path. `am_mine` calls `extractEntities`; `Service.Add` does not, so every drawer filed by
-   `am_add_drawer` or `am_diary_write` carries an empty `entities` column, 82 of 82 today. The tests
-   pass because they exercise the component (given entities, compute hallways) rather than the
-   selection (does anything ever produce entities), which is the same shape as the eval arm that
-   won four tables while being unreachable from production.
+2. **Decide the entity graph: feed it or retire it.** Hallways, derived entity tunnels and the
+   entity half of `am_traverse` are written, tested and reachable by tool call — three MCP tools and
+   a rebuild command — and all of them return nothing.
 
-   Two honest options, and the measurement should pick between them. **Feed it:** call the existing
-   entity extractor on the normal write path, so hallways and derived tunnels describe the curated
-   corpus rather than a mined one — cheap, since `closetEntities` already exists and runs on
-   content we already hold. **Retire it:** delete the hallway/entity-tunnel derivation and the two
-   tools that expose it, and keep explicit tunnels only. What is not an option is leaving three
-   tools in a catalogue of 41 that answer every call with an empty list, because an agent reading
-   the catalogue cannot tell that apart from a palace that simply has no links yet.
+   ⚠ **THE DIAGNOSIS BELOW THIS LINE WAS WRONG FOR EIGHT DAYS, AND IT NAMED A FIX THAT HAD ALREADY
+   SHIPPED.** It said the input was dry: *"`am_mine` calls `extractEntities`; `Service.Add` does not,
+   so every drawer filed by `am_add_drawer` or `am_diary_write` carries an empty `entities` column,
+   82 of 82 today."* ADR-016 closed that — `internal/palace/service.go:693` reads
+   `Entities: extractEntities(c.Content)` and its own comment says *"Entities is the field this path
+   was missing (ADR-016)."* A session picking this item up would have gone to add a line that is
+   there. That is the pointer-to-nothing class this repository gates for in code and in prose,
+   applied to a DIAGNOSIS, where nothing checks it at all: an entry dated once and read as current
+   forever.
 
-   Whichever way it goes needs a gate that fails when the input dries up again — a test asserting
-   that a drawer written through the normal path carries entities, which fails today and is
-   therefore the right red test to open the ADR with.
+   **What is actually true, measured 2026-08-28 over 20 consecutive drawers in one room of this
+   repo's own wing.** Entities are written; the extractor's YIELD is what starves the derivation:
+
+   | | count |
+   |---|---|
+   | drawers carrying at least one entity | 13 of 20 |
+   | drawers carrying **two or more** — the minimum for a pair to exist at all | **4 of 20** |
+   | distinct entity pairs those four produced | 12 |
+   | pairs occurring in two different drawers, which `hallwayMinCount = 2` requires | **0** |
+
+   The method, not the answer — these numbers are a snapshot of a corpus that grows every session,
+   and the whole point of this correction is that a dated figure read as current is what went wrong:
+
+   ```bash
+   # entities per drawer, over one room of this repo's wing
+   aiagentmemory mcp am_list_drawers -a wing=wing_agentmemories -a room=decisions -a limit=20 \
+     | python3 -c 'import sys,json,itertools,collections
+   d=json.load(sys.stdin)["drawers"]
+   pairs=collections.Counter()
+   for x in d:
+       e=sorted(set(x.get("entities") or []))
+       pairs.update(itertools.combinations(e,2))
+   print(sum(1 for x in d if x.get("entities")),"of",len(d),"carry an entity")
+   print(sum(1 for x in d if len(x.get("entities") or [])>1),"carry two or more")
+   print(len(pairs),"distinct pairs;",sum(1 for c in pairs.values() if c>=2),"reach hallwayMinCount")'
+   ```
+
+   The single most common entity is `ADR`, alone in seven of the twenty — a token that contributes
+   no pair whatsoever. The rest are `DISCARDED`, `FAULT`, `GREP`, `TOKEN`, `CLI`: shouted words and
+   acronyms, not subjects. The cause is `entityMinFreq = 2` (`internal/palace/entity.go:35`), which
+   requires a word to REPEAT INSIDE ONE DRAWER. Prose written once mentions most of its subjects
+   once, so what survives the filter is whatever the author happened to say twice — which is
+   uppercase emphasis and abbreviations, and is close to orthogonal to what the memory is about.
+
+   So the choice is unchanged but the evidence is not: this is no longer "an unreachable component
+   fed by a retired path", it is **a component whose input is produced and is the wrong shape**.
+
+   **Feed it properly:** the extractor needs to select subjects rather than repeated tokens.
+   Whatever replaces it, the acceptance question is not "does a drawer carry entities" — it does —
+   but "do two drawers about the same thing share a pair", which is the property `hallwayMinCount`
+   actually tests and which is 0 out of 12 today.
+
+   **Retire it:** delete the hallway/entity-tunnel derivation and the tools that expose it, and keep
+   explicit tunnels only. What is not an option is leaving tools in the catalogue that answer every
+   call with an empty list, because an agent reading the catalogue cannot tell that apart from a
+   palace that simply has no links yet.
+
+   ⚠ **The obvious red test is the WRONG one, and that is the trap this correction exists to stop.**
+   "A drawer written through the normal path carries entities" was the right test on 2026-08-20 and
+   it PASSES today over a corpus that derives no hallways at all — a gate that would have gone green
+   on the first commit and reported the feature working ever since. The test that fails today is
+   about co-occurrence, not presence.
+
+   Note also that hallways are not hypothetical here: `internal/palace/hallway.go:85` records a
+   production incident across **1,338** of them, so the derivation has run at scale on a corpus whose
+   entities came from mining. Retiring it is a decision about the curated write path, not about
+   whether the mechanism ever worked.
 
 3. **Use explicit tunnels for the craft/project split.** Independent of the entity graph above and
    available now: a craft lesson learned in a project incident should carry a tunnel back to the
@@ -292,6 +742,25 @@ fix because it changes which ids exist. **ADR-038 (Proposed, 2026-08-27) removes
 splits the id that dedupes from the id that refers, so re-chunking no longer invalidates anything
 pointing at a drawer. It does NOT do the re-chunking; the open question it leaves is what happens to
 a reference pointing at a non-parent chunk that a re-chunk deletes. See `docs/adr/ADR-038-refer-by-the-id-and-end-instead-of-overwrite.md`.
+
+## `adr-next` announces a task the corpus records as impossible — 2026-08-28
+
+Scanned every ADR with a tasks directory, comparing what `adr-next --all` calls READY against the
+status its own `tasks/README.md` carries. **One live disagreement:** ADR-041 T3 is `blocked` in the
+README and READY to `adr-next`.
+
+The cause is that `adr-next` models two states — done and not-done — and derives done from a
+Verification Log entry whose `acceptance-sha256` matches the current fence. `blocked` is not a state
+it can represent, so a task recorded as impossible, with the evidence for that sitting in its own
+file, is announced as the next thing to do. T3's Stop Condition fired and was honoured; a session
+following the banner would rebuild against it.
+
+This is the same shape as the finding that 9 `done` tasks read as not-done for want of a digest, and
+it has the same consequence: **the corpus tells sessions to do work it has already settled.**
+
+`adr-next` is in quality-harness, not this repository, so this is filed under the entry below rather
+than fixed here. What IS repo-side, and is done: T3's stop is now a tool-written Verification Log
+entry rather than only prose, so the evidence chain carries it.
 
 ## The ADR evidence chain depends on a tool outside the repository
 
@@ -908,6 +1377,7 @@ ADR-028 ships the two halves that cross the tool boundary — `search_id` return
 accepted by `am_get_drawer`, and `blended_score` on every hit. These three are what it deliberately
 did not ship, each with the reason it was held back rather than the intention to get to it.
 
+- ✅ **DONE 2026-08-29 — record the fetch against the recall.** Shipped as ADR-028 T3: `drawer_fetches`, `RecordFetch`, and `fetches` / `recalls_fetched` published on `am_recall_stats` so the write is observable through a served tool. The RATIO is not shipped and is now ADR-028 T4, because its denominator is recalls THAT WERE LOGGED and it needs `profile_id` beside it. ⚠ **The trigger below fired and could not be observed** — a non-test client sent a `search_id` on 2026-08-29 and nothing recorded it, since the id reached only a sampled span, and no first-party client calls `am_get_drawer` at all. The original text is kept because the trigger's failure mode is worth more than the trigger was.
 - **Record the fetch against the recall, and report the ratio.** The consuming half of primitive #3:
   a fetch that names a `search_id` is a relevance click, and the ratio of recalls followed by a fetch
   is the first usage signal this palace has ever had. Held back because the precondition does not
@@ -1366,3 +1836,1286 @@ as the deferral so the pointer has a receiving end.
   target holding identical content REFUSE rather than silently duplicate. If that refusal is ever
   softened to "end the loser and keep going", `merge_wing` becomes an ending operation performed by
   an agent and the surface question reopens.
+
+## ADR-041's instrument cannot measure what ADR-041 is trying to change — 2026-08-28
+
+Found by running the instrument on the session that built it.
+
+`Observe` (`clients/claude-code/recallrate.go:166`) sets `recalled := false` ONCE PER SESSION and
+flips it true at the first recall tool call. It is never reset. So every assertion after that point
+counts as "preceded by a recall", for the rest of the session, however far away the recall was and
+whatever it was about.
+
+**Measured on this session:** 109 assertions, 109 preceded — a perfect 100% against T2's 27.6%
+baseline. The latching call was `am_search` at tool_use **#172 of 8,277**, and every assertion after
+it inherited the flag. The number is an artifact, not an achievement.
+
+*(Two corrections, and the second is the same error one layer further out. First: an earlier version
+said "#3 of 8,256", which was the first PALACE call — `am_skillset` — not the first RECALL call.
+Second: the correction then claimed the latch "cannot flip on a wake-up call". `recallTools` is
+`am_search` and `am_get_drawer` (`recallrate.go:51`), and `AGENTS.md`'s manual traversal (under *"When the tools are present"*) mandates
+`am_get_drawer(id, whole:true)` once per `must.*` edge AS PART OF the wake-up sequence — dozens of
+edges, before the task search. So a protocol-following wake-up flips the latch almost immediately.
+`am_skillset` and `am_status` cannot flip it — nor can `am_bootstrap`,
+`am_list_drawers` or `am_kg_query` — all three named in that same traversal, none of them in
+`recallTools`; an
+earlier version of this sentence said "only" of the first two and was over-precise.
+
+⚠ **That premise has an expiry the entry should name.** The wake-up flips the latch *because*
+`AGENTS.md` records `am_bootstrap` returning `unknown_term` for this wing (*"It can honestly return
+nothing, and you must read that correctly"*), which is what
+makes the manual `am_get_drawer` traversal mandatory today. Once that backfill runs, a compliant
+session may make no `am_get_drawer` call at wake-up and this consequence evaporates. The mis-measurement is the same class as the
+defect being reported, now twice over.)*
+
+**What the metric actually answers** is "had this session touched the palace at any earlier point",
+not "was this claim grounded in a recall". Those are different questions, and the second is the one
+ADR-041 exists to move.
+
+**Three consequences:**
+
+1. **T2's 27.6% baseline measures the weaker thing.** Across 46 sessions it is approximately the
+   share of assertions made in sessions that had called a recall tool at all, weighted by how many
+   assertions each session made — not a rate of grounded claims.
+2. **The metric has a ceiling any protocol-following session hits trivially.** `AGENTS.md`'s manual
+   traversal mandates `am_get_drawer(id, whole:true)` once per `must.*` edge as part of the wake-up sequence —
+   dozens of edges, before the task search — and `am_get_drawer` IS a recall tool. So a compliant
+   session flips the latch almost immediately and scores 100% before it has recalled anything
+   relevant to what it then asserts. It is not vacuous: `am_skillset` and `am_status` cannot flip
+   it, so a session that only woke up and never fetched would score zero.
+
+   ⚠ **RETRACTED, and the truth is worse.** An earlier version of this bullet said subagent records
+   share the parent's transcript, so a subagent's recall flips the parent's latch. That is false:
+   subagent records live in SEPARATE FILES. The repo's own captured payload proves it —
+   `clients/claude-code/hooks_test.go:274-280` is a real `SubagentStop` event carrying both
+   `transcript_path` (the parent) and `agent_transcript_path`
+   (`…/<session>/subagents/agent-<id>.jsonl`). Measured on this machine 2026-08-28: 48 top-level
+   transcripts, **0** containing `"isSidechain":true`; 17 `subagents/` directories holding 1,844
+   files that do. What was conflated is `session_id` sharing — real, and documented at
+   `agentsmemory-stop-hook.sh:76-83` — with TRANSCRIPT sharing, which is not.
+
+   **The real finding is this repo's own characteristic defect.** `Observe` deliberately does not
+   filter `isSidechain` (`recallrate.go:153-157`), for a reason it argues well: excluding subagents
+   would silently drop "the population most likely to skip recall" from the measurement of skipping
+   recall. That decision is **inert in production**, for two independent reasons:
+
+   - `agentsmemory-stop-hook.sh` takes the `SubagentStop` branch at `:59` and `exit 2`s at `:117` —
+     **before** `agentsmemory_recall_observe` at `:155`.
+   - `agentsmemory-stats.sh:16` parses `TRANSCRIPT` from `"transcript_path"` only, never
+     `agent_transcript_path`, and `:72` is the sole caller of `recall-observe`.
+
+   So every line the instrument is ever handed comes from a parent transcript, which contains no
+   sidechain lines. The non-filtering is finished, argued for in a comment, tested against a
+   hand-made fixture (`recallrate_spec_test.go:86-92`), and **unreachable** — a capability that
+   works and that nothing can select. Found in review after the reviewer retracted the transcript
+   claim above.
+3. **Therefore it cannot detect the improvement the ADR is for.** A mechanism that makes recall
+   *proximate and relevant* — which is what T4, T5 and T6 are all about — moves this number by zero.
+   ADR-041 T1's whole purpose was to create the measurement before any requirement claiming an
+   improvement; the measurement it created is insensitive to that improvement.
+
+★ **AND THE FLAGSHIP MECHANISM IS INVISIBLE TO THE INSTRUMENT — a stronger version of this entry's
+thesis than the latch, and checkable from the tree by anyone.** T4's hook does not encourage a
+recall, it PERFORMS one, as a CLI subprocess:
+`HITS="$(aiagentmemory "$@" …)"` (`clients/claude-code/hooks/agentsmemory-recall-hook.sh:118`). `Observe` counts only
+`tool_use` blocks by name (`recallrate.go:177-182`), and a subprocess emits no `tool_use`. So a
+hook-performed recall is **not counted at all**.
+
+Two consequences, and the second is the one that matters:
+
+- T4 cannot register as an improvement however well it works.
+- **If the injected recall does its job — the agent already has the answer and therefore does NOT
+  call `am_search` — T4 measures as a DECREASE.** An instrument that scores a working mechanism
+  negatively is worse than one that is merely insensitive to it.
+
+**The spec DECIDED one thing in its flow and MITIGATED THE OPPOSITE in its Risks, and nothing
+reconciled them.** Main flow step 2 (`docs/specs/2026-08-27-recall-before-asserting.md:33`) says to
+determine whether an `am_search` (or `am_get_drawer`) call "preceded it **in the same session**",
+and `## Domain` (`:155-157`) fixes what a recall is. `Observe` implements that faithfully.
+
+But the Risks table of the same spec (`:184`) records a mitigation the code never implemented:
+*"Count searches that preceded an assertion, not searches; **a search on an unrelated subject is not
+a recall**."* So neither "the spec forgot" nor "the spec decided cleanly" is accurate — it decided a
+session-wide window in one section and promised subject-relatedness in another, and neither the ADR
+nor the implementation noticed.
+
+That changes the remedy and makes the claim harder to wave away. This is not an underspecification
+an implementer may fill — it is **a specified decision whose consequence was not drawn out**, so
+changing what "preceded" means is an AMENDMENT TO AN ACCEPTED RECORD and the owner's call. "The spec
+chose a session-wide window and the choice is insensitive" is a stronger statement than "the spec
+forgot".
+
+F-4 guards one route to a vacuous perfect rate (a classifier that matches nothing) and does not
+guard this one, which arrives from the opposite side: a numerator that counts everything after the
+first ask.
+
+**Not fixed here, because the fix is a spec decision.** What counts as "preceded" — within N tool
+calls, since the last user message, since the last compaction, or a recall whose query is related to
+the assertion's subject — changes what the number means. Options, cheapest first:
+
+- Record more without deciding: also emit `recalls`, `assertions_before_first_recall`, and the
+  distance in tool calls from each assertion back to the nearest preceding recall. Additive, it
+  re-reads existing transcripts, and it lets the window be chosen from data rather than guessed.
+  **DONE 2026-08-28 — see the distribution below.**
+- Reset the latch at a boundary (user message, or compaction) and re-take the baseline.
+- Bind "preceded" to subject relatedness — the honest reading of the spec's intent, and much the
+  hardest to implement.
+
+**The baseline must be re-taken under whatever definition wins.** A rate is only comparable with
+another measured the same way; T2's number cannot be carried over.
+
+### The additive option shipped, and the distribution is what the decision was waiting for
+
+`Observation` now carries `recalls`, `assertions_before_first_recall`, and `preceded_within` —
+cumulative counts of assertions whose NEAREST preceding recall was within 1, 5, 10, 25, 50 or 100
+tool calls. `preceded_by_recall` is deliberately UNCHANGED, latch and all, so T2's rate stays
+comparable under F-16: nothing here redefines the number, it measures what a redefinition would have
+to choose between. `classifierVersion` is unchanged for the same reason — neither `assertionShape`
+nor `assertionSubject` moved.
+
+`TestPrecededCannotSeeProximityAndTheObservationCan` is the gate, and it is written as the pair of
+sessions the old field cannot separate: one recall then a wall of claims, versus a recall before
+each claim. **Both score 100% on `preceded`.** Four mutants die on it — the distance never updating,
+every window credited unconditionally, `recalls` never counted, and `assertions_before_first_recall`
+never counted.
+
+Measured 2026-08-28 over 48 local session transcripts — 24 carrying at least one assertion, 341
+assertions, classifier v2. Re-run it rather than trusting these numbers; the corpus grows daily:
+
+All three candidate definitions are measured, not just the tool-call windows:
+
+| reading of "preceded" | rate |
+|---|---|
+| the latched field — *"this session touched the palace at some earlier point"* | **52.8%** |
+| a recall since the last COMPACTION | 43.4% |
+| nearest recall within 100 tool calls | 28.7% |
+| within 50 | 17.6% |
+| within 25 | 12.3% |
+| **a recall since the last USER TURN** | **7.6%** |
+| within 10 | 7.3% |
+| within 5 | 5.3% |
+| within 1 — the claim made immediately after asking | 1.8% |
+
+47.2% of assertions are made before ANY recall in the session.
+
+⚠ **The user-turn reading first measured a clean 0.0%, and the zero was the instrument.**
+Claude Code records every TOOL RESULT as a `"type": "user"` line — 11,055 of 11,704 in one real
+transcript — so taking those for user turns reset the boundary after nearly every tool call and a
+recall could almost never be after one. A rate of exactly zero over a corpus yielding 52.8% by
+another reading is an instrument fault until proven otherwise, and it is a fixture now
+(`tool-results-are-not-user-turns.jsonl`). The same investigation found that a line whose content is
+a bare STRING — a plain user turn — failed to unmarshal and was silently dropped by the
+malformed-line skip: 600 of them in that transcript.
+
+**Comparability was checked rather than asserted.** Re-running the whole corpus before and after the
+parsing fix leaves `assertions` at 341, `preceded_by_recall` at 180 and the session count at 24,
+byte-identical — so the shipped field, and T2's baseline with it, is untouched under F-16.
+
+Two things follow, and they are why this mattered rather than being tidy-up:
+
+1. **The reported rate and the strictest honest reading differ by a factor of about 29.** Every
+   window is a defensible definition of "preceded". The latched field is the one nobody chose — it
+   is simply what a flag with no reset computes.
+2. **There is headroom, which the old number denied.** The latch saturates on any protocol-following
+   session, so T4, T5 and T6 could only ever measure as "no effect" — the instrument would have
+   faithfully recorded four nulls under F-10. Against a 1.8-12% proximity rate they have somewhere
+   to move.
+
+**Still a decision, and deliberately left open here:** which reading becomes the definition.
+Choosing one voids every rate taken under another. The table above is what that choice should be
+made from; this entry does not make it.
+
+What the table shows, said once so the next reader does not have to re-derive it: the three
+boundary-free tool-call windows spread across an order of magnitude with no natural break, which is
+what a proxy looks like. The two BOUNDARY readings do have meanings — "did the agent ask about the
+work it was just given" (7.6%) and "did it ask after its context was replaced" (43.4%) — and the
+first of those lands almost exactly on the within-10-calls window, from a completely different
+derivation. That agreement is the only evidence here that any particular window is more than a
+number someone picked.
+
+## Two tests name a property their fixtures never drive — 2026-08-28
+
+Found by mutation while re-recording the corpus; both mutants SURVIVED first and the survivals are
+kept in the task files rather than replaced by the kills that followed.
+
+**`TestClosetDeltaExcludesUnreachableAndAbsentCases`** (`internal/palace/evalstats_test.go`) asks
+`ClosetDelta` for `CatSingle`. The loop's first check is `if d.Category != category { continue }`,
+so the absent case is filtered out before the `if category == CatAbsent` guard can run. Deleting
+that guard changes nothing the test can see. The exclusion in the test's NAME is undriven; a call of
+`ClosetDelta(report, CatAbsent)` would exercise it.
+
+**ADR-004 T5's fence** is `TestSupersessionGate*`, which drives `SupersessionVerdict`. It never
+reaches `gatedArm`, so returning a named arm where none reconstructs the served ranking — the exact
+defect `SupersessionGatedArmFor`'s doc comment says "is how the gate judged a pipeline nobody runs"
+— goes unnoticed by the gate that task is verified against.
+
+Neither is a bug in shipped behaviour. Both are gates weaker than their names, which is the
+condition this repository's checks exist to remove.
+
+## ADR-003 T3's two mined runs cannot commit their evidence under the derived wing — 2026-08-28
+
+Found while starting T3, before any eval was run.
+
+T3 step 4 runs four evals, and `$MINED_WING` appears in TWO of them (`T3:33-34`); the other two name
+`wing_agentmemories`, itself a declared example, and commit as-is. `writeCells` (`cmd/server/eval.go`)
+writes `"wing": meta.Wing` into the `.cells.json`, which step 5 commits. But `mine-claude` derives a
+wing from each session's working directory (`clients/claude-code/mineclaude.go:318`), so on a real
+palace the mined wing is named after somebody's project — and `TestNoRealProjectNamesInWings`
+(`internal/repohygiene/hygiene_test.go:297`) fails on any `wing_*` in any textual file the walk reaches — the filesystem minus `.gitignore`
+(`hygiene_test.go:303`), NOT `git ls-files` — unless the name is a declared example.
+
+**Verified 2026-08-28**: planting `{"wing":"wing_<a real project>"}` in
+`docs/adr/ADR-003-retire-the-closet-prior/evidence/` turned the gate red, naming the file. Removed
+immediately; nothing was committed and no `.cells.json` is tracked today, so nothing has leaked.
+
+**The gate is right.** The conflict is that T3 leans on the `wing` field to prove two mined runs share
+one corpus, so dropping it removes a real check, while keeping it makes the evidence uncommittable.
+`writeCells`'s own doc comment claimed the record "must carry nothing that came out of the palace" —
+which the `wing` field contradicted; the comment now names the exception rather than overstating the
+rule.
+
+**Option 1 needs no decision and is now written into T3.** `mine-claude` takes an explicit `--wing`
+that wins over the derived name (`clients/claude-code/mineclaude.go:318`), and `wing_acme` /
+`wing_alpha` are declared examples (`internal/repohygiene/hygiene_test.go:258` and `:264`), so
+evidence mined into either commits as-is. It also supplies the single mined corpus `--n 80` needs, because forcing one
+`--wing` mines every session into one wing. ⚠ That mixing is deliberate: `mineclaude.go:435-437`
+refuses `$AGENTSMEMORY_WING` for exactly this reason, so `--wing` opts into it — a judgement T3 now
+makes rather than leaving to the executor.
+
+**Options that DO need the owner:** replace the raw wing with a one-way hash, as `case_set_id`
+already does for questions (discloses nothing); or drop the field and replace the check. Either
+changes what a published record means.
+
+⚠ **Option 1 weakens the argument for keeping the field at all.** With `MINED_WING` pinned to the
+literal `wing_acme`, both mined records agree by construction, so "the `wing` field proves two runs
+share a corpus" now catches a typo and nothing else. The case for the status quo is thinner than
+this entry first stated it.
+
+**T3 is NOT blocked on this any more** — that was the entry's own earlier reading, and Option 1
+retires it. What survives is a precondition rather than a block.
+
+⚠ **And the precondition is counted in SOURCE FILES, not drawers — an earlier version of this
+paragraph said "≥80 drawers" and that is the wrong unit.** `ListRandom`
+(`internal/palace/repo.go:797`) over-fetches `limit*5` rows and keeps at most one drawer per
+`source_file`, on purpose: a mined session arrives as many chunk drawers sharing one source, and two
+eval cases from one session are not independent observations. So a wing holding 100 drawers across
+4 mined sessions yields **4** cases at `--n 80`, against D1's floor of 40 admitted cases
+(`ADR-003:93`) — and an executor who checked "≥80 drawers" would discover it after building the
+binary and running all four evals. `aiagentmemory mine-claude --wing wing_acme` has to have run over
+roughly 80 distinct mined session-parts, densely enough that a random `limit*5` over-fetch reaches
+80 of them.
+
+That the unit was wrong twice is itself the finding: **`SampleDrawers`/`ListRandom` had no test
+anywhere in the tree**, which is why two rounds of careful prose about `corpus_drawers` could both
+be wrong with every gate green. `TestSampleDrawersCountsSourcesNotDrawers`
+(`internal/palace/samplesize_test.go`) now pins it — mutant killed 2026-08-28 by disabling the
+dedup, which turns 2 of its 4 subtests red.
+
+Only the hash-or-drop options still need the ADR owner, and neither gates T3.
+
+## Four spellings of one entry point, and the served document teaches a fifth — 2026-08-28
+
+**Fourth framing. The three before it each named a single CAUSE and each died to one more query;
+this one names the LAYERS and leaves the choice open, because the choice is a product decision.**
+Independent read by a different-lineage advisor found most of the evidence below.
+
+**The layers, all present in this tree today:**
+
+1. **The served onboarding document.** `internal/web/bootstrap-memory.md` is `go:embed`-ed and
+   served at `/bootstrap-memory`. It says `llm_index` **15 times and `llm_init` zero times**, and
+   its §4.3 seeds two `llm_index` drawers. It was `setup.md` until commit `bd611a3`. This is what a
+   new agent reads, and it is what the local corpus was built from — those drawers cite
+   `setup.md §4.3` and `§6` in their `source_file`.
+2. **The canonical model.** `model/draf1.md:94`: *"Every project's root is room `llm_init` in that
+   project's wing."* `:197` — *"P2 — Write the ROOT INDEX DRAWER into `llm_init`"*. The graph shape
+   it prescribes is **root-drawer-ID → `must.*` → drawer-ID** (`:224`, `:323`). `AGENTS.md` and
+   ADR-027 (`:41`, `:56`, `:62`, `:197`) agree; ADR-036 T7 records a live 25-node `llm_init` root.
+3. **The Go API.** `EntryRoom = "llm_init"` (`graphquery.go:465`), and `EntryPoint` resolves
+   **derived room containment** at `room:<wing>/llm_init` (`:509`). `Bootstrap` takes outgoing edges
+   from that containment node (`bootstrap.go:95`) and **never examines `must.*` or `ref.*`** —
+   ADR-036 T8 put that vocabulary explicitly out of scope.
+4. **This local corpus.** `must` → `must_load` / `must_load_skill` → **labels** (`llm_index`,
+   `effective-go`, …), 8 facts, `matched`. Canonical is root-drawer-ID → `must.*` → **drawer IDs**.
+   Different subject, different predicate, different object type — a fourth spelling, not the KG
+   half of layer 2.
+
+**Consequences that follow from the layers, not from a guess:**
+
+- `must.*` appears in **no Go source**. It is a human protocol, described in prose and maintained by
+  hand. Nothing produces or consumes it.
+- Nothing in the tree **creates** a drawer in `llm_init` outside tests — no seed, migration,
+  installer or fixture. `model/draf1.md` P2 is a human procedure. So the entry point's data has no
+  producer in the product.
+- **A derived-edge backfill alone would produce FALSE reachability**: `am_entry_point` would go
+  `matched` while returning only the root room's own drawers, never the mandatory tier the manual
+  protocol traverses. That is this repository's characteristic defect, and it is the trap in the
+  cheapest-looking fix.
+
+**Verified locally:** `am_kg_query(entity:"room:wing_agentmemories/llm_init", status:"all")` returns
+`unknown_term`, `unresolved: "entity"` — so this workspace never held that node, not even ended.
+
+### Proposed 2026-08-28 by ADR-043 (NOT accepted) — take the `llm_init` layer; two obligations received here
+
+`docs/adr/ADR-043-one-spelling-for-the-entry-room.md` (Proposed, unassigned, unaccepted) PROPOSES for this entry: `llm_init` is the
+canonical entry room, the served onboarding document is the outlier and is corrected, and `llm_index`
+keeps ADR-027's job as a routing drawer filed UNDER the root rather than instead of it.
+
+**A second local read, taken 2026-08-28 with a different call than the one this entry retracts.**
+`am_list_drawers(wing:"*", room:"llm_init", include_history:true)` → **0**. Not one drawer in any
+wing, and not one ended drawer either — so the two derivations agree, and the room has never existed
+in this palace rather than merely lost its derived edges. `am_list_drawers(wing_agentmemories,
+room:"llm_index")` → 2 drawers citing `setup.md §4.3` and `§6`; `am_kg_query(entity:"must",
+direction:"outgoing")` → 8 facts, `matched`, objects are LABELS.
+
+**Two things this entry did not name, found the same day:**
+
+- `AGENTS.md`'s documented traversal opens with `am_list_drawers(wing:"wing_agentmemories",
+  room:"llm_init")` and the comment `# several drawers`. Against this palace it returns zero, so the
+  repo's own protocol ends before the step that teaches you to distrust a zero. ADR-043 fixes this by
+  populating the room rather than by editing `AGENTS.md`, which already names the right one.
+- `README.md:167` explains `am_bootstrap`'s `unknown_term` as `llm_init` drawers filed before the
+  derived room edges shipped. There are no such drawers here. The documented cause cannot be this
+  palace's cause, and an operator reading it goes looking for a backfill that would not help.
+
+**Received from ADR-043 (deferred, receipted here per the deferral rule):** backfilling corpora on
+deployments other than the local and hosted ones named in ADR-043 T3 — a third-party palace built
+from the old served document keeps the old shape, and this record does not reach it. Also received:
+whether the entry point's data should have a producer in the product at all, rather than a procedure
+the served document instructs an agent to run by hand; that is the deeper cause of all four spellings
+and ADR-043 does not fix it.
+
+⚠ **ADR-036 T7's 25-node claim is unresolved and ADR-043 T3's first step is to resolve it.**
+`docs/adr/ADR-036-a-recall-that-answers/tasks/T7-a-wing-names-its-entry.md` records a live
+`wing_agentmemories` `llm_init` root of 25 nodes verified 2026-08-26. That cannot be this palace. It
+was the hosted deployment or a fixture, and which one decides whether adopting `llm_init` strands an
+existing corpus or none at all.
+
+⚠ **My earlier discriminator was wrong.** I claimed one `am_entry_point` call against production
+settles it. It does not: `unknown_term` cannot distinguish "no `llm_init` room" from "`llm_init`
+drawers that predate derived containment edges". The right call is
+**`am_list_drawers(wing:"wing_agentmemories", room:"llm_init")`**, which sees the room whether or not
+its drawers were ever stamped. If it returns drawers, follow with
+`am_kg_query(entity:"<root drawer id>", direction:"outgoing")` and check the subject/predicate/object
+shapes — that is what separates the canonical root-ID/`must.*`/drawer-ID protocol from this corpus's
+`must`/`must_load*`/label one.
+
+⚠ **SUPERSEDED 2026-08-29 BY THE SECTION BELOW, WHICH IS A PROPOSAL AND NOT YET AN ACCEPTANCE.** The
+paragraph that follows was written while nothing had decided this, and it is kept because the options
+it lays out are still the options. What has changed is that ADR-043 now PROPOSES one of them; the
+record is `Proposed` with no owner assigned, and two competing records are open on PRs #75 and #79, so
+the decision remains open until somebody signs it. Read the heading below as "proposed by ADR-043",
+never as "decided".
+
+**The product decision, unmade:** which layer is canonical. Adopting the served document contradicts
+`EntryRoom`, `AGENTS.md`, `model/draf1.md` and ADR-027. Adopting the model leaves the served document
+teaching the wrong room to every new agent. Adopting room containment as the server's bootstrap makes
+the manual-parity claims false until revised. Any of these is defensible; taking one silently strands
+whichever corpus followed another.
+
+**A gate belongs here once the decision is made**, and its universe must come from two real
+artifacts: the entry-room name from `palace.EntryRoom` checked against the served onboarding
+document, and bootstrap parity derived from a root fixture's ACTUAL outgoing edges with `must.*`
+targets in other rooms. The existing test seeds records directly into `EntryRoom`, so it cannot
+expose the mismatch.
+
+## A `--socket` install's hooks still speak HTTP — 2026-08-28
+
+Found by an independent review of PR #85; verified from source and made VISIBLE 2026-08-28, not
+fixed.
+
+`--socket` registers the agent's MCP over the stdio bridge and does not change `i.mcpURL`.
+`hookCommand` (`clients/claude-code/installer.go:1133`) exports that URL — and only that URL — into
+every hook command; the socket is never written into one. `listenerFor` (`cmd/server/listen.go:33`)
+binds EITHER the socket OR the TCP address, never both. So every hook a socket-only install writes
+carries an endpoint nothing is listening on.
+
+**PR #85 changed the symptom, not the cause**: before it those hooks failed on token resolution,
+after it they fail on connection. Either way a documented install shape produces hooks that cannot
+reach their palace — and because a hook's healthy state is silence, nothing reported it.
+
+**Now it says so.** `warnSocketHooksCannotReachTheServer` warns during a `--socket` install, naming
+the variable the hooks carry and why it cannot work, pinned by
+`TestASocketInstallSaysItsHooksCannotReachTheServer` — including a subtest that drives
+`registerStopHook` rather than the helper, so deleting the CALL SITE goes red. That subtest was
+added after review: the first version tested the function directly, so removing the one line that
+invokes it left the whole package green. The mechanism built to make a silent failure loud was
+itself silent if severed — the same defect one level out. **Its sibling `warnIfRepointing`
+(`installer.go:874`) had the identical hole and is now pinned the same way**, because the class is
+"a warning whose only test calls it directly", not this one warning; verified 2026-08-28 by
+severing that call site and watching the new subtest go red. That is the cheap half: the failure is
+no longer silent.
+
+**The real fix is new capability and a product decision, so it stays here.** The `socket` flag
+belongs to `install`; the `mcp` subcommand has NO socket flag and only dials HTTP (`dialMCP`), while
+verify and stats use `curl`. Making hooks work over a socket means either giving `mcp` a
+unix-socket transport and exporting the socket into hook commands, or having a socket-served server
+also bind a loopback port. Which one is right depends on whether hooks should follow the bridge or
+the server should always be reachable over TCP — nobody has decided that.
+
+A third option was listed here before the warning shipped and is dropped on purpose rather than
+forgotten: **have `--socket` refuse to install hooks it knows cannot work.** The warning does the
+same job without the cost — a refusal removes every hook from a socket install, so an operator
+who wanted the MCP over a socket silently loses capabilities that have nothing to do with the
+transport. On a Claude install that is **six registered events** (Stop, SessionStart×2,
+SubagentStart, SubagentStop, SessionEnd, `installer.go:960-1005`) across **five** of the six scripts
+in `hooks/`; the sixth, `agentsmemory-stats.sh`, is SOURCED by the session-end hook rather than
+registered, so calling it a hook is loose. ⚠ Six is CLAUDE-ONLY: `hookPlans` returns after the Stop
+plan for any other kit (`installer.go:963-965`), so a codex `--socket` install registers one event
+and pi registers none.
+
+Four of the five contact the server. `agentsmemory-subagent-start-hook.sh` deliberately does not —
+it reads stdin, `$AGENTSMEMORY_WING` and `.aiagentmemory`, then prints a fixed JSON envelope, with
+"no dependency on the binary, the server, or the network" and "deliberately NOT `am_status`: that is
+a network call on the dispatch path" in its own comments (`:39`, `:52`). Verified: no `curl`, no
+`http`, no invocation of the binary anywhere in it.
+
+**That hook is the argument, not an exception to it.** An earlier version of this paragraph said
+"all of them contact the server, so the argument is if anything understated" — which asserts every
+hook IS transport-coupled and therefore CONCEDES the premise it was meant to reinforce. The cleanest
+instance of a capability a `--socket` refusal would take away for no transport-related reason is the
+one hook that needs no transport at all. (`agentsmemory-stop-hook.sh` is a partial second: its
+primary job is the exit-2 persist nudge, which needs no server; the `/stats` call is an explicit
+optional extra, `:137`.) Saying so and installing them is strictly more
+recoverable than not installing them. Named here so the next reader does not re-propose it as new.
+
+**Whatever is chosen, the check must drive a GENERATED hook against a socket-only server.** The
+existing socket tests assert the registration, which is the half that already works; the new warning
+test asserts the warning, which is not the same as asserting the hook connects.
+
+## A `--local` install gives its hooks no credential — 2026-08-28
+
+**CORRECTED the same day, and the correction is the point.** This entry first claimed the CLI does
+not read the token from the Claude MCP registration's `Authorization` header, and that a HOSTED
+install was therefore the broken case. That is false. `tokenFromClaudeJSON` reads exactly that
+header, it is wired at `clients/claude-code/mcpcall.go:222`, and its doc comment says so. The claim
+was an assertion that something DOES NOT happen, published without checking — the exact failure
+shape ADR-041 exists to measure, committed while writing ADR-041.
+
+**The real gap, verified 2026-08-28.** `aiagentmemory mcp` resolves a workspace token from
+`--token`, `$AGENTSMEMORY_TOKEN`, an `agentsmemory.env` file, or the agent's `.claude.json`
+registration header. A `--local` install populates NONE of them: `--help` says of `--local` that
+"no token is prompted for", and `registerClaudeMCP` adds an `Authorization` header only when a token
+is non-empty. So the CLI refuses with "no workspace token found" — against a local server that
+accepts no credentials at all. Every hook that shells out to `mcp` is silent on a `--local` install,
+including ADR-041 T4's recall hook.
+
+It is a client-side gate with nothing behind it: the server does not want the token the CLI insists
+on having.
+
+**Options.** Have `--local` write `agentsmemory.env` with the token the server was started with (or
+a placeholder when it was started with none); or let `mcp` skip the token requirement when the
+endpoint is loopback; or have the hook pass a placeholder only for a loopback URL — note the hook
+USED to pass `--token …:-local` unconditionally, which broke every install that resolves its
+credential elsewhere, so any placeholder must be conditional on the URL.
+
+**Workaround that works today:** write `AGENTSMEMORY_TOKEN=<token-or-any-string>` into
+`agentsmemory.env` in the config dir (0600). Verified: the CLI then reports
+`token from …/agentsmemory.env` and the recall hook speaks.
+
+
+## The recall hook searches every project, and its header says "this branch" — 2026-08-28
+
+`agentsmemory-recall-hook.sh` calls `mcp search` with no `wing`. These registrations report
+`default_wing: ""`, so per `drawers.go` an omitted wing searches EVERY wing in the workspace rather
+than the project the session is in. Observed, not theorised: on 2026-08-28 an independent run of the
+hook's exact query shape on two open branches put a drawer from an unrelated codebase into one of
+the three slots, both times.
+
+The protocol this repository ships is explicit that another wing's memory is context and never an
+instruction, and that unrelated projects "do not remove your answer, they add competitors ahead of
+it". PR #95 made the printed header say so instead of asserting a provenance the query cannot
+guarantee. That is a label, not a fix.
+
+The fix is to scope the query, and the reason it is filed rather than done is that the hook cannot
+resolve the wing the way the protocol says to: rung 0 is what the server's registration reports, and
+the hook has no way to ask before it searches. The candidates are all worse in a specific way —
+deriving `wing_<repo>` from the git remote is rung 3 and disagrees with rung 0 on at least one live
+registration; passing the wing at install time freezes it into a script. Whichever wins is a
+decision, not an implementation detail.
+
+## A stale-flagged hit is injected as current — 2026-08-28
+
+The server marks a drawer `stale: true` when its code anchors no longer match the tree, and returns
+a warning telling the caller to re-read the code before acting. `agentsmemory-recall-hook.sh` filters
+on nothing but the server's `count`, so a stale hit is injected into a fresh context with the warning
+dropped. Observed 2026-08-28: a PR#25 drawer carrying `stale: true` passed the 0.42 floor on a real
+branch query.
+
+Not fixed in PR #95 because it changes what reaches the model and therefore needs its own
+measurement: dropping stale hits shrinks an already-scarce payload, and a stale memory is not
+worthless — it is evidence that something changed, which is occasionally the most useful thing in
+the page. The choice is between dropping them and labelling them, and that is F-10's kind of
+question.
+
+## The palace enforces its most expensive action and leaves its cheapest optional — 2026-08-28
+
+⚠ **ESTIMATED, NOT MEASURED, AND THE FIRST VERSION OF THIS LINE SAID "Measured".** Every figure in the
+table below is BPE arithmetic done by the model that emits the tokens, and **that model cannot count
+its own output as it generates it** — no instrument in this tree or in the harness reports a turn's
+output-token count back to it. Call it ±20% and treat the ORDERING as the finding rather than any
+single number: a read is one or two orders of magnitude below a write, and that gap survives an error
+far larger than 20%. A ratio quoted from these as though it came from a counter is the defect this
+file has retracted before.
+
+The distinction the figures are about is real regardless: OUTPUT tokens are what an agent EMITS, as
+distinct from context, which is what a result CONSUMES. The two were conflated in every earlier discussion here and the conclusions
+invert when they are separated.
+
+| what the model emits | output tokens |
+|---|---|
+| `am_skillset` / `am_status`, no arguments | ~15 |
+| `am_search(query, wing)` | ~30 |
+| `am_get_drawer(id, whole:true)` | ~45 |
+| a content-bearing `am_add_drawer` (~1,500 runes) | ~400 |
+| a diary entry | ~525 |
+| deliberating which drawers to fetch | 500–1,500 |
+
+**So the Stop hook's three mandatory content-bearing writes cost ~1,400–2,000 output tokens per
+session, roughly 10× the entire read-side protocol, and every read is optional.** Nothing fails when
+a session skips recall; a session that files nothing is reminded until it does.
+
+⚠ **AND THE ONE INSTRUMENT THAT WOULD PRICE THAT MANDATE IS INERT HERE.** `recall-observe` (ADR-041
+T1) has written `recall-observations.jsonl` for exactly ONE project on this machine and NOT for this
+repository, despite six transcripts. The 7.6% baseline in this file was produced by a hand-run scan,
+not by the mechanism built to produce it. `agentsmemory_recall_observe` is invoked only from
+`clients/claude-code/hooks/agentsmemory-stats.sh`, which is SOURCED by the session-end hook rather
+than registered, needs `aiagentmemory` on PATH and `$TRANSCRIPT` set, and exits 0 silently on every
+failure path (deliberately — ADR-041 T1, spec F-5). One of those preconditions is not holding and
+nothing reports which.
+
+**The change this argues for is a predicate, not advice.** "Write less" cannot be enforced by asking.
+The Stop hook already sees the session's tool history: a session that recalled nothing and decided
+nothing has nothing worth filing, and a session that made a decision does. Same hook, conditional
+instead of unconditional three.
+
+**Not taken here, because it is a decision rather than a fix.** It changes what the corpus
+accumulates, which is a product question, and it should not be made before the measurement below
+says whether the accumulation is worth anything. Filed rather than done.
+
+**One number that would make this urgent or moot:** see the next entry.
+
+## Nothing measures whether a filed drawer is ever read — 2026-08-28
+
+`am_recall_stats` reports searches, `answered_pct`, drawers held and the queries that found nothing.
+It does not report, and nothing in the tree reports, **what fraction of filed drawers has ever been
+returned by any search.**
+
+At the write-to-read ratios this repository keeps measuring — 1.9:1 across one long session, and
+**3.0:1** (6 searches against 18 writes) in the two-hour window on 2026-08-28 during which an agent
+was explicitly instructed to recall more — the median drawer may never have been returned to anyone.
+Nobody has checked, and this entry deliberately makes no claim about the answer.
+
+**The measurement, stated precisely enough to be run:** join `search_events` (or whatever durably
+records which memories a page returned) against the drawer table, over the whole corpus, and report
+the fraction of drawers with at least one recall, split by wing and by room. `wing_agentmemories`
+held 1,080 drawers on 2026-08-29, of which 719 are in `sessions` — bulk-mined transcripts — so the
+split matters (the total was 1,077 twelve hours earlier and drifts with every write, which is why it
+carries a date; the `sessions` figure has not moved because nothing has re-mined):
+a low overall figure driven entirely by mined sessions means something different from a low figure in
+`decisions`.
+
+⚠ **BEFORE RUNNING IT, ESTABLISH THAT THE INSTRUMENT CAN SEE A POSITIVE.** This repository's rule,
+earned seven times over on 2026-08-28: run the canary before trusting any zero. `search_events` is
+written only by `Search`, so a drawer reached by `am_get_drawer`, by `am_bootstrap`, or by a
+traversal is invisible to it and would score as never-read while being read constantly. A figure
+taken without that check measures the telemetry's coverage and reports it as the corpus's value.
+
+⚠ **CORRECTED 2026-08-29, THE MORNING AFTER, AND THE ENTRY ABOVE IS THE THING IT WARNS ABOUT.** The
+join it prescribes has no left side. `search_events` (`db/migrations/00021_search_events.sql:16-26`,
+plus `00023` `00026` `00029`) records `hits` as an INTEGER COUNT and carries **no drawer identity of
+any kind** — no id, no key reaching the drawer table. ⚠ An earlier version of this correction said
+"nine columns"; the base migration declares TEN and two later ones add more, so the count is dropped
+rather than repaired — it was brittle, it was wrong, and it was load-bearing for nothing. The
+conclusion it was offered in support of is unchanged and is what matters: the row records HOW MANY
+hits a page returned and never WHICH. And
+`drawers` (`db/migrations/00006_drawers.sql`) has no usage column at all; the two `last_used_at`
+columns in this tree belong to API keys and WebAuthn credentials. So nothing anywhere records WHICH
+memories a page returned, and the measurement is not merely un-run, it is unrunnable. The paragraph
+directly above says to establish that the instrument can see a positive before trusting a zero. It
+was written without checking that the instrument exists.
+
+**IT IS NOT NEW WORK, WHICH IS THE USEFUL HALF.** `ADR-028` already owns this and already designed
+it: its **T3 — record the fetch against the recall and report the ratio** — is exactly the durable
+join, deferred with a written trigger rather than forgotten. `search_id` is minted by `Search`, is
+the primary key of the `search_events` row, reaches the wire on every page, and is accepted by
+`am_get_drawer`, whose own schema says it "is recorded on the request's trace span, not yet stored
+durably". The instrument is one write short. So the right move is not a new table and not a new
+record; it is ADR-028's own deferred task, and proposing either would have created the contested
+state `adr-state` reports.
+
+⚠ **BUT ITS TRIGGER CANNOT FIRE, AND THAT IS A SECOND FINDING.** T3 starts on *"the first week in
+which `am_get_drawer` receives a non-empty `search_id` from any client other than a test."* Nothing
+in this repository passes one: grepping `clients/`, `hooks/` and `internal/` for `search_id` finds
+the server-side reader, the schema declaration and the response emitter — **no sender**. The only
+clients are agents, and the only thing asking an agent to pass it is a tool description.
+
+**Measured on the session that wrote this entry:** it called `am_get_drawer` twice, with that schema
+loaded, and passed `search_id` neither time. That is ADR-017's finding arriving from the other side —
+prose is the weakest lever — and it is this repository's defect class inverted: not a capability that
+is finished and unreachable, but one that is **reachable and unused, gating work that waits on its
+use**. A trigger conditioned on a behaviour nothing produces is a task that never starts, and nothing
+reports that either.
+
+**AND T3 ANSWERS THE NARROWER QUESTION.** Recording the fetch measures which drawers an agent went on
+to READ — implicit relevance. This entry asks which were ever SURFACED, read or not, and a drawer
+returned on a page and ignored still cost the corpus its retrieval. The entry above conflated the two.
+The surfaced question needs a row per hit per search; the fetched question needs the join that is
+already half-built. **They are different measurements and only the second is designed.** Which one
+answers "is this corpus worth accumulating" is the surfaced one — so the cheap half-built path does
+not close this entry, it narrows it.
+
+⚠ **AND NO FIRST-PARTY CLIENT CAN SATISFY THAT TRIGGER, BECAUSE NONE CALLS `am_get_drawer` AT ALL.**
+Checked 2026-08-29 across `clients/claude-code/hooks/` — six scripts, none fetches a drawer; the
+recall hook searches and prints. So the trigger is not waiting on wiring that somebody forgot. It is
+conditioned entirely on an AGENT choosing to pass an optional argument it read in a tool description,
+which is the weakest lever this repository has measured (ADR-017: the full protocol produced 0 recalls
+in 5 dispatches, one short paragraph produced 5).
+
+**The trigger has now been met, and meeting it demonstrated the second half of the problem.** On
+2026-08-29 this session issued `am_search`, took the returned `search_id` (`964069852bd5cae2572fa9a9`)
+and passed it to `am_get_drawer` — a non-test client sending a non-empty `search_id`, which is exactly
+what ADR-028 T3 waits for. **Nothing recorded that it happened.** `annotateSearchID`
+(`internal/mcpserver/drawers.go:368-374`) puts it on a trace span and the span is sampled, so the
+condition "the first week `am_get_drawer` receives a non-empty `search_id`" is now TRUE and
+UNOBSERVABLE to anyone who goes looking. A trigger whose satisfaction leaves no durable trace cannot
+start the task it gates, however many times it fires.
+
+**What is actually open, in order.** (1) ADR-028 T3's owner decides whether to persist the join
+directly rather than wait on a trigger that cannot be observed — the trigger was reasonable when
+written and is not reachable as specified. (2) Separately, whether the SURFACED question — which
+drawers a page returned, read or not — earns a row per hit per search; it is the one that answers "is
+this corpus worth accumulating", and it is undesigned. Nothing here decides either, and this entry
+should not be read as authorising a schema change.
+
+**Why it reorders work rather than adding to it.** If the fraction is high, the corpus is earning its
+keep and the read-side facts in `docs/specs/2026-08-28-a-read-as-cheap-as-a-grep.md` are the right
+next thing. If it is low, the constraint is not retrieval quality at all — it is that we are writing
+material nobody will read, and every read-side improvement optimises retrieval over a corpus that
+should be smaller. That would promote the entry above and demote the spec, and it is the only
+measurement on this page that can do that.
+
+## From ADR-044 (make a small read trustworthy)
+
+Filed 2026-08-29 with ADR-044, in the same commit as the deferrals that point here. Written at the
+destination rather than pointed at, because a pointer to a real file that never received anything
+passes every check there is.
+
+- **ADR-021 T3's Claude Desktop measurement, still not taken.** ADR-044's read paths travel to every
+  MCP client, and exactly one client is confirmed to surface `server.WithInstructions` — a Claude Code
+  session, verified 2026-08-22 as an "MCP Server Instructions" block. Desktop is unmeasured, and the
+  ADR-021 T3 live measurement has been listed as PENDING since that date. Related and separately
+  recorded: `mcp-stdio` takes `--socket/--url/--token` and no `--wing`, so a Desktop registration
+  cannot scope itself to a project and falls through to every wing. Deferred from ADR-044 §Out of
+  Scope. The cheap experiment is one restart and one question.
+
+- **Retention or pruning of ended records.** ADR-044 T7 makes a correction end its predecessor
+  atomically, which means the corpus accumulates ended rows at whatever rate corrections are filed.
+  Nothing prunes them and nothing decides whether they should be pruned — `include_history` already
+  keeps them out of default reads, so this is a storage question rather than a correctness one.
+  Deferred from ADR-044 T7 §Out of Scope. Note ADR-028 T3/T4 defer the same question for
+  `drawer_fetches` and `search_events`; if any of the three is answered, answer all three together,
+  because a retention story for one table and not its siblings is the shape that gets rediscovered.
+
+## `CorrectionsFor` scans every correction edge on every recall — 2026-08-29
+
+Found by Mindaugas by reading `internal/palace/kg.go`, and confirmed in the source the same day.
+Filed here rather than fixed, and deliberately NOT appended to ADR-044's Follow-ups: it is a
+performance defect on a path ADR-044 touches, not an obligation ADR-044 took on.
+
+`CorrectionsFor` is the server-side sweep that replaced the three predicate queries this repo's own
+protocol tells agents to run by hand. It is consumed by both the search path
+(`internal/palace/memory_search.go`) and the bootstrap (`internal/palace/bootstrap.go`), so it runs on
+**every `am_search` and every `am_bootstrap`**. Its body loops the three correction predicates and,
+for each, calls `KGTriplesByPredicate(teamID, pred, KGStatusCurrent)` — which returns every current
+row of that predicate for the team — then discards the ones it did not ask for with an in-Go
+`if !want[row.Object] { continue }`.
+
+So the cost is three full predicate scans per recall, independent of how many record ids the caller
+actually cares about (a page's roots: on the order of ten). At today's corpus — roughly 150
+correction edges — that is invisible, which is why nothing noticed. It grows with the number of
+corrections ever filed, not with page size, and this repository's whole supersession story is an
+instruction to file MORE of them: ADR-038 ends records instead of overwriting, ADR-044 T7 makes an
+atomic correction end its predecessor. The table this scans is the one we are actively encouraging
+to grow.
+
+**The fix is reuse, not new code, and it is already in the same file.** `KGTriplesForEntities` sits
+directly below `CorrectionsFor` and does exactly the needed thing — `WHERE team_id = ? AND (subject
+IN ? OR object IN ?)`, one statement per direction, cost independent of entity count. Its doc comment
+records that it was written for precisely this shape of defect one layer over (`factsFor` issuing a
+full `KGQuery` per candidate entity). What is wanted is the same batching keyed on OBJECT and
+filtered by predicate, so the `want` map becomes a SQL `IN` rather than a Go `continue`.
+
+Two things to preserve when it is done, both of which the current shape gets right by accident:
+
+- The direction. A correction attaches to the record it corrects as an INCOMING edge, so the
+  filtered column is `object` and the id exposed as `ReplacementID` is `subject`. The doc comment
+  says this is easy to get backwards; a rewrite is exactly when it would be.
+- The authorization. `policy.Place` is called on `row.Subject`, never on `row.SourceDrawerID` —
+  `targetauth_test.go` exists because checking provenance instead both disclosed foreign
+  replacements and suppressed local ones. Any batched version must keep the check on the correcting
+  record.
+
+Not measured, and it should be before it is fixed: the claim above is read off the code, and the
+sensible before-figure is the statement count and latency of `CorrectionsFor` at current corpus size
+against a seeded one. `ADR-029`'s span vocabulary already covers the search path.
+
+## RETRACTED, then narrowed: identical chunks across DISTINCT memories dedupe, and the loser cannot be read whole — 2026-08-29
+
+**The entry that stood here was wrong and is retracted rather than deleted, because the way it was
+wrong is the useful part.** It reported that `am_search` returns `content_coverage: 1.000` while
+carrying one chunk of fourteen, and named `collapseCandidatesToMemories` as the suspect on the
+strength of an anchor-drift coincidence. The symptom was real and reproducible. The cause was **the
+fixture**, and the entry should not have been filed before that was excluded.
+
+The fixture built 25 memories as `strings.Repeat("filler prose about other matters entirely. ", 400)`
+with only a short unique prefix, so chunks 1..13 of every memory were BYTE-IDENTICAL. Re-run with
+per-memory filler, all five memories reassemble correctly — 16 chunks, 19,641 runes each — and
+`content_coverage` is right. **The search path's marking was never at fault**, and the correction
+this produced in ADR-044 T4's task file has itself been corrected.
+
+### What is real, and it is narrower
+
+Identical chunk CONTENT across distinct memories collapses to one row, and the memory that loses the
+row can no longer be read whole. Measured with the degenerate fixture:
+
+    5 memories x 14 chunks       am_add_drawer reported 14 drawers EACH time
+    drawer rows actually stored  18, not 70
+    MemoryChunks(root of #0)     1 chunk, not 14
+    MemoryChunksByRoots          1 chunk for four roots, 14 for the LAST one written
+
+So the last writer keeps the shared chunks and the earlier memories are left holding their opening
+chunk alone. `am_get_drawer(root, whole: true)` then returns 1 of 14 and reports no error, which is
+the read path this repository added specifically so that a long memory COULD be read as written.
+
+**Two things make it worth an entry even though the trigger is artificial.** `Add` returns
+`chunks: 14` for a write that stored one new row, so the write path reports a success it did not
+achieve. And the loss is invisible from either end — nothing errors, and the shortened memory reads
+as a memory that was always short.
+
+### What has NOT been established
+
+Whether this is reachable on non-degenerate content. A 1,600-rune byte-identical chunk shared by two
+different memories is what boilerplate, templates and pasted log dumps look like, but no such case has
+been found in this corpus and none was looked for. **Do not price this from the fixture.** The next
+step is a corpus query for drawers sharing a `content_key` across different parents — `doctor --corpus`
+is the natural home, and it already reports reference classes rather than a single count.
+
+Also not established: whether chunk-level dedupe across memories is INTENDED. ADR-038 owns
+`content_key` and its partial unique index, and its diary exemption exists precisely because two
+identical entries must stay two records. Whether two identical CHUNKS OF DIFFERENT MEMORIES are the
+same case or the opposite one is a question for that record, not an obvious bug.
+
+### The lesson that generalises, and the reason this entry keeps its history
+
+A fixture built from `strings.Repeat` of one sentence is not a scaled-up version of real content — in
+a content-addressed store it is a different regime, and it manufactured a defect that looked like a
+serious product failure for the better part of an hour. The tell was there in the first measurement
+and was read past: `chunks_matched: 1` on a 14-chunk memory says the retrieval saw ONE chunk, which a
+correct corpus of 14 sibling chunks would not produce. Vary the fixture before naming a suspect.
+
+## The `omitempty` description gate cannot see a conditional map key, and `withheld` is now one — 2026-08-29
+
+`TestEveryOmitemptyWireKeyInThisPackageIsDescribed` (`internal/mcpserver/wirekeys_test.go`) enumerates
+Go struct tags. It has never covered the third population its own doc comment names — *"conditional
+`map[string]any` keys, set inside `if` blocks. `out["stale_hits"]`, `out["warning"]`,
+`out["supersedes"]`, `out["reason"]`, `out["ended_at"]` and others are emitted where no tag exists to
+find. Out of scope here and named so the next reader knows it."*
+
+**ADR-044 T5 added `out["withheld"]` to that population.** Its task file asserted the gate would fail
+if the description omitted the key; measured 2026-08-29 by deleting the word, the gate stayed green and
+the package passed. Recorded as a deviation in
+`docs/adr/ADR-044-make-a-small-read-trustworthy/tasks/T5-a-page-reports-what-it-withheld.md` rather than
+by widening the gate, because widening it is its own change.
+
+What the gate's comment already proposes: *"a reflect walk from the registered view types, following
+embedding and field types"*. That would also close the two blind-spot fields it names in
+`internal/palace` — `replacement_id` and `elsewhere_wing` on `Correction`, the first of which is the
+field telling a reader the memory in front of them has been contradicted.
+
+Not filed as an ADR follow-up: the obligation is the gate's, not ADR-044's, and padding a record's
+Follow-ups with unrelated work is how an open count stops meaning anything.
+
+⚠ **Until it runs, the `withheld` sentence in `am_search`'s description is held up by nothing.** The
+next edit to that description can drop it silently, and every gate stays green — which is the defect
+the gate exists to catch, one level up.
+
+## ⚠ An anchor with an EMPTY repo label is checked against whatever tree is open, and the hook then tells that session to re-file good memories — 2026-08-29
+
+**Confirmed in source, reported independently by four sessions in four different repositories on one
+day.** This is the highest-severity item in this file: it does not merely fail to help, it recruits
+an unrelated session into destroying correct memories.
+
+**THE PROOF** (from the infrastructure session, same file, same working tree, same day):
+
+```
+status=missing   path=internal/palace/service.go   repo=""             (their Ansible tree)
+status=verified  path=internal/palace/service.go   repo="agentsmemory" line 693
+```
+
+One file, two opposite verdicts, differing only by whether the anchor carries a repo label. Their
+tree's remote is an Ansible repository with zero `.go` files.
+
+**THE CAUSE**, read in `clients/claude-code/verify.go`: every guard that protects an unknown from
+being reported as an absence is conditioned on `a.Repo != ""` — the elsewhere check, the
+not-found branch, and the snippet-non-match branch. So an anchor with an EMPTY label in a KNOWN
+tree passes all three and falls through to `statusMissing`.
+
+The guards were written for an unknown TREE. The unknown ANCHOR is the case nobody had. The file's
+own comment already states the principle it is violating: *"calling it MISSING is not a small
+inaccuracy: the honest response to 'the file is gone' is to delete the memory, so a check that
+cannot see a file destroys the memory pinned to it. A session did exactly that … Unknown is not
+absent."* An unlabelled anchor is an unknown; the code treats it as checkable-here.
+
+**WHY IT IS WORSE THAN A WRONG COUNT.** The verdicts are RECORDED, so the damage is durable, and
+`am_search` then flags those memories STALE. The session-start hook prints *"Re-read the code and
+re-file whichever are wrong."* A session that complies rewrites correct records — including a
+2026-08-25 OTel wiring decision — on evidence from a repository that has never contained that code.
+
+**BOTH HALVES NEED FIXING, and they are different bugs:**
+- **Read side:** `missing` must require a POSITIVE repo-label match against the current tree. An
+  unattributable anchor joins the "not checked from here" set. This is the same
+  could-not-look versus is-gone distinction this corpus keeps re-deriving.
+- **Write side, the root:** those anchors were filed WITHOUT a label. If `am_add_drawer`
+  (`code_anchors:`) does not default `repo` from the writing session's git remote, every anchor
+  filed by a session that omits the field becomes a future false positive somewhere else. Not yet
+  checked which, if either, happens today.
+
+Also unverified and worth one command: whether the recorded false verdicts should be swept and
+reset, since `doctor --corpus` already reports reference states.
+
+## The wake-up surface counts rows and calls them memories, and counts retracted ones — 2026-08-29
+
+Reported first-hand by a depozitas session; **not yet reproduced here**, so the cause is unverified
+and the measurements are theirs.
+
+1. **`am_status` counts RETRACTED drawers; `am_list_drawers` does not.** Same room, same minute:
+   `am_list_drawers(<a peer project's wing>, inbox)` → 6, `am_status().wings[…].rooms[inbox]` → 8.
+   The difference was exactly the 2 chunks they had just invalidated. The protocol asks sessions to
+   close out inbox items so a stale lead is not rediscovered monthly — but the count that greets the
+   next session never falls, so closing appears to do nothing.
+2. **The inbox count counts CHUNKS and the hint calls them "memories".** 6 rows, 3 memories, pairing
+   cleanly by `parent_id`. It scales with how long the sender wrote rather than with how much is
+   waiting. Compounds with (1): that room reported 8 for 2 live memories, 4x. The word "memories" is
+   what makes it a defect rather than an implementation detail — `am_status`'s own ranking line says
+   `unit=memory`, so the wake-up surface is the one place still speaking in rows.
+3. **`am_recall_stats` suggestions are polluted by machine-generated recalls.** Four of five entries
+   were a git branch name concatenated with changed filenames, and a run of commit subjects — a hook
+   issuing recalls keyed on branch plus dirty files. They land in `(unscoped)`, drag that bucket to
+   67% answered, and `suggestions` is documented as a to-write list, so following it means writing
+   memories to satisfy filenames no human will search for. A to-write list that should be empty.
+
+## `am_status`'s hint recommends an unbounded listing, and `am_list_drawers` has no projection — 2026-08-29
+
+Reported by an infrastructure session, credited. `am_status` composes
+*"30 memories waiting in <that session's wing>/inbox — read them first with am_list_drawers(...)"* with
+a count and **no `limit`**. Following it verbatim returned **51.2 KB**, over that harness's
+tool-result cap, so it spilled to a file and had to be recovered with `jq`.
+
+The documented bound did not save them: past a client's cap the whole result leaves the context, and
+an empty-looking room reads as "nothing is filed" — the confusion this palace exists to remove.
+
+The root is the missing projection. For triage a caller wants `id, source_file, content_date,
+first-line` and nothing else; today the only way is to fetch everything and discard most of it. With
+a projection the hint is safe as written. A proportional `limit` is the weaker fix: it still leaves
+a bounded page indistinguishable from an exhausted room, which is the same defect one size down.
+
+⚠ `am_search(room:"inbox", snippet_chars:0)` is NOT the workaround — `snippet_chars:0` means WHOLE
+memories, so it is strictly worse. Two sessions read that parameter as its own opposite today.
+
+## Anchor verification is mostly unverifiable from any one checkout — 2026-08-29
+
+One observation, offered as data rather than a rate, and the session that reported it named the
+confound itself. An infrastructure session was shown **66 anchors: 0 verified, 0 drifted, 7 missing
+(all false, see above), 59 elsewhere**. So ~89% of what it was shown could not be checked from where
+it sat.
+
+Anchors are workspace-wide while verification is necessarily per-checkout, so most sessions can only
+ever verify a minority of what they are handed. Nobody has measured what fraction of anchors are
+checkable by the session that reads them. **Confound, stated by the reporter:** one very large wing
+(`wing_agentmemories`) that most sessions are never checked out against plausibly skews this toward
+"elsewhere", so it is one observation with a known bias, not a rate. They offered to report the same
+three numbers from subsequent sessions, which would turn it into one.
+
+## `am_status`'s inbox hint answers for the REGISTRATION's wing, and its confident count hides the miss — 2026-08-29
+
+Reported first-hand by a front-end session; **not reproduced here**, so the cause is unverified.
+
+Their cwd's git remote basename was their own project; the registration's `default_wing` named a
+DIFFERENT project. Step 0c already says rung 0 wins, and they correctly did not fight it. The damage
+is downstream of the naming: `am_status`'s `hint` and `inbox` block both answered for the
+registration's wing — a confident *"16 items waiting, read them first"* — while **their own
+project's wing held 23 inbox drawers that `am_status` never mentioned**, including a same-day item
+from another session asking that repo a direct, blocking question about its deploy pipeline. They
+found it only by listing their wing by hand.
+
+**The count is what makes this dangerous.** A silent zero invites a second look; a confident 16
+does not. A session that trusts the wake-up hint reads another project's inbox and honestly reports
+"nothing waiting" for its own — and the handoff convention this palace is built on quietly stops
+delivering.
+
+**Their proposed shape, and it is better than either wing winning:** when the registration's wing
+and the checkout's resolved wing disagree, SAY SO — *"registration wing X; cwd resolves to Y;
+Y/inbox holds N"* — rather than silently answering for X. That turns an invisible miss into a
+decision a human can make, which is the same move `resolution` made for `am_kg_query`'s `count: 0`.
+
+Related: the same session hit the unlabelled-anchor defect above, and guessed the anchor scoping
+keys off the registration wing rather than the checkout. That guess is NOT confirmed — the
+confirmed cause is the empty repo label — but if both surfaces resolve scope from the registration,
+they may share a root worth fixing once.
+
+# Cross-session probe, 2026-08-29 — findings from six sessions given adversarial axes
+
+Six Claude sessions in six unrelated repositories were each asked to stress ONE axis of the palace
+and report measurements rather than impressions, read-mostly, writing only into their own wings.
+Every entry below carries the reporter's own control. **Not one of these was found by our test
+suite**, and several are in tools our suite exercises heavily — the difference is that a probe
+asks "can I make this lie", and a test asks "does this still do what it did".
+
+## ⚠ FUSION: two distinct memories with no `source_file` become ONE, and nothing marks the seam
+
+**The worst finding of the day, and it upgrades an entry already in this file.** Reported with a
+non-degenerate fixture: a shared ~1750-rune preamble of genuinely varied prose (a shared standard
+preamble is an ordinary way to write) plus a short unique tail.
+
+- **With different `source_file`** — no collapse. Byte-identical chunk 0, different ids,
+  `whole:true` returns each memory correctly. **So ids are not content hashes and cross-memory
+  chunk dedupe does not happen on that path** — which RETRACTS the framing of the older entry above.
+- **With the same `source_file`** — collapse, handled CORRECTLY: the loser's tail is ENDED with
+  `ended_reason: "dropped from <source> on re-file"` and stays readable. That is identity-by-source
+  working. (Though `am_add_drawer` returned `chunks: 2, ok: true` and said nothing about having
+  superseded an existing memory.)
+- **With NO `source_file` at all — FUSION.** `source_file` is optional and most callers omit it.
+  The second write reused the first's chunk-0 id, but the first's tail was **not ended** — no
+  `valid_to`, no `ended_reason` — it was orphaned. `am_get_drawer(root, whole:true)` then returns
+  **3 chunks, two of them carrying `chunk_index: 1`**: one ending in the first memory's subject, one
+  in the second's. Two memories about different things, written seconds apart by separate calls,
+  returned as one memory whose body says two unrelated things in sequence.
+
+Arithmetic: 2 memories x 2 chunks = 4 rows expected, 3 stored, both writes reported `ok: true`.
+
+**Why it is worse than loss:** nothing is missing, so nothing prompts a search. A memory that reads
+continuously and contains two claims prompts nothing at all, and a reader cannot tell the second
+half came from a different call about a different subject. *A write that reports success while
+inventing a memory nobody wrote.*
+
+### RESOLVED 2026-08-29: it is WRITE TIME, the parentage is wrong ON DISK, and a reader-side fix
+recovers nothing
+
+Reproduced in-process with two sourceless memories sharing a preamble, reading the table directly
+rather than through any read path:
+
+```
+E ids: [5ff5c2a5 4d6d85fc]
+F ids: [5ff5c2a5 38f30303]        <- chunk 0 id REUSED at write
+
+rows stored: 3   (4 expected for two 2-chunk memories)
+  id=5ff5c2a5  chunk_index=0  parent=(none)    tail="…preamble…"
+  id=38f30303  chunk_index=1  parent=5ff5c2a5  tail=" PART F about an index"
+  id=4d6d85fc  chunk_index=1  parent=5ff5c2a5  tail="…PART E about a gate"
+```
+
+Two rows carrying `chunk_index: 1`, both parented to one root, in the STORED ROWS. So `whole:true`
+and `am_search` are reporting the table faithfully — the reporter's arithmetic tell
+(`content_length: 3170` against controls of 2401/2486/2273, and `chunks_matched: 3`) is measuring
+real data rather than a lookup artefact. Searching for either memory's subject lands on the same
+`memory_id`, and neither result says the body contains the other.
+
+**THE CAUSE IS ONE EXPRESSION.** `Add` computes a per-chunk content key as
+`contentKeyOf(team, wing, room, SOURCE_FILE, chunk_index, content)` and reuses the id of any CURRENT
+row already holding that key — a deliberate feature, so re-filing unchanged text keeps every anchor
+and provenance pointer pinned to it. **With `source_file` empty that key is identical across two
+different memories whose chunk 0 is identical**, so the second write's chunk 0 resolves to the
+first's row, and its chunk 1 is then parented to it because parentage is "the id of chunk 0 of this
+write". `purgeSource` — which correctly ENDS the loser when a source IS named — is gated on a
+non-empty source, so nothing is ended. All three reported cases fall out of that single expression.
+
+**WHY A MIGRATION AND NOT A READER FIX.** The first memory no longer has a root of its own: its
+identity was consumed, not shadowed. Nothing in the rows records that the orphaned chunk was ever
+part of a different write, so a repair must infer the split from `chunk_index` collisions under one
+parent — recoverable in this fixture because the tails differ, and not obviously recoverable in
+general.
+
+**THE REMEDY IS AN IDENTITY QUESTION AND ADR-038 OWNS IDENTITY** — whether a chunk id may be reused
+across memories at all, or whether reuse must require the WHOLE memory to match rather than one
+chunk. That is a record to write, not a patch to apply, and `doctor --corpus` is the natural place
+for the detection half (a `chunk_index` collision under one parent is mechanically findable).
+
+Still open: whether an explicit `source_file` is meant to be REQUIRED for a multi-chunk write.
+
+Fixture drawers were left in place in the reporter's wing.
+
+## `am_diary_read` returns CHUNKS as ENTRIES, and `total`/`showing` make it look complete
+
+Confirmed in source: `repo.Diary` selects drawer ROWS, each becomes a `DiaryEntry`, `DiaryCount`
+counts rows, and `last_n` limits rows. Every doc comment on the path says "entries".
+
+Measured: one diary entry of ~4.4k characters stored as 3 chunks. `last_n: 1` returned
+`entries: [1 object], total: 3, showing: 1` — content was chunk 0 only, **ending mid-word**, with no
+`content_truncated`, no `content_length`, no `chunk_index`, no ellipsis. `last_n: 3` returned three
+"entries" with the SAME timestamp: the three chunks of the one entry.
+
+**The fields make it worse rather than better.** `total: 3, showing: 1` reads exactly like paging
+over entries — which is what a reader who passed `last_n: 1` expects — so the number CONFIRMS they
+got what they asked for. An unmarked truncation leaves you uncertain; this leaves you confidently
+wrong. Composite failure: an agent with five genuine entries asks for `last_n: 3` and can receive
+three chunks of the newest one, with entries two and three never appearing and nothing saying they
+were displaced.
+
+The contrast that makes it a defect rather than house style: `am_search`'s `snippet_chars` is
+well-behaved at both edges — `snippet_chars: 1` gave `content_coverage: 0.00246` (honest for what
+was returned) and `snippet_chars: <exact length>` gave the whole memory with `content_truncated`
+correctly ABSENT. One read path marks partial answers with three fields and a match count; the other
+marks nothing and mislabels its count.
+
+## THE ABSENCE CLASS: four tools answer a clean zero where two siblings say "I could not look"
+
+The system has the concept in TWO forms already, which is what makes this a leak rather than a
+missing feature: `am_traverse` REFUSES (`room "x" not found`), and `am_search` emits an excellent
+note — *"the wing X holds no memories, so this is not a miss: there is nothing there to match. Wings
+that do hold memories: …"*, which even lets a typo self-correct. Second control, proving the note is
+not always-on: `am_search` with `max_distance: 0.02` (everything filtered out) returns `count: 0` and
+NO note. So the distinction is drawn correctly, in one tool out of five.
+
+The four that do not:
+- **`am_diary_read`** — a real agent queried against a wing it never wrote to is BYTE-IDENTICAL to
+  an agent that never existed: `{"entries":[],"total":0,"showing":0}` both times. Worse, the response
+  ECHOES THE AGENT NAME BACK, which reads as confirmation the agent resolved. The tool must know the
+  difference — the unfiltered call finds the entries — but the wing filter discards them without
+  recording that a filter ran.
+- **`am_list_drawers`** on a nonexistent wing, and on a nonexistent room of a real wing: `count: 0`.
+  This is the call our own inbox hint recommends, so a typo'd wing reads as an empty inbox.
+- **`am_list_rooms`** on a nonexistent wing: `count: 0, rooms: null`.
+- **`am_follow_tunnels`** on a wing and room that both do not exist: `{"connections":null,"count":0}`.
+
+## `am_recall_stats` manufactures a to-write task from a typo
+
+One search against a nonexistent wing came back minutes later as
+`suggestions: [{Query: …, Wing: "a wing that does not exist"}]`, beside a hint reading *"each entry is
+one memory this team looked for and does not have, with which wing to file it in."*
+
+So a wing that does not exist is recommended as the destination for a memory somebody should write.
+This is past the absence class: it is not a confident nothing, it is **a task manufactured from a
+mistyped argument**, and the task is undoable.
+
+The same response already holds the disproof: that wing's row carries `drawers: 0, writes: 0,
+last_filed: ""`. A query against a wing with zero drawers and zero writes is a typo or a probe, not
+an unmet need. `rerank_skips: {"empty": 1}` is in the same payload, so the empty-corpus case is
+already detected one layer down.
+
+## FIVE MORE COUNTS count rows and count the dead, and one new axis: rooms outlive their contents
+
+Method: one memory (3 chunks) filed into a NEW room in a wing no other session writes, sampled
+before, after filing, and after retracting. Correct behaviour is +1 then 0.
+
+| tool / field | before | after file | after retract |
+|---|---|---|---|
+| `am_list_rooms` (that room) | absent | 3 | 3 |
+| `am_list_wings` (that wing) | 82 | 85 | 85 |
+| `am_recall_stats.drawers` | 82 | 85 | 85 |
+| `am_memories_filed_away` | — | +3 | stays |
+
+`am_list_wings` and `am_list_rooms` are fixed in the wake-up-counts PR. **`am_recall_stats.drawers`
+and `am_memories_filed_away` are not** — and the latter is the worst, because the defect is in its
+name and in the sentence it emits: *"N memories filed across 17 wings and 27 rooms"*. It is rows, and
+it counts retracted ones, so a headline number is inflated on two independent multipliers. Its count
+equals the sum of `am_list_wings` drawers, so they are one aggregation with two names.
+
+The contrast, same room, same instant: `am_list_drawers` → `count: 0`; `am_list_rooms` → `3 drawers`.
+The correct filter exists and the aggregates do not use it, which suggests one shared fix.
+
+**THE NEW AXIS: an empty room is still advertised, and cannot be un-created.** After retraction the
+room still appears in `am_list_rooms`, `am_list_wings`, `am_graph_stats` (`total_rooms` and
+`rooms_per_wing`) and `am_memories_filed_away`. Rooms are created implicitly by first write and there
+is no un-create — so a mistyped room name (`decisons`, a stray capital) is a permanent addition to a
+palace's taxonomy that no agent can remove, only an operator with the database. The reporter created
+exactly such a room writing the report and could not remove it.
+
+Excluding rooms with no live memories from room counts closes both halves: the empty room stops being
+advertised, and a typo self-heals the moment its contents are retracted.
+
+**Deliberately clean, do not "fix" on the strength of the pattern:** `am_kg_stats` reports
+`triples / current_facts / expired_facts` — the total is stated AND the split is stated, so a reader
+cannot be misled. That is the shape the others should copy: not "hide the dead" but "say which number
+you are giving". And `am_status.coverage.expected` is a ROW count correctly, because the search index
+stores chunks and comparing memories to indexed chunks would compare unlike things.
+
+## A drawer correction does not reach the FACTS derived from it
+
+`am_kg_query` returns facts with `current: true` whose `source_drawer_id` names a drawer that has
+since been superseded, with no marker that the provenance was corrected. `status: "all"` returns no
+ended twin, so nothing is auto-invalidated.
+
+The composition is what makes it sharp: a single `am_search` returned, in one payload, the stale
+fact (`current: true`, citing the ended drawer) and the correcting drawer (carrying `supersedes` and
+`superseded_reason`) — side by side, linked by nothing but an id the reader would have to notice
+matches.
+
+**The design is not obviously wrong** — our docs are explicit that a fact records what was believed
+then, and a fact can outlive its source. What is wrong is that the correction primitive is
+DRAWER-SHAPED and the graph is downstream of it, and nothing tells the person holding the context
+that dependent facts exist. A cheap version: have `am_update_drawer` name, in its result, the facts
+whose `source_drawer_id` it just ended — not auto-invalidating them, but making the sweep visible to
+whoever can judge it. Reported by the session that had filed the facts, corrected the drawers, and
+was never prompted to connect the two.
+
+## `am_bootstrap` returns `corrections: null` for a wing that has five, indistinguishably from none
+
+A wing with five corrections filed the same day returned `{"corrections": null, "eager": null,
+"on_demand": null, "entry_point": {"resolution": "unknown_term"}}`. The sweep appears gated behind an
+entry point that wing does not have, so it is inert — and `null` is what a wing with genuinely no
+corrections would return. That is the absence class in the one call whose selling point is that it
+sweeps corrections server-side. May share a root with the entry-point backfill already filed.
+
+## The knowledge graph's entity axis is effectively write-only for natural keys
+
+`am_kg_query(entity: "ADR-013")` → `unknown_term`. `entity: "<a project name>"` → `unknown_term`.
+Yet facts about both exist, under stored keys that are long descriptive sentences — 704 entities are
+sentences rather than names, findable only by predicate query. `resolution: unknown_term` is honest,
+but honest `unknown_term` on every natural key makes the axis unusable. This plausibly explains why
+the graph is the least-used half of the palace.
+
+Related, same reporter:
+- **Two paths disagree about one fact's subject.** A case-insensitive entity match echoes the
+  CALLER's casing in the returned fact; the same fact via predicate query and `am_kg_timeline`
+  carries the stored form. A diffing consumer sees two entities.
+- **`am_entry_point` breaks its own distinguishability promise.** Identical
+  `{edges: null, node: "", resolution: "unknown_term"}` for a wing that exists with no entry point,
+  another that exists, and one that does not exist. Its doc says a wing with no entry point "says so,
+  distinguishably from an error". Wants `no_entry_point` vs `unknown_wing`.
+- **Tunnel activation is never recorded.** Following a tunnel returned its target, and an immediate
+  re-list showed `access_count: 0` and `last_activated == created_at`, unchanged. All five tunnels
+  touching that wing show `access_count: 0` since creation. Either the counter is dead or following
+  is not activation; either way listing and usage disagree.
+- **A read result recommends a mutation.** `am_graph_stats` and `am_traverse` embed a note ending
+  "Run `am_recompute_graph`" — a workspace-wide write, suggested to every reader with no mention of
+  the blast radius.
+- **A documented example points at nothing.** `predicate: "retracts"` → `unknown_term`. The deployed
+  relation is `retracted_because`. Our own protocol uses `retracts` as the canonical audit example,
+  so the example and the data have drifted.
+
+## Probe hygiene, recorded because it is now in the data
+
+The absence-class probes left two rows in `am_recall_stats`: one search against a nonexistent wing,
+which will appear in `unanswered` and `suggestions` for 24h and reads like a real project to anyone
+scanning the list cold, and one deliberately over-filtered query that reads as unanswered. Both are
+noise from this exercise. Discount them, or remove them if a route exists that is not destructive.
+
+## The corpus holds ONE `mutant killed` whose exit code contradicts its own detection path — 2026-08-29
+
+Swept after a quality-harness session found a FALSE KILL in its own tool: a fence pointed at
+`nosuchrunner` exited 127, matched no build-broken pattern, and fell through to
+`mutant killed · a test went red`. An absent runner recorded as evidence that a suite noticed a
+broken mechanism — and it predated the report. Their fix routes it to `environment_failure`.
+
+**The retroactive consequence is what made this worth sweeping: a `killed` row is worse than no row,
+because the tool-written stamp is what makes it trusted.** Every mutation-log entry written on a
+machine with a missing or misnamed runner is suspect.
+
+**This corpus is clean of the 127 signature.** Measured 2026-08-29 on `main`:
+
+```
+grep -rho 'mutant [a-z]* · exit [0-9]*' docs/adr --include='*.md' | sort | uniq -c
+  195  mutant killed · exit 1
+   39  mutant survived · exit 0
+    6  mutant inconclusive · exit 1
+    1  mutant killed · exit 2
+grep -rn 'exit 127' docs/adr --include='*.md'   →  no matches
+```
+
+**But the single exit-2 row does not survive reading, and exit 2 is the ambiguous code** — from a
+gate it can mean "I refuse this" or "I could not run".
+
+`ADR-021-.../tasks/T3-does-the-instruction-change-the-answer.md:98` —
+`2026-08-25 · 8c3167d* · mutant killed · exit 2 · README.md`, for a typo mutation that should make
+`TestReadmeNamesEveryInstallableAgent` fail.
+
+Its fence is a `docker run … sh -c 'set -e; …'` whose detection works like this:
+
+```
+go test … -run "TestReadmeNamesEveryInstallableAgent" … | tee /tmp/a21t3.out
+grep -q -- "--- PASS: TestReadmeNamesEveryInstallableAgent" /tmp/a21t3.out
+```
+
+The `go test` is PIPED, so its status is `tee`'s and `set -e` does not fire there. **The detection is
+the `grep -q` finding no PASS line — and `grep` exits 1 on no-match.** So a genuine kill by this
+fence exits **1**, which is what the other 195 rows show. `grep` exits **2** on a FILE ERROR. The one
+row at exit 2 therefore carries an exit code inconsistent with the path it claims to have taken.
+
+**NOT established: that it is a false kill.** The tree was dirty at the time (`8c3167d*`), the fence
+also runs `apk add`, `go vet`, a second `grep` against `internal/web/windows-guide.md` and a full
+`go test ./...`, and any of those could produce a 2 by a route not reconstructed here. What is
+established is that the row deserves the second look the other 195 do not, and that nobody has given
+it one.
+
+**RUN, 2026-08-30 at `0ebdad2`: the kill path exits 1.** Applied the mutation this row describes —
+typoed both `--agent claude-desktop` occurrences in `README.md` — and ran T3's Acceptance fence
+verbatim, tree clean before and after:
+
+```
+FENCE_EXIT=1
+installer_test.go:1880: README.md never shows `--agent claude-desktop`, so a reader cannot tell the kit installs for it
+--- FAIL: TestReadmeNamesEveryInstallableAgent (0.00s)
+```
+
+It fails exactly where this entry predicted, at the `grep -q -- "--- PASS: …"` line. The recorded
+`exit 2` is now measurably inconsistent with the path this fence takes when it kills. **Still not
+established that the row is false** — the tree was dirty at `8c3167d*`, and the reproduction rules
+out the detection path, not every other command in the fence. ADR-021 T3 is still pending on its
+human-observed half, so the task is live rather than archived.
+
+**The general rule, worth more than this row:** a fence's detection path has a KNOWN exit code, and
+an entry whose code differs took a different path. `exit 127` is the signature to grep for first;
+`exit 2` from a gate is the one that needs reading rather than grepping.
+
+## `! grep …` cannot fail a `set -e` fence, and 50 of our vacuity guards are written that way — 2026-08-30
+
+Found while reading the fence above. POSIX specifies that `set -e` is IGNORED for a command whose
+exit status is inverted with `!`. So the guard every fence here writes to mean *"the output must not
+contain a failure marker"* fires and the script carries straight on:
+
+```
+$ printf 'FAIL\n' > /tmp/x.out
+$ sh   -c 'set -e; ! grep -q FAIL /tmp/x.out; echo REACHED; exit 7'   -> REACHED, rc=7
+$ bash -c 'set -e; ! grep -q FAIL /tmp/x.out; echo REACHED; exit 7'   -> REACHED, rc=7
+$ sh   -c 'set -e;   grep -q NOPE /tmp/x.out; echo REACHED; exit 7'   -> rc=1   (control)
+```
+
+Both shells. The `! grep … && next` form is inert for the same reason — the `&&` short-circuits and
+the script continues.
+
+**Two forms, and only one is broken.** Swept `docs/adr/**/*.md` by fence block:
+
+| | count |
+|---|---|
+| guards inside an `&&` chain with no `set -e` (short-circuits — **works**) | 5 |
+| guards inside a `set -e` script (**inert**) | 50 |
+| inert **and** the only detector in that block | **0** |
+
+⚠ **NOTHING IS BROKEN TODAY, and that is the finding's actual shape rather than a softening of it.**
+Every one of the 50 sits beside a POSITIVE assertion — `grep -q -- "--- PASS: …"` or
+`grep -q "^ok"` — and a lane that scored no tests prints neither, so the positive check already
+catches the vacuous case the negated one was written for. The `! grep` line is redundant, not
+load-bearing. That redundancy is precisely why its inertness never produced a failure anyone
+investigated.
+
+It is a **latent hazard, not a live defect**: it READS like the vacuity check, and the first fence
+written or edited without the positive assertion beside it loses the vacuity check silently. The
+un-negated form costs nothing:
+
+```bash
+if grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/out; then exit 1; fi
+```
+
+**Why this is the same finding as the classifier one, from the other side.** PR #117 records that
+`adr-verify` cannot tell a fence that scored no tests and PASSED (vacuous — inconclusive is right)
+from one that scored no tests and FAILED BECAUSE IT DETECTED THAT (a kill). This is the guard that
+was supposed to produce the second case, unable to produce it at all inside `set -e`. Reported to
+the quality-harness session 2026-08-30.
+
+**Not gated.** A check would have to parse a fence block, tell a `set -e` script from an `&&` chain,
+and decide whether a positive assertion covers the same lane — and with zero live offenders it would
+be a gate against a hypothesis. Recorded here so the next fence author reaches for the `if` form; a
+gate earns its place the day an offender exists.
+
+**The general rule:** a guard that has never fired is not evidence that it works. Before trusting
+one, make its condition true and watch the exit code.

@@ -11,7 +11,11 @@
 # published on the host loopback only, and the proxy terminates https:// and
 # forwards to 127.0.0.1:8080. Billing is single-provider per deployment: set
 # BILLING_PROVIDER and that provider's variables in .env.prod (the .env.example
-# Billing block documents the OpenCollective contribution-checkout URLs).
+# Billing block documents the OpenCollective contribution-checkout URLs, and the
+# OPENCOLLECTIVE_PERSONAL_TOKEN / _COLLECTIVE_SLUG pair that turns automatic plan
+# activation on — without them a paid contribution needs `set-plan`). The whole
+# file is passed through by env_file below, so no per-variable list needs updating
+# here when a knob is added.
 #
 # AGENTSMEMORY_IMAGE accepts a complete image reference, including an immutable
 # ghcr.io/...@sha256:... PR preview. When it is empty, AGENTSMEMORY_IMAGE_TAG

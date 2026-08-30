@@ -164,6 +164,21 @@ func (s *Service) Set(ctx context.Context, caller SuperHolder, content string) (
 // catalogue is appended by the am_skillset tool, so this text covers only the
 // when/which/how that the bare tool descriptions cannot.
 //
+// Step 4 routes to a `start-here` skill rather than describing any team's entry
+// protocol, and that indirection is the point: this text is identical for every
+// workspace, so it cannot name a wing, a room or a drawer id that is true for more
+// than one of them. The conventional skill name is the one thing that can be
+// shared, and a team that has no such skill loses nothing — the sentence is
+// conditional.
+//
+// It is here rather than only in the live row because a superadmin's edit is
+// pinned by no test and restored by no seed. Measured 2026-08-27: the hosted
+// preamble carried this routing and NO shipped artifact did — not this constant,
+// not the client bootstrap protocol — so a fresh or restored database woke agents
+// with no way to find the entry protocol at all. TestSeededPlaybookRoutesToTheEntryProtocol
+// reads the seeded row back rather than this literal, because a test that asserts
+// on the constant passes just as happily when the seed stops running.
+//
 // It is written in the mempalace-protocol style — a numbered "what tool, when"
 // loop with a wake-up phase, a working phase, and a hard end-of-task gate — so a
 // waking agent reads it as standing instructions, not prose. The end-of-task
@@ -186,7 +201,10 @@ every tool follows it.
 3. ` + "`am_search \"<your task>\"`" + ` — recall first. Never re-derive what you already
    remember; the memory is the only source of cross-session *why*.
 4. ` + "`am_list_skills`" + ` → ` + "`am_load_skill <name>`" + ` — pull the team's centralised
-   skills (e.g. ` + "`effective-go`" + `) instead of guessing its conventions.
+   skills (e.g. ` + "`effective-go`" + `) instead of guessing its conventions. Load BODIES:
+   a description is not a body. **If a skill named ` + "`start-here`" + ` exists, load it
+   FIRST** — that is the conventional name for a team's own entry protocol, and it
+   outranks this playbook on anything specific to that team.
 
 ## While you work
 - **Recall before you reach.** The moment you hit unfamiliar code, a past

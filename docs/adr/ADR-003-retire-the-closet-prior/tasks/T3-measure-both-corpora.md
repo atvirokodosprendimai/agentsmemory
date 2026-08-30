@@ -26,7 +26,9 @@ Run the eval four times, at case counts and on categories fixed before the run, 
 
 1. Re-run T1's and T2's acceptance commands and confirm both are green. A table taken through an instrument that has not passed its own tests is not evidence.
 2. Build the eval binary once, from a clean tree: `docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'go build -o /src/bin/agentsmemory ./cmd/server'`. All four runs use that one binary, so `vcs.revision` is the same in all four records. `go run` carries no VCS stamp and the gate below rejects a record without one.
-3. Name the mined wing once — the wing `mine-claude` writes into on this palace — and export it as `MINED_WING`. Every mined run uses that value; a run whose `wing` field disagrees with its sibling is not the same corpus.
+3. **Mine into a declared example wing, do not use the derived one.** Run `aiagentmemory mine-claude --wing wing_acme` — `mine-claude` is a subcommand of the CLIENT binary (`clients/claude-code/main.go:51`), NOT the `./bin/agentsmemory` step 2 builds from `./cmd/server`, so it is a separate build and takes no part in the shared `vcs.revision`. The explicit flag wins over the wing derived from each session's working directory (`clients/claude-code/mineclaude.go:318`). Then `export MINED_WING=wing_acme`.
+
+   ⚠ **`--n` IS A CEILING ON DISTINCT SOURCE FILES, NOT ON DRAWERS**, so check the corpus in those terms before building anything. `ListRandom` (`internal/palace/repo.go:797`) over-fetches `limit*5` rows and keeps at most one drawer per `source_file`, deliberately — a mined session arrives as many chunk drawers sharing one source, and two cases from one session are not independent observations. A wing of 100 drawers across 4 mined sessions therefore yields **4** cases at `--n 80`, not 80, and D1's floor is 40 admitted cases (`ADR-003:93`). Pinned by `TestSampleDrawersCountsSourcesNotDrawers` (`internal/palace/samplesize_test.go`), which had no predecessor: the function that sets every eval's case count was untested, which is why two rounds of prose about `corpus_drawers` were both wrong. Both mined runs use that value; a run whose `wing` field disagrees with its sibling is not the same corpus. The derived wing is named after a real project and its `cells.json` cannot be committed — see the ⚠ bullet under Risks for why this step reads the way it does, and for what forcing one `--wing` deliberately mixes.
 4. Run the four evals. `--n` is fixed by the ADR before the run and is not adjusted afterwards:
    ```bash
    E=docs/adr/ADR-003-retire-the-closet-prior/evidence
@@ -37,7 +39,7 @@ Run the eval four times, at case counts and on categories fixed before the run, 
    ```
    Each `--cases` path is unique, so each run keeps its own questions, its own `.results.json` and its own `.cells.json` (`resultsPath` derives both from the stem). Re-running the same path replays the same questions instead of sampling new ones.
 5. Copy only the four `.cells.json` files into git. The `.jsonl` case files and `.results.json` carry queries and drawer ids from a private palace and stay untracked — the evidence README records their paths and their sha256 so a claim about them can be checked on the machine that holds them.
-6. Write `evidence/README.md`: the four commands as run, the cells each record carries, and one line per row of the ADR's Table 2 saying which state fired. No number is retyped — the README quotes the cells file.
+6. Write `evidence/README.md`: the four commands as run, the cells each record carries, and one line per row of the ADR's Table 2 saying which state fired. No number is retyped — the README quotes the cells file. The one figure that is NOT in any cells file is the corpus the sample was drawn from. `./bin/agentsmemory doctor --graph` prints a per-wing drawer count (`cmd/server/doctor.go:222`) and is read-only; paste its line for `$MINED_WING` into the README rather than typing a number from memory. ⚠ It reports DRAWERS, and the sample is capped by distinct `source_file` values — so it bounds the corpus from above and does not predict the case count. Nothing in the tree reports distinct sources today; say so in the README instead of estimating.
 7. Write `cmd/server/evidence_test.go` and run the acceptance command.
 
 ## Acceptance
@@ -62,7 +64,41 @@ docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v 
 
 - The curated wing is small (~103 drawers), so its cells may fall below their floors. That is recorded as `n/a` by Table 2's rules and changes only what T5 documents; it must not be written up as support for the prior.
 - The `real` category depends on recorded traffic and has been as small as n=4. Its floor (10 admitted cases) is in the ADR, so a small `real` run is a recorded `n/a`, not an argument.
-- A palace changes between runs — memories get filed, sources re-mined. Run the four back to back, and record the drawer count each `cells.json` reports so a corpus that moved mid-measurement is visible.
+- A palace changes between runs — memories get filed, sources re-mined. Run the four back to back. `corpus_drawers` in each `cells.json` is the SAMPLE size: the number of items the run actually took, capped by `--n` and by the number of distinct `source_file` values the over-fetch reached (and under `--style real` it counts queries, not drawers). It is worth recording because a run that took fewer items than it asked for is worth seeing — but it is not a corpus size and does not report one, so do not read it as evidence about how much the palace holds or whether the palace moved.
+- ⚠ **TWO OF THE FOUR RUNS CANNOT NAME THEIR OWN CORPUS ON A REAL PALACE, and two repo rules
+  collide over it.** Step 4's two `--wing "$MINED_WING"` runs are the affected ones; the two
+  curated runs name `wing_agentmemories`, which is a declared example
+  (`internal/repohygiene/hygiene_test.go:263`) and commits as-is. `writeCells`
+  (`cmd/server/eval.go`) puts `"wing": meta.Wing` into every `.cells.json` — the file step 5 commits.
+  `mine-claude` derives a wing from each session's working directory, so on a real palace the
+  mined wing is named after somebody's project, and `TestNoRealProjectNamesInWings`
+  (`internal/repohygiene/hygiene_test.go:297`) fails on any `wing_*` in any textual file the walk reaches — the filesystem minus
+  `.gitignore` (`hygiene_test.go:303`), NOT `git ls-files`, so an UNTRACKED file that is not
+  gitignored trips it too — unless the name is a declared example. Verified 2026-08-28 by planting
+  `{"wing":"wing_<a real project>"}` in this evidence directory: the gate went red naming the file.
+  So those two runs complete and their evidence cannot be committed.
+
+  This is the gate working, not a bug in it. **And the executor does not need a decision to get
+  past it:** `mine-claude` takes an explicit `--wing` that wins over the derived name
+  (`clients/claude-code/mineclaude.go:318`), and `wing_acme` (`hygiene_test.go:258`) and
+  `wing_alpha` (`:264`) are already declared examples, so evidence mined into either of them commits
+  as-is. That also supplies the single mined corpus `--n 80` needs, since forcing one `--wing` mines
+  every session into one wing — the two problems have one solution.
+
+  ⚠ **That mixing is deliberate and worth stating rather than inferring.** `mineclaude.go:435-437`
+  refuses `$AGENTSMEMORY_WING` precisely because *"a process-wide variable meant for one launched
+  session would file EVERY project's history into a single wing — the exact mixing the miner exists
+  to avoid."* Passing `--wing` performs that mixing on purpose. For an eval corpus a heterogeneous
+  mixed wing is arguably what you want; it is still a judgement, and this task makes it rather than
+  leaving it to whoever runs the command.
+
+  ⚠ **This fix weakens the argument for keeping the field, and that is worth saying.** With
+  `MINED_WING` pinned to the literal `wing_acme`, the two mined records agree by construction, so
+  "the `wing` field proves two runs share a corpus" is close to vacuous now — it catches a typo and
+  nothing else. The remaining options still need the ADR owner (replace the raw wing with a one-way
+  hash as `case_set_id` already does for questions, or drop the field and replace the check with
+  something that can fail), but the case for the status quo is thinner than it was. Filed in
+  `BACKLOG.md`; neither blocks this task.
 
 ## Stop Condition
 

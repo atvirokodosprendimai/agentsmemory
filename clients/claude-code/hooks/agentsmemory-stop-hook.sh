@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 # agentsmemory Stop hook — nudge Claude to persist the session into agentsmemory
+# hook-output: blocking — it speaks by exiting 2, whose stderr Claude Code shows the
+# model while preventing the stop. Plain stdout on Stop goes to the debug log only.
+#
 # memory (the team-shared MCP) before the turn ends: a diary entry, new
 # knowledge-graph facts, and any notable decisions as drawers. Mirrors the
 # mempalace stop-hook pattern.
@@ -147,6 +150,9 @@ HOOK_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 # shellcheck disable=SC1091
 . "$HOOK_DIR/agentsmemory-stats.sh"
 agentsmemory_stats_query
+# ADR-041 T1: TRANSCRIPT is set by agentsmemory_stats_query above, so this must
+# follow it. Silent and non-fatal; it records counts and says nothing.
+agentsmemory_recall_observe
 agentsmemory_stats_fetch
 if [ -n "${STATS:-}" ]; then
   # The server marks grouped write-me suggestions with a stable "  write: "

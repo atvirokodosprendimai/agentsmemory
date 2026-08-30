@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # agentsmemory SessionStart hook — check that this project's memories still match
+# hook-output: stdout-injected
+#
 # its code, before the session acts on any of them.
 #
 # The memories worth keeping are the ones explaining WHY code is the way it is,

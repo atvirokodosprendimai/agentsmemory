@@ -10,8 +10,14 @@ Implementation tasks for ADR-028: Return the identifier and the score a recall w
 |-------|------|------------|
 | 1 | T1 | none |
 | 2 | T2 | none |
+| 3 | T3 | T1 |
+| 4 | T4 | T3 |
+| T3 | Record the fetch against the recall | `drawer_fetches` rows; `RecordFetch`; `CountFetches`; `fetches` and `recalls_fetched` on `am_recall_stats` | `search_id` (T1) | done | `go test ./internal/mcptest/ -run 'TestAFetchNamingItsRecallIsRecordedAtTheToolSurface' -count=1 …` |
+| T4 | Report the ratio, with the profile beside it | `profile_id` on `search_events`; a fetch ratio reported with its population | `drawer_fetches`, `CountFetches` (T3) | pending | `go test ./internal/palace/ -run 'TestTheFetchRatioNamesItsPopulation' -count=1 …` |
 
-The two tasks are independent in content and touch the same file, so they are ordered rather than parallel to keep the diff reviewable. T1 goes first because it is the half a future recording task would build on.
+T1 and T2 are independent in content and touch the same file, so they are ordered rather than parallel to keep the diff reviewable. T1 goes first because it is the half the recording task builds on.
+
+T3 and T4 were the deferred half of this record and are now task files rather than a BACKLOG pointer. T3's own trigger — "the first week `am_get_drawer` receives a non-empty `search_id` from a non-test client" — was MET on 2026-08-29 and left no durable trace, which is what a trigger conditioned on an unobservable event does. T4 stays pending because a ratio needs `profile_id` beside it to mean anything.
 
 ## Task Index
 
