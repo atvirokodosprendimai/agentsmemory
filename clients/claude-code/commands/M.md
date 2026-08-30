@@ -97,6 +97,15 @@ parallel** (1c is two calls: `am_status` to wake up, then
   search against a stale graph is worse than no search, because it answers.
   After the graph search, emit `code reality searched ✓`.
 
+  ⚠ **REGISTERED IS NOT REACHABLE, and the difference is invisible.** A server
+  that fails to start still appears in the tool list, so the calls above fail
+  while the session looks like one that skipped the step. Run
+  `claude mcp list | grep codebase` before concluding anything: measured
+  2026-08-30, three sessions across two repositories were diagnosed as forgetting
+  Step 1b when the real state was `✘ CONNECTION_CLOSED` on the host. Announce the
+  actual reason — a dead server and a skipped step must not produce the same
+  silence.
+
   When it is **not** registered — which is common — say so in one line and use
   what this repo actually has: `grep`/`glob` over the paths the task names, the
   architecture doc if there is one, the test files for the subsystem. Do not

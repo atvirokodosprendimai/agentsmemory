@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -53,7 +55,7 @@ func TestDoctorJudgesTheBinaryTheBridgeSpawns(t *testing.T) {
 	t.Run("a registration naming nothing is a hard failure", func(t *testing.T) {
 		dir := t.TempDir()
 		writeMCPConfig(t, dir, kit.mcpConfigFile, filepath.Join(dir, "not-here"))
-		v := judgeServerBin(kit, dir)
+		v := judgeServerBin(kit, dir, "")
 		if v == nil {
 			t.Fatal("no verdict for a kit that spawns a binary")
 		}
@@ -70,7 +72,7 @@ func TestDoctorJudgesTheBinaryTheBridgeSpawns(t *testing.T) {
 			t.Fatalf("write: %v", err)
 		}
 		writeMCPConfig(t, dir, kit.mcpConfigFile, bin)
-		v := judgeServerBin(kit, dir)
+		v := judgeServerBin(kit, dir, "")
 		if v == nil || !v.bad || v.label != "NOT-EXECUTABLE" {
 			t.Errorf("a non-executable registration was not failed: %+v", v)
 		}
@@ -83,19 +85,71 @@ func TestDoctorJudgesTheBinaryTheBridgeSpawns(t *testing.T) {
 			t.Fatalf("write: %v", err)
 		}
 		writeMCPConfig(t, dir, kit.mcpConfigFile, bin)
-		v := judgeServerBin(kit, dir)
+		v := judgeServerBin(kit, dir, "")
 		if v == nil {
 			t.Fatal("no verdict")
 		}
 		if v.recorded != bin {
 			t.Errorf("the verdict does not name the binary it judged: %q", v.recorded)
 		}
-		// ⚠ STALE-PATH IS REPORTED, NEVER FAILED. An operator may have pointed a
-		// kit at a deliberate build; a check that fails on a legitimate choice is
-		// one that gets switched off.
-		if v.label == "STALE-PATH" && v.bad {
-			t.Error("STALE-PATH counted as a failure — it is a report, because pointing a kit at " +
-				"a deliberate build is legitimate")
+		// ⚠ THE EXACT VERDICT, NOT "not a failure". This assertion used to check
+		// only that STALE-PATH did not set bad, which held when the implementation
+		// returned MISSING or NOT-EXECUTABLE too — it passed in the broken state as
+		// well as the correct one, and a review found it saying nothing. The healthy
+		// case has exactly one right answer and this is it.
+		if v.label != "ok" || v.bad {
+			t.Errorf("a healthy registration is %q/bad=%v, want \"ok\"/false: %s", v.label, v.bad, v.detail)
+		}
+	})
+
+	t.Run("a config with no entry of ours is a finding, not silence", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, kit.mcpConfigFile)
+		if err := os.WriteFile(path, []byte(`{"mcpServers":{"theirs":{"command":"/usr/bin/theirs"}}}`), 0o644); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+		v := judgeServerBin(kit, dir, "")
+		// ⚠ THIS RETURNED nil, explained as "the hook report covers the rest" — and
+		// that sentence is false for precisely the kits this check serves, because
+		// they ship no hooks and so have no other report. An uninstalled bridge
+		// looked exactly like a healthy one.
+		if v == nil || !v.bad || v.label != "NOT-REGISTERED" {
+			t.Errorf("a config carrying no %s entry produced %+v; an operator with no MCP "+
+				"registered must be told so", mcpName, v)
+		}
+	})
+
+	t.Run("a missing config is a finding, not silence", func(t *testing.T) {
+		v := judgeServerBin(kit, t.TempDir(), "")
+		if v == nil || !v.bad || v.label != "NOT-REGISTERED" {
+			t.Errorf("an absent MCP config produced %+v, want a NOT-REGISTERED finding", v)
+		}
+	})
+
+	t.Run("a byte-identical binary elsewhere is not stale", func(t *testing.T) {
+		// ⚠ THE FALSE POSITIVE THIS BRANCH WOULD HAVE SHIPPED. Since the installer
+		// places the binary it registers, the recorded path ALWAYS differs from the
+		// one on PATH on a correct install — so a path-string comparison reported
+		// every healthy install as STALE-PATH. Content is what the question is
+		// actually about.
+		dir := t.TempDir()
+		body := []byte("#!/bin/sh\necho same\n")
+		a, b := filepath.Join(dir, "recorded"), filepath.Join(dir, "onpath")
+		for _, p := range []string{a, b} {
+			if err := os.WriteFile(p, body, 0o755); err != nil {
+				t.Fatalf("write %s: %v", p, err)
+			}
+		}
+		if label, _ := compareWithPath(a, b); label != "ok" {
+			t.Errorf("two byte-identical binaries at different paths compared as %q; a check that "+
+				"fires on every correct install is one an operator learns to ignore", label)
+		}
+		// And a genuinely different build still reports.
+		if err := os.WriteFile(b, []byte("#!/bin/sh\necho newer\n"), 0o755); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+		if label, _ := compareWithPath(a, b); label != "STALE-PATH" {
+			t.Errorf("a different build on PATH compared as %q, want STALE-PATH", label)
 		}
 	})
 
@@ -104,7 +158,7 @@ func TestDoctorJudgesTheBinaryTheBridgeSpawns(t *testing.T) {
 		if err != nil || len(kits) != 1 {
 			t.Fatalf("resolve the claude kit: %v", err)
 		}
-		if v := judgeServerBin(kits[0], t.TempDir()); v != nil {
+		if v := judgeServerBin(kits[0], t.TempDir(), ""); v != nil {
 			t.Errorf("a URL-handover kit got a binary verdict: %+v", v)
 		}
 	})
@@ -209,4 +263,136 @@ func fakeBuiltServerBin(t *testing.T) string {
 		t.Fatalf("write a stand-in server binary: %v", err)
 	}
 	return p
+}
+
+// TestDoctorActuallyPrintsTheBinaryVerdict covers the rung every other test in
+// this file is blind to: whether the command an operator runs can reach the
+// judgement at all.
+//
+// ⚠ IT SHIPPED UNREACHABLE, AND THE COMMIT MESSAGE SAID OTHERWISE. judgeServerBin
+// applies exactly when kitNeedsServerBin is true, which today is claude-desktop
+// alone — and claude-desktop ships no hooks file, so runHookDoctor's
+// `kit.hooksFile == ""` guard returned before the call was reached. Every kit that
+// DID reach it has its own CLI binary, so kitNeedsServerBin was false and the call
+// returned nil. No invocation of `doctor`, for any agent, could print a binary
+// verdict. Every test in this file passed, because every one called judgeServerBin
+// directly — the mechanism was exercised, its SELECTION was not.
+//
+// That is this repository's signature defect, shipped inside the commit claiming
+// to report drift. This test goes through rootCommand, so removing the
+// reportServerBin dispatch — or restoring a guard in front of it — turns it red.
+func TestDoctorActuallyPrintsTheBinaryVerdict(t *testing.T) {
+	kit := desktopKit(t)
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "server")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatalf("write binary: %v", err)
+	}
+	writeMCPConfig(t, dir, kit.mcpConfigFile, bin)
+
+	var buf bytes.Buffer
+	root := rootCommand()
+	root.Writer = &buf
+	err := root.Run(context.Background(), []string{
+		"aiagentmemory", "doctor", "--agent", agentClaudeDesktop,
+		"--target-dir", dir, "--project-dir", t.TempDir(),
+	})
+	report := buf.String()
+
+	if err != nil {
+		t.Fatalf("doctor on a healthy desktop install failed: %v\n%s", err, report)
+	}
+	if !strings.Contains(report, "mcp bridge binary") {
+		t.Errorf("`doctor --agent %s` printed no bridge-binary line, so the check cannot be "+
+			"reached from the command an operator runs:\n%s", agentClaudeDesktop, report)
+	}
+	if !strings.Contains(report, bin) {
+		t.Errorf("the report does not name the binary it judged (%s):\n%s", bin, report)
+	}
+}
+
+// TestDoctorFailsADesktopInstallWhoseBinaryIsGone is the same route in the state
+// that must exit non-zero, because a report an operator can ignore and an exit
+// code they cannot are different promises and only one of them gates anything.
+func TestDoctorFailsADesktopInstallWhoseBinaryIsGone(t *testing.T) {
+	kit := desktopKit(t)
+	dir := t.TempDir()
+	writeMCPConfig(t, dir, kit.mcpConfigFile, filepath.Join(dir, "not-here"))
+
+	var buf bytes.Buffer
+	root := rootCommand()
+	root.Writer = &buf
+	err := root.Run(context.Background(), []string{
+		"aiagentmemory", "doctor", "--agent", agentClaudeDesktop,
+		"--target-dir", dir, "--project-dir", t.TempDir(),
+	})
+	if err == nil {
+		t.Errorf("doctor exited 0 over a registration naming a binary that does not exist; the "+
+			"MCP can never connect, so this must fail:\n%s", buf.String())
+	}
+}
+
+// TestAFailedPlacementLeavesThePreviousBinaryIntact pins the property the atomic
+// rename exists for.
+//
+// ⚠ THE OBVIOUS IMPLEMENTATION FAILS THIS. os.Remove followed by os.WriteFile
+// leaves NO file at a path an agent config already points at, for as long as the
+// write takes — and permanently if it fails. Review caught it before it shipped:
+// the installer treats a registration failure as non-fatal, so the install would
+// have reported success over a bridge that could no longer start. Staging into
+// the same directory and renaming means a failure never touches the live file.
+//
+// It drives the real placeServerBin, forcing a failure by making the destination
+// directory unwritable after the previous binary is in place.
+//
+// ⚠ IT DOES NOT DISTINGUISH THE TWO IMPLEMENTATIONS, AND SAYING SO IS THE POINT.
+// Graded by mutation: replacing the stage-and-rename with os.Remove followed by
+// os.WriteFile leaves this test GREEN, because an unwritable directory denies the
+// unlink too, so the destructive version returns before destroying anything. The
+// window it opens — dest removed, replacement not yet written — is only reachable
+// by failing BETWEEN two syscalls, which no black-box test here can force. So the
+// atomicity claim rests on os.Rename's semantics and on replaceBinary's precedent,
+// not on this test. What this test does pin is the weaker, still-worth-having
+// property in its name: a placement that fails does not leave the operator worse
+// off than before they ran it.
+func TestAFailedPlacementLeavesThePreviousBinaryIntact(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: a read-only directory does not deny root, so the failure " +
+			"this test forces cannot be forced")
+	}
+	target := t.TempDir()
+	binDir := filepath.Join(target, "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	dest := filepath.Join(binDir, installedServerBinName)
+	previous := []byte("#!/bin/sh\necho the binary that is already registered\n")
+	if err := os.WriteFile(dest, previous, 0o755); err != nil {
+		t.Fatalf("seed the previous binary: %v", err)
+	}
+
+	src := filepath.Join(t.TempDir(), "newly-built")
+	if err := os.WriteFile(src, []byte("#!/bin/sh\necho new\n"), 0o755); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+
+	// Deny writes to the directory, so staging cannot create its temp file.
+	if err := os.Chmod(binDir, 0o555); err != nil {
+		t.Fatalf("chmod: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(binDir, 0o755) })
+
+	i := &Installer{targetDir: target, serverBin: src, out: &strings.Builder{}}
+	if _, err := i.placeServerBin(); err == nil {
+		t.Fatal("placing into an unwritable directory reported success")
+	}
+
+	got, err := os.ReadFile(dest)
+	if err != nil {
+		t.Fatalf("the previously installed binary is gone after a FAILED placement, so the "+
+			"registration now names nothing: %v", err)
+	}
+	if string(got) != string(previous) {
+		t.Errorf("a failed placement changed the installed binary:\n want %q\n got  %q", previous, got)
+	}
 }

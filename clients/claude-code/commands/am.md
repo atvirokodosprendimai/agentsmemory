@@ -29,13 +29,32 @@ Fire these in parallel where you can; each answers a different question.
   third-party skill. If none exists, say `no explicit intent source found` and
   carry that uncertainty into the plan.
 
-- **1b. Code reality — prefer codebase-memory when available.** When it is
-  registered, reindex before searching: first call
-  `index_repository(repo_path=<cwd>)`, then search with the task to locate the
-  symbols, files, and routes it touches. Reach for `get_architecture` or
-  `trace_path` when structure or call paths matter. When it is absent, say so
-  and use targeted source search over the paths, symbols, architecture docs, and
-  tests the task names; do not block on an optional integration.
+- **1b. Code reality — codebase-memory. Three calls, in order:**
+  1. ⚠ **`index_repository(repo_path=<cwd>)` FIRST, every task, no exceptions.**
+     The graph does **not** index automatically. It holds whatever was true the
+     last time somebody indexed — which may be another branch, another day, or
+     never — so at the start of any task the index is **stale by construction**.
+     This is the one call that is easy to skip and expensive to skip, because a
+     stale graph does not error: **it answers**, confidently, about code that has
+     moved. That is worse than having no graph at all, and it is why this is a
+     numbered step rather than a sentence.
+  2. `search_code(pattern=<task>, project=<repo>)` — locate the symbols, files
+     and routes the task touches. Reach for `get_architecture` or `trace_path`
+     when structure or call paths matter.
+  3. Emit `code reality: indexed + searched ✓` so the order is visible.
+
+  **If it is not reachable, SAY SO IN ONE LINE and carry on** — e.g.
+  `⚠ codebase-memory unreachable (CONNECTION_CLOSED) — targeted source search only`.
+  Then use targeted search over the paths, symbols, docs and tests the task
+  names, and name what you inspected. Do not block on an optional integration.
+
+  ⚠ **The announcement is not politeness, it is the finding.** A dead server and
+  a skipped step produce identical output — silence — so an unannounced absence
+  gets diagnosed for weeks as an agent that keeps forgetting. Measured 2026-08-30:
+  three sessions across two repositories were all read as "forgot Step 1b" while
+  `claude mcp list` reported `codebase-memory-mcp ✘ CONNECTION_CLOSED` on the
+  machine running them. Check it before you conclude anything about your own
+  discipline: `claude mcp list | grep codebase`.
 
 - **1c. Team memory — `am_*` MCP.** Four calls, in order:
   1. `am_status` — which palace answered, your wing, what is waiting, and the

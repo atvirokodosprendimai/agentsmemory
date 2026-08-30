@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"errors"
 	"fmt"
 	"io"
 	"net/url"
@@ -219,9 +218,14 @@ type Installer struct {
 	agentBin       string   // resolved agent CLI name to drive for mcp/plugin ops
 	mcpURL         string   // agentsmemory remote MCP endpoint
 	socket         string   // non-empty ⇒ reach a --local server over this Unix socket, via the mcp-stdio bridge
-	serverBin      string   // agentsmemory server binary the stdio bridge is spawned from (socket mode only)
-	scope          string   // Claude MCP/plugin scope (user|local|project)
-	local          bool     // target a self-hosted `agentsmemory --local` server
+	// serverBin is the agentsmemory server binary the stdio bridge is spawned from.
+	// It is the SOURCE for placeServerBin, never the path that gets registered:
+	// every registration names the copy placed under targetDir/bin instead. (This
+	// comment said "socket mode only" until Claude Desktop began using it too, and
+	// went on saying it for the commit that made the change.)
+	serverBin string
+	scope     string // Claude MCP/plugin scope (user|local|project)
+	local     bool   // target a self-hosted `agentsmemory --local` server
 	// wing is the project this registration files memories into. It travels as a
 	// header on every MCP call, so writes from THIS project land in THIS project's
 	// wing whether or not the agent remembers to pass one. Empty keeps the old
@@ -871,22 +875,32 @@ const installedServerBinName = "aiagentmemory-server"
 // only decides WHICH absolute path, replacing "wherever it was that day" with
 // "the one this kit installs".
 //
-// ⚠ REMOVE BEFORE WRITE, NOT TRUNCATE-IN-PLACE. macOS caches an executable's code
-// signature by inode: overwriting a mapped binary leaves the next exec dying with
-// SIGKILL and a byte-identical checksum to a copy that runs fine. Measured the
-// same day, twice. os.Remove first gives the new file a fresh inode.
+// ⚠ STAGE THEN RENAME, NEVER WRITE OVER THE LIVE PATH. Two failures meet here and
+// only an atomic swap avoids both. macOS caches an executable's code signature by
+// inode, so truncating a mapped binary in place leaves the next exec dying with
+// SIGKILL — and with a checksum identical to a copy that runs fine, which is why
+// it cost an afternoon to attribute. Measured 2026-08-30, twice. But the obvious
+// remedy, os.Remove followed by os.WriteFile, is worse than it looks: between
+// those two calls there is NO file at a path an agent config already points at,
+// so an interrupted or failing install leaves a registration aimed at nothing.
+// Review found it before it shipped. Renaming a staged file within the same
+// directory is atomic, gives the new file a fresh inode, and leaves the previous
+// binary untouched on any failure — the pattern replaceBinary already uses for
+// self-update, for the same reasons.
 func (i *Installer) placeServerBin() (string, error) {
 	dest := filepath.Join(i.targetDir, "bin", installedServerBinName)
-
-	// Already the canonical copy — a re-install of an unchanged binary.
-	if abs, err := filepath.Abs(i.serverBin); err == nil && abs == dest {
-		return dest, nil
-	}
 	if i.dryRun {
 		fmt.Fprintf(i.out, "  would install the server binary: %s → %s\n", i.serverBin, dest)
 		return dest, nil
 	}
 
+	// ⚠ NO SAME-PATH SHORTCUT. An earlier version returned early when
+	// filepath.Abs(i.serverBin) equalled dest, on the theory that re-installing an
+	// unchanged binary need not copy. But filepath.Abs is lexical — it resolves no
+	// symlinks — so the shortcut also accepted a symlink, a non-executable file, or
+	// nothing at all sitting at the canonical path, and returned it as though this
+	// install owned it. Copying unconditionally is cheap on an install path and is
+	// the only version that makes the ownership claim true. Review found this.
 	data, err := os.ReadFile(i.serverBin)
 	if err != nil {
 		return "", fmt.Errorf("read the server binary %s: %w", i.serverBin, err)
@@ -894,11 +908,29 @@ func (i *Installer) placeServerBin() (string, error) {
 	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 		return "", err
 	}
-	// Ignore a missing file; the point is that no OLD inode survives.
-	if err := os.Remove(dest); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return "", fmt.Errorf("replace the installed server binary: %w", err)
+
+	// Stage beside the destination so the rename below stays within one filesystem;
+	// os.Rename across devices fails, and a temp dir may well be on another.
+	tmp, err := os.CreateTemp(filepath.Dir(dest), ".aiagentmemory-server-*")
+	if err != nil {
+		return "", fmt.Errorf("stage the server binary next to %s: %w", dest, err)
 	}
-	if err := os.WriteFile(dest, data, 0o755); err != nil {
+	staged := tmp.Name()
+	defer os.Remove(staged) // a no-op once the rename has consumed it
+
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return "", fmt.Errorf("write the staged server binary: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return "", fmt.Errorf("close the staged server binary: %w", err)
+	}
+	// Chmod explicitly rather than trusting CreateTemp's 0600-and-umask: the file
+	// must be executable, and an unusual umask must not be able to decide otherwise.
+	if err := os.Chmod(staged, 0o755); err != nil {
+		return "", fmt.Errorf("make the staged server binary executable: %w", err)
+	}
+	if err := os.Rename(staged, dest); err != nil {
 		return "", fmt.Errorf("install the server binary to %s: %w", dest, err)
 	}
 	i.ok("installed server binary → %s", dest)

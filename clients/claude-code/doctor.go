@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -88,12 +90,16 @@ type binVerdict struct {
 	kit      string
 	recorded string // the path written into the agent's MCP config
 	onPath   string // what resolveServerBin finds today, if anything
-	label    string // ok | MISSING | STALE-PATH | NOT-EXECUTABLE
+	label    string // ok | MISSING | UNREADABLE | NOT-EXECUTABLE | NOT-REGISTERED | STALE-PATH
 	detail   string
 	bad      bool
 }
 
 // judgeServerBin checks the binary an agent's MCP config actually spawns.
+//
+// onPath is what the operator has on $PATH today, or "" when nothing is there or
+// the caller chose not to look. It is a PARAMETER rather than a lookup so this
+// judgement is a pure function of its inputs — see reportServerBin for why.
 //
 // ⚠ THE RECORDED PATH IS FROZEN AT INSTALL TIME AND NOTHING RE-RESOLVES IT. A
 // stdio registration stores an absolute path — correctly, because the agent
@@ -117,20 +123,31 @@ type binVerdict struct {
 // registrations are kept honest at WRITE time instead, by
 // TestEveryStdioRegistrationNamesThePlacedBinary: every one of them names the
 // binary the installer placed, so there is no build path to drift away from.
-func judgeServerBin(kit agentKit, targetDir string) *binVerdict {
+func judgeServerBin(kit agentKit, targetDir, onPath string) *binVerdict {
 	if !kitNeedsServerBin(kit) {
 		return nil // this kit hands over a URL; there is no binary to drift
 	}
 	path := filepath.Join(targetDir, kit.mcpConfigFile)
 	recorded, err := recordedMCPCommand(path)
-	if err != nil || recorded == "" {
-		return nil // no registration to judge; the hook report covers the rest
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		// ⚠ NOT SILENCE. An earlier version returned nil for every unreadable case
+		// and explained it away with "the hook report covers the rest" — which is
+		// false for exactly the kits this check serves, because they ship no hooks
+		// and therefore have no other report. A config that is absent, unparseable,
+		// or carries no entry of ours is a finding an operator can act on, and
+		// swallowing it made a broken install look like a clean one.
+		return &binVerdict{kit: kit.name, label: "NOT-REGISTERED", bad: true, recorded: path,
+			detail: "no MCP config at this path — run `aiagentmemory install`"}
+	case err != nil:
+		return &binVerdict{kit: kit.name, label: "UNREADABLE", bad: true, recorded: path,
+			detail: "the MCP config cannot be read or parsed: " + err.Error()}
+	case recorded == "":
+		return &binVerdict{kit: kit.name, label: "NOT-REGISTERED", bad: true, recorded: path,
+			detail: "the MCP config carries no " + mcpName + " entry — run `aiagentmemory install`"}
 	}
 
-	v := &binVerdict{kit: kit.name, recorded: recorded, label: "ok"}
-	if onPath, err := resolveServerBin("", false); err == nil {
-		v.onPath = onPath
-	}
+	v := &binVerdict{kit: kit.name, recorded: recorded, label: "ok", onPath: onPath}
 
 	info, err := os.Stat(recorded)
 	switch {
@@ -138,20 +155,86 @@ func judgeServerBin(kit agentKit, targetDir string) *binVerdict {
 		v.label, v.bad = "MISSING", true
 		v.detail = "the registration names a binary that does not exist; the MCP will never connect"
 	case err != nil:
-		v.label, v.bad = "MISSING", true
+		// ⚠ NOT "MISSING". A permission error, a broken mount or a bad symlink is a
+		// different problem from a path that names nothing, and reporting them as
+		// the same thing sends the operator to re-run install, which will not help.
+		v.label, v.bad = "UNREADABLE", true
 		v.detail = err.Error()
+	case info.IsDir() || !info.Mode().IsRegular():
+		// os.Stat on a directory reports the execute bit set, so the mode check
+		// below would have called a directory a healthy binary.
+		v.label, v.bad = "NOT-EXECUTABLE", true
+		v.detail = "the registration names something that is not a regular file"
 	case info.Mode()&0o111 == 0:
 		v.label, v.bad = "NOT-EXECUTABLE", true
 		v.detail = "the registration names a file that cannot be executed"
-	case v.onPath != "" && v.onPath != recorded:
-		v.label = "STALE-PATH"
-		v.detail = "a different binary is on PATH at " + v.onPath +
-			" — the registration is frozen at install time and this one may be older"
+	default:
+		v.label, v.detail = compareWithPath(recorded, v.onPath)
 	}
 	return v
 }
 
-// recordedMCPCommand reads the `command` an agent's MCP config spawns for us.
+// compareWithPath decides whether the registered binary differs from the one the
+// operator has on PATH, and it compares CONTENT rather than path strings.
+//
+// ⚠ COMPARING PATHS REPORTED EVERY HEALTHY INSTALL AS STALE. Since the installer
+// began placing the binary it registers, the recorded path is ALWAYS
+// <targetDir>/bin/aiagentmemory-server while PATH holds wherever the operator
+// built it — so the two differ by construction, on a correct install, every time.
+// A check that fires on the normal case is one an operator learns to ignore, and
+// it would have shipped that way: the test asserting the healthy case never
+// required the verdict to be "ok", so it passed on any label at all. Found in
+// review 2026-08-30.
+//
+// os.SameFile comes first because a hardlink or symlink alias IS the same binary
+// however differently the two paths are spelled, and hashing it would be work
+// spent to reach the same answer.
+func compareWithPath(recorded, onPath string) (label, detail string) {
+	if onPath == "" || onPath == recorded {
+		return "ok", ""
+	}
+	ri, rerr := os.Stat(recorded)
+	pi, perr := os.Stat(onPath)
+	if rerr == nil && perr == nil && os.SameFile(ri, pi) {
+		return "ok", ""
+	}
+	rsum, rerr := sha256Of(recorded)
+	psum, perr := sha256Of(onPath)
+	if rerr != nil || perr != nil {
+		// Cannot tell. Say so rather than guessing in either direction — a wrong
+		// "ok" hides drift and a wrong "STALE" is the noise this function exists
+		// to remove.
+		return "ok", "could not compare with the binary on PATH at " + onPath
+	}
+	if rsum == psum {
+		return "ok", ""
+	}
+	return "STALE-PATH", "a DIFFERENT build is on PATH at " + onPath +
+		" — the registration is frozen at install time, so re-run `aiagentmemory install` if that one is newer"
+}
+
+// sha256Of hashes a file by streaming it, so comparing two ~40 MiB binaries does
+// not hold both in memory at once.
+func sha256Of(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// recordedMCPCommand reads the `command` this project's MCP entry spawns, from an
+// agent config file that is shared with every other MCP server the operator runs.
+//
+// It returns an empty string with a nil error when the file parses but holds no
+// entry of ours, because that is a different state from a missing or malformed
+// file and the caller reports the three differently. Errors are returned
+// unwrapped so the caller can tell os.ErrNotExist from a parse failure.
 func recordedMCPCommand(path string) (string, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -190,16 +273,35 @@ func runHookDoctor(ctx context.Context, c *cli.Command, out io.Writer) error {
 			"names the install it belongs to", c.String("agent"), len(kits))
 	}
 	kit := kits[0]
-	if kit.hooksFile == "" {
-		return fmt.Errorf("%s has no hooks file, so there is no registration to check", kit.name)
-	}
-	// ⚠ THE FOURTH EMPTY STATE, AND THE COMMENT BELOW USED TO CLAIM THERE WERE
-	// THREE. A kit that ships no injecting hook has an empty universe BY DESIGN, so
-	// the guard further down fired on a perfectly healthy codex install and advised
-	// re-running `install`, which could not have changed the outcome. `--agent` is
-	// advertised as claude | codex | pi in this command's own usage string, so the
-	// path was reachable and documented.
-	if !kit.shipsCompanionHooks {
+
+	// ⚠ THE HOOK GUARDS USED TO ABORT THE WHOLE COMMAND, AND THAT MADE THE BINARY
+	// CHECK UNREACHABLE FOR EVERY KIT. judgeServerBin applies exactly when
+	// kitNeedsServerBin is true, which today is claude-desktop alone — and
+	// claude-desktop ships no hooks file, so `return` here fired before the binary
+	// was ever judged. Every kit that DID reach the call has its own CLI binary,
+	// so kitNeedsServerBin was false and the call returned nil. The verdict could
+	// therefore never be printed by any invocation: finished, tested, and
+	// unreachable, which is this repository's signature defect, shipped inside the
+	// commit that claimed to report drift. Found in review 2026-08-30; the commit
+	// message asserting doctor reports it was false when written.
+	//
+	// The two checks are independent — one needs a hooks file, the other a stdio
+	// registration — so each is skipped on its own terms and only a kit with
+	// NEITHER is an error.
+	hooksApplicable := kit.hooksFile != "" && kit.shipsCompanionHooks
+	binApplicable := kitNeedsServerBin(kit)
+	//
+	// ⚠ AND THE SECOND BRANCH IS THE FOURTH EMPTY STATE. A kit that ships no
+	// injecting hook has an empty universe BY DESIGN, so the guard further down
+	// fired on a perfectly healthy codex install and advised re-running `install`,
+	// which could not have changed the outcome. `--agent` is advertised as
+	// claude | codex | pi in this command's own usage string, so the path was
+	// reachable and documented.
+	if !hooksApplicable && !binApplicable {
+		if kit.hooksFile == "" {
+			return fmt.Errorf("%s has no hooks file and spawns no bridge binary, so there is "+
+				"no registration to check", kit.name)
+		}
 		return fmt.Errorf("the %s kit ships no hook that declares `# hook-output: %s`, so there "+
 			"is nothing here for this check: %s receives the Stop hook and nothing else, because "+
 			"its execution contract for the other events was never captured. This is the designed "+
@@ -219,26 +321,7 @@ func runHookDoctor(ctx context.Context, c *cli.Command, out io.Writer) error {
 		dir = d
 	}
 
-	scripts, err := injectingScriptsIn(dir)
-	if err != nil {
-		return err
-	}
-	// ⚠ THREE EMPTY STATES, NOT ONE. "nothing is installed", "the declaration
-	// changed so this command now examines nothing", and "installed but registered
-	// nowhere" are different problems with different fixes, and an earlier version
-	// reported all three as the same alarm.
-	if len(scripts) == 0 {
-		return fmt.Errorf("no hook in %s declares `# hook-output: %s`.\n"+
-			"  Either nothing is installed there — run `aiagentmemory install` — or the\n"+
-			"  declaration line changed, in which case this check now examines nothing\n"+
-			"  while reporting success, which is the failure it exists to catch", dir, channelStdoutInjected)
-	}
-
-	registered, err := registeredHookEvents(filepath.Join(dir, kit.hooksFile))
-	if err != nil {
-		return err
-	}
-
+	var verdicts []hookVerdict
 	projectDir := c.String("project-dir")
 	if projectDir == "" {
 		if wd, err := os.Getwd(); err == nil {
@@ -246,15 +329,11 @@ func runHookDoctor(ctx context.Context, c *cli.Command, out io.Writer) error {
 		}
 	}
 
-	names := make([]string, 0, len(scripts))
-	for name := range scripts {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-
-	verdicts := make([]hookVerdict, 0, len(names))
-	for _, name := range names {
-		verdicts = append(verdicts, judgeHook(ctx, c, dir, name, registered[name], projectDir))
+	if hooksApplicable {
+		verdicts, err = hookVerdictsIn(ctx, c, kit, dir, projectDir)
+		if err != nil {
+			return err
+		}
 	}
 
 	fmt.Fprintf(out, "config:  %s\n", dir)
@@ -278,10 +357,68 @@ func runHookDoctor(ctx context.Context, c *cli.Command, out io.Writer) error {
 			}
 		}
 	}
-	// The binary the bridge spawns, for kits that spawn one. Reported beside the
-	// hooks because it is the same question one layer down: is the thing that was
-	// installed the thing that runs.
-	if bv := judgeServerBin(kit, dir); bv != nil {
+	return reportServerBin(out, kit, dir, bad, len(verdicts))
+}
+
+// hookVerdictsIn scans one install directory and judges every injecting hook in
+// it. It is split out of runHookDoctor so the binary check below can run for a
+// kit that ships no hooks at all — the conflation that made judgeServerBin
+// unreachable.
+func hookVerdictsIn(ctx context.Context, c *cli.Command, kit agentKit, dir, projectDir string) ([]hookVerdict, error) {
+	scripts, err := injectingScriptsIn(dir)
+	if err != nil {
+		return nil, err
+	}
+	// ⚠ THREE EMPTY STATES, NOT ONE. "nothing is installed", "the declaration
+	// changed so this command now examines nothing", and "installed but registered
+	// nowhere" are different problems with different fixes, and an earlier version
+	// reported all three as the same alarm.
+	if len(scripts) == 0 {
+		return nil, fmt.Errorf("no hook in %s declares `# hook-output: %s`.\n"+
+			"  Either nothing is installed there — run `aiagentmemory install` — or the\n"+
+			"  declaration line changed, in which case this check now examines nothing\n"+
+			"  while reporting success, which is the failure it exists to catch", dir, channelStdoutInjected)
+	}
+
+	registered, err := registeredHookEvents(filepath.Join(dir, kit.hooksFile))
+	if err != nil {
+		return nil, err
+	}
+
+	names := make([]string, 0, len(scripts))
+	for name := range scripts {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	verdicts := make([]hookVerdict, 0, len(names))
+	for _, name := range names {
+		verdicts = append(verdicts, judgeHook(ctx, c, dir, name, registered[name], projectDir))
+	}
+	return verdicts, nil
+}
+
+// reportServerBin prints the bridge-binary verdict, then the command's summary.
+//
+// ⚠ IT IS CALLED UNCONDITIONALLY, and that is the whole point. The verdict used to
+// be printed from inside runHookDoctor, AFTER two guards that return early for any
+// kit without hooks — and the only kit that HAS a bridge binary is exactly a kit
+// without hooks. Reporting it from here, past no guard, is what makes it reachable
+// at all.
+func reportServerBin(out io.Writer, kit agentKit, dir string, bad, hooks int) error {
+	// ⚠ RESOLVED HERE, NOT INSIDE THE JUDGEMENT. judgeServerBin used to call
+	// resolveServerBin itself, which made its verdict depend on the $PATH of
+	// whoever ran it — including the developer running the tests, where a real
+	// binary in ~/.local/bin turned a controlled fixture's verdict from ok into
+	// STALE-PATH. A check whose answer varies with ambient environment cannot be
+	// pinned by any test, so the lookup is the caller's and the judgement takes
+	// what it is given.
+	onPath, err := resolveServerBin("", false)
+	if err != nil {
+		onPath = "" // nothing on PATH to compare against; not a finding on its own
+	}
+	bv := judgeServerBin(kit, dir, onPath)
+	if bv != nil {
 		if bv.bad {
 			bad++
 		}
@@ -290,19 +427,28 @@ func runHookDoctor(ctx context.Context, c *cli.Command, out io.Writer) error {
 			fmt.Fprintf(out, "      | %s\n", bv.detail)
 		}
 	}
-
 	fmt.Fprintln(out)
 
 	if bad > 0 {
-		return fmt.Errorf("%d of %d injecting hook(s) cannot reach a session.\n"+
-			"  UNREGISTERED: the script is installed and %s registers it for no event.\n"+
-			"  DISCARDED:    it is registered on an event whose stdout goes to the debug\n"+
-			"                log; only %s inject.\n"+
-			"  FAILED:       it exited non-zero. The stderr above says why.\n"+
+		return fmt.Errorf("%d finding(s) across %d injecting hook(s) and the bridge binary.\n"+
+			"  UNREGISTERED:   the script is installed and %s registers it for no event.\n"+
+			"  DISCARDED:      it is registered on an event whose stdout goes to the debug\n"+
+			"                  log; only %s inject.\n"+
+			"  FAILED:         it exited non-zero. The stderr above says why.\n"+
+			"  MISSING /\n"+
+			"  NOT-EXECUTABLE: the MCP registration names a binary that cannot be spawned.\n"+
 			"  Re-running `aiagentmemory install` rewrites the registrations",
-			bad, len(verdicts), kit.hooksFile, strings.Join(sortedInjectingEvents(), ", "))
+			bad, hooks, kit.hooksFile, strings.Join(sortedInjectingEvents(), ", "))
 	}
-	fmt.Fprintf(out, "  all %d injecting hook(s) are registered on an injecting event and ran\n", len(verdicts))
+	switch {
+	case hooks > 0 && bv != nil:
+		fmt.Fprintf(out, "  all %d injecting hook(s) are registered on an injecting event and ran, "+
+			"and the bridge binary is %s\n", hooks, bv.label)
+	case bv != nil:
+		fmt.Fprintf(out, "  this kit ships no injecting hooks; the bridge binary is %s\n", bv.label)
+	default:
+		fmt.Fprintf(out, "  all %d injecting hook(s) are registered on an injecting event and ran\n", hooks)
+	}
 	return nil
 }
 
