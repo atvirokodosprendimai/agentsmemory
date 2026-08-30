@@ -499,6 +499,18 @@ that were *also* in effect on D", not "facts in effect on D". For a real snapsho
 date, pass `as_of` **and** `status:"all"`. The call succeeds either way and the short answer
 still looks like history, which is what makes this one worth knowing.
 
+⚠ **And where they compose, they can also disagree — by up to a day.** `as_of` is
+date-granular on the retraction end: a fact whose `valid_to` is a bare date stays in effect
+through the **end** of that day, while `status:"current"` drops it the instant it is retracted.
+So `as_of:"<today>"` with `status:"all"` can hand you a fact that `status:"current"` says is
+already dead. Neither answer is wrong on its own terms; they are answering different questions
+at different resolutions.
+
+Retractions made through `am_kg_invalidate` and `am_kg_supersede` now stamp an **instant**, so
+nothing new joins that class. What is left is a date-only `valid_to` that someone passed
+explicitly, or a row written before that change. **Pass a datetime whenever the boundary
+matters** — for `ended` when you retract, and for `as_of` when you ask.
+
 ### 6.2 ⚠ The entity string is a KEY, not a label
 
 Normalised only by lowercase and spaces→underscores. **There is no fuzzy match.** `datastar`

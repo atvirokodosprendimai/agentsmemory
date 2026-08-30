@@ -1794,14 +1794,18 @@ as the deferral so the pointer has a receiving end.
   ADR-015 exists because a merge can silently invalidate a search index. **Trigger: whenever an agent
   is found to have merged a wing nobody asked it to merge.** Found by review 2026-08-27, correcting an
   ADR-010 claim that both were "already outside the agent surface" — they were not.
-- **Does a date-only `valid_to` mean *through* that day, or *as of* it?** Issue #74. `temporalEndKey`
-  (`kg.go:117`) stretches a date-only `valid_to` to `T23:59:59Z`; `inEffectAt` (`:962`) excludes only
-  below `as_of`. So `status:"current"` drops an ended fact immediately while `as_of` keeps it for the
-  rest of that day — two filters, two answers, one day, nothing documenting the difference and no test
-  pinning either reading. ADR-038's `am_kg_supersede` sidesteps it by stamping instants rather than
-  dates, deliberately: answering it changes what the 15 already-ended facts on this palace mean.
-  **Trigger: before any second consumer of `as_of` ships, or the first time someone reports a fact
-  that "did not go away today".**
+- **Does a date-only `valid_to` mean *through* that day, or *as of* it?** Issue #47 — **not** #74,
+  which is closed and was the hand-rolled-supersede overlap; that pointer was stale from the day #47
+  was filed. `temporalEndKey` stretches a date-only `valid_to` to `T23:59:59Z` and `inEffectAt`
+  excludes only below `as_of`, so `status:"current"` drops an ended fact immediately while `as_of`
+  keeps it for the rest of that day. **The WRITE half shipped with #47:** `KGInvalidate` no longer
+  defaults `ended` to a bare date, so no new row joins the class, and both the `as_of` and `ended`
+  descriptions plus `bootstrap-memory.md` §6.1 now name the lag. **What is still open is the READ
+  half** — what a date-only `valid_to` MEANS for the rows that already carry one, which is the only
+  part that re-reads history and therefore the only part that needs a decision record.
+  **Trigger: the first time someone needs a past-date snapshot to be exact, or a backfill of the
+  existing date-only rows is proposed (ADR-026's write-path normalisation Follow-up is where that
+  lives).**
 - **A validity window for TUNNELS.** Found auditing ADR-038's own class 2026-08-27. `tunnels` has zero
   validity columns and `DeleteTunnel` destroys. ADR-038 T4 takes `delete_tunnel` off the AGENT surface
   but leaves the operator path destroying an **authored** artifact with no trace, while that record's
@@ -1812,7 +1816,7 @@ as the deferral so the pointer has a receiving end.
   the same link — the id is minted identically and the upsert updates the corpse. Tunnels need an
   opaque id before they can have a validity window. **Trigger: when someone takes on opaque ids for
   the graph tables, not before.**
-- **The interval is CLOSED where a validity window wants half-open.** Extends issue #74 from the other
+- **The interval is CLOSED where a validity window wants half-open.** Extends issue #47 from the other
   direction, found by review 2026-08-27 and reproduced: `inEffectAt` (`kg.go:955`) excludes only on
   `>` and `<`, never `>=`/`<=`, so with `old.valid_to == new.valid_from == B` both rows are in effect
   at exactly `B`. ADR-038's `am_kg_supersede` collapses the overlap from 86,400 seconds to 1 by

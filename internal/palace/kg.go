@@ -114,6 +114,17 @@ func temporalStartKey(v string) string {
 
 // temporalEndKey normalizes an upper-bound temporal value: a bare date becomes the
 // END of that day, so a fact valid_to "2026-01-31" stays in effect through Jan 31.
+//
+// ⚠ THAT PROMOTION IS WHY as_of AND status:"current" CAN DISAGREE, and it is kept
+// rather than fixed. status selects on valid_to != "" and so drops a retracted
+// fact immediately; as_of compares against the key this returns, so a date-only
+// valid_to keeps the fact in effect until midnight. Issue #47 reproduced the gap.
+// Narrowing the promotion here would silently re-read every already-ended row in
+// every palace — the inclusive reading is what those rows were written under — so
+// the fix went to the WRITE path instead: KGInvalidate and KGSupersede both stamp
+// an RFC3339 instant, which never stretches. What is left is a date-only valid_to
+// that a caller passed explicitly, or a row stored before that change, and the
+// kg_query `as_of` description says so rather than leaving a reader to find out.
 func temporalEndKey(v string) string {
 	if v == "" {
 		return ""
@@ -724,7 +735,25 @@ func (s *Service) KGInvalidate(ctx context.Context, teamID, subject, predicate, 
 		return 0, "", "", err
 	}
 	if e == "" {
-		e = time.Now().UTC().Format("2006-01-02")
+		// ⚠ AN INSTANT, NEVER A DATE, and the format is the whole fix for issue #47.
+		// This defaulted to "2006-01-02", and `ended` is optional, so EVERY
+		// retraction made through am_kg_invalidate without an explicit instant
+		// landed as a bare date — the default path, not an edge case. A bare date
+		// takes temporalEndKey's end-of-day promotion, so the fact stayed visible
+		// to as_of:<that day> until midnight while status:"current" dropped it the
+		// instant the row was written: two filters, two answers, one day, and
+		// ADR-026 had just told callers the two COMPOSE.
+		//
+		// KGSupersede already stamps an instant for exactly this reason
+		// (supersede.go) — it sidestepped the path rather than fixing it, because
+		// fixing it here is what stops NEW rows joining the ambiguity.
+		//
+		// What this deliberately does NOT do is change temporalEndKey. A caller
+		// may still pass a date-only `ended`, and every row already stored is one;
+		// deciding what a date-only valid_to MEANS re-reads every already-ended
+		// fact, which is a decision record's job and not this line's. The
+		// remaining lag is documented on the tool surface instead of hidden.
+		e = time.Now().UTC().Format(time.RFC3339)
 	}
 	subID, objID, p := normalizeEntityID(subj), normalizeEntityID(obj), normalizePredicate(pred)
 
