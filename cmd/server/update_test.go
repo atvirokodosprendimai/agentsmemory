@@ -5,56 +5,131 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"strings"
 	"testing"
 	"time"
 )
 
-// TestServeChecksForAnUpdate pins the SELECTION, which is the half that goes
-// missing here. internal/updatecheck can be entirely correct and never run: this
-// repository's characteristic defect is a finished capability that nothing
-// selects, and an update check nobody calls is precisely that shape (AGENTS.md
-// §Reachability).
+// TestTheUpdateCheckLaunchesFromTheListeningSeam pins the SELECTION and the
+// ORDERING, which are two different failures and only one of them was covered.
 //
-// It derives its universe from run's own body rather than from a list kept
-// beside it, so deleting the `go announceUpdate(...)` line turns this red — the
-// falsifiability the protocol asks for. Asserting that announceUpdate merely
-// exists, or that it returns without error, would pass just as happily with the
-// call site removed.
-func TestServeChecksForAnUpdate(t *testing.T) {
+// Selection is this repository's characteristic defect: internal/updatecheck can
+// be entirely correct and never run, and an update check nobody calls is exactly
+// that shape (AGENTS.md §Reachability).
+//
+// Ordering is what an earlier version of this test could not see. It asserted
+// only that SOME goroutine call existed anywhere in run, and it stayed green
+// while the launch sat at the top of run — before the database was opened and
+// before either listening line. Issue #115 requires the notice AFTER the server
+// is listening: launched earlier, a fast answer from GitHub prints ahead of the
+// line an operator is waiting for, and a startup that fails later still
+// announces an update for a server that never served.
+//
+// So the check has two halves. The launch must live in serveHTTP and nowhere
+// else — that is the one seam both serving paths reach only after listenerFor
+// succeeded — and every call to serveHTTP must be preceded, in its own function
+// body, by the listening line. Move the call back into run and the first half
+// fails; print the listening line after serving instead of before and the second
+// does.
+func TestTheUpdateCheckLaunchesFromTheListeningSeam(t *testing.T) {
 	fset := token.NewFileSet()
 	file, err := parser.ParseFile(fset, "main.go", nil, 0)
 	if err != nil {
 		t.Fatalf("parse main.go: %v", err)
 	}
 
-	run := funcNamed(file, "run")
-	if run == nil {
-		t.Fatal("no func run in main.go — this check has stopped checking anything")
+	// Half one: which function launches it, and asynchronously.
+	var launchedIn []string
+	var inGoroutine bool
+	for _, decl := range file.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok {
+			continue
+		}
+		ast.Inspect(fn, func(n ast.Node) bool {
+			switch node := n.(type) {
+			case *ast.GoStmt:
+				if callsFunc(node.Call, "announceUpdate") {
+					launchedIn = append(launchedIn, fn.Name.Name)
+					inGoroutine = true
+				}
+			case *ast.CallExpr:
+				if callsFunc(node, "announceUpdate") {
+					launchedIn = append(launchedIn, fn.Name.Name)
+				}
+			}
+			return true
+		})
 	}
 
-	var called, inGoroutine bool
-	ast.Inspect(run, func(n ast.Node) bool {
-		switch node := n.(type) {
-		case *ast.GoStmt:
-			if callsFunc(node.Call, "announceUpdate") {
-				called, inGoroutine = true, true
-			}
-		case *ast.CallExpr:
-			if callsFunc(node, "announceUpdate") {
-				called = true
-			}
-		}
-		return true
-	})
-
-	if !called {
-		t.Fatal("run never calls announceUpdate, so the server can never tell an operator that " +
-			"the build they are running has been superseded — issue #115 in one missing line")
+	if len(launchedIn) == 0 {
+		t.Fatal("nothing calls announceUpdate, so the server can never tell an operator that the " +
+			"build they are running has been superseded — issue #115 in one missing line")
 	}
 	if !inGoroutine {
-		t.Error("announceUpdate is called synchronously in run: startup would then wait on GitHub, " +
-			"which the issue rules out explicitly — it must run in a goroutine")
+		t.Error("announceUpdate is called synchronously: startup would then wait on GitHub, which " +
+			"the issue rules out explicitly — it must run in a goroutine")
 	}
+	for _, where := range launchedIn {
+		if where != "serveHTTP" {
+			t.Errorf("announceUpdate is launched from %s; it must be launched from serveHTTP, the "+
+				"one seam both serving paths reach only after the listener exists and the "+
+				"listening line has been printed. Launched anywhere earlier, the notice can "+
+				"print before that line, and a startup that fails afterwards still announces "+
+				"an update for a server that never served (issue #115)", where)
+		}
+	}
+
+	// Half two: every serveHTTP call site prints the listening line first.
+	// Position-ordered rather than merely co-present: "both statements exist in
+	// this function" is satisfied by the reverse order, which is the bug.
+	var sites int
+	for _, decl := range file.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok || fn.Name.Name == "serveHTTP" || fn.Body == nil {
+			continue
+		}
+		var listeningAt, serveAt token.Pos
+		ast.Inspect(fn, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			if callsFunc(call, "serveHTTP") && serveAt == token.NoPos {
+				serveAt = call.Pos()
+			}
+			if listeningAt == token.NoPos && logsListening(call) {
+				listeningAt = call.Pos()
+			}
+			return true
+		})
+		if serveAt == token.NoPos {
+			continue
+		}
+		sites++
+		if listeningAt == token.NoPos || listeningAt > serveAt {
+			t.Errorf("%s calls serveHTTP without printing the listening line first, so the update "+
+				"notice serveHTTP launches can appear before it", fn.Name.Name)
+		}
+	}
+	if sites == 0 {
+		t.Fatal("no function calls serveHTTP — this check has stopped checking anything")
+	}
+}
+
+// logsListening reports whether a call is the startup line announcing the bound
+// address. Matched on the format string rather than on the logger, because it is
+// the SENTENCE an operator waits for that has to come first; which logging call
+// prints it is not the property under test.
+func logsListening(call *ast.CallExpr) bool {
+	if len(call.Args) == 0 {
+		return false
+	}
+	lit, ok := call.Args[0].(*ast.BasicLit)
+	if !ok || lit.Kind != token.STRING {
+		return false
+	}
+	return strings.Contains(lit.Value, "listening on")
 }
 
 // TestAnnounceUpdateSkipsABuildWithNoTag covers the property that keeps this test
