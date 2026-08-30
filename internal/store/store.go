@@ -11,9 +11,11 @@
 //     is derived and disposable — losing it costs only a Rebuild from the SoT.
 //
 // Hybrid wires the two together: writes land in the SoT first, then the index;
-// searches are served by the index. Swapping the search backend (Qdrant for
-// something else later) therefore means writing one driver and rebuilding the
-// index — the truth never moves.
+// searches are served by the index while the two halves agree on population,
+// and by the SoT when the index has fallen behind, so a lagging index cannot
+// answer a populated namespace with nothing (ADR-033 R2). Swapping the search
+// backend (Qdrant for something else later) therefore means writing one driver
+// and rebuilding the index — the truth never moves.
 //
 // This package is a leaf: it imports nothing from internal/ so that drivers may
 // depend on it for the shared value types without an import cycle. The

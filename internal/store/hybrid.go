@@ -16,7 +16,21 @@ import (
 // Write ordering is deliberate: the SoT is written first, so a vector is durable
 // before the index ever sees it. The index is written second and is treated as
 // rebuildable — if it lags or fails, the SoT still holds the truth and Rebuild
-// can replay it. Searches are served entirely by the index.
+// can replay it.
+//
+// Reads are served by the index unless it has fallen BEHIND; when the index
+// holds fewer points than the SoT, Search serves the source of truth instead
+// and marks the result StaleIndex (ADR-033 R2, and see Search). Behind is the
+// only condition that moves serving: an index holding MORE points than the SoT
+// expects still serves, because orphans are a reporting problem rather than a
+// serving one. An earlier draft of this very sentence said "only while the two
+// halves agree on population", which reads well and is false — it is Search's
+// own doc comment, thirty lines down, that says what the code does. This sentence
+// used to say searches were served entirely by the index, which was true when
+// written and stopped being true about thirty lines above the fallback that
+// falsified it — recorded here rather than merely corrected, because a package
+// comment that contradicts its own package is the drift AGENTS.md's
+// "documentation is load-bearing" section is about, and it survived a review.
 //
 // Hybrid itself satisfies VectorStore, so callers depend only on the seam and
 // never learn whether they are talking to one backend or two.
