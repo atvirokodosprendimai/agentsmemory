@@ -434,22 +434,26 @@ review it and also quickly fix what I find" is the gate's case, not this one.
 Normal operation. Recall before you act, persist before you stop.
 
 **How to recall and persist is NOT this file's business.** Call `am_skillset`, then
-`am_list_skills`, and load the entry protocol the catalogue actually offers — by
-convention a skill named `start-here`, and whatever the wake-up playbook routes you
-to when there is none. That skill carries the entry protocol, the correction checks
-and the write-back contract, and it is maintained where the palace is maintained —
-so it is right when the palace changes, and this file cannot be.
+**load `start-here` FIRST if it exists.** That is the general entry point: it carries
+the entry protocol, the correction checks and the write-back contract, and it is
+maintained where the palace is maintained — so it is right when the palace changes,
+and this file cannot be. Whatever a team needs beyond it follows from there, in that
+team's own skills.
 
-⚠ **ENUMERATE, DO NOT NAME.** This sentence used to say "load `start-here`" flat,
-and that is a pointer this file cannot keep true: the seeded skill set differs per
-palace, so on 2026-08-30 `am_load_skill("start-here")` returned `skill: not found`
-on the local palace while resolving at v13 on the hosted one — and every shared
-skill had drifted too (`human-decisions` v1 local against v11 hosted). A name in
-prose is checked by nothing. `am_list_skills` is one cheap call, it is authoritative
-for the palace you are actually talking to, and it costs no failing tool call on the
-palace that lacks the name. Hedging the sentence to "if it exists" was considered
-and rejected: both states satisfy a conditional, so no gate could ever fail on it —
-it trades a detectable defect for a silent one.
+⚠ **CONDITIONAL, BECAUSE THE SKILL IS NOT GUARANTEED PRESENT.** Measured 2026-08-30
+across the two palaces this project runs against: `am_load_skill("start-here")`
+resolved at v13 on the hosted palace and returned `skill: not found` on the local
+one. The rest of the catalogue had diverged too, in both directions — `laravel-7`
+and `writing-memories` exist only on local, `memory-layers` only on hosted, and
+`human-decisions` is v1 local against v11 hosted. So `if it exists` is a fact about
+this project's deployments, not a hedge.
+
+⚠ **AND DO NOT SUBSTITUTE "LOAD WHATEVER THE CATALOGUE HOLDS".** A catalogue is
+per-project — it follows that team's stack and its work — so no document can name
+its contents in advance, and enumerating is not a general instruction. The
+*convention* `start-here` is the one thing that travels; the catalogue behind it is
+nobody else's business. (This paragraph replaces an earlier "enumerate, do not name"
+version of this section, which had it backwards.)
 
 ⚠ **This file used to restate that protocol, and it drifted.** On 2026-08-29 it was
 still teaching a traversal that returns 62,952 bytes and spills to a file — three
