@@ -59,8 +59,11 @@ func TestNoCommentClaimsSearchIsServedOnlyByTheIndex(t *testing.T) {
 // every comment is fine — which is how a disabled gate shipped in this tree
 // before (see citation_test.go's own record of it).
 func TestTheServingClaimGateCatchesAnUnconditionalSentence(t *testing.T) {
-	// The first two are the sentences that actually shipped, verbatim from
-	// hybrid.go and store.go before this change.
+	// These are the CLAUSES the gate charges. The comment above this list used
+	// to call them "verbatim" from hybrid.go and store.go, and for store.go that
+	// was false — its shipped sentence is one clause of a longer one, and the
+	// trimming is exactly what hid the miss below. The verbatim text is driven
+	// through the real extractor in the subtest at the end instead.
 	offenders := []string{
 		"Searches are served entirely by the index.",
 		"searches are served by the index",
@@ -95,6 +98,39 @@ func TestTheServingClaimGateCatchesAnUnconditionalSentence(t *testing.T) {
 			t.Errorf("the gate rejects a correctly-qualified sentence, which is how a gate gets "+
 				"turned off: %q", s)
 		}
+	}
+}
+
+// TestTheShippedStoreCommentIsCaughtVerbatim drives the historical comment
+// through the real extractor, unedited, because the hand-trimmed fixture above
+// is what let this gate ship green over its own motivating example.
+//
+// The clause carrying the claim names no condition; the word SoT that used to
+// excuse it belongs to the clause about write ordering, one semicolon earlier.
+// Charging a claim for a qualifier in a neighbouring clause is how a gate
+// reports that every comment is fine over a corpus containing the offender it
+// was built for.
+func TestTheShippedStoreCommentIsCaughtVerbatim(t *testing.T) {
+	// Verbatim from store.go before this change, line breaks and all.
+	const shipped = `Hybrid wires the two together: writes land in the SoT first, then the index;
+searches are served by the index. Swapping the search backend (Qdrant for
+something else later) therefore means writing one driver and rebuilding the
+index — the truth never moves.`
+
+	claims := servingClaimsIn(shipped)
+	if len(claims) == 0 {
+		t.Fatal("the extractor found no serving claim in the sentence issue #59 was filed about, " +
+			"so the gate cannot charge it however good admitsACondition gets")
+	}
+	var caught bool
+	for _, c := range claims {
+		if !admitsACondition(c) {
+			caught = true
+		}
+	}
+	if !caught {
+		t.Errorf("every clause of the shipped store.go comment was excused, so the gate is green "+
+			"over the exact comment it exists to catch: %q", claims)
 	}
 }
 
@@ -151,18 +187,41 @@ func servingSentences(t *testing.T, path string) []string {
 		// distant qualifier excuse an unconditional sentence — the precise error
 		// the old hybrid.go comment made, since Search's correct wording sat in
 		// the same file.
-		for _, sentence := range strings.Split(flattenComment(group.Text()), ".") {
-			lower := strings.ToLower(sentence)
-			// "serv" and nothing looser. An earlier draft also matched "answered
-			// by", and it fired on Filter's doc comment — "scoping is answered BY
-			// the index rather than after it" — which is about WHERE filtering
-			// happens, not about which half serves. That sentence is correct, and a
-			// gate that reports it is a gate someone turns off.
-			if strings.Contains(lower, "search") &&
-				strings.Contains(lower, "index") &&
-				strings.Contains(lower, "serv") {
-				out = append(out, strings.TrimSpace(sentence))
-			}
+		out = append(out, servingClaimsIn(group.Text())...)
+	}
+	return out
+}
+
+// servingClaimsIn returns the clauses of one comment that claim the index serves
+// searches. Exported to the falsifiability half so that half drives the REAL
+// extraction rather than a copy of it.
+//
+// Splitting is on CLAUSE boundaries — "." and also ";" and ":" — not on the full
+// stop alone. That is not tidiness: the sentence issue #59 was filed about is
+//
+//	Hybrid wires the two together: writes land in the SoT first, then the index;
+//	searches are served by the index.
+//
+// One full stop, so a "."-only split hands the whole thing to admitsACondition as
+// a single unit, where the word SoT — belonging to the clause about WRITE
+// ORDERING — prefix-matches the qualifier "sot" and excuses a serving claim that
+// names no condition at all. The gate was green over its own motivating example.
+// A qualifier earns its excuse only inside the clause making the claim.
+func servingClaimsIn(comment string) []string {
+	var out []string
+	for _, clause := range strings.FieldsFunc(flattenComment(comment), func(r rune) bool {
+		return r == '.' || r == ';' || r == ':'
+	}) {
+		lower := strings.ToLower(clause)
+		// "serv" and nothing looser. An earlier draft also matched "answered
+		// by", and it fired on Filter's doc comment — "scoping is answered BY
+		// the index rather than after it" — which is about WHERE filtering
+		// happens, not about which half serves. That sentence is correct, and a
+		// gate that reports it is a gate someone turns off.
+		if strings.Contains(lower, "search") &&
+			strings.Contains(lower, "index") &&
+			strings.Contains(lower, "serv") {
+			out = append(out, strings.TrimSpace(clause))
 		}
 	}
 	return out

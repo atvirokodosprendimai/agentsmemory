@@ -18,9 +18,14 @@ import (
 // rebuildable — if it lags or fails, the SoT still holds the truth and Rebuild
 // can replay it.
 //
-// Reads are served by the index ONLY while the two halves agree on population;
-// when the index holds fewer points, Search serves the source of truth instead
-// and marks the result StaleIndex (ADR-033 R2, and see Search). This sentence
+// Reads are served by the index unless it has fallen BEHIND; when the index
+// holds fewer points than the SoT, Search serves the source of truth instead
+// and marks the result StaleIndex (ADR-033 R2, and see Search). Behind is the
+// only condition that moves serving: an index holding MORE points than the SoT
+// expects still serves, because orphans are a reporting problem rather than a
+// serving one. An earlier draft of this very sentence said "only while the two
+// halves agree on population", which reads well and is false — it is Search's
+// own doc comment, thirty lines down, that says what the code does. This sentence
 // used to say searches were served entirely by the index, which was true when
 // written and stopped being true about thirty lines above the fallback that
 // falsified it — recorded here rather than merely corrected, because a package
