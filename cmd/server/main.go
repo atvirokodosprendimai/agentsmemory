@@ -1103,6 +1103,22 @@ func buildServicesWith(cfg config.Config, prepare bool) (*services, error) {
 		if err := palace.NewRepo(gdb).BackfillContentKeys(context.Background()); err != nil {
 			return nil, fmt.Errorf("backfill content keys: %w", err)
 		}
+		// Give a name to every entry room that has none.
+		//
+		// ⚠ THE WRITE-TIME MINT CANNOT REACH A WING THAT STOPPED WRITING. It fires
+		// when a drawer lands in the entry room, so a wing whose entry records
+		// predate it answers unknown_term to the first call the entry protocol
+		// prescribes — measured on this project's own palace, where forty minutes
+		// separated the wings that got a root from the one that did not.
+		//
+		// Inside `prepare` with the other backfill, so doctor's read-only path
+		// (query_only(1)) never mints: a checker that repaired the corpus would be
+		// reporting on a palace it had just changed.
+		if minted, err := palace.NewRepo(gdb).BackfillWingRoots(context.Background()); err != nil {
+			return nil, fmt.Errorf("backfill wing roots: %w", err)
+		} else if minted > 0 {
+			log.Printf("minted %d wing root(s) whose entry room predated the by-name address", minted)
+		}
 	}
 
 	// Bounded contexts: tenant (auth + workspaces), skill (load_skill), and

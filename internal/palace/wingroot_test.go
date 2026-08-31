@@ -310,3 +310,147 @@ func TestEveryDoorThatEndsARowEndsItsDerivedEdge(t *testing.T) {
 		}
 	})
 }
+
+// TestBackfillMintsARootForAnEntryRoomThatPredatesTheMint covers the wings the
+// write-time mint can never reach.
+//
+// ⚠ THE MINT FIRES ON A WRITE, AND A WING THAT STOPPED WRITING KEEPS A NAMELESS
+// DOOR. Measured 2026-08-31 on this project's own palace: wing_agentmemories
+// filed its entry records at 09:34-09:46 on 2026-08-30 and the binary carrying
+// attachWingRootEdge arrived between then and 10:27, when wing_craft filed one.
+// Craft, playtrix and quality-harness were rooted; agentmemories answered
+// unknown_term to the first call its entry protocol prescribes, and no amount of
+// re-reading the protocol would have fixed it.
+func TestBackfillMintsARootForAnEntryRoomThatPredatesTheMint(t *testing.T) {
+	ctx := context.Background()
+	svc := newTestService(t)
+	const team, wing = "team-backfill", "wing_alpha"
+
+	if _, err := svc.Add(ctx, team, AddInput{
+		Wing: wing, Room: EntryRoom, Content: "WHAT MUST I LOAD AT THE START OF A SESSION?",
+	}); err != nil {
+		t.Fatalf("seed entry drawer: %v", err)
+	}
+	// Reproduce the pre-mint corpus: the entry room and its drawer, no root.
+	unroot(t, svc, team, wing)
+
+	minted, err := svc.repo.BackfillWingRoots(ctx)
+	if err != nil {
+		t.Fatalf("backfill: %v", err)
+	}
+	if minted != 1 {
+		t.Errorf("backfill minted %d root(s), want 1", minted)
+	}
+	q, err := svc.KGQuery(ctx, team, KGQueryInput{
+		Entity: WingRootSubject(wing), Direction: "outgoing", Status: KGStatusCurrent,
+	})
+	if err != nil {
+		t.Fatalf("query root: %v", err)
+	}
+	if q.Resolution != KGResolutionMatched {
+		t.Fatalf("%s still does not resolve after the backfill: resolution=%q",
+			WingRootSubject(wing), q.Resolution)
+	}
+	want := DerivedEdgeSubject(wing, EntryRoom)
+	var found bool
+	for _, f := range q.Facts {
+		if f.Object == want {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("the backfilled root does not point at %q — it must be the same door the "+
+			"write-time mint builds, not a second one:\n%+v", want, q.Facts)
+	}
+
+	// A second run mints nothing: the count reports what CHANGED, so a backfill
+	// that reports the whole corpus every boot says nothing when it matters.
+	again, err := svc.repo.BackfillWingRoots(ctx)
+	if err != nil {
+		t.Fatalf("second backfill: %v", err)
+	}
+	if again != 0 {
+		t.Errorf("a second backfill minted %d root(s) over an already-rooted palace, want 0", again)
+	}
+}
+
+// TestBackfillLeavesAWingWithNoLiveEntryRecordNameless is the half that keeps the
+// backfill from manufacturing a door onto an empty room.
+//
+// ⚠ A ROOT OVER AN EMPTY ROOM IS WORSE THAN unknown_term, because it reads as an
+// answer. am_entry_point drops edges it cannot read and counts them in `refused`,
+// so a wing whose every entry record was retracted would resolve `matched` with
+// nothing behind it — the shape a session cannot tell from a curated tier.
+func TestBackfillLeavesAWingWithNoLiveEntryRecordNameless(t *testing.T) {
+	ctx := context.Background()
+	svc := newTestService(t)
+	const team, wing = "team-empty-entry", "wing_alpha"
+
+	got, err := svc.Add(ctx, team, AddInput{
+		Wing: wing, Room: EntryRoom, Content: "WHAT MUST I LOAD AT THE START OF A SESSION?",
+	})
+	if err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	unroot(t, svc, team, wing)
+	if err := svc.EndDrawer(ctx, team, got.Drawers[0].ID, "withdrawn"); err != nil {
+		t.Fatalf("retract the only entry record: %v", err)
+	}
+
+	minted, err := svc.repo.BackfillWingRoots(ctx)
+	if err != nil {
+		t.Fatalf("backfill: %v", err)
+	}
+	if minted != 0 {
+		t.Errorf("backfill minted %d root(s) for a wing whose entry room holds no live record; "+
+			"that root resolves matched with nothing behind it", minted)
+	}
+
+	// And a wing whose entry record was SUPERSEDED keeps a live successor, so it
+	// must be rooted — the two look identical in the drawers table but for valid_to.
+	const wing2 = "wing_beta"
+	first, err := svc.Add(ctx, team, AddInput{
+		Wing: wing2, Room: EntryRoom, Content: "WHAT MUST I LOAD AT THE START OF A SESSION? — v1",
+	})
+	if err != nil {
+		t.Fatalf("seed beta: %v", err)
+	}
+	if _, err := svc.Supersede(ctx, team, first.Drawers[0].ID,
+		"WHAT MUST I LOAD AT THE START OF A SESSION? — v2", "sharpened"); err != nil {
+		t.Fatalf("supersede: %v", err)
+	}
+	unroot(t, svc, team, wing2)
+	if minted, err := svc.repo.BackfillWingRoots(ctx); err != nil {
+		t.Fatalf("backfill beta: %v", err)
+	} else if minted != 1 {
+		t.Errorf("backfill minted %d root(s) for a wing whose entry record was superseded; the "+
+			"successor is current, so that door has something behind it", minted)
+	}
+}
+
+// unroot deletes a wing's root edge, reproducing a palace whose entry room
+// predates the mint.
+//
+// ⚠ IT VERIFIES THE DELETE. A seed that mints the root and a delete that misses
+// leave the root in place, and every assertion afterwards passes with the
+// backfill severed — the failure wingroot_test.go already guards against
+// elsewhere ("fixture has no derived edge, so this test would pass whatever the
+// code does").
+func unroot(t *testing.T, svc *Service, teamID, wing string) {
+	t.Helper()
+	subID := normalizeEntityID(WingRootSubject(wing))
+	err := svc.repo.db.Exec("DELETE FROM kg_triples WHERE team_id = ? AND subject = ?", teamID, subID).Error
+	if err != nil {
+		t.Fatalf("delete the root edge: %v", err)
+	}
+	q, err := svc.KGQuery(context.Background(), teamID, KGQueryInput{
+		Entity: WingRootSubject(wing), Direction: "outgoing", Status: KGStatusCurrent,
+	})
+	if err != nil {
+		t.Fatalf("confirm the fixture: %v", err)
+	}
+	if len(q.Facts) != 0 {
+		t.Fatalf("the fixture still has %d root edge(s) for %s, so nothing after this asserts "+
+			"anything about the backfill:\n%+v", len(q.Facts), wing, q.Facts)
+	}
+}
