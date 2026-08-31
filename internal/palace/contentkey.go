@@ -263,6 +263,45 @@ func (r *Repo) CurrentBySource(ctx context.Context, teamID, wing, room, source s
 // up with. Minting blindly and letting the conflict clause sort it out leaves the
 // row correct and the response wrong, which is worse: an agent that anchors to a
 // returned id would pin to a row that does not exist.
+
+// EmbeddedIDsByContentKeys returns the id of every CURRENT row that already
+// carries a vector under one of these content keys — the set a re-mine may reuse
+// instead of re-embedding. It is IDsByContentKeys narrowed by that guard.
+//
+// ⚠ THE embedded_at GUARD IS THE WHOLE DIFFERENCE, and dropping it loses rows
+// silently. A drawer row can exist with NO vector — absorb writes rows and leaves
+// embedding to the background worker — so "this content key is already filed"
+// does not imply "this content is already searchable". Reusing on the weaker
+// condition leaves those rows permanently unembedded, because the re-mine that
+// would have fixed them is exactly what was skipped.
+func (r *Repo) EmbeddedIDsByContentKeys(ctx context.Context, teamID string, keys []string) (map[string]string, error) {
+	out := make(map[string]string, len(keys))
+	lookup := make([]string, 0, len(keys))
+	for _, k := range keys {
+		// The diary exemption is not a key; see IDsByContentKeys below.
+		if k != "" {
+			lookup = append(lookup, k)
+		}
+	}
+	if len(lookup) == 0 {
+		return out, nil
+	}
+	for _, batch := range chunkIDs(lookup) {
+		var rows []drawerRow
+		err := r.db.WithContext(ctx).
+			Select("id", "content_key").
+			Where("team_id = ? AND valid_to = '' AND embedded_at IS NOT NULL AND content_key IN ?", teamID, batch).
+			Find(&rows).Error
+		if err != nil {
+			return nil, err
+		}
+		for _, row := range rows {
+			out[row.ContentKey] = row.ID
+		}
+	}
+	return out, nil
+}
+
 func (r *Repo) IDsByContentKeys(ctx context.Context, teamID string, keys []string) (map[string]string, error) {
 	out := make(map[string]string, len(keys))
 	// An empty key is the diary exemption, not a key. Left in, `content_key IN

@@ -183,12 +183,52 @@ func (s *Service) Mine(ctx context.Context, teamID string, in MineInput) (result
 		}
 		texts[i] = c.Content
 	}
-	vectors, err := s.embed.Embed(ctx, texts)
+	// ⚠ EMBED ONLY WHAT CHANGED. content is an input to the content key, so a key
+	// that is already filed AND already embedded means byte-identical text at the
+	// same address with a vector that still describes it — re-embedding it buys
+	// nothing and costs the whole run. Measured by an operator 2026-08-31 on a
+	// CPU-only host: a re-mine to add ONE new session re-embedded the entire
+	// corpus, ~2.5 hours, which in practice means nobody tops a corpus up and it
+	// goes stale.
+	//
+	// ⚠ ONE BEHAVIOUR CHANGE, STATED RATHER THAN HIDDEN: a re-mine no longer
+	// refreshes vectors for unchanged text, so changing the embedding model and
+	// re-mining will NOT re-embed what did not change. Mixed-model vectors in one
+	// index are not comparable (see buildEmbedder), so a model switch needs the
+	// namespace rebuilt rather than a re-mine — which was already true of every
+	// row nothing re-mined.
+	reusable, err := s.repo.EmbeddedIDsByContentKeys(ctx, teamID, keep)
 	if err != nil {
-		return MineResult{}, fmt.Errorf("embed mined chunks: %w", err)
+		return MineResult{}, fmt.Errorf("look up rows already embedded under these content keys: %w", err)
 	}
-	if err := s.storeDrawers(ctx, teamID, drawers, vectors); err != nil {
-		return MineResult{}, err
+	fresh := make([]Drawer, 0, len(drawers))
+	freshTexts := make([]string, 0, len(drawers))
+	reused := make([]Drawer, 0, len(drawers))
+	for i, d := range drawers {
+		if id, ok := reusable[keep[i]]; ok && id == d.ID {
+			reused = append(reused, d)
+			continue
+		}
+		fresh = append(fresh, d)
+		freshTexts = append(freshTexts, texts[i])
+	}
+	if len(fresh) > 0 {
+		vectors, err := s.embed.Embed(ctx, freshTexts)
+		if err != nil {
+			return MineResult{}, fmt.Errorf("embed mined chunks: %w", err)
+		}
+		if err := s.storeDrawers(ctx, teamID, fresh, vectors); err != nil {
+			return MineResult{}, err
+		}
+	}
+	// Unchanged rows are still SAVED — the row write is cheap and keeps re-filing
+	// semantics (filed_at, parent, entities) identical to before. Only the embed
+	// and the vector upsert are skipped, and the vector under this id is the one
+	// the first mine wrote for this exact content.
+	if len(reused) > 0 {
+		if err := s.repo.Save(ctx, reused); err != nil {
+			return MineResult{}, fmt.Errorf("save drawers: %w", err)
+		}
 	}
 
 	closets, err := s.buildAndStoreClosets(ctx, teamID, wing, room, source, content, contentDate, filedAt, filedAtDate, chunks, drawers)
