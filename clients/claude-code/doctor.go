@@ -504,7 +504,7 @@ func injectingScriptsIn(dir string) (map[string]string, error) {
 // A missing settings file is not an error: it is the strongest possible finding,
 // namely that every installed hook is registered nowhere. It returns an empty map
 // and lets the per-hook verdict say so.
-func registeredHookEvents(settingsPath string) (map[string][]string, error) {
+func registeredHookEvents(settingsPath string) (map[string]hookRegistration, error) {
 	raw, err := os.ReadFile(settingsPath)
 	if err != nil {
 		// ⚠ ONLY A MISSING FILE IS THE FINDING. Swallowing EVERY read error told an
@@ -512,7 +512,7 @@ func registeredHookEvents(settingsPath string) (map[string][]string, error) {
 		// hooks were registered nowhere — the exact false alarm the parse branch
 		// below refuses to produce, four lines away, in the same function.
 		if errors.Is(err, fs.ErrNotExist) {
-			return map[string][]string{}, nil
+			return map[string]hookRegistration{}, nil
 		}
 		return nil, fmt.Errorf("read %s: %w — this command refuses to guess at a file it cannot "+
 			"read, because reporting \"registered nowhere\" over an unreadable file would be a "+
@@ -530,7 +530,7 @@ func registeredHookEvents(settingsPath string) (map[string][]string, error) {
 			"cannot read, because reporting 'registered nowhere' over a parse failure would "+
 			"be a false alarm on a working install", settingsPath, err)
 	}
-	out := map[string][]string{}
+	out := map[string]hookRegistration{}
 	for event, matchers := range doc.Hooks {
 		for _, m := range matchers {
 			for _, h := range m.Hooks {
@@ -541,16 +541,37 @@ func registeredHookEvents(settingsPath string) (map[string][]string, error) {
 					continue
 				}
 				name := filepath.Base(path)
-				if !containsString(out[name], event) {
-					out[name] = append(out[name], event)
+				reg := out[name]
+				if !containsString(reg.events, event) {
+					reg.events = append(reg.events, event)
 				}
+				// The environment the registration carries, so the run below is the
+				// registration rather than a reconstruction of it. Taken from the
+				// FIRST registration that supplies one: a script registered on
+				// several events is written by one install with one prefix, and a
+				// later differing one is a hand edit this command must not silently
+				// average away.
+				if len(reg.env) == 0 {
+					reg.env = hookCommandEnv(h.Command)
+				}
+				out[name] = reg
 			}
 		}
 	}
 	for name := range out {
-		sort.Strings(out[name])
+		sort.Strings(out[name].events)
 	}
 	return out, nil
+}
+
+// hookRegistration is what settings.json says about one hook script: the events
+// that select it, and the environment its command carries.
+//
+// ⚠ THE ENV IS HALF THE REGISTRATION, and doctor used to drop it. See
+// hookCommandEnv for what that cost on a self-hosted install.
+type hookRegistration struct {
+	events []string
+	env    []string
 }
 
 // containsString reports whether haystack already holds needle.
@@ -565,7 +586,8 @@ func containsString(haystack []string, needle string) bool {
 
 // judgeHook decides one hook's verdict: registered at all, on an event that
 // injects, and able to run.
-func judgeHook(ctx context.Context, c *cli.Command, dir, name string, events []string, projectDir string) hookVerdict {
+func judgeHook(ctx context.Context, c *cli.Command, dir, name string, reg hookRegistration, projectDir string) hookVerdict {
+	events := reg.events
 	v := hookVerdict{name: name, events: events}
 	if len(events) == 0 {
 		v.label, v.bad = "UNREGISTERED", true
@@ -577,7 +599,7 @@ func judgeHook(ctx context.Context, c *cli.Command, dir, name string, events []s
 		v.detail = "its stdout goes to the debug log on " + strings.Join(events, ",")
 		return v
 	}
-	return runOneHook(ctx, c, dir, name, events, projectDir)
+	return runOneHook(ctx, c, dir, name, reg, projectDir)
 }
 
 // anyInjecting reports whether at least one of these events puts stdout in front of
@@ -598,8 +620,8 @@ func anyInjecting(events []string) bool {
 // working directory, so the same install reported `speaks` from inside a repository
 // and `MUTE` from /tmp, with nothing in the output saying the answer depended on
 // where the operator stood.
-func runOneHook(ctx context.Context, c *cli.Command, dir, name string, events []string, projectDir string) hookVerdict {
-	v := hookVerdict{name: name, events: events}
+func runOneHook(ctx context.Context, c *cli.Command, dir, name string, reg hookRegistration, projectDir string) hookVerdict {
+	v := hookVerdict{name: name, events: reg.events}
 	ctx, cancel := context.WithTimeout(ctx, c.Duration("timeout"))
 	defer cancel()
 
@@ -613,10 +635,17 @@ func runOneHook(ctx context.Context, c *cli.Command, dir, name string, events []
 	cmd.Stdin = strings.NewReader(string(payload))
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	// ⚠ THE REGISTRATION'S OWN ENVIRONMENT WINS, and the flag is the fallback for
+	// a hook registered without one. Reversing this is the defect: the flag
+	// defaults to the HOSTED endpoint, so doctor pointed every self-hosted
+	// install's hook at a palace its operator does not use and then reported the
+	// resulting no-credential exit as the install's condition. Appended AFTER the
+	// flag value because exec takes the last assignment of a name.
 	cmd.Env = append(os.Environ(),
 		mcpURLEnvVar+"="+c.String("mcp-url"),
 		"CLAUDE_PROJECT_DIR="+projectDir,
 	)
+	cmd.Env = append(cmd.Env, reg.env...)
 	if t := c.String("token"); t != "" {
 		cmd.Env = append(cmd.Env, tokenEnvVar+"="+t)
 	}

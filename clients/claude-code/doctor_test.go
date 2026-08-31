@@ -284,3 +284,102 @@ func TestDoctorSaysWhenAKitShipsNoInjectingHook(t *testing.T) {
 		t.Errorf("the message does not say this is the designed state: %v", err)
 	}
 }
+
+// TestDoctorRunsTheHookWithTheRegisteredEndpoint pins the half doctor used to
+// throw away.
+//
+// ⚠ IT RAN A RECONSTRUCTION, NOT THE REGISTRATION. The installer writes
+// `AGENTSMEMORY_MCP_URL='<endpoint>' bash -- <script>`; doctor kept the script
+// path and supplied the endpoint from its own flag, which DEFAULTS TO THE HOSTED
+// URL. So on every self-hosted install it pointed the hook at a palace the
+// operator does not use, the CLI demanded a workspace token for a non-loopback
+// endpoint, and the recall hook's no-credential branch exited 0 — printed to the
+// operator as "no credential configured" on an install that was working. Found
+// 2026-08-31 on a first Windows install, which is where a new operator meets it.
+func TestDoctorRunsTheHookWithTheRegisteredEndpoint(t *testing.T) {
+	// The hook prints what it was given, so the report carries the answer.
+	// It reports on STDERR: doctor prints a hook's stderr verbatim and only a byte
+	// COUNT for its stdout, so stdout could not carry the answer into the report.
+	// That is the shipped recall hook's own shape — it traces to stderr too.
+	const echoEndpoint = "#!/usr/bin/env bash\n# hook-output: stdout-injected\n" +
+		"echo \"saw=$AGENTSMEMORY_MCP_URL\" >&2\n"
+	const registered = "http://127.0.0.1:9/mcp"
+
+	dir := t.TempDir()
+	script := filepath.Join(dir, "agentsmemory-recall-hook.sh")
+	if err := os.WriteFile(script, []byte(echoEndpoint), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// hookCommand is the installer's own writer, so this registration is the one
+	// an install produces rather than a hand-built lookalike.
+	body, err := json.Marshal(map[string]any{"hooks": map[string]any{
+		"SessionStart": []any{map[string]any{"hooks": []any{map[string]any{
+			"type": "command", "command": hookCommand(registered, script),
+		}}}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, claudeKit.hooksFile), body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := runDoctor(t, dir)
+	if err != nil {
+		t.Fatalf("doctor failed on a healthy install: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "saw="+registered) {
+		t.Errorf("the hook did not see the endpoint its registration carries.\nwant saw=%s\n%s",
+			registered, out)
+	}
+	if strings.Contains(out, defaultMCPURL) {
+		t.Errorf("the hook saw doctor's flag default (%s) instead of the registered endpoint — "+
+			"this is the false negative every --local install got:\n%s", defaultMCPURL, out)
+	}
+}
+
+// TestAnUnprefixedRegistrationFallsBackToTheFlag is the falsifiability half, and
+// it drives the SAME function the fix routes through rather than a copy.
+//
+// A corpus where every registration carries a prefix cannot exercise the fallback
+// branch, so this supplies the shapes that are missing: a legacy command with no
+// assignment at all, and a multi-assignment prefix. The verdict goes through a
+// substitutable testing.TB for the reason AGENTS.md records — a falsifiability
+// half that shares nothing with the gate pins nothing, and a severed call site
+// otherwise leaves the suite green while the gate reports success.
+func TestAnUnprefixedRegistrationFallsBackToTheFlag(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		cmd  string
+		want []string
+	}{
+		{"legacy, no assignment", "bash -- '/tmp/hook.sh'", nil},
+		{"the shape install writes", hookCommand("http://127.0.0.1:9/mcp", "/tmp/hook.sh"),
+			[]string{mcpURLEnvVar + "=http://127.0.0.1:9/mcp"}},
+		{"more than one assignment",
+			"A='1' " + hookCommand("http://127.0.0.1:9/mcp", "/tmp/hook.sh"),
+			[]string{"A=1", mcpURLEnvVar + "=http://127.0.0.1:9/mcp"}},
+		{"a value carrying a quote",
+			hookCommand("http://x/'q", "/tmp/hook.sh"),
+			[]string{mcpURLEnvVar + "=http://x/'q"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := hookCommandEnv(tc.cmd)
+			if len(got) != len(tc.want) {
+				t.Fatalf("hookCommandEnv(%q) = %v, want %v", tc.cmd, got, tc.want)
+			}
+			for i := range got {
+				if got[i] != tc.want[i] {
+					t.Errorf("hookCommandEnv(%q)[%d] = %q, want %q", tc.cmd, i, got[i], tc.want[i])
+				}
+			}
+			// The path must still parse whatever the prefix: the two parsers share
+			// splitLeadingAssignment precisely so a command one accepts is one the
+			// other can reproduce.
+			if _, ok := installerHookPath(tc.cmd); !ok {
+				t.Errorf("installerHookPath rejects %q, which hookCommandEnv parsed — the two "+
+					"halves disagree, so doctor would run a command it could not reproduce", tc.cmd)
+			}
+		})
+	}
+}
