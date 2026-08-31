@@ -437,5 +437,43 @@ Write back what this session produced so the next one starts ahead:
   a cross-wing tunnel (check `am_find_tunnels` / `am_follow_tunnels` first so you
   reinforce, not duplicate).
 
+### Giving a wing a TIER — the part no server can do for you
+
+`<wing>.root` resolves on its own: the server mints it from the entry room, and
+backfills it on boot for wings whose entry records predate that. What it CANNOT
+mint is what hangs off it. A root with nothing under it answers `matched` with one
+`holds` edge, and a session that walks it learns only which room to read.
+
+So the tier is authored, by you, and it is two edges plus one per record:
+
+    am_kg_add("wing_x.root", "must", "wing_x.root.must")   # carried every session
+    am_kg_add("wing_x.root", "ref",  "wing_x.root.ref")    # loaded on demand
+    am_kg_add("wing_x.root.must", "ops", "wing_x.root.must.ops")
+    am_kg_add("wing_x.root.must.ops", "<leaf-name>", "<full drawer id>",
+              source_drawer_id="<the same id>")
+
+⚠ **THE ENTITY CARRIES THE PATH; THE PREDICATE IS THE LEAF NAME.** Reversing it —
+the path in the predicate, every leaf on one node — is what grew one palace's front
+door to 109 edges and 63KB, which spills to a file that never reaches the model.
+Keep any node under ~35 leaves and split by topic before it grows.
+
+**What belongs in `must`** is the only hard question here, and it is a judgement no
+tool can make: a record is in that tier because **you cannot notice you needed it
+until after you have broken something.** A silent failure, a correction to a claim
+that still reads as true, a local-versus-shared divergence, a knob whose default is
+wrong here. Everything a session would go and look up ANYWAY belongs in `ref`,
+where it costs nothing until a hint names it.
+
+**Every leaf edge carries a hint** (`source_file`), because an unlabelled leaf can
+only be judged by fetching it — the cost hints exist to avoid. A hint POINTS, never
+concludes, and carries NO COUNTS: it is read before the evidence, and a stored count
+is wrong the moment anyone writes.
+
+Drafting it is mechanical, and doing it by hand is where wings stay empty: list the
+CURATED rooms (`decisions`, `gotchas`, `incidents`, `llm_corrections` — not `diary`,
+which is narrative), propose a tier, then have a human cut it down. A tier nobody
+pruned is a tier that carries the wing's whole history into every session, which is
+the cost the two-tier split exists to avoid.
+
 A verified change that isn't written back is memory lost. Skip only when the
 session produced nothing worth recalling — and say so.
