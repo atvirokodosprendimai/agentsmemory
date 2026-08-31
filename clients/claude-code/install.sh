@@ -41,9 +41,16 @@ err() {
 
 # 1. Detect OS/arch and map to the release asset naming used by the build.
 os="$(uname -s | tr '[:upper:]' '[:lower:]')"
+# Git Bash, MSYS2 and Cygwin all report a compound name (mingw64_nt-10.0-26200),
+# which the exact-match arm below rejected — so the advertised one-liner failed at
+# step one on Windows with an error naming an OS nobody types. Reported 2026-08-31
+# from a first Windows install.
 case "$os" in
-linux | darwin) ;;
-*) err "unsupported OS '$os' (need linux or darwin)" ;;
+mingw* | msys* | cygwin*) os="windows" ;;
+esac
+case "$os" in
+linux | darwin | windows) ;;
+*) err "unsupported OS '$os' (need linux, darwin or windows)" ;;
 esac
 arch="$(uname -m)"
 case "$arch" in
@@ -52,6 +59,13 @@ arm64 | aarch64) arch="arm64" ;;
 *) err "unsupported arch '$arch' (need x86_64/amd64 or arm64/aarch64)" ;;
 esac
 asset="${BIN}-${os}-${arch}"
+# The published Windows asset carries .exe, and so must the local file: a binary
+# without it is not executable from cmd.exe or PowerShell, only from the shell
+# that installed it.
+[ "$os" = "windows" ] && asset="${asset}.exe"
+# …and so must the installed name, or every later `aiagentmemory` invocation and
+# the MCP registration this script writes point at a file Windows will not run.
+[ "$os" = "windows" ] && BIN="${BIN}.exe"
 
 # 2. Resolve the download URL: a pinned tag, or GitHub's 'latest' redirect.
 version="${AIAGENTMEMORY_VERSION:-latest}"

@@ -137,18 +137,31 @@ func reportVersions(out io.Writer, installed, latest string) error {
 // .github/workflows/release.yml). Platforms without a published build fail here
 // with a clear message instead of a 404 halfway through a download.
 func assetName(goos, goarch string) (string, error) {
-	unsupported := fmt.Errorf("no published aiagentmemory build for %s/%s — build it from source with `go build ./clients/claude-code`", goos, goarch)
-	switch goos {
-	case "darwin", "linux":
-	default:
-		return "", unsupported
+	if !publishedPlatforms[goos+"/"+goarch] {
+		return "", fmt.Errorf("no published aiagentmemory build for %s/%s — build it from source with `go build ./clients/claude-code`", goos, goarch)
 	}
-	switch goarch {
-	case "amd64", "arm64":
-	default:
-		return "", unsupported
+	name := fmt.Sprintf("aiagentmemory-%s-%s", goos, goarch)
+	if goos == "windows" {
+		name += ".exe"
 	}
-	return fmt.Sprintf("aiagentmemory-%s-%s", goos, goarch), nil
+	return name, nil
+}
+
+// publishedPlatforms is exactly the set release.yml's `binaries` matrix builds.
+//
+// ⚠ IT IS A SET OF PAIRS, NOT TWO INDEPENDENT SWITCHES, and that is the whole
+// point. The previous version accepted any OS crossed with any arch, so adding
+// windows would silently have promised a windows/arm64 asset the release does not
+// publish — a 404 partway through an upgrade, which is the failure assetName's own
+// comment says it exists to prevent. TestReleaseMatrixCoversEveryPlatformUpdateAccepts
+// derives both sides and fails when they drift, so a platform added to either
+// joins the check on the same commit.
+var publishedPlatforms = map[string]bool{
+	"linux/amd64":   true,
+	"linux/arm64":   true,
+	"darwin/amd64":  true,
+	"darwin/arm64":  true,
+	"windows/amd64": true,
 }
 
 // releaseAssetURL is the direct download URL for one asset of one release.
