@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 
 	"github.com/atvirokodosprendimai/agentsmemory/internal/mcpprotocol"
@@ -328,6 +329,30 @@ func resolveInstallTarget(kit agentKit, global, local bool, sandbox, configDir, 
 // saves it as.
 var serverBinCandidates = []string{"aiagentmemory-server", "agentsmemory"}
 
+// serverBinLookupCandidates are the names resolveServerBin actually tries.
+//
+// ⚠ exec.LookPath's PATHEXT HELP ONLY REACHES A BARE NAME. On Windows a name
+// searched on PATH resolves aiagentmemory-server.exe on its own, but the same
+// string used as an explicit path does not — and --server-bin is exactly that
+// case. Trying the .exe spelling first costs one stat and removes the asymmetry.
+func serverBinLookupCandidates(flagValue string) []string {
+	names := serverBinCandidates
+	if flagValue != "" {
+		names = []string{flagValue}
+	}
+	if runtime.GOOS != "windows" {
+		return names
+	}
+	out := make([]string, 0, len(names)*2)
+	for _, n := range names {
+		if !strings.HasSuffix(strings.ToLower(n), ".exe") {
+			out = append(out, n+".exe")
+		}
+		out = append(out, n)
+	}
+	return out
+}
+
 // kitNeedsServerBin reports whether this kit registers by spawning the stdio
 // bridge rather than by driving an agent CLI or handing over a URL. Claude
 // Desktop is the case: its config file starts local processes, so the entry names
@@ -347,10 +372,7 @@ func kitNeedsServerBin(kit agentKit) bool {
 // Under --dry-run a missing binary is tolerated so the plan still prints, matching
 // how the agent CLI itself is resolved.
 func resolveServerBin(flagValue string, dryRun bool) (string, error) {
-	candidates := serverBinCandidates
-	if flagValue != "" {
-		candidates = []string{flagValue}
-	}
+	candidates := serverBinLookupCandidates(flagValue)
 
 	for _, name := range candidates {
 		// LookPath handles both a bare name (searched on PATH) and an explicit
@@ -858,6 +880,23 @@ func (i *Installer) writeFile(path string, data []byte, perm os.FileMode) error 
 // kit's own config directory.
 const installedServerBinName = "aiagentmemory-server"
 
+// installedServerBinFile is installedServerBinName with the platform's executable
+// extension, which is the name the placed file must actually carry.
+//
+// ⚠ WINDOWS NEEDS THE .exe AND THE CONFIG NAMES THIS PATH VERBATIM. Claude
+// Desktop's entry spawns the file we place, and an entry pointing at an
+// extension-less path relies on the spawner appending one — CreateProcess does,
+// but nothing here controls whether Electron spawns that way, and an install is
+// not the place to depend on it. Flagged as unverified rather than broken in the
+// 2026-08-31 report; carrying the extension costs one line and removes the
+// question.
+func installedServerBinFile() string {
+	if runtime.GOOS == "windows" {
+		return installedServerBinName + ".exe"
+	}
+	return installedServerBinName
+}
+
 // placeServerBin copies the resolved server binary into the kit's OWN config
 // directory and returns the path to write into the MCP registration.
 //
@@ -888,7 +927,7 @@ const installedServerBinName = "aiagentmemory-server"
 // binary untouched on any failure — the pattern replaceBinary already uses for
 // self-update, for the same reasons.
 func (i *Installer) placeServerBin() (string, error) {
-	dest := filepath.Join(i.targetDir, "bin", installedServerBinName)
+	dest := filepath.Join(i.targetDir, "bin", installedServerBinFile())
 	if i.dryRun {
 		fmt.Fprintf(i.out, "  would install the server binary: %s → %s\n", i.serverBin, dest)
 		return dest, nil
