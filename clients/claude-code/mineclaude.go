@@ -247,6 +247,14 @@ func mineClaudeCommand() *cli.Command {
 			"replaces rather than duplicates. The wing comes from each session's own\n" +
 			"working directory, resolved exactly as `load` resolves it, so sessions land\n" +
 			"in the project they belong to.\n\n" +
+			"A part that cannot be filed is reported and skipped, not fatal: the rest of\n" +
+			"the run is kept and the command exits non-zero so a partial seed is visible.\n" +
+			"Re-running is the recovery, and is safe for the same reason.\n\n" +
+			"⚠ On a CPU-only host, seeding is bounded by the SERVER's embed budget, not\n" +
+			"by this command. One batch of 64 chunks was measured at 121s with bge-m3 on\n" +
+			"a 16GB laptop, so a server started with a low EMBED_TIMEOUT (or an older\n" +
+			"build, where HTTP_TIMEOUT covered embedding at 30s) fails part after part\n" +
+			"with `context deadline exceeded`. Raise it on the SERVER and restart it.\n\n" +
 			"Start with --dry-run to see what would be filed, and --limit to go gradually:\n" +
 			"  aiagentmemory mine-claude --dry-run\n" +
 			"  aiagentmemory mine-claude --project acme --limit 20",
@@ -301,8 +309,14 @@ func runMineClaude(ctx context.Context, c *cli.Command, out io.Writer) error {
 		defer mcpClient.Close()
 		client = mcpClient
 	}
+	return mineFiles(ctx, c, out, client, files)
+}
 
-	mined, skipped, parts := 0, 0, 0
+// mineFiles walks the chosen transcripts and files each one, and is the half a
+// test can drive: it takes the client rather than dialling one, which is what
+// mineClient was declared for.
+func mineFiles(ctx context.Context, c *cli.Command, out io.Writer, client mineClient, files []string) error {
+	mined, skipped, parts, failed := 0, 0, 0, 0
 	byWing := map[string]int{}
 	for _, f := range files {
 		doc, project, sessionID, err := loadSession(f)
@@ -324,10 +338,34 @@ func runMineClaude(ctx context.Context, c *cli.Command, out io.Writer) error {
 			fmt.Fprintf(out, "  would mine %-46s → %-24s %3d turn(s), %5.1fKB in %d part(s)\n",
 				project+"/"+shortSessionID(sessionID), wing, len(doc.Turns), float64(doc.TurnChars)/1000, len(docs))
 		} else {
+			// ⚠ A FAILED PART IS REPORTED AND SKIPPED, NOT FATAL TO THE RUN. This
+			// loop already makes that call twenty lines up, where an unreadable
+			// session is skipped rather than ending the walk — the abort was the
+			// same decision taken differently for the other failure class, and
+			// nothing argued for the difference. It cost the whole run: reported
+			// 2026-08-31, a 249-session seed on a CPU-only host died on the first
+			// part of the first session because one embed batch exceeded the
+			// server's budget, and filed nothing.
+			//
+			// Keeping the partial result was already safe, because this command is
+			// idempotent by source id — re-running replaces rather than duplicates,
+			// which is what its own Description promises — so re-running IS the
+			// recovery and aborting bought nothing.
+			partFailed := 0
 			for _, part := range docs {
 				if err := mineOne(ctx, client, wing, c.String("room"), part); err != nil {
-					return fmt.Errorf("mine %s: %w", part.Source, err)
+					fmt.Fprintf(out, "  FAILED %s: %v\n", part.Source, mineFailureHint(err))
+					failed++
+					partFailed++
+					continue
 				}
+			}
+			if partFailed > 0 {
+				// Counted as skipped rather than mined: a session whose parts did not
+				// all land is not a session that was filed, and reporting it as mined
+				// is how a partial corpus reads as a complete one.
+				skipped++
+				continue
 			}
 			note := ""
 			if doc.BadLines > 0 {
@@ -346,6 +384,9 @@ func runMineClaude(ctx context.Context, c *cli.Command, out io.Writer) error {
 		verb = "would mine"
 	}
 	fmt.Fprintf(out, "\n%s %d session(s) (%d part(s)), skipped %d\n", verb, mined, parts, skipped)
+	if failed > 0 {
+		fmt.Fprintf(out, "  %d part(s) FAILED and were not filed\n", failed)
+	}
 	wings := make([]string, 0, len(byWing))
 	for w := range byWing {
 		wings = append(wings, w)
@@ -357,7 +398,31 @@ func runMineClaude(ctx context.Context, c *cli.Command, out io.Writer) error {
 	if c.Bool("dry-run") {
 		fmt.Fprintf(out, "run again without --dry-run to file these\n")
 	}
+	// A partial run must not exit 0. The parts that landed are kept and the
+	// summary above says which did not, but a script or an operator reading only
+	// the status has to be able to tell a complete seed from a partial one.
+	if failed > 0 {
+		return fmt.Errorf("%d part(s) could not be filed; the rest were kept, and re-running "+
+			"is safe — this command replaces by source id rather than duplicating", failed)
+	}
 	return nil
+}
+
+// mineFailureHint annotates the one failure a first-time operator actually hits
+// with the knob that fixes it.
+//
+// ⚠ THE ERROR NAMED A SYMPTOM AND NOT A REMEDY. `context deadline exceeded` on
+// /api/embed is the server's embed budget, not a hang and not a broken Ollama,
+// and nothing in the message said so — measured 2026-08-31, a CPU-only host took
+// 121s for one batch of 64 against a 30s default. The budget now has its own knob
+// (EMBED_TIMEOUT, default 5m), so this points at it for anyone running a server
+// older than that change or a value too low for their hardware.
+func mineFailureHint(err error) error {
+	if err == nil || !strings.Contains(err.Error(), "context deadline exceeded") {
+		return err
+	}
+	return fmt.Errorf("%w\n      (the SERVER's embed budget, not a hang: raise EMBED_TIMEOUT — "+
+		"CPU-only embedding routinely needs minutes for one batch)", err)
 }
 
 // findTranscripts lists session files newest-first, so a --limit takes the
