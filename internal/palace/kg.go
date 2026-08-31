@@ -1171,31 +1171,150 @@ func WingRootSubject(wing string) string {
 // you cannot notice you needed it until after you have broken something. This
 // mints the skeleton; curating what hangs off it stays a human or agent act.
 func (s *Service) attachWingRootEdge(ctx context.Context, teamID, wing string) error {
+	return s.repo.EnsureWingRoot(ctx, teamID, wing)
+}
+
+// EnsureWingRoot mints `<wing>.root --holds--> room:<wing>/llm_init` unless that
+// edge already exists, and is the single definition of what a wing root IS.
+//
+// ⚠ IT LIVES ON Repo RATHER THAN Service SO THE BOOT PATH CAN REACH IT.
+// BackfillWingRoots runs inside buildServicesWith's prepare block, beside
+// BackfillContentKeys, where no Service has been composed yet — a Service-only
+// mint would have to run after composition, which is outside the block that
+// distinguishes the writing path from the read-only one.
+func (r *Repo) EnsureWingRoot(ctx context.Context, teamID, wing string) error {
 	subj := WingRootSubject(wing)
 	obj := DerivedEdgeSubject(wing, EntryRoom)
 	subID, objID := normalizeEntityID(subj), normalizeEntityID(obj)
 	p := normalizePredicate(DerivedEdgePredicate)
 	now := time.Now().UTC().Format(time.RFC3339)
 
-	if err := s.repo.UpsertKGEntity(ctx, teamID, subID, subj, now); err != nil {
+	if err := r.UpsertKGEntity(ctx, teamID, subID, subj, now); err != nil {
 		return err
 	}
-	if err := s.repo.UpsertKGEntity(ctx, teamID, objID, obj, now); err != nil {
+	if err := r.UpsertKGEntity(ctx, teamID, objID, obj, now); err != nil {
 		return err
 	}
 	// Idempotent: a wing gets one root edge however many entry-room drawers it
-	// accumulates.
-	if id, err := s.repo.CurrentTripleID(ctx, teamID, subID, p, objID); err != nil {
+	// accumulates — and however many times the backfill runs over it.
+	if id, err := r.CurrentTripleID(ctx, teamID, subID, p, objID); err != nil {
 		return err
 	} else if id != "" {
 		return nil
 	}
 	derived := true
-	return s.repo.InsertKGTriple(ctx, kgTripleRow{
+	return r.InsertKGTriple(ctx, kgTripleRow{
 		TeamID: teamID, ID: tripleID(subID, p, objID, "", now),
 		Subject: subID, Predicate: p, Object: objID,
 		Confidence: 1.0, ExtractedAt: now, Derived: &derived,
 	})
+}
+
+// BackfillWingRoots gives a name to every entry room that has none, and returns
+// how many roots it minted.
+//
+// ⚠ THE MINT FIRES ON A WRITE, SO A WING THAT STOPPED WRITING KEEPS A NAMELESS
+// DOOR FOREVER. attachWingRootEdge was added on 2026-08-30 and only runs when a
+// drawer lands in the entry room; nothing walked the rooms that were already
+// there. Measured on this project's own palace the next morning:
+// wing_agentmemories filed its entry records at 09:34-09:46 and wing_craft filed
+// one at 10:27 — so craft, playtrix and quality-harness all had roots and
+// agentmemories, forty minutes too early, answered unknown_term to the very first
+// call its entry protocol prescribes. A fix that only helps wings which happen to
+// write again is not a fix for the wings that need it.
+//
+// It runs on every prepared boot rather than as a migration, for the reason
+// BackfillContentKeys records: goose stamps a version the first time its SQL runs
+// and never runs it again, so a backfill expressed as "runs once" cannot resume
+// after an abort. On a fully-rooted palace this costs one bounded SELECT.
+//
+// ⚠ CURRENT ROWS ONLY (`valid_to = ”`). A room whose every entry record has been
+// retracted is an empty room, and am_entry_point drops edges it cannot read — so
+// a root minted for it would resolve `matched` with nothing behind it, which is a
+// worse answer than unknown_term because it reads as an answer. A SUPERSEDED
+// entry record still leaves its successor current, so that wing is rooted.
+func (r *Repo) BackfillWingRoots(ctx context.Context) (int, error) {
+	type wingRow struct {
+		TeamID string `gorm:"column:team_id"`
+		Wing   string `gorm:"column:wing"`
+	}
+	// ⚠ THE UNIVERSE IS EDGES, NOT ROWS, and keying it on rows gave a root to a
+	// room a session cannot read. am_entry_point resolves the room node's `holds`
+	// edges, which attachDerivedEdge mints at FILE time — so a wing whose entry
+	// drawers predate that mechanism has current rows and no edges, and it is
+	// exactly the population this backfill exists for. Rooting it produced the
+	// shape this function's own comment calls worse than unknown_term: the root
+	// resolves `matched`, and one hop on the room answers known_term_no_facts with
+	// zero edges. Reported by review 2026-08-31 and reproduced here before the fix.
+	//
+	// Selecting on live holds edges SUBSUMES the valid_to guard rather than
+	// replacing it: endDerivedEdgesFor ends a room's holds edge when the drawer it
+	// points at is retracted, so a fully retracted entry room has no live edge
+	// either — which TestBackfillLeavesAWingWithNoLiveEntryRecordNameless still
+	// proves, unchanged, against this narrower query.
+	var rows []struct {
+		TeamID  string `gorm:"column:team_id"`
+		Subject string `gorm:"column:subject"`
+	}
+	// ⚠ THE LIKE IS A PREFILTER, NOT THE TEST. EntryRoom is "llm_init" and `_` is a
+	// single-character wildcard in SQL LIKE, so this pattern also matches
+	// room:<wing>/llm-init, llm.init, llm init — any llm?init. Probed: one drawer
+	// filed into a room named "llm-init" minted `wing_alpha/llm-init.root`, a root
+	// whose name is not a wing, pointing at a node that holds nothing. That is the
+	// door-with-nothing-behind-it this function exists to prevent, arriving through
+	// the query instead of through the guard. Reported by review 2026-08-31, new
+	// with the edge-keyed universe — the row-keyed version compared room = ?.
+	//
+	// The affixes are therefore checked in Go rather than trusted to the pattern.
+	// ESCAPE '\' would also work and is one line, but it puts the correctness in a
+	// SQL escape clause that the next person to rename EntryRoom has to remember;
+	// HasPrefix/HasSuffix survive that rename on their own.
+	err := r.db.WithContext(ctx).Model(&kgTripleRow{}).
+		Select("DISTINCT team_id, subject").
+		Where("predicate = ? AND valid_to = '' AND subject LIKE ?",
+			normalizePredicate(DerivedEdgePredicate), "room:%/"+EntryRoom).
+		Find(&rows).Error
+	if err != nil {
+		return 0, fmt.Errorf("read the entry rooms a session can read: %w", err)
+	}
+	wings := make([]wingRow, 0, len(rows))
+	for _, row := range rows {
+		// The room entity is "room:<wing>/<room>"; a wing name is sanitised and
+		// carries no slash, so stripping the exact affixes recovers it.
+		//
+		// ⚠ NOT TrimPrefix/TrimSuffix ALONE: both no-op silently when the affix is
+		// absent, so a subject the wildcard let through arrived here looking like a
+		// wing name and was rooted as one.
+		if !strings.HasPrefix(row.Subject, "room:") || !strings.HasSuffix(row.Subject, "/"+EntryRoom) {
+			continue
+		}
+		wing := strings.TrimSuffix(strings.TrimPrefix(row.Subject, "room:"), "/"+EntryRoom)
+		if wing == "" {
+			continue
+		}
+		wings = append(wings, wingRow{TeamID: row.TeamID, Wing: wing})
+	}
+	minted := 0
+	for _, row := range wings {
+		subID := normalizeEntityID(WingRootSubject(row.Wing))
+		objID := normalizeEntityID(DerivedEdgeSubject(row.Wing, EntryRoom))
+		p := normalizePredicate(DerivedEdgePredicate)
+		// Asked before minting so the RETURNED COUNT is what changed, not what was
+		// looked at. EnsureWingRoot is idempotent either way, but a backfill that
+		// reports the whole corpus every boot says nothing when it matters.
+		id, err := r.CurrentTripleID(ctx, row.TeamID, subID, p, objID)
+		if err != nil {
+			return minted, fmt.Errorf("check the root of %s: %w", row.Wing, err)
+		}
+		if id != "" {
+			continue
+		}
+		if err := r.EnsureWingRoot(ctx, row.TeamID, row.Wing); err != nil {
+			return minted, fmt.Errorf("mint the root of %s: %w", row.Wing, err)
+		}
+		minted++
+	}
+	return minted, nil
 }
 
 // endDerivedEdgesFor ends every CURRENT DERIVED edge pointing at these drawers,

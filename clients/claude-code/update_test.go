@@ -21,9 +21,22 @@ func TestAssetName(t *testing.T) {
 		t.Errorf("assetName(darwin, arm64) = %q, want aiagentmemory-darwin-arm64", got)
 	}
 
+	// windows/amd64 became a published target on 2026-08-31, and it carries the
+	// suffix the release asset carries — without it the URL 404s.
+	if got, err := assetName("windows", "amd64"); err != nil {
+		t.Errorf("assetName(windows, amd64): %v", err)
+	} else if got != "aiagentmemory-windows-amd64.exe" {
+		t.Errorf("assetName(windows, amd64) = %q, want aiagentmemory-windows-amd64.exe", got)
+	}
+
 	// Platforms the release workflow does not build must fail before any
 	// download rather than 404 halfway through one.
-	for _, tc := range [][2]string{{"windows", "amd64"}, {"linux", "386"}, {"plan9", "arm64"}} {
+	//
+	// ⚠ windows/arm64 IS THE CASE THAT MATTERS. The platform set is a set of
+	// PAIRS, not two independent switches, so adding windows must not promise
+	// every arch it could be crossed with — the old cross-product version would
+	// have.
+	for _, tc := range [][2]string{{"windows", "arm64"}, {"linux", "386"}, {"plan9", "arm64"}} {
 		if _, err := assetName(tc[0], tc[1]); err == nil {
 			t.Errorf("assetName(%s, %s) = nil error, want unsupported", tc[0], tc[1])
 		}

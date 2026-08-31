@@ -129,6 +129,12 @@ jobs:
           - { goos: linux, goarch: arm64 }
           - { goos: darwin, goarch: amd64 }
           - { goos: darwin, goarch: arm64 }
+          # windows/amd64 was missing until 2026-08-31, so the advertised
+          # install one-liner failed at `uname` on Windows and a hand-built
+          # binary could never self-upgrade. build.yml already cross-compiles
+          # this target for ./cmd/server on this same runner; only this row and
+          # the .exe suffixes below were absent.
+          - { goos: windows, goarch: amd64 }
     steps:
       - uses: actions/checkout@v4
 
@@ -143,6 +149,7 @@ jobs:
           CGO_ENABLED: "0"
         run: |
           out="aiagentmemory-${GOOS}-${GOARCH}"
+          [ "$GOOS" = windows ] && out="${out}.exe"
           go build -trimpath \
             -ldflags "-s -w -X main.version=${GITHUB_REF_NAME}" \
             -o "$out" ./clients/claude-code
@@ -160,6 +167,7 @@ jobs:
           CGO_ENABLED: "0"
         run: |
           out="aiagentmemory-server-${GOOS}-${GOARCH}"
+          [ "$GOOS" = windows ] && out="${out}.exe"
           go build -trimpath \
             -ldflags "-s -w -X main.version=${GITHUB_REF_NAME}" \
             -o "$out" ./cmd/server

@@ -1026,6 +1026,53 @@ Other subcommands: `verify` (check memories still match the code they describe),
 agent against a sandbox or the global config), `mcp` (call a read-only memory tool
 from the shell).
 
+### How memory arrives: three layers, three fill mechanisms
+
+The palace has three layers, and **they do not fill the same way**. Nothing
+breaks if you do not know that, but a seeded palace will answer recall questions
+well and graph questions with nothing, which reads as the graph being broken when
+it is simply empty.
+
+| Layer | Filled by | Automatic? |
+|---|---|---|
+| Drawers + closets (recall) | every write: `am_add_drawer`, `am_diary_write`, `mine-claude` | ✅ |
+| Hallways and tunnels (navigation) | derived on write from rooms and entities | ✅ |
+| **Knowledge graph** (subject→predicate→object) | **`am_kg_add` by an agent, or `agentsmemory kg-extract`** | ❌ **never automatic** |
+
+**Mining does not produce facts.** `mine-claude` files transcripts as drawers; it
+writes no triples. An agent following the memory protocol calls `am_kg_add` as it
+works, which is the ordinary way the graph fills. To extract facts from a corpus
+you already mined, run `agentsmemory kg-extract --wing <wing>`.
+
+⚠ **`kg-extract` needs a GENERATIVE model, and the compose overlay does not
+provision one.** `docker-compose.ollama.yml` pulls the embedder (`bge-m3`) and
+nothing else — an embedder cannot answer `/api/generate`, so `kg-extract` fails
+every source with `model not found` until you supply one:
+
+```bash
+docker compose exec ollama ollama pull qwen2.5-coder:7b   # multi-GB, one time
+docker compose exec agentsmemory agentsmemory kg-extract --wing wing_acme
+```
+
+Use `--gen-model` (or `EVAL_GEN_MODEL`) to name a model you already have. The
+same model serves `agentsmemory eval`.
+
+### Which ingest path do I want?
+
+Both exist, they behave oppositely, and each is wrong for the other's job:
+
+| | Stop hook (automatic) | `mine-claude` (manual) |
+|---|---|---|
+| Runs | at every session end | when you run it |
+| Files | what the agent decided was worth keeping | the raw transcript text |
+| Feeds the knowledge graph | ✅ the agent calls `am_kg_add` | ❌ drawers only |
+| Cost | negligible | one embed per changed chunk |
+
+The Stop hook is what keeps a palace current. `mine-claude` is a **backfill tool**
+for history that predates the install — run it once over your transcripts, not on
+a schedule. Re-running it is cheap for unchanged text (only changed chunks are
+re-embedded) but it still does not write facts.
+
 ### Sandboxed installation (per-project isolation)
 
 A **sandbox** is just a Claude config directory under `~/.sandboxes/<name>`.

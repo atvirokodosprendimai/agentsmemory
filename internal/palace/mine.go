@@ -142,10 +142,27 @@ func (s *Service) Mine(ctx context.Context, teamID string, in MineInput) (result
 	if err := s.purgeSourceOn(ctx, s.repo, teamID, wing, room, source, keep); err != nil {
 		return MineResult{}, err
 	}
-	if err := s.purgeClosetSource(ctx, teamID, source); err != nil {
-		return MineResult{}, err
+	// ⚠ THE CLOSET PURGE IS DEFERRED, THE DRAWER PURGE IS NOT. A closet's id is
+	// its position in the source rather than a hash of its text, so "the same
+	// closet, unchanged" is only knowable by comparing documents — and the old
+	// document is gone the moment the purge runs. Snapshotting first is what lets
+	// an unchanged closet keep its vector instead of paying to rebuild it: after
+	// the drawer reuse above, closets are ALL a re-mine of an unchanged corpus
+	// would otherwise still embed (measured: 1 closet against 71 drawer chunks on
+	// a 90k source, so 100% of what is left once the drawers are skipped).
+	//
+	// The orphan guarantee the eager purge gave is preserved by
+	// purgeClosetSourceExcept, which drops every prior closet the new set does not
+	// replace — including the zero-chunk case below, where the new set is empty
+	// and everything prior is stale.
+	priorClosets, err := s.repo.EmbeddedClosetDocumentsBySource(ctx, teamID, source)
+	if err != nil {
+		return MineResult{}, fmt.Errorf("read the source's current closets: %w", err)
 	}
 	if len(chunks) == 0 {
+		if err := s.purgeClosetSourceExcept(ctx, teamID, source, nil); err != nil {
+			return MineResult{}, err
+		}
 		return MineResult{Drawers: 0, Closets: 0, Wing: wing, Room: room, Source: source, ContentDate: contentDate}, nil
 	}
 
@@ -183,15 +200,55 @@ func (s *Service) Mine(ctx context.Context, teamID string, in MineInput) (result
 		}
 		texts[i] = c.Content
 	}
-	vectors, err := s.embed.Embed(ctx, texts)
+	// ⚠ EMBED ONLY WHAT CHANGED. content is an input to the content key, so a key
+	// that is already filed AND already embedded means byte-identical text at the
+	// same address with a vector that still describes it — re-embedding it buys
+	// nothing and costs the whole run. Measured by an operator 2026-08-31 on a
+	// CPU-only host: a re-mine to add ONE new session re-embedded the entire
+	// corpus, ~2.5 hours, which in practice means nobody tops a corpus up and it
+	// goes stale.
+	//
+	// ⚠ ONE BEHAVIOUR CHANGE, STATED RATHER THAN HIDDEN: a re-mine no longer
+	// refreshes vectors for unchanged text, so changing the embedding model and
+	// re-mining will NOT re-embed what did not change. Mixed-model vectors in one
+	// index are not comparable (see buildEmbedder), so a model switch needs the
+	// namespace rebuilt rather than a re-mine — which was already true of every
+	// row nothing re-mined.
+	reusable, err := s.repo.EmbeddedIDsByContentKeys(ctx, teamID, keep)
 	if err != nil {
-		return MineResult{}, fmt.Errorf("embed mined chunks: %w", err)
+		return MineResult{}, fmt.Errorf("look up rows already embedded under these content keys: %w", err)
 	}
-	if err := s.storeDrawers(ctx, teamID, drawers, vectors); err != nil {
-		return MineResult{}, err
+	fresh := make([]Drawer, 0, len(drawers))
+	freshTexts := make([]string, 0, len(drawers))
+	reused := make([]Drawer, 0, len(drawers))
+	for i, d := range drawers {
+		if id, ok := reusable[keep[i]]; ok && id == d.ID {
+			reused = append(reused, d)
+			continue
+		}
+		fresh = append(fresh, d)
+		freshTexts = append(freshTexts, texts[i])
+	}
+	if len(fresh) > 0 {
+		vectors, err := s.embed.Embed(ctx, freshTexts)
+		if err != nil {
+			return MineResult{}, fmt.Errorf("embed mined chunks: %w", err)
+		}
+		if err := s.storeDrawers(ctx, teamID, fresh, vectors); err != nil {
+			return MineResult{}, err
+		}
+	}
+	// Unchanged rows are still SAVED — the row write is cheap and keeps re-filing
+	// semantics (filed_at, parent, entities) identical to before. Only the embed
+	// and the vector upsert are skipped, and the vector under this id is the one
+	// the first mine wrote for this exact content.
+	if len(reused) > 0 {
+		if err := s.repo.Save(ctx, reused); err != nil {
+			return MineResult{}, fmt.Errorf("save drawers: %w", err)
+		}
 	}
 
-	closets, err := s.buildAndStoreClosets(ctx, teamID, wing, room, source, content, contentDate, filedAt, filedAtDate, chunks, drawers)
+	closets, err := s.buildAndStoreClosets(ctx, teamID, wing, room, source, content, contentDate, filedAt, filedAtDate, chunks, drawers, priorClosets)
 	if err != nil {
 		return MineResult{}, err
 	}
@@ -207,10 +264,17 @@ func (s *Service) Mine(ctx context.Context, teamID string, in MineInput) (result
 }
 
 // buildAndStoreClosets constructs the source's closet pointer lines, packs them
-// into closet documents, embeds those documents, and stores them (rows + vectors
-// in the closet namespace). It returns the number of closets written. The source's
-// old closets were already purged by Mine, so this only writes the new set.
-func (s *Service) buildAndStoreClosets(ctx context.Context, teamID, wing, room, source, content, contentDate, filedAt, filedAtDate string, chunks []mineChunk, drawers []Drawer) (int, error) {
+// into closet documents, and stores the ones that changed (rows + vectors in the
+// closet namespace), returning how many closets the source now HAS — kept and
+// written together, which is what MineResult.Closets means.
+//
+// ⚠ IT OWNS THE PURGE NOW, and the sentence that used to live here said Mine had
+// already done it. That stopped being true when the closet reuse landed: the prior
+// set is snapshotted before the purge and passed in as `prior`, the stale set is
+// computed from what the new documents keep, and purgeClosetSourceExcept runs from
+// HERE. Caught by review 2026-08-31 — a comment contradicting the function under
+// it is the drift this repo gates in both directions.
+func (s *Service) buildAndStoreClosets(ctx context.Context, teamID, wing, room, source, content, contentDate, filedAt, filedAtDate string, chunks []mineChunk, drawers []Drawer, prior map[string]string) (int, error) {
 	drawerIDs := make([]string, len(drawers))
 	for i, d := range drawers {
 		drawerIDs[i] = d.ID
@@ -219,7 +283,8 @@ func (s *Service) buildAndStoreClosets(ctx context.Context, teamID, wing, room, 
 	lines := buildClosetLines(source, drawerIDs, content, wing, room, dateLineSeg)
 	docs := packClosets(lines, closetCharLimit)
 	if len(docs) == 0 {
-		return 0, nil
+		// Nothing replaces the prior set, so all of it is stale.
+		return 0, s.purgeClosetSourceExcept(ctx, teamID, source, nil)
 	}
 
 	entities := closetEntities(content)
@@ -238,12 +303,32 @@ func (s *Service) buildAndStoreClosets(ctx context.Context, teamID, wing, room, 
 		}
 		texts[i] = doc
 	}
-	vectors, err := s.embed.Embed(ctx, texts)
-	if err != nil {
-		return 0, fmt.Errorf("embed closets: %w", err)
+	// Keep an unchanged closet: same id, byte-identical document, and it already
+	// had a vector (prior holds only embedded rows). Everything else is rebuilt.
+	fresh := make([]Closet, 0, len(closets))
+	freshTexts := make([]string, 0, len(closets))
+	keep := make(map[string]bool, len(closets))
+	for i, c := range closets {
+		if doc, ok := prior[c.ID]; ok && doc == c.Document {
+			keep[c.ID] = true
+			continue
+		}
+		fresh = append(fresh, c)
+		freshTexts = append(freshTexts, texts[i])
 	}
-	if err := s.storeClosets(ctx, teamID, closets, vectors); err != nil {
+	// Drop the prior closets nothing in the new set keeps — the orphan guarantee
+	// the eager purge used to give, narrowed to what actually became stale.
+	if err := s.purgeClosetSourceExcept(ctx, teamID, source, keep); err != nil {
 		return 0, err
+	}
+	if len(fresh) > 0 {
+		vectors, err := s.embed.Embed(ctx, freshTexts)
+		if err != nil {
+			return 0, fmt.Errorf("embed closets: %w", err)
+		}
+		if err := s.storeClosets(ctx, teamID, fresh, vectors); err != nil {
+			return 0, err
+		}
 	}
 	return len(closets), nil
 }
@@ -294,18 +379,24 @@ func (s *Service) upsertClosetVectors(ctx context.Context, teamID string, closet
 // purgeClosetSource drops every closet (row + vector) previously built from a
 // source, so a re-mine replaces rather than accumulates closets. Vectors are
 // removed from the closet namespace by the ids the rows carry, then the rows.
-func (s *Service) purgeClosetSource(ctx context.Context, teamID, source string) error {
+func (s *Service) purgeClosetSourceExcept(ctx context.Context, teamID, source string, keep map[string]bool) error {
 	ids, err := s.repo.ClosetIDsBySource(ctx, teamID, source)
 	if err != nil {
 		return fmt.Errorf("list source closets: %w", err)
 	}
-	if len(ids) == 0 {
+	stale := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if !keep[id] {
+			stale = append(stale, id)
+		}
+	}
+	if len(stale) == 0 {
 		return nil
 	}
-	if err := s.vectors.Delete(ctx, closetNamespace(teamID), ids); err != nil {
+	if err := s.vectors.Delete(ctx, closetNamespace(teamID), stale); err != nil {
 		return fmt.Errorf("purge source closet vectors: %w", err)
 	}
-	if err := s.repo.DeleteClosetsBySource(ctx, teamID, source); err != nil {
+	if err := s.repo.DeleteClosetsByIDsForSource(ctx, teamID, stale); err != nil {
 		return fmt.Errorf("purge source closet rows: %w", err)
 	}
 	return nil

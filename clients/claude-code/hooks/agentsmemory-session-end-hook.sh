@@ -19,7 +19,48 @@
 # exit quietly. Nothing here is worth interfering with a session shutting down.
 set -uo pipefail
 
-INPUT="$(cat || true)"
+# ⚠ READ THE PAYLOAD, BUT NEVER WAIT ON IT. `INPUT="$(cat)"` blocks until stdin
+# reaches EOF, so this hook's runtime was governed by when the harness closed its
+# stdin rather than by its own work — one 10ms GET. SessionEnd is the only event
+# that runs while the harness is tearing DOWN, so whether it closes stdin and
+# grants a scheduling slice before exiting is a race, and losing it prints
+# `SessionEnd hook … failed: Hook cancelled`. Measured 2026-08-31: 1112ms with
+# stdin closed promptly, 9187ms with a writer holding it open for 8s — the hook
+# waits as long as it is given.
+#
+# The payload is a PRECISION input, not a requirement: agentsmemory_stats_query
+# sets a working fixed window BEFORE consulting INPUT, and transcript_path only
+# narrows it to the real session length. So the fallback this needs already
+# existed and the unbounded read was what made it unreachable.
+#
+# ⚠ NEWLINE-DELIMITED, NOT `read -d ''`. This said "on timeout bash keeps
+# whatever arrived" and that was FALSE — probed on Apple bash 3.2.57, 2026-08-31,
+# after a review refused to take the comment's word for it:
+#
+#   payload arrives, stdin stays open, read -r -d '' -t 1  -> INPUT is EMPTY
+#   payload arrives with a newline,     read -r -t 1       -> INPUT is the payload
+#
+# Bash discards the accumulated bytes when a timed-out read has not seen its
+# delimiter, so the `-d ''` form lost the payload in exactly the case it was added
+# for: a shutdown that holds stdin open. The newline form recovers the two shapes
+# that actually occur — payload then newline, and payload then EOF.
+#
+# ⚠ RESIDUALS, AND BOTH ARE DEGRADATIONS RATHER THAN FAILURES. STATS_QUERY keeps
+# the fixed window it was given before INPUT is consulted, so each costs a wider
+# report rather than no report — the fallback this whole change exists to reach:
+#
+#   - a payload with no trailing newline, on a stdin that never closes, is lost;
+#   - `read` takes ONE LINE, so a pretty-printed payload yields its first line
+#     alone, which carries no transcript_path. Named here rather than fixed with a
+#     read-to-EOF loop, because such a loop pays the FULL timeout on every healthy
+#     invocation — the harness closes stdin and the loop would still wait for its
+#     bound before seeing EOF, which is the cost this change exists to remove.
+#     Claude Code sends compact single-line JSON; if that ever changes, the loop
+#     is the fix and the timeout is the price. Second residual reported by review
+#     2026-08-31, which read the paragraph as exhaustive because it was written
+#     that way.
+INPUT=""
+IFS= read -r -t "${AGENTSMEMORY_STATS_STDIN_TIMEOUT:-1}" INPUT || true
 
 [ "${AGENTSMEMORY_STATS:-on}" = "off" ] && exit 0
 

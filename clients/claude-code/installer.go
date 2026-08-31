@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 
 	"github.com/atvirokodosprendimai/agentsmemory/internal/mcpprotocol"
@@ -328,6 +329,41 @@ func resolveInstallTarget(kit agentKit, global, local bool, sandbox, configDir, 
 // saves it as.
 var serverBinCandidates = []string{"aiagentmemory-server", "agentsmemory"}
 
+// serverBinLookupCandidates are the names resolveServerBin actually tries.
+//
+// ⚠ exec.LookPath's PATHEXT HELP ONLY REACHES A BARE NAME. On Windows a name
+// searched on PATH resolves aiagentmemory-server.exe on its own, but the same
+// string used as an explicit path does not — and --server-bin is exactly that
+// case. Trying the .exe spelling first costs one stat and removes the asymmetry.
+func serverBinLookupCandidates(flagValue string) []string {
+	return serverBinLookupCandidatesOn(runtime.GOOS, flagValue)
+}
+
+// serverBinLookupCandidatesOn takes the platform as an argument so the ORDER is
+// checkable from any host — the same reason agentKit.globalConfigDirOn does.
+func serverBinLookupCandidatesOn(goos, flagValue string) []string {
+	names := serverBinCandidates
+	if flagValue != "" {
+		names = []string{flagValue}
+	}
+	if goos != "windows" {
+		return names
+	}
+	// ⚠ THE EXACT VALUE FIRST, .exe ONLY AS A FALLBACK. The first version tried
+	// the suffixed spelling first, which silently overrode an operator who named a
+	// specific file with --server-bin whenever a same-named .exe sat beside it.
+	// Review caught it: adding a spelling must not re-rank the one that was asked
+	// for.
+	out := make([]string, 0, len(names)*2)
+	for _, n := range names {
+		out = append(out, n)
+		if !strings.HasSuffix(strings.ToLower(n), ".exe") {
+			out = append(out, n+".exe")
+		}
+	}
+	return out
+}
+
 // kitNeedsServerBin reports whether this kit registers by spawning the stdio
 // bridge rather than by driving an agent CLI or handing over a URL. Claude
 // Desktop is the case: its config file starts local processes, so the entry names
@@ -347,10 +383,7 @@ func kitNeedsServerBin(kit agentKit) bool {
 // Under --dry-run a missing binary is tolerated so the plan still prints, matching
 // how the agent CLI itself is resolved.
 func resolveServerBin(flagValue string, dryRun bool) (string, error) {
-	candidates := serverBinCandidates
-	if flagValue != "" {
-		candidates = []string{flagValue}
-	}
+	candidates := serverBinLookupCandidates(flagValue)
 
 	for _, name := range candidates {
 		// LookPath handles both a bare name (searched on PATH) and an explicit
@@ -858,6 +891,23 @@ func (i *Installer) writeFile(path string, data []byte, perm os.FileMode) error 
 // kit's own config directory.
 const installedServerBinName = "aiagentmemory-server"
 
+// installedServerBinFile is installedServerBinName with the platform's executable
+// extension, which is the name the placed file must actually carry.
+//
+// ⚠ WINDOWS NEEDS THE .exe AND THE CONFIG NAMES THIS PATH VERBATIM. Claude
+// Desktop's entry spawns the file we place, and an entry pointing at an
+// extension-less path relies on the spawner appending one — CreateProcess does,
+// but nothing here controls whether Electron spawns that way, and an install is
+// not the place to depend on it. Flagged as unverified rather than broken in the
+// 2026-08-31 report; carrying the extension costs one line and removes the
+// question.
+func installedServerBinFile() string {
+	if runtime.GOOS == "windows" {
+		return installedServerBinName + ".exe"
+	}
+	return installedServerBinName
+}
+
 // placeServerBin copies the resolved server binary into the kit's OWN config
 // directory and returns the path to write into the MCP registration.
 //
@@ -888,7 +938,7 @@ const installedServerBinName = "aiagentmemory-server"
 // binary untouched on any failure — the pattern replaceBinary already uses for
 // self-update, for the same reasons.
 func (i *Installer) placeServerBin() (string, error) {
-	dest := filepath.Join(i.targetDir, "bin", installedServerBinName)
+	dest := filepath.Join(i.targetDir, "bin", installedServerBinFile())
 	if i.dryRun {
 		fmt.Fprintf(i.out, "  would install the server binary: %s → %s\n", i.serverBin, dest)
 		return dest, nil
@@ -1231,26 +1281,95 @@ func (i *Installer) hookCommand(path string) string {
 // installerHookPath already knows how to parse. Unprefixed legacy commands
 // pass through unchanged so an upgrade can still match them.
 func stripMCPURLAssignment(cmd string) string {
-	prefix := mcpURLEnvVar + "="
-	if !strings.HasPrefix(cmd, prefix) {
-		return cmd
+	// EVERY leading assignment, not just this installer's one variable. The
+	// matching half and the reproducing half (hookCommandEnv) must accept the same
+	// command shapes: a prefix one recognises and the other cannot reproduce is a
+	// registration doctor would run with the wrong environment, which is the
+	// defect hookCommandEnv documents. Caught by the falsifiability half of
+	// TestAnUnprefixedRegistrationFallsBackToTheFlag, which asserts the two agree.
+	for {
+		_, _, rest, ok := splitLeadingAssignment(cmd)
+		if !ok {
+			return cmd
+		}
+		cmd = rest
 	}
-	rest := strings.TrimPrefix(cmd, prefix)
-	if !strings.HasPrefix(rest, "'") {
-		return cmd
+}
+
+// splitLeadingAssignment parses ONE leading `VAR='value'` off a hook command,
+// returning the name, the unquoted value, and what follows.
+//
+// It is the shared half of two jobs that must agree: matching a registration
+// (stripMCPURLAssignment, which drops the prefix to reach the bash invocation)
+// and REPRODUCING one (hookCommandEnv, which keeps it). They read the same
+// quoting rules because a registration this parser can match and that parser
+// cannot reproduce is exactly the defect doctor shipped — see hookCommandEnv.
+//
+// Only the single-quoted form is accepted, because it is the only one
+// hookCommand emits (shellQuote), and a parser that guessed at bare or
+// double-quoted values would be reading commands this installer never wrote.
+func splitLeadingAssignment(cmd string) (name, value, rest string, ok bool) {
+	eq := strings.IndexByte(cmd, '=')
+	if eq <= 0 {
+		return "", "", cmd, false
 	}
+	name = cmd[:eq]
+	for i := 0; i < len(name); i++ {
+		c := name[i]
+		alpha := c == '_' || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')
+		if !alpha && !(i > 0 && c >= '0' && c <= '9') {
+			return "", "", cmd, false
+		}
+	}
+	body := cmd[eq+1:]
+	if !strings.HasPrefix(body, "'") {
+		return "", "", cmd, false
+	}
+	var b strings.Builder
 	i := 1
-	for i < len(rest) {
-		if rest[i] == '\'' {
-			if strings.HasPrefix(rest[i:], `'"'"'`) {
+	for i < len(body) {
+		if body[i] == '\'' {
+			// The `'"'"'` sequence shellQuote emits for an embedded quote: close,
+			// escaped quote, reopen. Anything else ends the value.
+			if strings.HasPrefix(body[i:], `'"'"'`) {
+				b.WriteByte('\'')
 				i += 5
 				continue
 			}
-			return strings.TrimSpace(rest[i+1:])
+			return name, b.String(), strings.TrimSpace(body[i+1:]), true
 		}
+		b.WriteByte(body[i])
 		i++
 	}
-	return cmd
+	return "", "", cmd, false
+}
+
+// hookCommandEnv returns the `VAR=value` assignments a registered hook command
+// carries, in the order they appear, ready for exec.Cmd.Env.
+//
+// ⚠ IT EXISTS BECAUSE doctor RAN A RECONSTRUCTION RATHER THAN THE REGISTRATION.
+// The installer writes `AGENTSMEMORY_MCP_URL='http://localhost:8080/mcp' bash --
+// <script>`; doctor kept only the script path and supplied the endpoint from its
+// own flag, which defaults to the HOSTED URL. So on every self-hosted install it
+// pointed the hook at a palace the operator does not use, the CLI demanded a
+// workspace token for a non-loopback endpoint, and the recall hook took its
+// no-credential branch and exited 0 — reported to the operator as
+// "no credential configured", on an install that was working. Found 2026-08-31
+// on a first Windows install, where it is the first thing a new operator sees.
+//
+// Returning the assignments rather than the one variable is deliberate: the
+// narrow fix repairs this variable and leaves the defect standing, so the next
+// hook that gains an environment variable reintroduces it silently.
+func hookCommandEnv(cmd string) []string {
+	var env []string
+	for {
+		name, value, rest, ok := splitLeadingAssignment(cmd)
+		if !ok {
+			return env
+		}
+		env = append(env, name+"="+value)
+		cmd = rest
+	}
 }
 
 // installerHookPath parses only the two command shapes this installer has

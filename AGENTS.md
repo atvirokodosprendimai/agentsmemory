@@ -292,6 +292,26 @@ and a reference to nothing. `TestDoctorCorpusIsReachable` covers the rung
 `TestEveryFlagIsRead` cannot see: a flag that is declared, documented and read
 inside a block nothing can reach.
 
+**A MINT THAT FIRES ON A WRITE CANNOT REACH WHAT WAS WRITTEN BEFORE IT, AND THE
+ROWS THAT NEED IT MOST ARE THE ONES NOBODY WILL WRITE TO AGAIN.**
+`attachWingRootEdge` mints a wing's by-name root when a drawer lands in the entry
+room, and its own test proves that works. It says nothing about the wings already
+sitting there: measured 2026-08-31 on this project's palace, forty minutes decided
+it — `wing_agentmemories` filed its entry records at 09:34-09:46, the binary
+carrying the mint arrived before `wing_craft` filed one at 10:27, and the wing this
+protocol tells every session to start in answered `unknown_term` to the first call
+it prescribes while three younger wings resolved. `BackfillWingRoots` runs on every
+prepared boot for the reason `BackfillContentKeys` does — goose stamps a version
+once, so a backfill expressed as a migration cannot resume after an abort.
+`TestBackfillMintsARootForAnEntryRoomThatPredatesTheMint` covers the mint,
+`TestBackfillLeavesAWingWithNoLiveEntryRecordNameless` covers the half that matters
+more (a root over a room whose records are all retracted resolves `matched` with
+nothing behind it, which reads as an answer), and `TestWingRootBackfillIsRegistered`
+covers the rung the package's own tests cannot see — it drives `buildServices` and
+fails when the call leaves the boot path. `TestTheReadOnlyPathMintsNothing` keeps it
+on the writing side, because a checker that repairs the corpus reports on a palace
+it has just changed.
+
 **A CITATION IS A POINTER, AND A POINTER TO NOTHING READS AS PROVENANCE.** A doc
 comment naming ADR-031 is the only route from that code to the reasoning behind it,
 and it is worth exactly what the record it names is worth. Nothing checked them:

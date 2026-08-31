@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -282,5 +283,209 @@ func TestDoctorSaysWhenAKitShipsNoInjectingHook(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "designed state") {
 		t.Errorf("the message does not say this is the designed state: %v", err)
+	}
+}
+
+// TestDoctorRunsTheHookWithTheRegisteredEndpoint pins the half doctor used to
+// throw away.
+//
+// ⚠ IT RAN A RECONSTRUCTION, NOT THE REGISTRATION. The installer writes
+// `AGENTSMEMORY_MCP_URL='<endpoint>' bash -- <script>`; doctor kept the script
+// path and supplied the endpoint from its own flag, which DEFAULTS TO THE HOSTED
+// URL. So on every self-hosted install it pointed the hook at a palace the
+// operator does not use, the CLI demanded a workspace token for a non-loopback
+// endpoint, and the recall hook's no-credential branch exited 0 — printed to the
+// operator as "no credential configured" on an install that was working. Found
+// 2026-08-31 on a first Windows install, which is where a new operator meets it.
+func TestDoctorRunsTheHookWithTheRegisteredEndpoint(t *testing.T) {
+	// The hook prints what it was given, so the report carries the answer.
+	// It reports on STDERR: doctor prints a hook's stderr verbatim and only a byte
+	// COUNT for its stdout, so stdout could not carry the answer into the report.
+	// That is the shipped recall hook's own shape — it traces to stderr too.
+	const echoEndpoint = "#!/usr/bin/env bash\n# hook-output: stdout-injected\n" +
+		"echo \"saw=$AGENTSMEMORY_MCP_URL\" >&2\n"
+	const registered = "http://127.0.0.1:9/mcp"
+
+	dir := t.TempDir()
+	script := filepath.Join(dir, "agentsmemory-recall-hook.sh")
+	if err := os.WriteFile(script, []byte(echoEndpoint), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// hookCommand is the installer's own writer, so this registration is the one
+	// an install produces rather than a hand-built lookalike.
+	body, err := json.Marshal(map[string]any{"hooks": map[string]any{
+		"SessionStart": []any{map[string]any{"hooks": []any{map[string]any{
+			"type": "command", "command": hookCommand(registered, script),
+		}}}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, claudeKit.hooksFile), body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := runDoctor(t, dir)
+	if err != nil {
+		t.Fatalf("doctor failed on a healthy install: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "saw="+registered) {
+		t.Errorf("the hook did not see the endpoint its registration carries.\nwant saw=%s\n%s",
+			registered, out)
+	}
+	if strings.Contains(out, defaultMCPURL) {
+		t.Errorf("the hook saw doctor's flag default (%s) instead of the registered endpoint — "+
+			"this is the false negative every --local install got:\n%s", defaultMCPURL, out)
+	}
+}
+
+// TestAnUnprefixedRegistrationFallsBackToTheFlag is the falsifiability half, and
+// it drives the SAME function the fix routes through rather than a copy.
+//
+// A corpus where every registration carries a prefix cannot exercise the fallback
+// branch, so this supplies the shapes that are missing: a legacy command with no
+// assignment at all, and a multi-assignment prefix. The verdict goes through a
+// substitutable testing.TB for the reason AGENTS.md records — a falsifiability
+// half that shares nothing with the gate pins nothing, and a severed call site
+// otherwise leaves the suite green while the gate reports success.
+func TestAnUnprefixedRegistrationFallsBackToTheFlag(t *testing.T) {
+	// ⚠ THE END-TO-END HALF, ADDED AFTER REVIEW POINTED OUT THE NAME OVERCLAIMED.
+	// The table below only proved hookCommandEnv returns nothing for a legacy
+	// command; nothing asserted that doctor then USES the flag, which is the
+	// fallback the name promises and the behaviour a legacy install depends on.
+	t.Run("doctor uses the flag when the registration carries no prefix", func(t *testing.T) {
+		if _, err := exec.LookPath("bash"); err != nil {
+			t.Skipf("bash is not installed: %v", err)
+		}
+		const echoEndpoint = "#!/usr/bin/env bash\n# hook-output: stdout-injected\n" +
+			"echo \"saw=$AGENTSMEMORY_MCP_URL\" >&2\n"
+		dir := t.TempDir()
+		script := filepath.Join(dir, "agentsmemory-recall-hook.sh")
+		if err := os.WriteFile(script, []byte(echoEndpoint), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		// bashHookCommand is the OLD, unprefixed shape a pre-2026-08 install wrote.
+		body, err := json.Marshal(map[string]any{"hooks": map[string]any{
+			"SessionStart": []any{map[string]any{"hooks": []any{map[string]any{
+				"type": "command", "command": bashHookCommand(script),
+			}}}},
+		}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, claudeKit.hooksFile), body, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		const flagURL = "http://127.0.0.1:8/mcp"
+		var buf strings.Builder
+		root := rootCommand()
+		root.Writer = &buf
+		if err := root.Run(context.Background(), []string{
+			"aiagentmemory", "doctor", "--target-dir", dir, "--project-dir", t.TempDir(),
+			"--mcp-url", flagURL,
+		}); err != nil {
+			t.Fatalf("doctor failed: %v\n%s", err, buf.String())
+		}
+		if !strings.Contains(buf.String(), "saw="+flagURL) {
+			t.Errorf("an unprefixed registration did not fall back to --mcp-url; the hook saw "+
+				"something other than %s:\n%s", flagURL, buf.String())
+		}
+	})
+
+	for _, tc := range []struct {
+		name string
+		cmd  string
+		want []string
+	}{
+		{"legacy, no assignment", "bash -- '/tmp/hook.sh'", nil},
+		{"the shape install writes", hookCommand("http://127.0.0.1:9/mcp", "/tmp/hook.sh"),
+			[]string{mcpURLEnvVar + "=http://127.0.0.1:9/mcp"}},
+		{"more than one assignment",
+			"A='1' " + hookCommand("http://127.0.0.1:9/mcp", "/tmp/hook.sh"),
+			[]string{"A=1", mcpURLEnvVar + "=http://127.0.0.1:9/mcp"}},
+		{"a value carrying a quote",
+			hookCommand("http://x/'q", "/tmp/hook.sh"),
+			[]string{mcpURLEnvVar + "=http://x/'q"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := hookCommandEnv(tc.cmd)
+			if len(got) != len(tc.want) {
+				t.Fatalf("hookCommandEnv(%q) = %v, want %v", tc.cmd, got, tc.want)
+			}
+			for i := range got {
+				if got[i] != tc.want[i] {
+					t.Errorf("hookCommandEnv(%q)[%d] = %q, want %q", tc.cmd, i, got[i], tc.want[i])
+				}
+			}
+			// The path must still parse whatever the prefix: the two parsers share
+			// splitLeadingAssignment precisely so a command one accepts is one the
+			// other can reproduce.
+			if _, ok := installerHookPath(tc.cmd); !ok {
+				t.Errorf("installerHookPath rejects %q, which hookCommandEnv parsed — the two "+
+					"halves disagree, so doctor would run a command it could not reproduce", tc.cmd)
+			}
+		})
+	}
+}
+
+// TestTheRegistrationDoctorRunsIsDeterministic pins the policy the code states.
+//
+// ⚠ "THE FIRST REGISTRATION THAT SUPPLIES ONE" MEANT WHICHEVER THE RUNTIME YIELDED.
+// settings.json's hooks are a map, Go randomises map iteration, and doctor took
+// the environment from the first event it happened to visit — so for a script
+// registered on two events with different prefixes, the endpoint it ran the hook
+// with, and therefore its verdict, varied between invocations. Reported by review
+// 2026-08-31. The installer registers each script on one event, so this reaches
+// only hand-edited, --copy-ed or older configs: exactly the population doctor
+// exists for.
+func TestTheRegistrationDoctorRunsIsDeterministic(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "agentsmemory-recall-hook.sh")
+	if err := os.WriteFile(script, []byte(injectingHookBody), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// One script, two events, two different endpoints — the shape a hand edit or a
+	// --copy leaves behind.
+	entry := func(url string) any {
+		return map[string]any{"hooks": []any{map[string]any{
+			"type": "command", "command": hookCommand(url, script),
+		}}}
+	}
+	body, err := json.Marshal(map[string]any{"hooks": map[string]any{
+		"SessionStart":     []any{entry("http://127.0.0.1:1/mcp")},
+		"UserPromptSubmit": []any{entry("http://127.0.0.1:2/mcp")},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	settings := filepath.Join(dir, claudeKit.hooksFile)
+	if err := os.WriteFile(settings, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Many reads: a map-order dependency shows up as disagreement between them.
+	first, err := registeredHookEvents(settings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	name := filepath.Base(script)
+	if len(first[name].env) == 0 {
+		t.Fatal("no environment was read at all, so this test would pass whatever the order was")
+	}
+	for i := 0; i < 50; i++ {
+		got, err := registeredHookEvents(settings)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Join(got[name].env, " ") != strings.Join(first[name].env, " ") {
+			t.Fatalf("read %d chose a different environment: %v then %v — doctor's verdict "+
+				"depends on which event Go's map iteration happened to yield",
+				i, first[name].env, got[name].env)
+		}
+	}
+	// And it is the FIRST event in a defined order, not merely a stable accident.
+	if want := mcpURLEnvVar + "=http://127.0.0.1:1/mcp"; first[name].env[0] != want {
+		t.Errorf("env = %v, want the SessionStart prefix (%s) — events are ordered by name so "+
+			"the choice is explainable, not just repeatable", first[name].env, want)
 	}
 }
