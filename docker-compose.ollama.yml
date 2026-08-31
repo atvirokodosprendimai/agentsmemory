@@ -55,6 +55,29 @@ services:
       # .env.docker: the server asks for that name, and a name Ollama has not
       # pulled fails every write with a 404 from /api/embed.
       OLLAMA_EMBED_MODEL: ${OLLAMA_EMBED_MODEL:-bge-m3}
+    # Leave the machine usable while a corpus is being embedded.
+    #
+    # ⚠ THIS IS THE ONE THAT BITES A LAPTOP. Embedding a real corpus saturates
+    # every core: measured 2026-08-31 on a CPU-only 16GB host, one batch of 64
+    # chunks took 121 SECONDS, and while it ran a 10ms session-end hook took over
+    # a second and the harness started cancelling hooks. The cap is what keeps a
+    # `mine-claude` run in the background instead of in the way.
+    #
+    # ⚠ THE QUOTA IS THE ONLY LEVER HERE. Ollama has no thread setting to match
+    # it with — OLLAMA_NUM_PARALLEL bounds concurrent REQUESTS, not threads — so
+    # unlike the reranker this throttles a thread pool sized for the whole host
+    # rather than shrinking it. It still bounds the damage, and it is why
+    # embedding a large corpus is slower with this set than without: that is the
+    # trade being made deliberately.
+    #
+    # ⚠ AND DOCKER REFUSES A LIMIT ABOVE THE HOST'S CPU COUNT — "range of CPUs is
+    # from 0.01 to N.00" at `up`, not a warning. On a smaller host set
+    # AGENTSMEMORY_OLLAMA_CPUS lower; Compose reads it from your shell or a .env
+    # beside this file, NOT from .env.docker.
+    deploy:
+      resources:
+        limits:
+          cpus: "${AGENTSMEMORY_OLLAMA_CPUS:-2}"
     # Serve first, then pull in the background: `ollama pull` needs the daemon it
     # is pulling into, so the two cannot be sequenced the other way round. $$ is
     # an escaped $ — Compose interpolates single ones itself.

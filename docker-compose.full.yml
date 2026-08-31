@@ -173,6 +173,33 @@ services:
       - "2048"
       - "-ub"
       - "2048"
+      # ⚠ THREADS AND THE CGROUP QUOTA MUST AGREE, and the quota alone does not
+      # make them. llama.cpp sizes its thread pool from the HOST's cpu count,
+      # which a cgroup limit does not change — so a container capped at 2 CPUs
+      # still starts ten threads and spends the quota context-switching between
+      # them. Setting both is what turns a cap into less CPU used rather than the
+      # same CPU used worse.
+      - "-t"
+      - "${AGENTSMEMORY_RERANK_CPUS:-2}"
+    # Leave the machine usable while a search is being reranked.
+    #
+    # ⚠ IT IS A REAL TRADE, NOT A FREE WIN. Measured on this stack: 60 traced
+    # rerank calls at pool 20 took a mean of 11.4s on an UNCAPPED CPU, and 44 of
+    # them already overran RERANK_TIMEOUT above. Fewer cores makes that slower,
+    # and an overrun fails open to the fused order — so capping buys system
+    # responsiveness by spending rerank precision. Raise it if reranking matters
+    # more than the rest of the box; the span says which happened
+    # (failed_open reason=timeout).
+    #
+    # ⚠ AND DOCKER REFUSES A LIMIT ABOVE THE HOST'S CPU COUNT — "range of CPUs is
+    # from 0.01 to N.00" at `up`, not a warning. On a host with fewer cores than
+    # this default, set AGENTSMEMORY_RERANK_CPUS lower rather than reading that
+    # error as a broken compose file. Compose reads it from your shell or a .env
+    # beside this file, NOT from .env.docker.
+    deploy:
+      resources:
+        limits:
+          cpus: "${AGENTSMEMORY_RERANK_CPUS:-2}"
     volumes:
       - reranker-models:/root/.cache/llama.cpp
     healthcheck:
