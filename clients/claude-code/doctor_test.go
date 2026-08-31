@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -348,6 +349,49 @@ func TestDoctorRunsTheHookWithTheRegisteredEndpoint(t *testing.T) {
 // half that shares nothing with the gate pins nothing, and a severed call site
 // otherwise leaves the suite green while the gate reports success.
 func TestAnUnprefixedRegistrationFallsBackToTheFlag(t *testing.T) {
+	// ⚠ THE END-TO-END HALF, ADDED AFTER REVIEW POINTED OUT THE NAME OVERCLAIMED.
+	// The table below only proved hookCommandEnv returns nothing for a legacy
+	// command; nothing asserted that doctor then USES the flag, which is the
+	// fallback the name promises and the behaviour a legacy install depends on.
+	t.Run("doctor uses the flag when the registration carries no prefix", func(t *testing.T) {
+		if _, err := exec.LookPath("bash"); err != nil {
+			t.Skipf("bash is not installed: %v", err)
+		}
+		const echoEndpoint = "#!/usr/bin/env bash\n# hook-output: stdout-injected\n" +
+			"echo \"saw=$AGENTSMEMORY_MCP_URL\" >&2\n"
+		dir := t.TempDir()
+		script := filepath.Join(dir, "agentsmemory-recall-hook.sh")
+		if err := os.WriteFile(script, []byte(echoEndpoint), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		// bashHookCommand is the OLD, unprefixed shape a pre-2026-08 install wrote.
+		body, err := json.Marshal(map[string]any{"hooks": map[string]any{
+			"SessionStart": []any{map[string]any{"hooks": []any{map[string]any{
+				"type": "command", "command": bashHookCommand(script),
+			}}}},
+		}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, claudeKit.hooksFile), body, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		const flagURL = "http://127.0.0.1:8/mcp"
+		var buf strings.Builder
+		root := rootCommand()
+		root.Writer = &buf
+		if err := root.Run(context.Background(), []string{
+			"aiagentmemory", "doctor", "--target-dir", dir, "--project-dir", t.TempDir(),
+			"--mcp-url", flagURL,
+		}); err != nil {
+			t.Fatalf("doctor failed: %v\n%s", err, buf.String())
+		}
+		if !strings.Contains(buf.String(), "saw="+flagURL) {
+			t.Errorf("an unprefixed registration did not fall back to --mcp-url; the hook saw "+
+				"something other than %s:\n%s", flagURL, buf.String())
+		}
+	})
+
 	for _, tc := range []struct {
 		name string
 		cmd  string

@@ -127,21 +127,40 @@ func (s *stubMineClient) CallTool(_ context.Context, req mcp.CallToolRequest) (*
 	return &mcp.CallToolResult{Content: []mcp.Content{mcp.TextContent{Type: "text", Text: "ok"}}}, nil
 }
 
-// mineFixtureDir writes n transcripts big enough to clear the min-chars floor and
-// returns the directory holding them.
-func mineFixtureDir(t *testing.T, n int) []string {
+// mineFixtureDir writes n transcripts big enough to clear the min-chars floor,
+// each rendering to turnsPerSession parts, and returns their paths.
+//
+// ⚠ turnsPerSession EXISTS BECAUSE ONE PART PER SESSION LEFT A BRANCH UNTESTED.
+// A session whose parts PARTLY land takes the partFailed path — counted skipped
+// rather than mined — and a fixture that renders one part each can never reach
+// it. Found by review, 2026-08-31.
+func mineFixtureDir(t *testing.T, n, partsPerSession int) []string {
 	t.Helper()
 	dir := t.TempDir()
-	// One long turn per session, so each session is filed as one part and the
-	// count of parts is predictable.
+	// ⚠ SIZED OFF THE REAL CAPS, because the obvious fixture does not split. A
+	// turn is trimmed to mineUserTurnCap first, so one enormous turn still yields
+	// ONE part however long it is — the first version of this helper wrote a
+	// 45000-rune turn and got a single part. Parts come from turn COUNT: each
+	// full turn contributes mineUserTurnCap runes toward mineDocCap.
+	turnsPerPart := mineDocCap/mineUserTurnCap + 1
 	body := strings.Repeat("the deploy races the migration and the health check wins. ", 40)
+	full := strings.Repeat("x", mineUserTurnCap)
 	var files []string
 	for i := 0; i < n; i++ {
-		line := fmt.Sprintf(
-			`{"type":"user","cwd":"/home/u/proj%d","timestamp":"2026-08-01T10:00:00Z","message":{"role":"user","content":%q}}`,
-			i, body)
+		var lines []string
+		turns := 1
+		text := body
+		if partsPerSession > 1 {
+			turns = turnsPerPart * partsPerSession
+			text = full
+		}
+		for turn := 0; turn < turns; turn++ {
+			lines = append(lines, fmt.Sprintf(
+				`{"type":"user","cwd":"/home/u/proj%d","timestamp":"2026-08-01T10:00:00Z","message":{"role":"user","content":%q}}`,
+				i, text))
+		}
 		path := filepath.Join(dir, fmt.Sprintf("session-%d.jsonl", i))
-		if err := os.WriteFile(path, []byte(line+"\n"), 0o644); err != nil {
+		if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 		files = append(files, path)
@@ -173,7 +192,7 @@ func mineFlags(t *testing.T) *cli.Command {
 // by source id, so the partial result was always keepable and re-running was
 // always the recovery.
 func TestMineContinuesPastAFailedPart(t *testing.T) {
-	files := mineFixtureDir(t, 4)
+	files := mineFixtureDir(t, 4, 1)
 	client := &stubMineClient{failAt: 2}
 	var out bytes.Buffer
 
@@ -206,7 +225,7 @@ func TestMineContinuesPastAFailedPart(t *testing.T) {
 // TestMineReportsNoFailuresWhenEverythingLands is the falsifiability half: a
 // counter that is hardcoded, or an error returned unconditionally, fails here.
 func TestMineReportsNoFailuresWhenEverythingLands(t *testing.T) {
-	files := mineFixtureDir(t, 3)
+	files := mineFixtureDir(t, 3, 1)
 	client := &stubMineClient{}
 	var out bytes.Buffer
 
@@ -219,5 +238,36 @@ func TestMineReportsNoFailuresWhenEverythingLands(t *testing.T) {
 	}
 	if len(client.seen) != len(files) {
 		t.Errorf("filed %d of %d sessions:\n%s", len(client.seen), len(files), report)
+	}
+}
+
+// TestASessionWhosePartsPartlyLandIsNotCountedMined covers the branch a one-part
+// fixture cannot reach.
+//
+// ⚠ REPORTED BY REVIEW: every mine fixture rendered ONE part per session, so the
+// partFailed path — where some parts of a session file and others do not — was
+// written and never executed by a test. It is the branch that decides whether a
+// half-filed session is reported as mined, and reporting it as mined is how a
+// partial corpus reads as a complete one.
+func TestASessionWhosePartsPartlyLandIsNotCountedMined(t *testing.T) {
+	files := mineFixtureDir(t, 1, 3)
+	client := &stubMineClient{failAt: 2} // the middle part of the only session
+	var out bytes.Buffer
+
+	err := mineFiles(context.Background(), mineFlags(t), &out, client, files)
+	if err == nil {
+		t.Error("a session with a failed part exited 0")
+	}
+	report := out.String()
+	if len(client.seen) < 3 {
+		t.Fatalf("the run attempted %d part(s); a failed part must not end the SESSION either:\n%s",
+			len(client.seen), report)
+	}
+	if strings.Contains(report, "  mined ") {
+		t.Errorf("a session whose parts only partly landed was reported as mined — a partial "+
+			"corpus then reads as a complete one:\n%s", report)
+	}
+	if !strings.Contains(report, "skipped 1") {
+		t.Errorf("the half-filed session was not counted as skipped:\n%s", report)
 	}
 }

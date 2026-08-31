@@ -75,19 +75,46 @@ func TestTheWindowsAssetCarriesItsSuffixEverywhere(t *testing.T) {
 			"URL 404s", name)
 	}
 
+	// ⚠ "MENTIONS .exe" IS NOT A CHECK, and the first version of this test did
+	// exactly that — a comment carrying the word satisfied it. Review pointed it
+	// out. Each file is now checked for the line that DOES the naming.
 	root := filepath.Clean("../..")
-	for _, f := range []string{
-		filepath.Join(root, ".github", "workflows", "release.yml"),
-		filepath.Join(root, "clients", "claude-code", "install.sh"),
+	for _, tc := range []struct {
+		file, want, why string
+	}{
+		{
+			filepath.Join(root, ".github", "workflows", "release.yml"),
+			`[ "$GOOS" = windows ] && out="${out}.exe"`,
+			"the release publishes an asset whose name update expects",
+		},
+		{
+			filepath.Join(root, "clients", "claude-code", "install.sh"),
+			`[ "$os" = "windows" ] && asset="${asset}.exe"`,
+			"the installer downloads the asset the release publishes",
+		},
+		{
+			filepath.Join(root, "clients", "claude-code", "install.sh"),
+			`[ "$os" = "windows" ] && BIN="${BIN}.exe"`,
+			"every later invocation, and the MCP registration, name a file Windows will run",
+		},
 	} {
-		raw, err := os.ReadFile(f)
+		raw, err := os.ReadFile(tc.file)
 		if err != nil {
-			t.Fatalf("read %s: %v", f, err)
+			t.Fatalf("read %s: %v", tc.file, err)
 		}
-		if !strings.Contains(string(raw), ".exe") {
-			t.Errorf("%s never mentions .exe, so it cannot be naming the Windows asset the "+
-				"other two halves agree on", filepath.Base(f))
+		if !strings.Contains(string(raw), tc.want) {
+			t.Errorf("%s does not carry %q, so %s is not actually true",
+				filepath.Base(tc.file), tc.want, tc.why)
 		}
+	}
+	// release.yml must do it for BOTH published binaries, not just the first.
+	raw, err := os.ReadFile(filepath.Join(root, ".github", "workflows", "release.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := strings.Count(string(raw), `&& out="${out}.exe"`); n < 2 {
+		t.Errorf("release.yml appends .exe %d time(s); the CLI and the server are two assets and "+
+			"both are downloaded by name", n)
 	}
 }
 
