@@ -382,6 +382,45 @@ func (r *Repo) ClosetIDsBySource(ctx context.Context, teamID, source string) ([]
 	return ids, nil
 }
 
+// EmbeddedClosetDocumentsBySource returns id -> document for every closet of a
+// source that already carries a vector, which is the set a re-mine may keep
+// instead of rebuilding.
+//
+// ⚠ EMBEDDED ONLY, for the reason EmbeddedIDsByContentKeys carries the same
+// guard: a closet row can exist with no vector (SaveClosetsUnembedded, with the
+// background worker to follow), and keeping one of those would preserve a row
+// that nothing can find while skipping the rebuild that would have embedded it.
+func (r *Repo) EmbeddedClosetDocumentsBySource(ctx context.Context, teamID, source string) (map[string]string, error) {
+	var rows []closetRow
+	if err := r.db.WithContext(ctx).
+		Select("id", "document").
+		Where("team_id = ? AND source_file = ? AND embedded_at IS NOT NULL", teamID, source).
+		Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := make(map[string]string, len(rows))
+	for _, row := range rows {
+		out[row.ID] = row.Document
+	}
+	return out, nil
+}
+
+// DeleteClosetsByIDsForSource removes the named closet rows, which is the purge
+// narrowed to what a re-mine is actually replacing.
+func (r *Repo) DeleteClosetsByIDsForSource(ctx context.Context, teamID string, ids []string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	for _, batch := range chunkIDs(ids) {
+		if err := r.db.WithContext(ctx).
+			Where("team_id = ? AND id IN ?", teamID, batch).
+			Delete(&closetRow{}).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // DeleteClosetsBySource removes every closet row for a source within a team — the
 // row half of a closet purge (the caller drops the matching vectors).
 func (r *Repo) DeleteClosetsBySource(ctx context.Context, teamID, source string) error {

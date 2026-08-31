@@ -289,3 +289,147 @@ func TestReMiningAFiledButUnembeddedRowStillEmbedsIt(t *testing.T) {
 			"texts embedded by the second mine: %q", embedder.texts[mark:])
 	}
 }
+
+// TestReMiningUnchangedContentDoesNotReEmbedClosets is the other half of the
+// re-mine cost, and after the drawer fix it is ALL of it.
+//
+// ⚠ MEASURED BEFORE IT WAS FIXED: one closet against 71 drawer chunks on a 90k
+// source — 1% of a first mine, and 100% of what a re-mine of an unchanged corpus
+// still paid once the drawers were skipped. On the reporter's 249-session corpus
+// that is 249 embeddings to discover nothing had changed.
+//
+// The closet purge is deferred rather than eager for this: a closet's id is its
+// POSITION in the source, not a hash of its text, so "unchanged" is only knowable
+// by comparing documents — and the eager purge destroyed the document before
+// anything could compare it.
+func TestReMiningUnchangedContentDoesNotReEmbedClosets(t *testing.T) {
+	ctx := context.Background()
+	embedder := &recordingEmbedder{}
+	svc := newTestServiceWith(t, embedder)
+	const team, wing, room, source = "team-closet-reuse", "wing_alpha", "sessions", "claude-session/proj/abc#p1"
+	body := strings.Repeat("the deploy races the migration and the health check wins. ", 40)
+
+	first, err := svc.Mine(ctx, team, MineInput{Wing: wing, Room: room, Source: source, Content: body})
+	if err != nil {
+		t.Fatalf("first mine: %v", err)
+	}
+	if first.Closets == 0 {
+		t.Fatal("the first mine built no closets, so this test would prove nothing")
+	}
+	mark := len(embedder.texts)
+
+	second, err := svc.Mine(ctx, team, MineInput{Wing: wing, Room: room, Source: source, Content: body})
+	if err != nil {
+		t.Fatalf("re-mine: %v", err)
+	}
+	if n := len(embedder.texts) - mark; n != 0 {
+		t.Errorf("a re-mine of unchanged content embedded %d text(s), want 0 — with the drawers "+
+			"already skipped, the closets are the whole remaining cost of discovering that "+
+			"nothing changed:\n%q", n, embedder.texts[mark:])
+	}
+	if second.Closets != first.Closets {
+		t.Errorf("re-mine reports %d closet(s), first reported %d — reuse must not change what "+
+			"the source is said to hold", second.Closets, first.Closets)
+	}
+	// The kept closet must still be there, with its vector, or "reuse" means lost.
+	var rows []closetRow
+	if err := svc.repo.db.Where("team_id = ? AND source_file = ?", team, source).Find(&rows).Error; err != nil {
+		t.Fatalf("read back: %v", err)
+	}
+	if len(rows) != first.Closets {
+		t.Fatalf("re-mine left %d closet row(s), want %d", len(rows), first.Closets)
+	}
+	for _, row := range rows {
+		if row.EmbeddedAt == nil {
+			t.Errorf("kept closet %s has no vector, so the reuse made it unfindable", row.ID)
+		}
+	}
+}
+
+// TestReMiningChangedContentReplacesItsClosets is the falsifiability half: keeping
+// every closet unconditionally would pass the test above while freezing the
+// closet index at whatever the first mine said.
+func TestReMiningChangedContentReplacesItsClosets(t *testing.T) {
+	ctx := context.Background()
+	embedder := &recordingEmbedder{}
+	svc := newTestServiceWith(t, embedder)
+	const team, wing, room, source = "team-closet-change", "wing_alpha", "sessions", "claude-session/proj/abc#p1"
+
+	if _, err := svc.Mine(ctx, team, MineInput{Wing: wing, Room: room, Source: source,
+		Content: strings.Repeat("the original session text that will be replaced wholesale. ", 40)}); err != nil {
+		t.Fatalf("first mine: %v", err)
+	}
+	var before []closetRow
+	if err := svc.repo.db.Where("team_id = ? AND source_file = ?", team, source).Find(&before).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(before) == 0 {
+		t.Fatal("no closets to replace")
+	}
+	mark := len(embedder.texts)
+
+	if _, err := svc.Mine(ctx, team, MineInput{Wing: wing, Room: room, Source: source,
+		Content: strings.Repeat("a completely different session about migrations and rollbacks. ", 40)}); err != nil {
+		t.Fatalf("re-mine: %v", err)
+	}
+	if len(embedder.texts) == mark {
+		t.Fatal("changed content embedded nothing at all")
+	}
+	var after []closetRow
+	if err := svc.repo.db.Where("team_id = ? AND source_file = ?", team, source).Find(&after).Error; err != nil {
+		t.Fatal(err)
+	}
+	byID := make(map[string]string, len(before))
+	for _, row := range before {
+		byID[row.ID] = row.Document
+	}
+	var replaced bool
+	for _, row := range after {
+		if doc, ok := byID[row.ID]; ok && doc != row.Document {
+			replaced = true
+		}
+	}
+	if !replaced {
+		t.Error("no closet document changed after the source was rewritten — the closet index " +
+			"is frozen at what the first mine said, so search points at text that is gone")
+	}
+}
+
+// TestReMiningToNothingLeavesNoClosets pins the guarantee the eager purge used to
+// give for free.
+//
+// ⚠ DEFERRING THE PURGE MOVED A PROMISE, AND A MOVED PROMISE NEEDS ITS OWN TEST.
+// The old code purged closets before writing anything, so a re-mine that produced
+// FEWER — or zero — closets could not leave orphans; the reuse rule made that
+// purge conditional, and severing it broke nothing in the suite. A source whose
+// content falls below the chunk floor produces no closets at all, and its prior
+// ones must still go: a closet left behind points search at drawers that no
+// longer exist.
+func TestReMiningToNothingLeavesNoClosets(t *testing.T) {
+	ctx := context.Background()
+	svc := newTestService(t)
+	const team, wing, room, source = "team-closet-orphan", "wing_alpha", "sessions", "claude-session/proj/abc#p1"
+
+	first, err := svc.Mine(ctx, team, MineInput{Wing: wing, Room: room, Source: source,
+		Content: strings.Repeat("a session long enough to produce a closet worth orphaning. ", 40)})
+	if err != nil {
+		t.Fatalf("first mine: %v", err)
+	}
+	if first.Closets == 0 {
+		t.Fatal("the first mine built no closets, so there is nothing to orphan")
+	}
+
+	// Below MineChunkMin: the source now yields no chunks and no closets.
+	if _, err := svc.Mine(ctx, team, MineInput{Wing: wing, Room: room, Source: source, Content: "gone"}); err != nil {
+		t.Fatalf("re-mine: %v", err)
+	}
+	var rows []closetRow
+	if err := svc.repo.db.Where("team_id = ? AND source_file = ?", team, source).Find(&rows).Error; err != nil {
+		t.Fatalf("read back: %v", err)
+	}
+	if len(rows) != 0 {
+		t.Errorf("%d closet(s) survived a re-mine that produced none — they point at drawers "+
+			"that no longer exist, which is the orphan the eager purge existed to prevent",
+			len(rows))
+	}
+}
