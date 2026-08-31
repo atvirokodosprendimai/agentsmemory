@@ -1238,16 +1238,45 @@ func (r *Repo) BackfillWingRoots(ctx context.Context) (int, error) {
 		TeamID string `gorm:"column:team_id"`
 		Wing   string `gorm:"column:wing"`
 	}
-	var rows []wingRow
-	err := r.db.WithContext(ctx).Model(&drawerRow{}).
-		Select("DISTINCT team_id, wing").
-		Where("room = ? AND valid_to = ''", EntryRoom).
+	// ⚠ THE UNIVERSE IS EDGES, NOT ROWS, and keying it on rows gave a root to a
+	// room a session cannot read. am_entry_point resolves the room node's `holds`
+	// edges, which attachDerivedEdge mints at FILE time — so a wing whose entry
+	// drawers predate that mechanism has current rows and no edges, and it is
+	// exactly the population this backfill exists for. Rooting it produced the
+	// shape this function's own comment calls worse than unknown_term: the root
+	// resolves `matched`, and one hop on the room answers known_term_no_facts with
+	// zero edges. Reported by review 2026-08-31 and reproduced here before the fix.
+	//
+	// Selecting on live holds edges SUBSUMES the valid_to guard rather than
+	// replacing it: endDerivedEdgesFor ends a room's holds edge when the drawer it
+	// points at is retracted, so a fully retracted entry room has no live edge
+	// either — which TestBackfillLeavesAWingWithNoLiveEntryRecordNameless still
+	// proves, unchanged, against this narrower query.
+	var rows []struct {
+		TeamID  string `gorm:"column:team_id"`
+		Subject string `gorm:"column:subject"`
+	}
+	err := r.db.WithContext(ctx).Model(&kgTripleRow{}).
+		Select("DISTINCT team_id, subject").
+		Where("predicate = ? AND valid_to = '' AND subject LIKE ?",
+			normalizePredicate(DerivedEdgePredicate), "room:%/"+EntryRoom).
 		Find(&rows).Error
 	if err != nil {
-		return 0, fmt.Errorf("read wings with an entry room: %w", err)
+		return 0, fmt.Errorf("read the entry rooms a session can read: %w", err)
 	}
-	minted := 0
+	wings := make([]wingRow, 0, len(rows))
 	for _, row := range rows {
+		// The room entity is "room:<wing>/<room>"; a wing name is sanitised and
+		// carries no slash, so trimming both ends recovers it exactly.
+		wing := strings.TrimSuffix(strings.TrimPrefix(row.Subject, "room:"), "/"+EntryRoom)
+		if wing == "" || wing == row.Subject {
+			continue
+		}
+		wings = append(wings, wingRow{TeamID: row.TeamID, Wing: wing})
+	}
+	rowsOut := wings
+	minted := 0
+	for _, row := range rowsOut {
 		subID := normalizeEntityID(WingRootSubject(row.Wing))
 		objID := normalizeEntityID(DerivedEdgeSubject(row.Wing, EntryRoom))
 		p := normalizePredicate(DerivedEdgePredicate)

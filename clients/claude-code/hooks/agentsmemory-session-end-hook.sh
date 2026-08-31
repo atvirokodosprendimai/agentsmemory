@@ -45,10 +45,20 @@ set -uo pipefail
 # for: a shutdown that holds stdin open. The newline form recovers the two shapes
 # that actually occur — payload then newline, and payload then EOF.
 #
-# ⚠ RESIDUAL, AND IT IS A DEGRADATION RATHER THAN A FAILURE: a payload with no
-# trailing newline, on a stdin that never closes, is still lost. STATS_QUERY then
-# keeps the fixed window it was given before INPUT is consulted, which is a wider
-# report rather than no report — the fallback this whole change exists to reach.
+# ⚠ RESIDUALS, AND BOTH ARE DEGRADATIONS RATHER THAN FAILURES. STATS_QUERY keeps
+# the fixed window it was given before INPUT is consulted, so each costs a wider
+# report rather than no report — the fallback this whole change exists to reach:
+#
+#   - a payload with no trailing newline, on a stdin that never closes, is lost;
+#   - `read` takes ONE LINE, so a pretty-printed payload yields its first line
+#     alone, which carries no transcript_path. Named here rather than fixed with a
+#     read-to-EOF loop, because such a loop pays the FULL timeout on every healthy
+#     invocation — the harness closes stdin and the loop would still wait for its
+#     bound before seeing EOF, which is the cost this change exists to remove.
+#     Claude Code sends compact single-line JSON; if that ever changes, the loop
+#     is the fix and the timeout is the price. Second residual reported by review
+#     2026-08-31, which read the paragraph as exhaustive because it was written
+#     that way.
 INPUT=""
 IFS= read -r -t "${AGENTSMEMORY_STATS_STDIN_TIMEOUT:-1}" INPUT || true
 

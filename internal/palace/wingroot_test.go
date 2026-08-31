@@ -454,3 +454,59 @@ func unroot(t *testing.T, svc *Service, teamID, wing string) {
 			"anything about the backfill:\n%+v", len(q.Facts), wing, q.Facts)
 	}
 }
+
+// TestBackfillLeavesAnEntryRoomWithNoLiveEdgeNameless covers the population the
+// row-keyed version of this backfill rooted by mistake.
+//
+// ⚠ REPORTED BY REVIEW 2026-08-31, AND IT IS THE POPULATION THE BACKFILL EXISTS
+// FOR. am_entry_point resolves the room node's `holds` edges, which
+// attachDerivedEdge mints at FILE time — so a wing whose entry drawers predate
+// THAT mechanism has current rows and no edges. Keying the backfill on rows gave
+// it a root anyway, producing the shape this file's own comments call worse than
+// unknown_term: the root resolves `matched` while the room behind it answers
+// known_term_no_facts with zero edges. Measured before the fix, on a fixture
+// seeded through Add with the root and the room's holds edges then deleted.
+//
+// No fixture reproduced it because every fixture seeds through Add, which mints
+// the edges too — which is exactly why the review found it and the suite did not.
+func TestBackfillLeavesAnEntryRoomWithNoLiveEdgeNameless(t *testing.T) {
+	ctx := context.Background()
+	svc := newTestService(t)
+	const team, wing = "team-noedge", "wing_alpha"
+
+	if _, err := svc.Add(ctx, team, AddInput{
+		Wing: wing, Room: EntryRoom, Content: "WHAT MUST I LOAD AT THE START OF A SESSION?",
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	// The pre-attachDerivedEdge corpus: the drawer row is current, the root and the
+	// room's holds edges are not there.
+	root := normalizeEntityID(WingRootSubject(wing))
+	room := normalizeEntityID(DerivedEdgeSubject(wing, EntryRoom))
+	if err := svc.repo.db.Exec(
+		"DELETE FROM kg_triples WHERE team_id = ? AND (subject = ? OR subject = ?)", team, root, room,
+	).Error; err != nil {
+		t.Fatalf("strip the edges: %v", err)
+	}
+	var live int64
+	if err := svc.repo.db.Model(&drawerRow{}).
+		Where("team_id = ? AND room = ? AND valid_to = ''", team, EntryRoom).
+		Count(&live).Error; err != nil {
+		t.Fatalf("count entry drawers: %v", err)
+	}
+	if live == 0 {
+		t.Fatal("the fixture has no live entry drawer, so it does not reproduce the corpus " +
+			"this test is about — a row-keyed backfill would skip it for the right reason")
+	}
+
+	minted, err := svc.repo.BackfillWingRoots(ctx)
+	if err != nil {
+		t.Fatalf("backfill: %v", err)
+	}
+	if minted != 0 {
+		t.Errorf("backfill minted %d root(s) for a wing whose entry room has a live ROW but no "+
+			"live EDGE. The root then resolves `matched` while the room behind it answers "+
+			"known_term_no_facts with zero edges — a door with a name and nothing behind it, "+
+			"which is the answer this backfill's own guard calls worse than unknown_term", minted)
+	}
+}

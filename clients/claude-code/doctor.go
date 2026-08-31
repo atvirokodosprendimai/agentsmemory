@@ -531,7 +531,21 @@ func registeredHookEvents(settingsPath string) (map[string]hookRegistration, err
 			"be a false alarm on a working install", settingsPath, err)
 	}
 	out := map[string]hookRegistration{}
-	for event, matchers := range doc.Hooks {
+	// ⚠ SORTED, BECAUSE "THE FIRST REGISTRATION" HAS TO MEAN SOMETHING. doc.Hooks
+	// is a map and Go randomises map iteration, so the environment doctor ran a
+	// hook with — and therefore its verdict — varied between invocations whenever
+	// one script was registered on two events with different prefixes. The shipped
+	// installer registers each script on exactly one event, so this only reaches a
+	// hand-edited, --copy-ed or older config: precisely the population doctor
+	// exists for, and a checker whose answer changes run to run is the one thing it
+	// cannot be. Reported by review 2026-08-31.
+	events := make([]string, 0, len(doc.Hooks))
+	for event := range doc.Hooks {
+		events = append(events, event)
+	}
+	sort.Strings(events)
+	for _, event := range events {
+		matchers := doc.Hooks[event]
 		for _, m := range matchers {
 			for _, h := range m.Hooks {
 				// installerHookPath is the installer's own parser for the command

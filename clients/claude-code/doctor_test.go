@@ -427,3 +427,65 @@ func TestAnUnprefixedRegistrationFallsBackToTheFlag(t *testing.T) {
 		})
 	}
 }
+
+// TestTheRegistrationDoctorRunsIsDeterministic pins the policy the code states.
+//
+// ⚠ "THE FIRST REGISTRATION THAT SUPPLIES ONE" MEANT WHICHEVER THE RUNTIME YIELDED.
+// settings.json's hooks are a map, Go randomises map iteration, and doctor took
+// the environment from the first event it happened to visit — so for a script
+// registered on two events with different prefixes, the endpoint it ran the hook
+// with, and therefore its verdict, varied between invocations. Reported by review
+// 2026-08-31. The installer registers each script on one event, so this reaches
+// only hand-edited, --copy-ed or older configs: exactly the population doctor
+// exists for.
+func TestTheRegistrationDoctorRunsIsDeterministic(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "agentsmemory-recall-hook.sh")
+	if err := os.WriteFile(script, []byte(injectingHookBody), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// One script, two events, two different endpoints — the shape a hand edit or a
+	// --copy leaves behind.
+	entry := func(url string) any {
+		return map[string]any{"hooks": []any{map[string]any{
+			"type": "command", "command": hookCommand(url, script),
+		}}}
+	}
+	body, err := json.Marshal(map[string]any{"hooks": map[string]any{
+		"SessionStart":     []any{entry("http://127.0.0.1:1/mcp")},
+		"UserPromptSubmit": []any{entry("http://127.0.0.1:2/mcp")},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	settings := filepath.Join(dir, claudeKit.hooksFile)
+	if err := os.WriteFile(settings, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Many reads: a map-order dependency shows up as disagreement between them.
+	first, err := registeredHookEvents(settings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	name := filepath.Base(script)
+	if len(first[name].env) == 0 {
+		t.Fatal("no environment was read at all, so this test would pass whatever the order was")
+	}
+	for i := 0; i < 50; i++ {
+		got, err := registeredHookEvents(settings)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Join(got[name].env, " ") != strings.Join(first[name].env, " ") {
+			t.Fatalf("read %d chose a different environment: %v then %v — doctor's verdict "+
+				"depends on which event Go's map iteration happened to yield",
+				i, first[name].env, got[name].env)
+		}
+	}
+	// And it is the FIRST event in a defined order, not merely a stable accident.
+	if want := mcpURLEnvVar + "=http://127.0.0.1:1/mcp"; first[name].env[0] != want {
+		t.Errorf("env = %v, want the SessionStart prefix (%s) — events are ordered by name so "+
+			"the choice is explainable, not just repeatable", first[name].env, want)
+	}
+}

@@ -264,9 +264,16 @@ func (s *Service) Mine(ctx context.Context, teamID string, in MineInput) (result
 }
 
 // buildAndStoreClosets constructs the source's closet pointer lines, packs them
-// into closet documents, embeds those documents, and stores them (rows + vectors
-// in the closet namespace). It returns the number of closets written. The source's
-// old closets were already purged by Mine, so this only writes the new set.
+// into closet documents, and stores the ones that changed (rows + vectors in the
+// closet namespace), returning how many closets the source now HAS — kept and
+// written together, which is what MineResult.Closets means.
+//
+// ⚠ IT OWNS THE PURGE NOW, and the sentence that used to live here said Mine had
+// already done it. That stopped being true when the closet reuse landed: the prior
+// set is snapshotted before the purge and passed in as `prior`, the stale set is
+// computed from what the new documents keep, and purgeClosetSourceExcept runs from
+// HERE. Caught by review 2026-08-31 — a comment contradicting the function under
+// it is the drift this repo gates in both directions.
 func (s *Service) buildAndStoreClosets(ctx context.Context, teamID, wing, room, source, content, contentDate, filedAt, filedAtDate string, chunks []mineChunk, drawers []Drawer, prior map[string]string) (int, error) {
 	drawerIDs := make([]string, len(drawers))
 	for i, d := range drawers {
