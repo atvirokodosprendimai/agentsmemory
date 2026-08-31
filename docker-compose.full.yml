@@ -180,16 +180,44 @@ services:
       # them. Setting both is what turns a cap into less CPU used rather than the
       # same CPU used worse.
       - "-t"
-      - "${AGENTSMEMORY_RERANK_CPUS:-2}"
+      - "${AGENTSMEMORY_RERANK_CPUS:-4}"
     # Leave the machine usable while a search is being reranked.
     #
-    # ⚠ IT IS A REAL TRADE, NOT A FREE WIN. Measured on this stack: 60 traced
-    # rerank calls at pool 20 took a mean of 11.4s on an UNCAPPED CPU, and 44 of
-    # them already overran RERANK_TIMEOUT above. Fewer cores makes that slower,
-    # and an overrun fails open to the fused order — so capping buys system
-    # responsiveness by spending rerank precision. Raise it if reranking matters
-    # more than the rest of the box; the span says which happened
-    # (failed_open reason=timeout).
+    # ⚠ THE DEFAULTS ARE SIZED TO BE VALID EVERYWHERE, NOT TO USE YOUR BOX.
+    # Compose cannot read `nproc`, and Docker REFUSES a limit above the host's cpu
+    # count ("range of CPUs is from 0.01 to N.00" at `up`, not a warning), so a
+    # default that suits a 16-core machine breaks a 4-core one outright. These
+    # therefore fit a small host, and a bigger host should say so:
+    #
+    #   leave the SYSTEM about 4 cores (a quarter on a small box), give the rest
+    #   to these two services. On 16 CPUs that is 12 between them —
+    #
+    #     AGENTSMEMORY_OLLAMA_CPUS=8   # sustained: a mine runs it for minutes
+    #     AGENTSMEMORY_RERANK_CPUS=4   # bursty: one search at a time, fails open
+    #
+    # Put them in a `.env` beside these compose files (Compose reads that one from
+    # your shell or that file, NOT from .env.docker), or export them before `up`.
+    # They are deliberately NOT in .env.example: a variable in there is a promise
+    # the SERVER reads it, and these are read by Docker.
+    #
+    # ⚠ THE CAP AND RERANK_TIMEOUT ARE COUPLED, AND 2 CPUs TURNS RERANKING OFF.
+    # This shipped as 2 for half an hour before being measured on a 10-core host,
+    # pool 10, live palace — and the number is unambiguous:
+    #
+    #   2 CPUs  10021ms 10010ms 10027ms  → failed_open on ALL THREE
+    #   4 CPUs   6439ms  6908ms  8700ms  → ran
+    #   6 CPUs   6655ms  4462ms  6690ms  → ran
+    #
+    # At 2 the cross-encoder never finished inside the 10s budget above, so every
+    # search silently returned the fused order: the feature was installed, healthy,
+    # and reaching nothing. A cap that disables the thing it is capping is not a
+    # cap, so the default is 4 — and the constraint to keep when changing it is
+    # RERANK_POOL x per-document cost < RERANK_TIMEOUT, not a core count.
+    #
+    # ⚠ IT REMAINS A TRADE. 60 traced calls at pool 20 averaged 11.4s UNCAPPED, so
+    # fewer cores is strictly slower and an overrun fails open. This is observable
+    # rather than guessed: the span ends failed_open reason=timeout, distinct from
+    # reason=error. If you see that, raise this or lower RERANK_POOL.
     #
     # ⚠ AND DOCKER REFUSES A LIMIT ABOVE THE HOST'S CPU COUNT — "range of CPUs is
     # from 0.01 to N.00" at `up`, not a warning. On a host with fewer cores than
@@ -199,7 +227,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "${AGENTSMEMORY_RERANK_CPUS:-2}"
+          cpus: "${AGENTSMEMORY_RERANK_CPUS:-4}"
     volumes:
       - reranker-models:/root/.cache/llama.cpp
     healthcheck:

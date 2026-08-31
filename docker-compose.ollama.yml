@@ -57,6 +57,23 @@ services:
       OLLAMA_EMBED_MODEL: ${OLLAMA_EMBED_MODEL:-bge-m3}
     # Leave the machine usable while a corpus is being embedded.
     #
+    # ⚠ THE DEFAULTS ARE SIZED TO BE VALID EVERYWHERE, NOT TO USE YOUR BOX.
+    # Compose cannot read `nproc`, and Docker REFUSES a limit above the host's cpu
+    # count ("range of CPUs is from 0.01 to N.00" at `up`, not a warning), so a
+    # default that suits a 16-core machine breaks a 4-core one outright. These
+    # therefore fit a small host, and a bigger host should say so:
+    #
+    #   leave the SYSTEM about 4 cores (a quarter on a small box), give the rest
+    #   to these two services. On 16 CPUs that is 12 between them —
+    #
+    #     AGENTSMEMORY_OLLAMA_CPUS=8   # sustained: a mine runs it for minutes
+    #     AGENTSMEMORY_RERANK_CPUS=4   # bursty: one search at a time, fails open
+    #
+    # Put them in a `.env` beside these compose files (Compose reads that one from
+    # your shell or that file, NOT from .env.docker), or export them before `up`.
+    # They are deliberately NOT in .env.example: a variable in there is a promise
+    # the SERVER reads it, and these are read by Docker.
+    #
     # ⚠ THIS IS THE ONE THAT BITES A LAPTOP. Embedding a real corpus saturates
     # every core: measured 2026-08-31 on a CPU-only 16GB host, one batch of 64
     # chunks took 121 SECONDS, and while it ran a 10ms session-end hook took over
