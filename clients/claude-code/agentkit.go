@@ -2,7 +2,9 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -32,12 +34,18 @@ const (
 // Claude takes hooks from settings.json, Codex from config.toml, and pi retired
 // hooks in favour of extensions, so its kit carries no hooksFile.
 type agentKit struct {
-	name        string // agent identifier: claude | codex | pi
-	bin         string // default CLI binary name to drive
-	configEnv   string // env var that relocates the agent's config dir
-	globalDir   string // slash-separated global config dir, relative to $HOME
-	commandsDir string // subdir under the config dir that holds slash commands
-	memoryFile  string // agent memory file our managed block merges into
+	name      string // agent identifier: claude | codex | pi
+	bin       string // default CLI binary name to drive
+	configEnv string // env var that relocates the agent's config dir
+	globalDir string // slash-separated global config dir, relative to $HOME
+	// globalDirFor resolves the config dir when it is NOT home-relative, and wins
+	// over globalDir when set. Exactly one kit needs it, and giving it a hook
+	// rather than a base-directory field on every kit keeps the asymmetry visible:
+	// four agents genuinely are home-relative, and pretending all five share a
+	// scheme is what put a macOS literal in front of Windows and Linux operators.
+	globalDirFor func(goos, home, base string) string
+	commandsDir  string // subdir under the config dir that holds slash commands
+	memoryFile   string // agent memory file our managed block merges into
 
 	// shipsCompanionHooks reports whether this kit receives the Claude-only
 	// companion hooks, of which the injecting ones are the subject of `doctor`.
@@ -213,11 +221,82 @@ func resolveAgentKit(name string) (agentKit, error) {
 	return kits[0], nil
 }
 
-// globalConfigDir is the agent's default config dir under home. globalDir is
-// written slash-separated so a nested default like pi's ".pi/agent" stays
-// readable in the kit; FromSlash turns it into the host's separator.
+// globalConfigDir is the agent's default config dir. globalDir is written
+// slash-separated so a nested default like pi's ".pi/agent" stays readable in the
+// kit; FromSlash turns it into the host's separator.
+//
+// ⚠ MOST KITS ARE HOME-RELATIVE AND ONE IS NOT, which is why globalDirFor exists.
+// Four agents keep their config in a dotfile directory under $HOME, correct on
+// every platform. Claude Desktop keeps its config where the OS says application
+// data goes — three different places — and a literal joined to $HOME was right on
+// exactly one of them. See claudeDesktopKit.
 func (k agentKit) globalConfigDir(home string) string {
+	base, err := os.UserConfigDir()
+	if err != nil {
+		base = ""
+	}
+	return k.globalConfigDirOn(runtime.GOOS, home, base)
+}
+
+// globalConfigDirOn is the resolution with the platform and the OS config base
+// passed in, so every kit's answer for EVERY platform is checkable from one
+// machine.
+//
+// ⚠ A CHECK THAT ONLY ASKS ABOUT THE HOST REPRODUCES THE BUG IT IS GUARDING. The
+// desktop literal was correct on macOS, so a gate running only the host's OS
+// stayed green on the author's machine while Windows and Linux operators were
+// registered into a directory Claude Desktop never reads. Measured while writing
+// that gate: restoring the shipped literal left the host-only version PASSING.
+func (k agentKit) globalConfigDirOn(goos, home, base string) string {
+	if k.globalDirFor != nil {
+		return k.globalDirFor(goos, home, base)
+	}
 	return filepath.Join(home, filepath.FromSlash(k.globalDir))
+}
+
+// desktopConfigDirOn is Claude Desktop's config directory on one platform:
+// ~/Library/Application Support/Claude on macOS, %AppData%\Claude on Windows,
+// ~/.config/Claude on Linux.
+//
+// ⚠ IT SHIPPED AS A macOS LITERAL AND REPORTED SUCCESS ON THE OTHER TWO. The kit
+// was measured on one machine, so `install --agent claude-desktop` on Windows
+// wrote C:\Users\<user>\Library\Application Support\Claude — a path that
+// means nothing there — beside the real config, printed [ok], and told the
+// operator to restart Desktop for tools that were never registered. Linux was
+// broken identically. Reported 2026-08-31; this is §Reachability's failure mode
+// with a success message attached, which is worse than silence.
+//
+// os.UserConfigDir returns exactly those three directories, so it is the whole
+// fix. It errors only when the environment variable naming them is unset
+// (%AppData% on Windows, $HOME elsewhere), and the fallback then derives the same
+// location from the home directory this function was handed — deliberately NOT
+// the macOS literal, because guessing a foreign platform's layout is the defect
+// being fixed.
+// desktopConfigDirOn is the platform decision, taking the OS and the config base
+// as arguments so all three answers are checkable from ONE machine.
+//
+// ⚠ THAT IS THE WHOLE POINT, NOT A TESTING CONVENIENCE. This bug exists because
+// the location was measured on macOS and shipped for three platforms; a test that
+// can only assert the platform it happens to run on reproduces exactly that blind
+// spot, and would have passed on the author's machine while Windows and Linux
+// operators got a directory Desktop never reads.
+//
+// base is os.UserConfigDir's answer, or "" when the variable naming it is unset
+// (%AppData% on Windows, $HOME elsewhere). The fallback derives the same location
+// from home rather than reaching for another platform's layout, because guessing
+// a foreign one is the defect being fixed.
+func desktopConfigDirOn(goos, home, base string) string {
+	if base != "" {
+		return filepath.Join(base, "Claude")
+	}
+	switch goos {
+	case "windows":
+		return filepath.Join(home, "AppData", "Roaming", "Claude")
+	case "darwin":
+		return filepath.Join(home, "Library", "Application Support", "Claude")
+	default:
+		return filepath.Join(home, ".config", "Claude")
+	}
 }
 
 // cursorKit is the Cursor layout, and it is mostly a list of things Cursor does
@@ -265,8 +344,11 @@ var cursorKit = agentKit{
 // all. ADR-021 T1's handshake instructions exist because this kit cannot deliver
 // one — the read half without the write half, one step further than Cursor.
 var claudeDesktopKit = agentKit{
-	name:          agentClaudeDesktop,
-	bin:           "", // there is no CLI to drive
-	globalDir:     "Library/Application Support/Claude",
+	name: agentClaudeDesktop,
+	bin:  "", // there is no CLI to drive
+	// ⚠ NOT globalDir: this is the one agent whose config lives outside $HOME, in
+	// a different place on each OS. The literal that used to sit here was measured
+	// on macOS and wrong on the other two. See desktopConfigDir.
+	globalDirFor:  desktopConfigDirOn,
 	mcpConfigFile: "claude_desktop_config.json",
 }
