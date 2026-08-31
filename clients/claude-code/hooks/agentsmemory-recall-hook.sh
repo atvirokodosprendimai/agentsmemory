@@ -134,10 +134,14 @@ fi
 # 25 clean zeroes that were 25 swallowed errors. On a --local install this hook
 # could never have spoken, and would have looked like F-6 working the whole time.
 #
-# `mcp` demands a workspace token even against a --local server, which has none and
-# accepts any value. So pass the operator's token when there is one, and a
-# placeholder when there is not — the local server ignores it, and a hosted one
-# rejects it loudly, which is the correct outcome in both cases.
+# ⚠ THIS BLOCK ONCE ENDED BY PRESCRIBING A PLACEHOLDER TOKEN, and that advice was
+# reverted in the code below without being deleted here — so the shipped hook
+# argued both sides, and the stale half was the one a reader hit first. Reported
+# 2026-08-31 from a Windows install, by someone reading it to debug something
+# else. The surviving decision is stated where it binds: see "PASS --token ONLY
+# WHEN THE ENVIRONMENT SUPPLIES ONE" below. Its premise was false by then too —
+# `mcp` does NOT demand a token against a loopback server, it resolves one and
+# says so.
 ERRFILE="$(mktemp 2>/dev/null || echo /tmp/agentsmemory-recall.err)"
 #
 # ⚠ THE ROOM AND THE FLOOR ARE BOTH LOAD-BEARING, AND THE ROOM WAS WRONG.
