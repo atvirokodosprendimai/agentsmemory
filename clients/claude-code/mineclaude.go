@@ -247,6 +247,10 @@ func mineClaudeCommand() *cli.Command {
 			"replaces rather than duplicates. The wing comes from each session's own\n" +
 			"working directory, resolved exactly as `load` resolves it, so sessions land\n" +
 			"in the project they belong to.\n\n" +
+			"⚠ MINING FILES DRAWERS, NOT FACTS. The knowledge graph is not touched by\n" +
+			"this command: an agent fills it with am_kg_add as it works, and a corpus you\n" +
+			"have already mined is turned into triples by `agentsmemory kg-extract --wing\n" +
+			"<wing>`, which needs a GENERATIVE model the compose overlay does not pull.\n\n" +
 			"A part that cannot be filed is reported and skipped, not fatal: the rest of\n" +
 			"the run is kept and the command exits non-zero so a partial seed is visible.\n" +
 			"Re-running is the recovery, and is safe for the same reason.\n\n" +
