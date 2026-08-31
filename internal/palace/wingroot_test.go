@@ -510,3 +510,63 @@ func TestBackfillLeavesAnEntryRoomWithNoLiveEdgeNameless(t *testing.T) {
 			"which is the answer this backfill's own guard calls worse than unknown_term", minted)
 	}
 }
+
+// TestBackfillIgnoresARoomTheWildcardLetThrough pins the affix check against SQL
+// LIKE's own dialect.
+//
+// ⚠ `_` IS A SINGLE-CHARACTER WILDCARD IN LIKE, AND EntryRoom IS "llm_init". The
+// edge-keyed universe introduced a `subject LIKE 'room:%/llm_init'` prefilter that
+// also matches llm-init, llm.init and llm init — and TrimPrefix/TrimSuffix no-op
+// silently when the affix is absent, so what came through looked like a wing name
+// and was rooted as one. Probed before the fix: a single drawer in a room called
+// "llm-init" minted `wing_alpha/llm-init.root`, a root whose name is not a wing,
+// pointing at a node that holds nothing — the exact shape this backfill exists to
+// prevent, arriving through the query instead of through the guard. Reported by
+// review 2026-08-31.
+func TestBackfillIgnoresARoomTheWildcardLetThrough(t *testing.T) {
+	ctx := context.Background()
+	svc := newTestService(t)
+	const team, wing = "team-wildcard", "wing_alpha"
+
+	// Not the entry room, but it matches llm?init.
+	if _, err := svc.Add(ctx, team, AddInput{
+		Wing: wing, Room: "llm-init", Content: "an ordinary memory in a room that merely looks like the entry room",
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	// The fixture only proves something if the pattern really does match it.
+	var matched []string
+	if err := svc.repo.db.Model(&kgTripleRow{}).
+		Where("predicate = ? AND valid_to = '' AND subject LIKE ?",
+			normalizePredicate(DerivedEdgePredicate), "room:%/"+EntryRoom).
+		Distinct().Pluck("subject", &matched).Error; err != nil {
+		t.Fatalf("read the prefilter: %v", err)
+	}
+	if len(matched) == 0 {
+		t.Skip("this SQL dialect does not treat _ as a wildcard, so the fixture cannot reproduce " +
+			"the defect and would pass for the wrong reason")
+	}
+
+	minted, err := svc.repo.BackfillWingRoots(ctx)
+	if err != nil {
+		t.Fatalf("backfill: %v", err)
+	}
+	if minted != 0 {
+		t.Errorf("backfill minted %d root(s) from a room named %q, which is not the entry room. "+
+			"The LIKE prefilter matched it and the trim no-opped, so the subject was read as a "+
+			"wing name — the root that produces is named for a room and points at nothing",
+			minted, "llm-init")
+	}
+	var roots []string
+	if err := svc.repo.db.Model(&kgTripleRow{}).
+		Where("valid_to = '' AND subject LIKE ?", "%.root").
+		Distinct().Pluck("subject", &roots).Error; err != nil {
+		t.Fatalf("read roots: %v", err)
+	}
+	for _, r := range roots {
+		if strings.Contains(r, "/") {
+			t.Errorf("minted the root %q — a root's name is a WING, and this one carries a room "+
+				"path, so nothing will ever resolve it", r)
+		}
+	}
+}

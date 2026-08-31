@@ -1256,6 +1256,19 @@ func (r *Repo) BackfillWingRoots(ctx context.Context) (int, error) {
 		TeamID  string `gorm:"column:team_id"`
 		Subject string `gorm:"column:subject"`
 	}
+	// ⚠ THE LIKE IS A PREFILTER, NOT THE TEST. EntryRoom is "llm_init" and `_` is a
+	// single-character wildcard in SQL LIKE, so this pattern also matches
+	// room:<wing>/llm-init, llm.init, llm init — any llm?init. Probed: one drawer
+	// filed into a room named "llm-init" minted `wing_alpha/llm-init.root`, a root
+	// whose name is not a wing, pointing at a node that holds nothing. That is the
+	// door-with-nothing-behind-it this function exists to prevent, arriving through
+	// the query instead of through the guard. Reported by review 2026-08-31, new
+	// with the edge-keyed universe — the row-keyed version compared room = ?.
+	//
+	// The affixes are therefore checked in Go rather than trusted to the pattern.
+	// ESCAPE '\' would also work and is one line, but it puts the correctness in a
+	// SQL escape clause that the next person to rename EntryRoom has to remember;
+	// HasPrefix/HasSuffix survive that rename on their own.
 	err := r.db.WithContext(ctx).Model(&kgTripleRow{}).
 		Select("DISTINCT team_id, subject").
 		Where("predicate = ? AND valid_to = '' AND subject LIKE ?",
@@ -1267,16 +1280,22 @@ func (r *Repo) BackfillWingRoots(ctx context.Context) (int, error) {
 	wings := make([]wingRow, 0, len(rows))
 	for _, row := range rows {
 		// The room entity is "room:<wing>/<room>"; a wing name is sanitised and
-		// carries no slash, so trimming both ends recovers it exactly.
+		// carries no slash, so stripping the exact affixes recovers it.
+		//
+		// ⚠ NOT TrimPrefix/TrimSuffix ALONE: both no-op silently when the affix is
+		// absent, so a subject the wildcard let through arrived here looking like a
+		// wing name and was rooted as one.
+		if !strings.HasPrefix(row.Subject, "room:") || !strings.HasSuffix(row.Subject, "/"+EntryRoom) {
+			continue
+		}
 		wing := strings.TrimSuffix(strings.TrimPrefix(row.Subject, "room:"), "/"+EntryRoom)
-		if wing == "" || wing == row.Subject {
+		if wing == "" {
 			continue
 		}
 		wings = append(wings, wingRow{TeamID: row.TeamID, Wing: wing})
 	}
-	rowsOut := wings
 	minted := 0
-	for _, row := range rowsOut {
+	for _, row := range wings {
 		subID := normalizeEntityID(WingRootSubject(row.Wing))
 		objID := normalizeEntityID(DerivedEdgeSubject(row.Wing, EntryRoom))
 		p := normalizePredicate(DerivedEdgePredicate)
