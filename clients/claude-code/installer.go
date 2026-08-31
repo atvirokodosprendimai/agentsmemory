@@ -336,19 +336,30 @@ var serverBinCandidates = []string{"aiagentmemory-server", "agentsmemory"}
 // string used as an explicit path does not — and --server-bin is exactly that
 // case. Trying the .exe spelling first costs one stat and removes the asymmetry.
 func serverBinLookupCandidates(flagValue string) []string {
+	return serverBinLookupCandidatesOn(runtime.GOOS, flagValue)
+}
+
+// serverBinLookupCandidatesOn takes the platform as an argument so the ORDER is
+// checkable from any host — the same reason agentKit.globalConfigDirOn does.
+func serverBinLookupCandidatesOn(goos, flagValue string) []string {
 	names := serverBinCandidates
 	if flagValue != "" {
 		names = []string{flagValue}
 	}
-	if runtime.GOOS != "windows" {
+	if goos != "windows" {
 		return names
 	}
+	// ⚠ THE EXACT VALUE FIRST, .exe ONLY AS A FALLBACK. The first version tried
+	// the suffixed spelling first, which silently overrode an operator who named a
+	// specific file with --server-bin whenever a same-named .exe sat beside it.
+	// Review caught it: adding a spelling must not re-rank the one that was asked
+	// for.
 	out := make([]string, 0, len(names)*2)
 	for _, n := range names {
+		out = append(out, n)
 		if !strings.HasSuffix(strings.ToLower(n), ".exe") {
 			out = append(out, n+".exe")
 		}
-		out = append(out, n)
 	}
 	return out
 }

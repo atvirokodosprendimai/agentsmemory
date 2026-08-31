@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -797,5 +798,72 @@ func TestSessionEndStillNarrowsTheWindowFromThePayload(t *testing.T) {
 	if !strings.Contains(string(raw), "label=this%20session") {
 		t.Errorf("the payload was not read: the report describes the fixed window rather than "+
 			"this session, which is what bounding the read must NOT cost.\ncurl args = %q", raw)
+	}
+}
+
+// TestSessionEndKeepsAPayloadThatArrivedOnAStdinStillOpen is the case neither
+// earlier test covered, and the one the shipped code got wrong.
+//
+// ⚠ THE COMBINATION IS THE BUG. One test sent no payload and held the pipe open;
+// the other sent a payload and closed it. `read -d ” -t` passed both while
+// FAILING the case that actually happens at shutdown — payload delivered, stdin
+// still open — because bash 3.2 discards a timed-out read's accumulated bytes
+// when it has not seen the delimiter. Probed on 3.2.57, 2026-08-31, after a
+// review declined to take the comment's word for it.
+func TestSessionEndKeepsAPayloadThatArrivedOnAStdinStillOpen(t *testing.T) {
+	if _, err := exec.LookPath("bash"); err != nil {
+		t.Skipf("bash is not installed: %v", err)
+	}
+	dir := t.TempDir()
+	argsFile := filepath.Join(dir, "curl-args")
+	fakeCurl := filepath.Join(dir, "curl")
+	script := "#!/bin/sh\nprintf '%s\\n' \"$@\" >\"" + argsFile + "\"\ncat <<'BODY'\n" + statsWithSuggestions + "\nBODY\n"
+	if err := os.WriteFile(fakeCurl, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	transcript := filepath.Join(dir, "transcript.jsonl")
+	if err := os.WriteFile(transcript, []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	hook := filepath.Join(repoRootForHooks(t), "clients", "claude-code", "hooks", "agentsmemory-session-end-hook.sh")
+
+	cmd := exec.Command("bash", hook)
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd.Env = append(os.Environ(),
+		"PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"),
+		"AGENTSMEMORY_MCP_URL=http://palace.test:9/mcp",
+		"AGENTSMEMORY_STATS=on",
+	)
+	var stdout strings.Builder
+	cmd.Stdout = &stdout
+	start := time.Now()
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	// The payload lands immediately; the pipe stays open long past the hook's
+	// bound, which is what a harness tearing down looks like.
+	go func() {
+		_, _ = io.WriteString(stdin, `{"hook_event_name":"SessionEnd","transcript_path":"`+transcript+`"}`+"\n")
+		time.Sleep(8 * time.Second)
+		_ = stdin.Close()
+	}()
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	select {
+	case <-done:
+	case <-time.After(6 * time.Second):
+		_ = cmd.Process.Kill()
+		t.Fatalf("the hook was still running %s after start", time.Since(start))
+	}
+	raw, err := os.ReadFile(argsFile)
+	if err != nil {
+		t.Fatalf("the hook did not invoke curl: %v", err)
+	}
+	if !strings.Contains(string(raw), "label=this%20session") {
+		t.Errorf("a payload that ARRIVED was discarded because stdin stayed open, so the report "+
+			"describes a fixed window instead of this session.\ncurl args = %q", raw)
 	}
 }

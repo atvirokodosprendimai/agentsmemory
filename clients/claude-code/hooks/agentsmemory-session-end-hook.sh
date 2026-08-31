@@ -33,11 +33,24 @@ set -uo pipefail
 # narrows it to the real session length. So the fallback this needs already
 # existed and the unbounded read was what made it unreachable.
 #
-# `read -t` and `read -d` are both bash 3.2, which the stats helper's own
-# comments target deliberately. On timeout bash keeps whatever arrived, so a slow
-# writer degrades to a partial payload rather than to nothing.
+# ⚠ NEWLINE-DELIMITED, NOT `read -d ''`. This said "on timeout bash keeps
+# whatever arrived" and that was FALSE — probed on Apple bash 3.2.57, 2026-08-31,
+# after a review refused to take the comment's word for it:
+#
+#   payload arrives, stdin stays open, read -r -d '' -t 1  -> INPUT is EMPTY
+#   payload arrives with a newline,     read -r -t 1       -> INPUT is the payload
+#
+# Bash discards the accumulated bytes when a timed-out read has not seen its
+# delimiter, so the `-d ''` form lost the payload in exactly the case it was added
+# for: a shutdown that holds stdin open. The newline form recovers the two shapes
+# that actually occur — payload then newline, and payload then EOF.
+#
+# ⚠ RESIDUAL, AND IT IS A DEGRADATION RATHER THAN A FAILURE: a payload with no
+# trailing newline, on a stdin that never closes, is still lost. STATS_QUERY then
+# keeps the fixed window it was given before INPUT is consulted, which is a wider
+# report rather than no report — the fallback this whole change exists to reach.
 INPUT=""
-IFS= read -r -d '' -t "${AGENTSMEMORY_STATS_STDIN_TIMEOUT:-1}" INPUT || true
+IFS= read -r -t "${AGENTSMEMORY_STATS_STDIN_TIMEOUT:-1}" INPUT || true
 
 [ "${AGENTSMEMORY_STATS:-on}" = "off" ] && exit 0
 

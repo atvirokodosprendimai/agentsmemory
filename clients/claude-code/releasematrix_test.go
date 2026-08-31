@@ -159,3 +159,33 @@ func sortedKeys(m map[string]bool) []string {
 	sort.Strings(out)
 	return out
 }
+
+// TestAnExplicitServerBinKeepsItsPrecedence pins the order .exe handling must not
+// disturb.
+//
+// ⚠ ADDING A SPELLING MUST NOT RE-RANK THE ONE THAT WAS ASKED FOR. The first
+// version of the Windows support tried `<flag>.exe` BEFORE the exact --server-bin
+// value, so an operator naming a specific file silently got a different one
+// whenever a same-named .exe sat beside it. Found by review 2026-08-31.
+//
+// The platform is an argument, so this order is checked on every host rather than
+// only on Windows — the same lesson the config-dir resolution learned.
+func TestAnExplicitServerBinKeepsItsPrecedence(t *testing.T) {
+	got := serverBinLookupCandidatesOn("windows", "/opt/custom/agentsmemory")
+	if len(got) == 0 || got[0] != "/opt/custom/agentsmemory" {
+		t.Errorf("candidates = %v, want the exact --server-bin value first: an operator who "+
+			"names a binary must get that binary, not one the installer preferred", got)
+	}
+	if len(got) != 2 || got[1] != "/opt/custom/agentsmemory.exe" {
+		t.Errorf("candidates = %v, want the .exe spelling offered as a FALLBACK — an explicit "+
+			"path gets no PATHEXT help from exec.LookPath", got)
+	}
+	// A value that already carries the suffix is not doubled.
+	if got := serverBinLookupCandidatesOn("windows", "x.exe"); len(got) != 1 || got[0] != "x.exe" {
+		t.Errorf("candidates = %v, want the value once", got)
+	}
+	// And nothing is added off Windows, where the bare name is the whole story.
+	if got := serverBinLookupCandidatesOn("linux", ""); len(got) != len(serverBinCandidates) {
+		t.Errorf("candidates = %v on linux, want the unmodified list %v", got, serverBinCandidates)
+	}
+}

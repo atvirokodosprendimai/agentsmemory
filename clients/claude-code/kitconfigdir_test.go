@@ -40,6 +40,15 @@ func TestEveryKitConfigDirResolvesForThisPlatform(t *testing.T) {
 				if dir == "" {
 					t.Fatalf("%s resolved no config dir at all", kit.name)
 				}
+				// ⚠ BARE $HOME IS AN UNWIRED KIT, NOT A PLAUSIBLE DIRECTORY. Deleting
+				// a kit's globalDir AND its globalDirFor leaves filepath.Join(home)
+				// == home, which no foreign-path check can object to. Review found
+				// that hole: severing the desktop wiring entirely passed.
+				if filepath.Clean(dir) == filepath.Clean(home) {
+					t.Errorf("on %s, %s resolves the home directory itself — its config location "+
+						"is wired to nothing, and an install would scatter the kit across $HOME",
+						goos, kit.name)
+				}
 				if reason := foreignPlatformPath(goos, dir); reason != "" {
 					t.Errorf("on %s, %s resolves %q, which %s. An install writes there, registers "+
 						"the MCP there, and reports success — the operator restarts and the tools "+
@@ -132,7 +141,11 @@ func TestTheDesktopKitResolvesEachPlatformsRealLocation(t *testing.T) {
 			name += "/no-config-base"
 		}
 		t.Run(name, func(t *testing.T) {
-			got := filepath.ToSlash(desktopConfigDirOn(tc.goos, home, tc.base))
+			// ⚠ THROUGH THE KIT, NOT THE BARE FUNCTION. Review found this called
+			// desktopConfigDirOn directly, so deleting `globalDirFor:` from the kit
+			// left it green — the resolution was correct and reached by nothing,
+			// which is this repo's own characteristic defect.
+			got := filepath.ToSlash(claudeDesktopKit.globalConfigDirOn(tc.goos, home, tc.base))
 			if want := filepath.ToSlash(tc.want); got != want {
 				t.Errorf("desktopConfigDirOn(%q, base=%q) = %q, want %q — Claude Desktop reads "+
 					"exactly one location per platform, and writing to another one registers "+

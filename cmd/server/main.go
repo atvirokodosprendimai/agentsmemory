@@ -1116,6 +1116,16 @@ func buildServicesWith(cfg config.Config, prepare bool) (*services, error) {
 		// Inside `prepare` with the other backfill, so doctor's read-only path
 		// (query_only(1)) never mints: a checker that repaired the corpus would be
 		// reporting on a palace it had just changed.
+		//
+		// ⚠ `prepare` IS NOT THE SAME SET AS "COMMANDS THAT DO NOT ADVERTISE
+		// READ-ONLY", and this comment used to imply it was. `inspect`, `projects`
+		// and `mcp` call buildServices, so they prepare — and inspect's own header
+		// calls itself "strictly read-only". That predates this backfill: the same
+		// path already migrates the database and runs BackfillContentKeys, so those
+		// commands have always written. Raised by review 2026-08-31 and recorded
+		// rather than widened into this change, because the obvious remedy is
+		// wrong for one of them: `mcp` invokes real tools, and a tool call records
+		// telemetry, so it cannot run against query_only(1).
 		if minted, err := palace.NewRepo(gdb).BackfillWingRoots(context.Background()); err != nil {
 			return nil, fmt.Errorf("backfill wing roots: %w", err)
 		} else if minted > 0 {
