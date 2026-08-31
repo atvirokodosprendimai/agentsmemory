@@ -160,6 +160,7 @@ func configFromCmd(c *cli.Command, def config.Config) config.Config {
 		RerankNorm:             c.String("rerank-norm"),
 		RerankTimeout:          c.Duration("rerank-timeout"),
 		HTTPTimeout:            c.Duration("http-timeout"),
+		EmbedTimeout:           c.Duration("embed-timeout"),
 		OTELEndpoint:           strings.TrimSpace(c.String("otel-endpoint")),
 		MonthlyRequestCap:      c.Int("monthly-request-cap"),
 		Debug:                  c.Bool("debug"),
@@ -221,6 +222,7 @@ func dataFlags(def config.Config) []cli.Flag {
 		&cli.FloatFlag{Name: "rerank-weight", Sources: cli.EnvVars("RERANK_WEIGHT"), Value: def.RerankWeight, Usage: "how much the cross-encoder decides the order, 0..1 (1 = it overrides the hybrid score entirely)"},
 		&cli.StringFlag{Name: "rerank-norm", Sources: cli.EnvVars("RERANK_NORM"), Value: def.RerankNorm, Usage: "how a raw cross-encoder score is scaled before blending: sigmoid (preserves confidence; the default), minmax (the original — scale-free, and on a small pool at weight 0.5 it ties and discards the cross-encoder), or rank (position only)"},
 		&cli.DurationFlag{Name: "rerank-timeout", Sources: cli.EnvVars("RERANK_TIMEOUT"), Value: def.RerankTimeout, Usage: "budget for a rerank call; it does real inference, unlike the other outbound calls"},
+		&cli.DurationFlag{Name: "embed-timeout", Sources: cli.EnvVars("EMBED_TIMEOUT"), Value: def.EmbedTimeout, Usage: "budget for ONE embed call, separate from --http-timeout because embedding is inference and a bulk batch is not interactive: measured 121s for a batch of 64 on a CPU-only host, against a 30s http-timeout that killed the seeding run"},
 		&cli.BoolFlag{Name: "debug", Sources: cli.EnvVars("APP_DEBUG"), Value: def.Debug, Usage: "verbose logging: per-request HTTP access logs + gorm SQL"},
 	}
 }
@@ -1190,7 +1192,7 @@ func buildServicesWith(cfg config.Config, prepare bool) (*services, error) {
 // mistake differently from every other config mistake.
 func buildEmbedder(cfg config.Config) (palace.Embedder, error) {
 	if !strings.EqualFold(strings.TrimSpace(cfg.EmbedBackend), "tei") {
-		return ollama.New(cfg.OllamaURL, cfg.OllamaEmbedModel, cfg.HTTPTimeout), nil
+		return ollama.New(cfg.OllamaURL, cfg.OllamaEmbedModel, cfg.EmbedTimeout), nil
 	}
 	url := strings.TrimSpace(cfg.EmbedURL)
 	if url == "" {
@@ -1200,7 +1202,7 @@ func buildEmbedder(cfg config.Config) (palace.Embedder, error) {
 		return nil, fmt.Errorf("EMBED_BACKEND=tei needs EMBED_URL (the text-embeddings-inference base URL)")
 	}
 	log.Printf("embeddings: text-embeddings-inference at %s", url)
-	return teiembed.New(url, cfg.HTTPTimeout), nil
+	return teiembed.New(url, cfg.EmbedTimeout), nil
 }
 
 func buildVectorStore(cfg config.Config, gdb *gorm.DB) (store.VectorStore, error) {

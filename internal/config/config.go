@@ -270,6 +270,20 @@ type Config struct {
 	// HTTPTimeout bounds outbound calls to Qdrant and Ollama.
 	HTTPTimeout time.Duration
 
+	// EmbedTimeout bounds one embed call, separately from HTTPTimeout for the
+	// reason RerankTimeout is separate: it is doing real inference, and a budget
+	// sized for an interactive vector-store lookup cannot also cover a bulk batch.
+	//
+	// ⚠ IT IS SIZED FOR THE WORST BATCH, NOT THE MEDIAN. Measured 2026-08-31 on a
+	// CPU-only 16GB host embedding a real 249-session mine with bge-m3, from the
+	// server's own request log: 6991ms, 120945ms, 4792ms for three consecutive
+	// /api/embed calls at the worker's batch of 64. The spread is the finding —
+	// cost scales with how much text a batch happens to hold — so 121 SECONDS was
+	// four times the 30s HTTPTimeout default and killed a seeding run on its first
+	// session. An over-long budget here costs a slow failure; a short one costs
+	// the run.
+	EmbedTimeout time.Duration
+
 	// OTELEndpoint is the OpenTelemetry export target. "" (the default) leaves
 	// tracing off — the noop provider, no collector required. "stdout" prints a
 	// compact stage tree to stderr (file:line, outcome, reason) so an operator
@@ -393,6 +407,7 @@ func Default() Config {
 		OllamaURL:        "http://localhost:11434",
 		OllamaEmbedModel: "bge-m3",
 		HTTPTimeout:      30 * time.Second,
+		EmbedTimeout:     5 * time.Minute,
 		BM25Weight:       "auto",
 		RerankPool:       10,  // palace.DefaultRerankPool; duplicated to keep config dependency-free
 		RerankWeight:     0.5, // palace.DefaultRerankWeight, chosen by the eval's weight sweep
