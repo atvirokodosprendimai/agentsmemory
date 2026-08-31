@@ -684,3 +684,118 @@ func TestSessionWindowSurvivesBothStatImplementations(t *testing.T) {
 		})
 	}
 }
+
+// TestSessionEndHookDoesNotWaitOnStdin pins the bound on a read the hook can do
+// without.
+//
+// ⚠ THE HOOK'S RUNTIME WAS THE HARNESS'S STDIN, NOT ITS OWN WORK. `INPUT="$(cat)"`
+// blocks until EOF, and SessionEnd is the only event that runs while the harness
+// is tearing down — so whether it closes stdin and grants a slice before exiting
+// is a race, lost as `SessionEnd hook … failed: Hook cancelled`. Reported
+// 2026-08-31 from a Windows install: 1112ms with stdin closed promptly, 9187ms
+// with a writer holding it open for 8s, on a box whose CPU was saturated by an
+// embedding run. The payload is a PRECISION input — agentsmemory_stats_query
+// sets a working window before consulting it — so the fallback already existed
+// and this read was what made it unreachable.
+func TestSessionEndHookDoesNotWaitOnStdin(t *testing.T) {
+	if _, err := exec.LookPath("bash"); err != nil {
+		t.Skipf("bash is not installed: %v", err)
+	}
+	dir := t.TempDir()
+	argsFile := filepath.Join(dir, "curl-args")
+	fakeCurl := filepath.Join(dir, "curl")
+	script := "#!/bin/sh\nprintf '%s\\n' \"$@\" >\"" + argsFile + "\"\ncat <<'BODY'\n" + statsWithSuggestions + "\nBODY\n"
+	if err := os.WriteFile(fakeCurl, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	hook := filepath.Join(repoRootForHooks(t), "clients", "claude-code", "hooks", "agentsmemory-session-end-hook.sh")
+
+	// A writer that holds the pipe open far longer than the hook may wait. The
+	// hook must finish on its own clock, not the writer's.
+	const writerHeld = 8 * time.Second
+	cmd := exec.Command("bash", hook)
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd.Env = append(os.Environ(),
+		"PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"),
+		"AGENTSMEMORY_MCP_URL=http://palace.test:9/mcp",
+		"AGENTSMEMORY_STATS=on",
+	)
+	var stdout strings.Builder
+	cmd.Stdout = &stdout
+	start := time.Now()
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	// Never written to and never closed until well after the hook should be gone.
+	go func() {
+		time.Sleep(writerHeld)
+		_ = stdin.Close()
+	}()
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	select {
+	case <-done:
+	case <-time.After(writerHeld - 2*time.Second):
+		_ = cmd.Process.Kill()
+		t.Fatalf("the hook was still running %s after start with stdin held open — its runtime "+
+			"is the harness's teardown clock, which is the race that gets it cancelled",
+			time.Since(start))
+	}
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
+		t.Errorf("the hook took %s with stdin held open; it does one 10ms GET and must not wait "+
+			"on a payload it can do without", elapsed)
+	}
+	// It must still have DONE its work — exiting fast by doing nothing is not the
+	// fix, it is the same lost report by another route.
+	if _, err := os.ReadFile(argsFile); err != nil {
+		t.Errorf("the hook exited without fetching /stats: %v", err)
+	}
+	if !strings.Contains(stdout.String(), "recall") {
+		t.Errorf("the hook printed no report:\n%s", stdout.String())
+	}
+}
+
+// TestSessionEndStillNarrowsTheWindowFromThePayload is the falsifiability half.
+//
+// Bounding the read must not become ignoring stdin: that would pass a timing test
+// while silently discarding the precision transcript_path buys, and the report
+// would quietly describe a fixed 2-hour window on every session forever after.
+func TestSessionEndStillNarrowsTheWindowFromThePayload(t *testing.T) {
+	if _, err := exec.LookPath("bash"); err != nil {
+		t.Skipf("bash is not installed: %v", err)
+	}
+	dir := t.TempDir()
+	argsFile := filepath.Join(dir, "curl-args")
+	fakeCurl := filepath.Join(dir, "curl")
+	script := "#!/bin/sh\nprintf '%s\\n' \"$@\" >\"" + argsFile + "\"\ncat <<'BODY'\n" + statsWithSuggestions + "\nBODY\n"
+	if err := os.WriteFile(fakeCurl, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// A transcript that exists, so the query builder can date it.
+	transcript := filepath.Join(dir, "transcript.jsonl")
+	if err := os.WriteFile(transcript, []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	hook := filepath.Join(repoRootForHooks(t), "clients", "claude-code", "hooks", "agentsmemory-session-end-hook.sh")
+	cmd := exec.Command("bash", hook)
+	cmd.Stdin = strings.NewReader(`{"hook_event_name":"SessionEnd","transcript_path":"` + transcript + `"}`)
+	cmd.Env = append(os.Environ(),
+		"PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"),
+		"AGENTSMEMORY_MCP_URL=http://palace.test:9/mcp",
+		"AGENTSMEMORY_STATS=on",
+	)
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("session-end: %v", err)
+	}
+	raw, err := os.ReadFile(argsFile)
+	if err != nil {
+		t.Fatalf("the hook did not invoke curl: %v", err)
+	}
+	if !strings.Contains(string(raw), "label=this%20session") {
+		t.Errorf("the payload was not read: the report describes the fixed window rather than "+
+			"this session, which is what bounding the read must NOT cost.\ncurl args = %q", raw)
+	}
+}

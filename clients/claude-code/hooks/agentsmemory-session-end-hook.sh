@@ -19,7 +19,25 @@
 # exit quietly. Nothing here is worth interfering with a session shutting down.
 set -uo pipefail
 
-INPUT="$(cat || true)"
+# ⚠ READ THE PAYLOAD, BUT NEVER WAIT ON IT. `INPUT="$(cat)"` blocks until stdin
+# reaches EOF, so this hook's runtime was governed by when the harness closed its
+# stdin rather than by its own work — one 10ms GET. SessionEnd is the only event
+# that runs while the harness is tearing DOWN, so whether it closes stdin and
+# grants a scheduling slice before exiting is a race, and losing it prints
+# `SessionEnd hook … failed: Hook cancelled`. Measured 2026-08-31: 1112ms with
+# stdin closed promptly, 9187ms with a writer holding it open for 8s — the hook
+# waits as long as it is given.
+#
+# The payload is a PRECISION input, not a requirement: agentsmemory_stats_query
+# sets a working fixed window BEFORE consulting INPUT, and transcript_path only
+# narrows it to the real session length. So the fallback this needs already
+# existed and the unbounded read was what made it unreachable.
+#
+# `read -t` and `read -d` are both bash 3.2, which the stats helper's own
+# comments target deliberately. On timeout bash keeps whatever arrived, so a slow
+# writer degrades to a partial payload rather than to nothing.
+INPUT=""
+IFS= read -r -d '' -t "${AGENTSMEMORY_STATS_STDIN_TIMEOUT:-1}" INPUT || true
 
 [ "${AGENTSMEMORY_STATS:-on}" = "off" ] && exit 0
 
