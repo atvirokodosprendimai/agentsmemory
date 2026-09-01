@@ -48,6 +48,16 @@ type hookReg struct {
 	event    string
 	cmd      string
 	obsolete func(cmd string) bool
+
+	// retire drops the matching registrations and writes none back, which is how
+	// an event this kit USED to register stops being registered.
+	//
+	// Without it, an install could only ever add: ensureHooks walks the events it
+	// is given, so an event simply left out of the plan keeps whatever an older
+	// install wrote. That is invisible on a fresh machine and wrong on every
+	// upgraded one — the Windows SessionEnd hook went on firing and failing after
+	// the installer stopped planning it (#150).
+	retire bool
 }
 
 // ensureHooks registers every entry in regs in ONE read-modify-write of the
@@ -98,6 +108,16 @@ func ensureHooks(path string, regs []hookReg) (map[string]bool, error) {
 		}
 
 		pruned, dropped := dropHook(entries, reg.obsolete)
+		// A retirement is the prune and nothing else: whatever survived stays, and
+		// this kit's own command is not written back.
+		if reg.retire {
+			if !dropped {
+				continue
+			}
+			hooks[reg.event] = pruned
+			changed[reg.event] = true
+			continue
+		}
 		if hookPresent(pruned, reg.cmd) && !dropped {
 			continue
 		}
