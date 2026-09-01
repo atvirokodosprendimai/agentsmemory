@@ -149,9 +149,12 @@ var writeToolSemantics = map[string]writeSemantics{
 		why: "chunks and files under a named source, on the same dedupe path as add_drawer"},
 	"create_tunnel": {idempotent: true, destructive: false,
 		why: "the same endpoints and label resolve to the same tunnel"},
-	"kg_add": {idempotent: true, destructive: false,
-		why: "kgAddOn returns the existing triple id when the fact is already current, rather " +
-			"than inserting a second row"},
+	"kg_add": {idempotent: false, destructive: false,
+		why: "the no-op covers a CURRENT fact only. CurrentTripleID matches on valid_to = '', so a " +
+			"fact filed WITH valid_to — a closed window, the historical form this tool accepts — " +
+			"is not deduped, and its id is derived from the time of writing, so a repeat inserts a " +
+			"second row saying the same thing. Retry a current fact freely; read the timeline back " +
+			"before repeating a closed one"},
 	"kg_invalidate": {idempotent: true, destructive: false,
 		why: "it REFUSES when no CURRENT fact matches (#73), so a repeat ends nothing twice. " +
 			"The fact is kept and queryable as-of an earlier time"},
@@ -202,8 +205,39 @@ func classifyTool(tool mcp.Tool, write bool) mcp.Tool {
 	if s, ok := writeToolSemantics[strings.TrimPrefix(tool.Name, mcpprotocol.ToolPrefix)]; ok {
 		tool.Annotations.IdempotentHint = mcp.ToBoolPtr(s.idempotent)
 		tool.Annotations.DestructiveHint = mcp.ToBoolPtr(s.destructive)
+		tool.Description += " " + retrySentence(s)
 	}
 	return tool
+}
+
+// retrySentence renders a write tool's retry contract into the one place a
+// caller reads before deciding what to do about a call that did not answer.
+//
+// The contract was already declared — writeToolSemantics carries idempotent,
+// destructive and a reason for each write tool — and it was unreachable where it
+// is needed. A timed-out write is indistinguishable from a refused one: three of
+// four concurrent sessions hit this on 2026-08-31 (#152), and the sharpest case
+// was am_merge_wing reporting a timeout on a merge that had COMMITTED. One
+// session retried and was right, on the strength of a sentence in a DIFFERENT
+// tool's description; that is reasoning from documentation rather than from
+// evidence, and it does not generalise.
+//
+// GENERATED FROM THE HINTS RATHER THAN WRITTEN BESIDE THEM, which is the whole
+// point: a sentence maintained by hand next to the map is a second copy of one
+// fact, and the copy nobody maintains is the one that goes false. A tool whose
+// idempotence changes gets a new sentence on the same commit.
+//
+// It cannot help a client-side deadline reach the server, and it is not meant to:
+// what a caller cannot work out alone is not that the call timed out, it is what
+// a repeat would DO.
+func retrySentence(s writeSemantics) string {
+	if s.idempotent {
+		return "⚠IF THIS CALL DOES NOT ANSWER (a timeout, a dropped connection), RETRYING IS SAFE: " +
+			s.why + "."
+	}
+	return "⚠IF THIS CALL DOES NOT ANSWER (a timeout, a dropped connection), DO NOT RETRY BLINDLY — " +
+		"it may have committed, and a repeat is not a no-op: " + s.why + ". Read the palace back " +
+		"first and decide from what you find."
 }
 
 // writeGuard refuses a call whose role may not change stored memory, before the
