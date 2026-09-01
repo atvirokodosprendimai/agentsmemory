@@ -3166,3 +3166,50 @@ one, make its condition true and watch the exit code.
   removed, and reinstating it under a different name would be the same workaround
   wearing a new shape. Deferred from
   `docs/adr/ADR-046-serve-the-whole-entry-record.md` §Out of Scope.
+
+## From the review of PR #147 (two independent reviews, 2026-09-01)
+
+- **`doctor --index` compares the payload's WING only, so a ROOM-only drift reports clean.**
+  `internal/palace/indexdrift.go` reads `p.Payload["wing"]` and compares that alone. A move now
+  writes both keys with one `SetPayload`, and when that call fails the operator is pointed at a
+  check that can only see half of what went wrong — a memory whose stored room is stale answers
+  no room-scoped search while `--index` says the index and the rows agree. The fix is small
+  (compare both keys, report which one drifted) and the cost of not doing it is the shape this
+  corpus keeps recording: a check whose green is narrower than the question the reader asked.
+  **Trigger: the next time anything is added to a point's payload, or the first room-scoped
+  recall that comes back empty against rows that look right.**
+
+- **`sync --repair-payload` refuses every backend but Qdrant.** `cmd/server/sync.go` returns an
+  error unless `VectorBackend == qdrant`, so the remedy named in `Service.Update`'s fail-open
+  warning does not exist on the default sqlite backend or on chromem. It is narrower than it
+  sounds — on sqlite the source of truth IS the index, and chromem refills from SQLite at boot —
+  but "run this command" is advice an operator on those backends cannot take. Either teach the
+  command to say what to do per backend, or have the warning name the backend-specific route.
+  **Trigger: the first operator report of that warning on a non-Qdrant deployment.**
+
+- **A pinned tunnel does not follow a move.** `tunnelRow` stores the source and target wing+room
+  beside the drawer id, and `canonicalTunnelID` hashes wing+room; `moveMemory` updates neither.
+  ADR-045's claim that "every pinned tunnel goes on naming a live row" is true of the ID and
+  misleading about REACHABILITY: after a move, following the tunnel from the new location finds
+  nothing, and following it from the old previews a drawer that has left. Note for whoever takes
+  it: rewriting the endpoint changes `canonicalTunnelID`, so this is a re-key rather than a field
+  update, and the same pointer-survival question ADR-045 answered for drawers has to be answered
+  again for tunnels. **Trigger: the first move of a memory that has an explicit tunnel pinned to
+  it — today rare, and it stops being rare as soon as relocation is advertised as free.**
+
+- **`moveMemory` has no compare-and-set.** `MemoryChunks` and the ended-record check both happen
+  BEFORE the transaction opens, so a concurrent supersede or move landing in between relabels rows
+  the caller never read. `supersedeInto` already solves the same race properly, by counting open
+  chunks inside the transaction and treating a short `RowsAffected` as `ErrConcurrentCorrection`.
+  Source-traced, not reproduced; narrow while relocation is rare. **Trigger: adopt the supersede
+  path's CAS the first time two writers are expected on one wing, or the first unexplained
+  half-moved memory.**
+
+- **`memoryChunkQuery` has no `valid_to` filter**, so reassembly reads ended siblings alongside
+  live ones (`internal/palace/repo.go`). Pre-existing — the search path has always used this query
+  — but ADR-046 put it on `am_bootstrap`, which is the one call no session skips, so the blast
+  radius changed even though the code did not. Confirm first whether an ended chunk can share a
+  live root at all: `supersedeInto` mints a new root for the successor, which may make this
+  unreachable in practice and therefore a comment rather than a fix. **Trigger: before adding any
+  second caller of the reassembly path, or the first entry record that reads with a duplicated
+  passage.**
