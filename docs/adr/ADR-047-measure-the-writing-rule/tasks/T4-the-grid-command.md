@@ -75,9 +75,11 @@ one this repository has shipped broken before (`AGENTS.md` §Reachability).
 set -o pipefail
   if [ -n "$(gofmt -l internal/longmemeval cmd/server)" ]; then echo "gofmt"; exit 1; fi
   go vet ./... || exit 1
-  go test ./internal/longmemeval/ ./cmd/server/ -run "TestRunGridHoldsTheContextBudgetAcrossCells|TestRunGridRefusesANonEmptyWing|TestRunGridIsolatesEveryQuestion|TestRetrievalColumnExcludesAbstentionQuestions|TestCellsRefuseToMergeAcrossDifferentHeaders|TestCellsCarryTheRankingProfileAndModel|TestLongmemevalIsRegistered|TestLongmemevalHelpListsEveryRegisteredPolicy" -count=1 -v 2>&1 | tee /tmp/a47t4.out
+  go test ./internal/longmemeval/ ./cmd/server/ -run "TestRunGridHoldsTheContextBudgetAcrossCells|TestRunGridRefusesANonEmptyWing|TestRunGridRefusesAZeroBudget|TestRunGridIsolatesEveryQuestion|TestRetrievalColumnExcludesAbstentionQuestions|TestCellsRefuseToMergeAcrossDifferentHeaders|TestCellsCarryTheRankingProfileAndModel|TestCellsReportTheRetrievalOnlyColumnBeside|TestLongmemevalIsRegistered|TestLongmemevalHelpListsEveryRegisteredPolicy" -count=1 -v 2>&1 | tee /tmp/a47t4.out
   grep -q -- "--- PASS: TestRunGridHoldsTheContextBudgetAcrossCells" /tmp/a47t4.out || exit 1
   grep -q -- "--- PASS: TestRunGridRefusesANonEmptyWing" /tmp/a47t4.out || exit 1
+  grep -q -- "--- PASS: TestRunGridRefusesAZeroBudget" /tmp/a47t4.out || exit 1
+  grep -q -- "--- PASS: TestCellsReportTheRetrievalOnlyColumnBeside" /tmp/a47t4.out || exit 1
   grep -q -- "--- PASS: TestRunGridIsolatesEveryQuestion" /tmp/a47t4.out || exit 1
   grep -q -- "--- PASS: TestRetrievalColumnExcludesAbstentionQuestions" /tmp/a47t4.out || exit 1
   grep -q -- "--- PASS: TestCellsRefuseToMergeAcrossDifferentHeaders" /tmp/a47t4.out || exit 1
@@ -114,6 +116,13 @@ go test ./... -count=1
 
 ## Mutation Log
 
+- 2026-09-01 · cb803fa* · mutant killed · exit 1 · `cmd/server/main.go` · the command is built, tested and registered by nothing — this repo signature defect, at the one line that makes the grid reachable · acceptance-sha256:c46e3afd1bc543f2d783e87467fadc831509848e044abb38ea9bc9b6cdbd1c6f
+- 2026-09-01 · cb803fa* · mutant killed · exit 1 · `internal/longmemeval/grid.go` · the scratch scope goes back to per-cell, so question 2 searches question 1 history and contamination grows through the cell · acceptance-sha256:c46e3afd1bc543f2d783e87467fadc831509848e044abb38ea9bc9b6cdbd1c6f
+- 2026-09-01 · cb803fa* · mutant killed · exit 1 · `internal/longmemeval/cells.go` · abstention questions re-enter the retrieval column, putting the same zero into every cell and damping every contrast · acceptance-sha256:c46e3afd1bc543f2d783e87467fadc831509848e044abb38ea9bc9b6cdbd1c6f
+- 2026-09-01 · cb803fa* · mutant killed · exit 1 · `cmd/server/main.go` · the command is built, tested and registered by nothing — this repo signature defect, at the one line that makes the grid reachable · acceptance-sha256:55504589d30f885c303cfedbba0a06bd603eefd6bff82d37dbe5047e72f43ae4
+- 2026-09-01 · cb803fa* · mutant killed · exit 1 · `internal/longmemeval/grid.go` · the scratch scope goes back to per-cell, so question 2 searches question 1 history and contamination grows through the cell · acceptance-sha256:55504589d30f885c303cfedbba0a06bd603eefd6bff82d37dbe5047e72f43ae4
+- 2026-09-01 · cb803fa* · mutant killed · exit 1 · `internal/longmemeval/cells.go` · abstention questions re-enter the retrieval column, putting the same zero into every cell and damping every contrast · acceptance-sha256:55504589d30f885c303cfedbba0a06bd603eefd6bff82d37dbe5047e72f43ae4
+
 ## Invariants
 
 - Every cell in one results file shares one context budget, one reader/judge model and one ranking
@@ -147,3 +156,30 @@ exceeds the budget fails the test.
 - Promoting anything into a skill — that is T5, and only T5
 
 ## Verification Log
+- 2026-09-01 · cb803fa* · exit 1 · `set -o pipefail …` · acceptance-sha256:c46e3afd1bc543f2d783e87467fadc831509848e044abb38ea9bc9b6cdbd1c6f
+  ```
+  --- last 6 line(s) of stderr
+  # github.com/atvirokodosprendimai/agentsmemory/internal/longmemeval
+  # [github.com/atvirokodosprendimai/agentsmemory/internal/longmemeval]
+  vet: internal/longmemeval/grid_test.go:57:34: undefined: GridOptions
+  # github.com/atvirokodosprendimai/agentsmemory/cmd/server
+  # [github.com/atvirokodosprendimai/agentsmemory/cmd/server]
+  vet: cmd/server/longmemeval_test.go:33:9: undefined: longmemevalCommand
+  ```
+- 2026-09-01 · cb803fa* · exit 1 · `set -o pipefail …` · acceptance-sha256:c46e3afd1bc543f2d783e87467fadc831509848e044abb38ea9bc9b6cdbd1c6f
+  ```
+  --- last 10 line(s) of stdout (of 953 after folding 955 raw)
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/store/sqlitevec	0.986s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/store/storetest	1.126s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/telemetry	1.513s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/tenant	2.232s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/updatecheck	1.652s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/usage	1.756s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/web	1.458s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/web/views	0.825s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/wingbundle	0.528s
+  FAIL
+  ```
+- 2026-09-01 · cb803fa* · exit 0 · `set -o pipefail …` · acceptance-sha256:c46e3afd1bc543f2d783e87467fadc831509848e044abb38ea9bc9b6cdbd1c6f
+- 2026-09-01 · cb803fa* · exit 0 · `set -o pipefail …` · acceptance-sha256:c46e3afd1bc543f2d783e87467fadc831509848e044abb38ea9bc9b6cdbd1c6f
+- 2026-09-01 · cb803fa* · exit 0 · `set -o pipefail …` · acceptance-sha256:55504589d30f885c303cfedbba0a06bd603eefd6bff82d37dbe5047e72f43ae4

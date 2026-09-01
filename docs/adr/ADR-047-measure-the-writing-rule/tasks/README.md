@@ -34,7 +34,7 @@ it helps.
 | T1 | Load LongMemEval-S into typed records, with the subset written into the run | done | — | `go test ./internal/longmemeval/ -run "TestDataset\|TestSubset"` |
 | T2 | The write-policy registry, and a flag that can select every member of it | done | — | `go test ./internal/longmemeval/ -run "TestWritePolicy\|TestEveryDeclaredPolicyIsSelectable"` |
 | T3 | Extract one generative client, then the query policies and the blind judge | done | — | `go test ./internal/gen/ ./internal/longmemeval/ ./cmd/server/ -run "TestGen\|TestQueryPolicy\|TestJudge"` |
-| T4 | `agentsmemory longmemeval` — the grid, the fixed budget, the results file | pending | — | `go test ./internal/longmemeval/ ./cmd/server/ -run "TestRunGrid\|TestLongmemevalIsRegistered\|TestCells"` |
+| T4 | `agentsmemory longmemeval` — the grid, the fixed budget, the results file | done | — | `go test ./internal/longmemeval/ ./cmd/server/ -run "TestRunGrid\|TestLongmemevalIsRegistered\|TestCells"` |
 | T5 | Run the grid, apply the pre-registered rule, decide what the skills may say | blocked | — | human-observed: `adr-verify --human "…decision <ship\|withdraw\|blocked>…"` |
 
 Status: `pending` | `running` | `blocked` | `done` | `failed`.
