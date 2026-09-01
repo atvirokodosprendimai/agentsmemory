@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/atvirokodosprendimai/agentsmemory/internal/gen"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/palace"
 )
 
@@ -30,7 +31,7 @@ type Store interface {
 // across the whole grid: the cell delta is then the policy, and cells taken
 // under different models are never pooled.
 type Model interface {
-	Generate(ctx context.Context, prompt string, temperature float64) (string, error)
+	Generate(ctx context.Context, prompt string, temperature float64) (gen.Result, error)
 }
 
 // GridOptions is everything a run needs that is not a policy.
@@ -132,7 +133,7 @@ func RunGrid(ctx context.Context, store Store, sel Selection, writes, queries []
 // runCell scores one square of the grid.
 func runCell(ctx context.Context, store Store, sel Selection, wp WritePolicy, qp QueryPolicy, opts GridOptions) (Cell, error) {
 	cell := Cell{Write: wp.Name, Query: qp.Name}
-	var budgetUsed int
+	var budgetUsed, promptTokens int
 
 	for _, q := range sel.Questions {
 		wing := scratchWing(opts.Wing, wp.Name, qp.Name, q.ID)
@@ -180,8 +181,15 @@ func runCell(ctx context.Context, store Store, sel Selection, wp WritePolicy, qp
 		if err != nil {
 			return Cell{}, fmt.Errorf("reader on %s: %w", q.ID, err)
 		}
+		// The endpoint's OWN count of the prompt it tokenized, where it supplies
+		// one. This is what makes the rune budget auditable rather than assumed:
+		// the policies rewrite text differently, so equal rune counts can carry
+		// unequal tokens, and this is the only token figure obtainable without a
+		// tokenizer this repository does not have. ADR-047 property 1.
+		promptTokens += answer.PromptTokens
+
 		raw, err := opts.Judge.Generate(ctx, JudgePrompt(Verdict{
-			ID: q.ID, Type: q.Type, Question: q.Question, Gold: q.Answer, Candidate: answer,
+			ID: q.ID, Type: q.Type, Question: q.Question, Gold: q.Answer, Candidate: answer.Text,
 		}), readerTemperature)
 		if err != nil {
 			return Cell{}, fmt.Errorf("judge on %s: %w", q.ID, err)
@@ -189,7 +197,7 @@ func runCell(ctx context.Context, store Store, sel Selection, wp WritePolicy, qp
 		// ⚠An unreadable verdict aborts the cell rather than scoring zero: a model
 		// outage recorded as a policy losing is invisible afterwards, because the
 		// cell is simply lower.
-		correct, err := ParseVerdict(raw)
+		correct, err := ParseVerdict(raw.Text)
 		if err != nil {
 			return Cell{}, fmt.Errorf("judge on %s: %w", q.ID, err)
 		}
@@ -207,6 +215,7 @@ func runCell(ctx context.Context, store Store, sel Selection, wp WritePolicy, qp
 	}
 	if cell.Scored > 0 {
 		cell.BudgetRunesUsed = budgetUsed / cell.Scored
+		cell.PromptTokensReported = promptTokens / cell.Scored
 	}
 	return cell, nil
 }

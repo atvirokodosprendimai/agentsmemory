@@ -52,6 +52,22 @@ type Client struct {
 // nothing else: Generate does not branch on it. See the type's comment.
 func (c *Client) OpenAIShaped() bool { return strings.Contains(c.URL, "/v1") }
 
+// Result is one completion together with what the endpoint reported about it.
+//
+// PromptTokens is the endpoint's OWN count of the prompt it received, or 0 when
+// it reports none. It is the only token figure this repository can obtain, since
+// there is no tokenizer here — and it is what makes ADR-047's rune budget
+// AUDITABLE rather than assumed: a run records the realised token spread across
+// its cells instead of trusting that equal rune counts carried equal tokens.
+//
+// Ollama returns it as prompt_eval_count on /api/generate. An endpoint that
+// omits it leaves this 0, which the results file reports as "not supplied"
+// rather than as zero tokens.
+type Result struct {
+	Text         string
+	PromptTokens int
+}
+
 // Generate asks the model for one completion and returns its RAW response.
 //
 // Raw because parsing belongs to the caller: kgextract reads several lines out
@@ -61,7 +77,7 @@ func (c *Client) OpenAIShaped() bool { return strings.Contains(c.URL, "/v1") }
 // temperature is the caller's, not a default here, for the same reason —
 // extraction runs at 0.1 because creativity there is fabrication, and question
 // generation at 0.2 because a re-run should reproduce its questions.
-func (c *Client) Generate(ctx context.Context, prompt string, temperature float64) (string, error) {
+func (c *Client) Generate(ctx context.Context, prompt string, temperature float64) (Result, error) {
 	body, err := json.Marshal(map[string]any{
 		"model":   c.Model,
 		"prompt":  prompt,
@@ -69,12 +85,12 @@ func (c *Client) Generate(ctx context.Context, prompt string, temperature float6
 		"options": map[string]any{"temperature": temperature},
 	})
 	if err != nil {
-		return "", err
+		return Result{}, err
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
 		strings.TrimRight(c.URL, "/")+"/api/generate", bytes.NewReader(body))
 	if err != nil {
-		return "", err
+		return Result{}, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	if c.APIKey != "" {
@@ -82,20 +98,22 @@ func (c *Client) Generate(ctx context.Context, prompt string, temperature float6
 	}
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
-		return "", err
+		return Result{}, err
 	}
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", fmt.Errorf("generate: %d: %s", resp.StatusCode, FirstLine(string(raw), 120))
+		return Result{}, fmt.Errorf("generate: %d: %s", resp.StatusCode, FirstLine(string(raw), 120))
 	}
 	var out struct {
 		Response string `json:"response"`
+		// prompt_eval_count is Ollama's count of the prompt it actually tokenized.
+		PromptEvalCount int `json:"prompt_eval_count"`
 	}
 	if err := json.Unmarshal(raw, &out); err != nil {
-		return "", err
+		return Result{}, err
 	}
-	return out.Response, nil
+	return Result{Text: out.Response, PromptTokens: out.PromptEvalCount}, nil
 }
 
 // Hint turns a generator failure into something actionable: which models the

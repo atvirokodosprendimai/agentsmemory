@@ -256,7 +256,8 @@ func (g *tripleGen) extract(ctx context.Context, window string) (string, error) 
 	c := &gen.Client{URL: g.url, Model: g.model, APIKey: g.apiKey, HTTP: g.http}
 	// Low temperature: extraction wants the facts the text states, and a re-run
 	// should reproduce them — creativity here is fabrication.
-	return c.Generate(ctx, fmt.Sprintf(kgExtractPrompt, window), 0.1)
+	res, err := c.Generate(ctx, fmt.Sprintf(kgExtractPrompt, window), 0.1)
+	return res.Text, err
 }
 
 // listMarker matches a leading ordered-list marker ("1. ", "12) ") so numbered

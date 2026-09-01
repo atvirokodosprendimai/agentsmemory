@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/atvirokodosprendimai/agentsmemory/internal/gen"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/palace"
 )
 
@@ -42,20 +43,24 @@ func (f *fakeStore) List(_ context.Context, _, wing, _ string, _, _ int) ([]pala
 
 // stubModel answers every prompt with a fixed string and records what it saw.
 type stubModel struct {
-	answer  string
-	prompts []string
+	answer       string
+	promptTokens int
+	prompts      []string
 }
 
-func (m *stubModel) Generate(_ context.Context, prompt string, _ float64) (string, error) {
+func (m *stubModel) Generate(_ context.Context, prompt string, _ float64) (gen.Result, error) {
 	m.prompts = append(m.prompts, prompt)
-	if m.answer == "" {
-		return "yes", nil
+	answer := m.answer
+	if answer == "" {
+		answer = "yes"
 	}
-	return m.answer, nil
+	// A non-zero PromptTokens stands in for what a real endpoint reports, so a
+	// grid that discards the figure fails rather than averaging zeroes.
+	return gen.Result{Text: answer, PromptTokens: m.promptTokens}, nil
 }
 
 func gridOpts(store *fakeStore) (GridOptions, *stubModel) {
-	m := &stubModel{answer: "yes"}
+	m := &stubModel{answer: "yes", promptTokens: 74}
 	return GridOptions{
 		Wing:         "scratch",
 		TeamID:       "t",

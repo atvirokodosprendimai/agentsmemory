@@ -21,7 +21,7 @@ func TestGenClientPostsOllamaGenerate(t *testing.T) {
 		gotPath, gotAuth = r.URL.Path, r.Header.Get("Authorization")
 		raw, _ := io.ReadAll(r.Body)
 		_ = json.Unmarshal(raw, &gotBody)
-		_, _ = io.WriteString(w, `{"response":"  a line\nand another  "}`)
+		_, _ = io.WriteString(w, `{"response":"  a line\nand another  ","prompt_eval_count":74}`)
 	}))
 	defer srv.Close()
 
@@ -46,8 +46,16 @@ func TestGenClientPostsOllamaGenerate(t *testing.T) {
 	}
 	// RAW, not first-line-cleaned: kgextract parses several lines out of this, and
 	// a transport that cleaned the answer would silently change what it extracts.
-	if got != "  a line\nand another  " {
-		t.Errorf("Generate returned %q, want the raw response — parsing belongs to the caller", got)
+	if got.Text != "  a line\nand another  " {
+		t.Errorf("Generate returned %q, want the raw response — parsing belongs to the caller", got.Text)
+	}
+	// The endpoint's own prompt-token count must survive the transport. Without
+	// it ADR-047's rune budget is an assumption: the policies rewrite text
+	// differently, so equal rune counts can carry unequal tokens, and this is the
+	// only token figure obtainable with no tokenizer in the repository.
+	if got.PromptTokens != 74 {
+		t.Errorf("PromptTokens = %d, want 74 — the endpoint reported it and the transport dropped it",
+			got.PromptTokens)
 	}
 }
 

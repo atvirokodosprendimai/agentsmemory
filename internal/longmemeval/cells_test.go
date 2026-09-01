@@ -120,6 +120,40 @@ func TestRetrievalColumnExcludesAbstentionQuestions(t *testing.T) {
 	}
 }
 
+// TestCellsRecordTheReportedPromptTokens gates a field that shipped populated by
+// NOTHING.
+//
+// T4 declared Cell.PromptTokensReported as what makes ADR-047's rune budget
+// auditable — and gen.Client.Generate returned only the text, so the figure was
+// discarded and every cell reported 0. Emitted, documented, and fed by no code
+// path: this repository's signature defect, inside the ADR that exists to gate
+// it. Found 2026-09-01 by reading a live endpoint's reply, which carried
+// prompt_eval_count: 74 — a number the grid had nowhere to put.
+//
+// A run whose endpoint reports nothing still reports 0 here, and that is the
+// honest value; what this test forbids is discarding a figure the endpoint DID
+// supply.
+func TestCellsRecordTheReportedPromptTokens(t *testing.T) {
+	store := newFakeStore()
+	opts, model := gridOpts(store)
+	if model.promptTokens == 0 {
+		t.Fatal("the stub reports no prompt tokens, so this test would pass over nothing")
+	}
+	cells, err := RunGrid(context.Background(), store, twoQuestionSelection(t),
+		[]string{"verbatim"}, []string{"verbatim"}, opts)
+	if err != nil {
+		t.Fatalf("RunGrid: %v", err)
+	}
+	for _, c := range cells.Cells {
+		if c.PromptTokensReported == 0 {
+			t.Errorf("cell %s/%s reports 0 prompt tokens while the endpoint supplied %d — the "+
+				"figure is the only token number obtainable without a tokenizer, and discarding "+
+				"it leaves the rune budget an assumption rather than a measurement",
+				c.Write, c.Query, model.promptTokens)
+		}
+	}
+}
+
 func TestCellsJSONNamesItsConfiguration(t *testing.T) {
 	store := newFakeStore()
 	opts, _ := gridOpts(store)

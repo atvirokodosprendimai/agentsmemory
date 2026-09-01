@@ -1013,7 +1013,7 @@ func (g *questionGen) ask(ctx context.Context, content string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return cleanQuestion(raw), nil
+	return cleanQuestion(raw.Text), nil
 }
 
 // cleanQuestion trims the shapes a small model wraps an answer in.
