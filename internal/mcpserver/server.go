@@ -649,7 +649,11 @@ func registerStatus(reg *registrar, drawers *palace.Service, skills *skill.Servi
 			"usage": map[string]any{
 				"used_this_month": st.Used,
 				"monthly_cap":     st.Cap,
-				"remaining":       st.Remaining(),
+				// nil marshals as `"remaining": null` — deliberately, because an
+				// unlimited plan has no remainder to report and 0 was read as
+				// exhaustion (issue #153). The key stays present: a caller that
+				// checks for it must find it in both shapes.
+				"remaining": st.RemainingReported(),
 			},
 			// Point the agent at the rest of the wake-up loop — and, when something
 			// is waiting, at that first. The hint changes with the inbox because a
