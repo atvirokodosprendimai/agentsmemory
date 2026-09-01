@@ -512,6 +512,11 @@ nothing new joins that class. What is left is a date-only `valid_to` that someon
 explicitly, or a row written before that change. **Pass a datetime whenever the boundary
 matters** — for `ended` when you retract, and for `as_of` when you ask.
 
+⚠ An instant NARROWS the disagreement to one point; it does not remove it. The end is
+inclusive, so a fact whose `valid_to` equals the `as_of` you ask with is still in effect
+while `status:"current"` has already dropped it — and that instant is exactly what
+`am_kg_supersede` hands back. Ask a moment either side of a boundary you care about.
+
 ### 6.2 ⚠ The entity string is a KEY, not a label
 
 Normalised only by lowercase and spaces→underscores. **There is no fuzzy match.** `datastar`

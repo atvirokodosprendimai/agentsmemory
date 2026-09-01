@@ -125,6 +125,14 @@ func temporalStartKey(v string) string {
 // an RFC3339 instant, which never stretches. What is left is a date-only valid_to
 // that a caller passed explicitly, or a row stored before that change, and the
 // kg_query `as_of` description says so rather than leaving a reader to find out.
+//
+// ⚠ AN INSTANT NARROWS THE GAP TO ONE POINT; IT DOES NOT CLOSE IT. inEffectAt
+// excludes only when this key is STRICTLY LESS than the as_of key, so at
+// as_of == valid_to the fact is still in effect while status:"current" has already
+// dropped it. That is the inclusive reading working as designed — a fact was true
+// up to and including the instant it ended — but it means "pass a datetime and the
+// two agree" is false at exactly one instant, the one kg_supersede hands back. Say
+// the narrow true thing rather than the broad false one.
 func temporalEndKey(v string) string {
 	if v == "" {
 		return ""
@@ -702,8 +710,8 @@ func (s *Service) indexFactLabels(ctx context.Context, teamID, subj, obj string)
 	}
 }
 
-// KGInvalidate ends a current fact by setting its valid_to (defaulting to today)
-// and recording WHY. It rejects an end that precedes the fact's own start.
+// KGInvalidate ends a current fact by setting its valid_to (defaulting to the
+// INSTANT of the call, not to today's date) and recording WHY. It rejects an end that precedes the fact's own start.
 // Ending a fact never deletes it — the history stays queryable as-of an earlier
 // time.
 //

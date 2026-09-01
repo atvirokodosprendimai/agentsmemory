@@ -1,6 +1,8 @@
 package mcpserver
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -70,6 +72,62 @@ func TestTheTemporalLagIsOnTheToolSurface(t *testing.T) {
 					"  Issue #47's cheapest option was \"document it and stop\"; this is what stops\n"+
 					"  that option from decaying into nothing being documented at all.",
 					want.tool, want.property, phrase, description, want.why)
+			}
+		}
+	}
+}
+
+// TestTheTemporalLagIsOnTheServedSurfacesToo covers the two surfaces the record
+// claims and the sibling gate cannot see.
+//
+// ⚠ FOUND BY MUTATION while reviewing this change. Issue #47's record says four
+// surfaces name the residual lag: the `ended` description, the `as_of`
+// description, bootstrap-memory.md §6.1, and temporalEndKey's doc comment.
+// TestTheTemporalLagIsOnTheToolSurface reads the first two off the live schema.
+// Deleting the other two left the WHOLE repository green — so half of a
+// documentation remedy was itself undocumented, which is the exact decay the
+// sibling gate's own comment warns about ("a promise a test does not read is a
+// promise nobody keeps").
+//
+// It greps files rather than a served schema because that is what these two are:
+// bootstrap-memory.md ships to an agent as the memory protocol, and the doc
+// comment ships to whoever next edits the promotion. Neither is on the wire, so
+// neither can be read the way the tool descriptions are — and a gate that could
+// only check the wire would keep exactly this half unchecked.
+func TestTheTemporalLagIsOnTheServedSurfacesToo(t *testing.T) {
+	for _, want := range []struct {
+		path    string
+		phrases []string
+		why     string
+	}{
+		{
+			path:    filepath.Join("..", "web", "bootstrap-memory.md"),
+			phrases: []string{"date-granular", "instant", "inclusive"},
+			why: "§6.1 is where an agent meets the two filters. It must name the lag, say that a\n" +
+				"    retraction now stamps an instant, and say that the end is INCLUSIVE — without the\n" +
+				"    third, the section promises an agreement that is false at the boundary",
+		},
+		{
+			path:    filepath.Join("..", "palace", "kg.go"),
+			phrases: []string{"THAT PROMOTION IS WHY", "NARROWS THE GAP"},
+			why: "temporalEndKey's doc comment is the only warning the next editor of the promotion\n" +
+				"    gets. It must say why the promotion is kept AND that an instant narrows the gap\n" +
+				"    to one point rather than closing it, or a future change 'fixes' the wrong end",
+		},
+	} {
+		body, err := os.ReadFile(want.path)
+		if err != nil {
+			t.Errorf("%s could not be read, so the caveat it is supposed to carry cannot be checked: %v",
+				want.path, err)
+			continue
+		}
+		lowered := strings.ToLower(string(body))
+		for _, phrase := range want.phrases {
+			if !strings.Contains(lowered, strings.ToLower(phrase)) {
+				t.Errorf("%s never says %q.\n  %s.\n"+
+					"  The record for issue #47 names this file as one of the surfaces carrying the\n"+
+					"  caveat; a surface nothing checks is a surface that quietly stops carrying it.",
+					want.path, phrase, want.why)
 			}
 		}
 	}
