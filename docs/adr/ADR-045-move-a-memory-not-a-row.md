@@ -4,7 +4,7 @@
 **Date:** 2026-09-01
 **Owner:** M
 **Spec:** None — no spec stage
-**Cross-references:** `docs/adr/ADR-038-refer-by-the-id-and-end-instead-of-overwrite.md`, `docs/adr/ADR-013-a-page-of-memories-not-chunks.md`, `docs/adr/ADR-024-rank-memories-not-chunks.md`, `docs/adr/ADR-027-a-maintained-document-is-a-set-of-records.md`, `docs/adr/BACKLOG.md`
+**Cross-references:** `docs/adr/ADR-038-refer-by-the-id-and-end-instead-of-overwrite.md`, `docs/adr/ADR-013-a-page-of-memories-not-chunks.md`, `docs/adr/ADR-024-rank-memories-not-chunks.md`, `docs/adr/ADR-027-a-maintained-document-is-a-set-of-records.md`, `docs/adr/BACKLOG.md`, issue #144 (related, NOT closed by this record — see Context)
 **Governs:** `internal/palace/service.go`, `internal/palace/repo.go`, `internal/mcpserver/drawers.go`
 **Enforced-by:** `internal/palace/move_test.go::TestAMoveRelocatesEveryChunkOfAMemory`
 **Invalidates:** none — checked
@@ -43,6 +43,20 @@ and does not need to.** A move does not change content, so chunk boundaries and
 `chunk_index` are unchanged, no row is created or destroyed, and no reference is
 invalidated. ADR-038 already made ids opaque and minted-once, which is why the rows
 can be relabelled in place at all. Re-chunking on update stays deferred.
+
+⚠ **Issue #144 is the same complaint and a DIFFERENT fix, and this record does not
+close it.** #144 asks for a boundary-aware `ChunkText` — chunks that stop at a
+sentence rather than a rune offset, and a reconsidered 320-rune overlap. Its trigger
+quote is lempa's *"taisom drawerius — wastina daug tokenu kol telpa i 1600 chars"*,
+which is the trimming tax above. ADR-045 touches neither `ChunkText`, nor the
+boundaries, nor the overlap: it removes the REASON to fear chunking, while #144 makes
+chunking itself cheaper. Both are real and neither subsumes the other.
+
+One finding here sharpens #144's migration caveat, which currently says only that new
+boundaries break dedup. `DrawerID` hashes wing, room, source, chunk index AND content
+(`chunk.go:159`), so re-chunking re-mints ids and orphans every knowledge-graph fact,
+code anchor and pinned tunnel naming the old ones — and nothing repoints an edge.
+Pointer survival, not dedup, is the expensive half of that change.
 
 A second defect surfaced while reading the path: the move is the only write path in
 the package that touches no derived edges. `Add` attaches (`service.go:655`),
