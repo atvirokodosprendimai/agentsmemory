@@ -58,8 +58,11 @@ docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v 
   apk add --no-cache bash git >/dev/null
   if [ -n "$(gofmt -l internal/longmemeval)" ]; then echo "gofmt"; exit 1; fi
   go vet ./... || exit 1
-  go test ./internal/longmemeval/ -run "TestDatasetLoadsEverySixQuestionTypes|TestDatasetRejectsAQuestionWhoseGoldSessionIsNotInItsHaystack|TestDatasetRejectsMisalignedHaystackArrays|TestSubsetIsDeterministicForASeed|TestSubsetStratifiesByQuestionType" -count=1 -v 2>&1 | tee /tmp/a47t1.out
+  go test ./internal/longmemeval/ -run "TestDatasetLoadsEverySixQuestionTypes|TestDatasetPairsEverySessionWithItsOwnDate|TestDatasetRejectsAQuestionWhoseGoldSessionIsNotInItsHaystack|TestDatasetRejectsMisalignedHaystackArrays|TestDatasetRecordsItsFileDigest|TestSubsetIsDeterministicForASeed|TestSubsetStratifiesByQuestionType|TestSubsetOfMoreThanTheCorpusIsTheCorpus" -count=1 -v 2>&1 | tee /tmp/a47t1.out
   grep -q -- "--- PASS: TestDatasetLoadsEverySixQuestionTypes" /tmp/a47t1.out || exit 1
+  grep -q -- "--- PASS: TestDatasetPairsEverySessionWithItsOwnDate" /tmp/a47t1.out || exit 1
+  grep -q -- "--- PASS: TestDatasetRecordsItsFileDigest" /tmp/a47t1.out || exit 1
+  grep -q -- "--- PASS: TestSubsetOfMoreThanTheCorpusIsTheCorpus" /tmp/a47t1.out || exit 1
   grep -q -- "--- PASS: TestDatasetRejectsAQuestionWhoseGoldSessionIsNotInItsHaystack" /tmp/a47t1.out || exit 1
   grep -q -- "--- PASS: TestDatasetRejectsMisalignedHaystackArrays" /tmp/a47t1.out || exit 1
   grep -q -- "--- PASS: TestSubsetIsDeterministicForASeed" /tmp/a47t1.out || exit 1
@@ -77,11 +80,13 @@ test from exiting 0 on an empty filter.
 | Test name | File | Verifies | Covers |
 |-----------|------|----------|--------|
 | `TestDatasetLoadsEverySixQuestionTypes` | `internal/longmemeval/dataset_test.go` | all six `question_type` values parse, and turn-level `has_answer` survives | — |
+| `TestDatasetPairsEverySessionWithItsOwnDate` | `internal/longmemeval/dataset_test.go` | the positive half of the zip: a session keeps its own id and date, not its neighbour's | — |
 | `TestDatasetRejectsAQuestionWhoseGoldSessionIsNotInItsHaystack` | `internal/longmemeval/dataset_test.go` | an unretrievable gold is an error, not a zero | — |
 | `TestDatasetRejectsMisalignedHaystackArrays` | `internal/longmemeval/dataset_test.go` | ids/dates/sessions of unequal length fail loudly rather than zipping short | — |
 | `TestDatasetRecordsItsFileDigest` | `internal/longmemeval/dataset_test.go` | the corpus identity travels with the data | — |
 | `TestSubsetIsDeterministicForASeed` | `internal/longmemeval/subset_test.go` | two calls with one seed choose the same ids | — |
 | `TestSubsetStratifiesByQuestionType` | `internal/longmemeval/subset_test.go` | a small `n` still spans the types present | — |
+| `TestSubsetOfMoreThanTheCorpusIsTheCorpus` | `internal/longmemeval/subset_test.go` | asking for more questions than exist returns them all rather than looping | — |
 
 ## Reachability
 
@@ -125,3 +130,23 @@ impossible to fail.
 - Anything that writes to a palace — that's T2's job
 
 ## Verification Log
+- 2026-09-01 · 0437d97* · exit 125 · `docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c ' …` · acceptance-sha256:de0e1f6e6cacd9dc4ab3d3d5e37afdcee5ad5c8a4930539bf6dc1180d72a88e4
+  ```
+  --- last 6 line(s) of stderr
+  docker: Cannot connect to the Docker daemon at unix://~/.docker/run/docker.sock. Is the docker daemon running?
+  
+  Run 'docker run --help' for more information
+  
+  [adr-verify] ENVIRONMENT: the Docker daemon was unreachable. Start Docker Desktop, or the engine, and re-run.
+               This is a machine problem, not a verdict about the code. The run still counts as failed.
+  ```
+- 2026-09-01 · 0437d97* · exit 125 · `docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c ' …` · acceptance-sha256:de0e1f6e6cacd9dc4ab3d3d5e37afdcee5ad5c8a4930539bf6dc1180d72a88e4
+  ```
+  --- last 6 line(s) of stderr
+  docker: Cannot connect to the Docker daemon at unix://~/.docker/run/docker.sock. Is the docker daemon running?
+  
+  Run 'docker run --help' for more information
+  
+  [adr-verify] ENVIRONMENT: the Docker daemon was unreachable. Start Docker Desktop, or the engine, and re-run.
+               This is a machine problem, not a verdict about the code. The run still counts as failed.
+  ```
