@@ -1346,6 +1346,19 @@ func (s *Service) Update(ctx context.Context, teamID, id string, patch DrawerPat
 			"error", err, "drawer", short12(id), "wing", finalWing, "room", finalRoom)
 	}
 
+	// Re-attach at the NEW address, after the commit and non-fatally, because
+	// attachDerivedEdgeTo is non-fatal everywhere it is called: the rows are the
+	// memory and the edge is only how it is reached. It edges the ROOT chunk only
+	// and reads each drawer's CURRENT wing/room, so post-move copies are what it
+	// needs — and a memory moved INTO the entry room mints that wing's by-name
+	// root here, exactly as filing one there would.
+	moved := make([]Drawer, len(chunks))
+	copy(moved, chunks)
+	for i := range moved {
+		moved[i].Wing, moved[i].Room = finalWing, finalRoom
+	}
+	s.attachDerivedEdgeTo(ctx, teamID, moved)
+
 	updated, err := s.repo.Get(ctx, teamID, id)
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return UpdateResult{}, ErrNotFound
@@ -1372,6 +1385,10 @@ func (s *Service) Update(ctx context.Context, teamID, id string, patch DrawerPat
 // recomputes content_key from post-patch state and names a collision rather than
 // leaking the driver's, so both behaviours carry over per chunk unchanged.
 func (s *Service) moveMemory(ctx context.Context, teamID string, chunks []Drawer, wing, room string) error {
+	ids := make([]string, 0, len(chunks))
+	for _, c := range chunks {
+		ids = append(ids, c.ID)
+	}
 	return s.repo.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		txRepo := &Repo{db: tx}
 		for _, c := range chunks {
@@ -1382,6 +1399,29 @@ func (s *Service) moveMemory(ctx context.Context, teamID string, chunks []Drawer
 				}
 				return err
 			}
+		}
+		// ⚠ AND END THE DERIVED EDGES, IN THIS SAME TRANSACTION. A derived edge
+		// names the ROOM a drawer is in, so a move invalidates it by definition —
+		// leave it current and a session traversing the old room is sent to a
+		// memory that is no longer there.
+		//
+		// Inside the transaction because the ending and the relabel are one fact:
+		// a collision that rolls the rows back must roll the edges back with them,
+		// or the memory stays where it was with nothing pointing at it.
+		//
+		// Only DERIVED edges end. An AUTHORED edge keeps pointing at the drawer and
+		// must, because a move preserves the id — that is the property that lets
+		// ADR-045 relabel rows at all, and ending an author's edge would silently
+		// discard a pointer somebody wove by hand.
+		//
+		// This is the FOURTH call site of a pair that already had three: Add
+		// attaches, Supersede ends and re-attaches, Delete drops, InvalidateDrawer
+		// ends. The move having none was a defect older than ADR-045 — a
+		// SINGLE-chunk relocation has always been allowed and has always orphaned
+		// its old room's edge.
+		if err := endDerivedEdgesFor(tx, teamID, ids, time.Now().UTC().Format(time.RFC3339),
+			"the drawer this derived edge points at was moved to another wing or room"); err != nil {
+			return fmt.Errorf("end the moved memory's derived edges: %w", err)
 		}
 		return nil
 	})

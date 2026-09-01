@@ -348,7 +348,7 @@ being dangerous. Each is one drawer:
 | `must.state.open` | What is unfinished and waiting on a human? |
 | `must.wrong.retracted` | What did we publish and then retract? |
 | `must.wrong.ruled-out` | Which hypotheses are dead, and what killed each? |
-| `must.craft.intent` | Where does authoritative intent live (ADRs, specs) — and that it is **not** indexed here? |
+| `must.working.intent` | Where does authoritative intent live (ADRs, specs) — and that it is **not** indexed here? |
 | `must.ops.<topic>` | What does a release/deploy actually do? |
 | `must.<domain>.<topic>` | The standing rules a session must carry in this project. |
 

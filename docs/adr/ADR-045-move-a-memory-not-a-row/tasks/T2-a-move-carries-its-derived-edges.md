@@ -64,6 +64,9 @@ go red without waiting for a mutation campaign.
 
 ## Mutation Log
 
+- 2026-09-01 · 8abc6b6* · mutant killed · exit 1 · `internal/palace/service.go` · ends no derived edge, so the room a memory left keeps pointing at it · acceptance-sha256:8ff1aad2a04b09f66bfe5c293bc6024407da51e99881a60cd1122612d07a6191
+- 2026-09-01 · 8abc6b6* · mutant killed · exit 1 · `internal/palace/service.go` · attaches nothing at the new address, leaving the moved memory an orphan invisible to traversal · acceptance-sha256:8ff1aad2a04b09f66bfe5c293bc6024407da51e99881a60cd1122612d07a6191
+
 ## Invariants
 
 - Only DERIVED edges are ended. An authored edge keeps pointing at the drawer, which is correct because a move does not change the id.
@@ -87,3 +90,18 @@ create, this task is a different and larger change than described.
 - Repointing AUTHORED edges, which need no repointing here because a move preserves the id.
 
 ## Verification Log
+- 2026-09-01 · 8abc6b6* · exit 1 · `set -o pipefail …` · acceptance-sha256:8ff1aad2a04b09f66bfe5c293bc6024407da51e99881a60cd1122612d07a6191
+  ```
+  --- last 10 line(s) of stdout (of 148 after folding 149 raw)
+  2026/09/01 09:46:03 OK   00031_drawers_content_key.sql (587.21µs)
+  2026/09/01 09:46:03 OK   00032_kg_ended_reason.sql (479.96µs)
+  2026/09/01 09:46:03 OK   00033_drawers_superseded_by_idx.sql (374.33µs)
+  2026/09/01 09:46:03 OK   00034_billing_checkout_intents.sql (508.67µs)
+  2026/09/01 09:46:03 OK   00035_billing_applied_orders.sql (321.83µs)
+  2026/09/01 09:46:03 OK   00036_drawer_fetches.sql (413.04µs)
+  2026/09/01 09:46:03 goose: successfully migrated database to version: 36
+  FAIL
+  FAIL	github.com/atvirokodosprendimai/agentsmemory/internal/palace	12.326s
+  FAIL
+  ```
+- 2026-09-01 · 8abc6b6* · exit 0 · `set -o pipefail …` · acceptance-sha256:8ff1aad2a04b09f66bfe5c293bc6024407da51e99881a60cd1122612d07a6191

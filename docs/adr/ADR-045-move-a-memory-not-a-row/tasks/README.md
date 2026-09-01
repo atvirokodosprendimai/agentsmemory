@@ -23,7 +23,7 @@ relocation of any size works, which is the thing a human can test.
 | ID | Title | Status | Covers | Acceptance |
 |----|-------|--------|--------|------------|
 | T1 | Relocate every chunk of a memory in one transaction | done | — | `go vet ./... && go test ./internal/palace/ -run "TestAMoveRelocatesEveryChunkOfAMemory\|TestAMoveThatCollidesOnAnyChunkRelocatesNone"` then the package suite |
-| T2 | Make a relocation carry its derived edges | pending | — | `go vet ./... && go test ./internal/palace/ -run "TestAMoveEndsTheOldRoomsEdgeAndAttachesTheNew"` then the package suite |
+| T2 | Make a relocation carry its derived edges | done | — | `go vet ./... && go test ./internal/palace/ -run "TestAMoveEndsTheOldRoomsEdgeAndAttachesTheNew"` then the package suite |
 | T3 | Retire the one-way-door claim, and gate it | pending | — | `go vet ./... && go test ./internal/mcpserver/ -run "TestNoToolDescriptionClaimsALongMemoryCannotBeMoved"` then `go test ./...` |
 
 Status: `pending` | `partial` | `blocked` | `done`.

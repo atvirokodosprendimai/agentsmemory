@@ -164,3 +164,82 @@ func TestAMoveThatCollidesOnAnyChunkRelocatesNone(t *testing.T) {
 		}
 	}
 }
+
+// reachableFrom reports whether the room node's outgoing edges name this drawer.
+// It asks the question the graph is actually walked with — am_kg_query from a room
+// node — rather than inspecting rows, so an edge that exists but is ended or
+// re-subjected reads as unreachable, which is what a traversing session experiences.
+//
+// ⚠ Status is passed EXPLICITLY. At the service layer an empty Status means
+// KGStatusAll (kg.go:438) and the "current" default lives at the MCP registration
+// (kgQueryDefaultStatus), so a test that omits it asks a question no session asks —
+// ended edges come back and an ending reads as if it never happened. That is not a
+// hypothetical: this helper's first draft omitted it and reported the old room's
+// edge still live after endDerivedEdgesFor had correctly ended it.
+func reachableFrom(t *testing.T, ctx context.Context, svc *Service, team, wing, room, id string) bool {
+	t.Helper()
+	q, err := svc.KGQuery(ctx, team, KGQueryInput{
+		Entity: DerivedEdgeSubject(wing, room), Direction: "outgoing", Status: KGStatusCurrent,
+	})
+	if err != nil {
+		t.Fatalf("traverse from %s/%s: %v", wing, room, err)
+	}
+	for _, f := range q.Facts {
+		if f.Object == id {
+			return true
+		}
+	}
+	return false
+}
+
+// TestAMoveEndsTheOldRoomsEdgeAndAttachesTheNew covers ADR-045 T2.
+//
+// The move was the only write path in this package that touched no derived edges.
+// Add attaches, Supersede ends and re-attaches, Delete drops, InvalidateDrawer ends
+// — the move did none, so a relocated memory stayed reachable from the room it had
+// LEFT and was reachable from its new room only by accident of some later write.
+//
+// The single-chunk subtest is the falsifiability half and it is a SUBTEST rather
+// than a sibling, so it sits inside the one command the acceptance fence runs: a
+// check that proves this can fail must be inside the fence, or a mutation run
+// returns "killed" from a gate that never executed it. It is also the older defect
+// — single-chunk moves were always allowed, so this has been wrong the whole time,
+// not since ADR-045.
+func TestAMoveEndsTheOldRoomsEdgeAndAttachesTheNew(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		content string
+	}{
+		{"single chunk — the pre-existing defect", "the deploy runs at 04:00 UTC"},
+		{"multi chunk — what ADR-045 newly allows", strings.Repeat("The zephyrine retention window is THIRTY days and this forces chunking. ", 40)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			svc := newTestService(t)
+			const team, origin, dest = "team-edges", "wing_alpha", "decisions_old"
+
+			added, err := svc.Add(ctx, team, AddInput{Wing: origin, Room: dest, SourceFile: "policy", Content: tc.content})
+			if err != nil {
+				t.Fatalf("add: %v", err)
+			}
+			root := added.Drawers[0].ID
+			if !reachableFrom(t, ctx, svc, team, origin, dest, root) {
+				t.Fatalf("fixture: the drawer is not reachable from its own room before the move")
+			}
+
+			newRoom := "decisions_new"
+			if _, err := svc.Update(ctx, team, root, DrawerPatch{Room: &newRoom}); err != nil {
+				t.Fatalf("move: %v", err)
+			}
+
+			if reachableFrom(t, ctx, svc, team, origin, dest, root) {
+				t.Error("the OLD room still holds an edge to the drawer after it moved away; a session " +
+					"traversing that room is sent to a memory that is no longer there")
+			}
+			if !reachableFrom(t, ctx, svc, team, origin, newRoom, root) {
+				t.Error("the NEW room has no edge to the drawer, so the memory is an orphan: reachable " +
+					"by search and invisible to traversal")
+			}
+		})
+	}
+}
