@@ -23,7 +23,7 @@ truncation impossible. Doing them in the other order ships the silent cut.
 | ID | Title | Status | Covers | Acceptance |
 |----|-------|--------|--------|------------|
 | T1 | Serve every chunk of an eager bootstrap record | done | — | `go test ./internal/palace/ -run "TestBootstrapServesEveryChunkOfAnEntryRecord\|TestBootstrapLeavesAShortEntryRecordUnchanged"` then the package suite |
-| T2 | Delete the entry-room chunk refusal | pending | — | `go test ./internal/palace/ -run "TestALongEntryRecordIsAcceptedAndServedWhole"` then `go test ./...` |
+| T2 | Delete the entry-room chunk refusal | done | — | `go test ./internal/palace/ -run "TestALongEntryRecordIsAcceptedAndServedWhole"` then `go test ./...` |
 
 Status: `pending` | `partial` | `blocked` | `done`.
 

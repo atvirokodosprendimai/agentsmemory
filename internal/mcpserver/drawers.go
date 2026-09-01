@@ -192,18 +192,20 @@ func registerAddDrawer(reg *registrar, drawers *palace.Service, usageSvc *usage.
 				"costs you no capability — do not spend turns trimming to fit. What it does cost is "+
 				"SHARPNESS: one drawer is one vector, so the more topics a memory averages, the less "+
 				"sharply it matches any of them. Prefer splitting by QUESTION over splitting by size. "+
-				"⚠TWO THINGS ARE STILL REFUSED. A memory filed into %q is refused if it would chunk, "+
-				"on creation AND on correction, because am_bootstrap serves that room's records one "+
-				"chunk at a time — a longer one arrives cut with nothing marking it partial; keep an "+
-				"entry record under %d runes and point it at ordinary memories for the detail. And an "+
-				"ENDED record cannot be relocated at all: the first ending is the one that is true, "+
-				"and moving it rewrites where a decision was taken.",
-			palace.ChunkSize, palace.EntryRoom, palace.ChunkSize)),
+				"⚠%q IS THE ENTRY ROOM and costs differently: its records are served WHOLE at every "+
+				"wake-up, on the one call no session skips, so length there is paid by every session "+
+				"rather than only by a search that matches. Nothing refuses a long one — keep it a "+
+				"spine that POINTS at ordinary memories because that is cheaper for every reader, not "+
+				"because the server will stop you. ⚠ONE THING IS STILL REFUSED: an ENDED record "+
+				"cannot be relocated at all, because the first ending is the one that is true and "+
+				"moving it rewrites where a decision was taken.",
+			palace.ChunkSize, palace.EntryRoom)),
 		mcp.WithString("wing", mcp.Description("Project namespace the memory belongs to. Optional when this MCP was registered for a project — then it defaults to that project's wing.")),
 		mcp.WithString("room", mcp.Required(), mcp.Description(fmt.Sprintf(
 			"Aspect within the wing, e.g. \"backend\" or \"decisions\". ⚠%q is the ENTRY room and "+
 				"behaves differently: it is what am_entry_point and am_bootstrap resolve, filing here "+
-				"mints the wing's by-name root, and a record that would chunk is refused.",
+				"mints the wing's by-name root, and its records are served WHOLE at every wake-up — "+
+				"so length here is paid by every session, not only by a search that matches.",
 			palace.EntryRoom))),
 		mcp.WithString("content", mcp.Required(), mcp.Description("The verbatim text to remember — stored exactly, never summarised.")),
 		mcp.WithString("source_file", mcp.Description("Optional provenance of the content (a path or label).")),

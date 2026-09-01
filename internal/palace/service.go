@@ -690,36 +690,36 @@ func (s *Service) prepareWrite(ctx context.Context, teamID string, in AddInput) 
 
 	chunks := ChunkText(content, ChunkSize, ChunkOverlap, ChunkMin)
 
-	// ⚠ AN ENTRY RECORD THAT CHUNKS IS REFUSED, and the check lives HERE rather
-	// than in Add for three reasons that are one reason: this is the only place
-	// that sees the write as it will actually be stored.
+	// AN ENTRY RECORD THAT CHUNKS IS NO LONGER REFUSED (ADR-046). A guard stood
+	// here and was deleted, which is worth recording because the reasoning that
+	// justified it was good and still led to the wrong thing.
 	//
-	//   - `room` is normalised above, so " llm_init " is caught. Add sees the raw
-	//     argument and would wave it through.
-	//   - Supersede and content-Update call prepareWrite DIRECTLY and never touch
-	//     Add, so a guard in Add left a CORRECTION free to produce a multi-chunk
-	//     entry record — and correcting an entry record is precisely the case that
-	//     motivated the limit.
-	//   - It runs before embedOrDefer, so a refused write costs no embedding call.
+	// It refused a multi-chunk record in EntryRoom because am_bootstrap's eager
+	// tier served ONE chunk: a longer record arrived cut mid-sentence with
+	// truncation.omitted:0 and nothing marking it partial. Measured 2026-09-01 on
+	// a 3,600-rune record, the front door served 1,600 and reported no omission.
+	// The refusal's own error message named that serving bug as its reason — which
+	// is what made it a workaround wearing the shape of a rule.
 	//
-	// The limit exists because am_bootstrap's eager tier serves ONE chunk: a
-	// longer entry record arrives cut mid-sentence with truncation.omitted:0 and
-	// nothing marking it partial — the front door silently losing whatever came
-	// after the seam.
+	// ADR-046 T1 fixed the serving: Bootstrap reassembles every chunk, so there is
+	// nothing left to protect against. Two further facts settled it rather than
+	// merely permitting it:
 	//
-	// It REFUSES rather than warning because a warning beside a success is the
-	// shape that was already ignored twice: two authors filed an over-long entry
-	// record in the same turn they read the rule, both saying the same thing —
-	// "I cannot count runes". A limit an agent cannot measure is a limit on
-	// nothing, so the server counts.
-	if room == EntryRoom && len(chunks) > 1 {
-		return preparedWrite{}, fmt.Errorf("%w: an entry record for room %q must fit in ONE chunk "+
-			"and this one is %d — am_bootstrap serves the eager tier one chunk at a time, so the "+
-			"rest would arrive cut with nothing marking it partial. Shorten it to about %d runes "+
-			"and file the detail as an ordinary memory the entry record points at",
-			ErrInvalidInput, EntryRoom, len(chunks), ChunkSize)
-	}
-
+	//   - It was ALREADY reachable around. This lived in prepareWrite, while
+	//     moveMemory patches rows directly and never routes through here, so
+	//     ADR-045 made "file it elsewhere and move it in" a two-call bypass. A rule
+	//     enforced on one path and open on another is worse than no rule, because
+	//     it reads as a guarantee.
+	//   - Refusing had been chosen over warning for a good reason — two authors
+	//     filed an over-long entry record in the same turn they read the rule, both
+	//     saying "I cannot count runes", so a limit an agent cannot measure is a
+	//     limit on nothing. That reasoning is sound and is exactly why the fix had
+	//     to be removing the limit rather than restating it.
+	//
+	// What remains is a COST, not a refusal: an entry record is served whole at
+	// every wake-up, so length is paid on the one call no session skips. A spine
+	// that points at detail still beats one that inlines it; that is now advice,
+	// and the byte-bounding option is in the backlog with a trigger.
 	// A failed embed does not fail the write — see embedOrDefer. vectors is nil in
 	// that case and the rows are absorbed onto the background queue instead.
 	vectors := s.embedOrDefer(ctx, chunks)

@@ -36,7 +36,7 @@ An entry record that would chunk is accepted, and no description claims otherwis
 
 ```bash
 gofmt -l internal/palace internal/mcpserver | grep -q . && exit 1
-go vet ./... && go test ./internal/palace/ -run "TestALongEntryRecordIsAcceptedAndServedWhole" -count=1 -v 2>&1 | tee /tmp/adr046-t2-new.out && ! grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/adr046-t2-new.out
+go vet ./... && go test ./internal/palace/ -run "TestALongEntryRecordIsAcceptedAndServedWhole|TestAWingRootIsMintedFromAChunkedEntryRecord" -count=1 -v 2>&1 | tee /tmp/adr046-t2-new.out && ! grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/adr046-t2-new.out
 go test ./... -count=1 2>&1 | tee /tmp/adr046-t2-reg.out && ! grep -qE "^FAIL|^--- FAIL" /tmp/adr046-t2-reg.out
 ```
 
@@ -65,6 +65,9 @@ record is the shape that branch has never been given.
 
 ## Mutation Log
 
+- 2026-09-01 · 0840b17* · mutant killed · exit 1 · `internal/palace/service.go` · reinstates the deleted entry-room refusal, so a long entry record is rejected again · acceptance-sha256:68eda845c69f989b01578f7047c31937ab4a99f175db06e4ef1607a32e485c24
+- 2026-09-01 · 0840b17* · mutant killed · exit 1 · `internal/palace/service.go` · reinstates the deleted entry-room refusal, so a long entry record is rejected again · acceptance-sha256:7cc34bddaa74de7ad539b7df53a8821ff0c753567c0f1a56ae4a9a68e77b38de
+
 ## Invariants
 
 - The ENDED-record relocation refusal is untouched.
@@ -90,3 +93,38 @@ refusal in place and closing the ADR-045 move bypass instead.
 - The `ChunkSize` threshold (permanent: this task removes a refusal keyed on chunk count, not the chunking)
 
 ## Verification Log
+- 2026-09-01 · 0840b17* · exit 1 · `gofmt -l internal/palace internal/mcpserver | grep -q . && exit 1 …` · acceptance-sha256:68eda845c69f989b01578f7047c31937ab4a99f175db06e4ef1607a32e485c24
+  ```
+  --- last 10 line(s) of stdout (of 180 after folding 181 raw)
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/store/sqlitevec	1.649s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/store/storetest	1.124s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/telemetry	1.232s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/tenant	1.231s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/updatecheck	0.870s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/usage	1.054s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/web	0.844s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/web/views	0.976s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/wingbundle	1.268s
+  FAIL
+  ```
+- 2026-09-01 · 0840b17* · exit 0 · `gofmt -l internal/palace internal/mcpserver | grep -q . && exit 1 …` · acceptance-sha256:68eda845c69f989b01578f7047c31937ab4a99f175db06e4ef1607a32e485c24
+- 2026-09-01 · 0840b17* · exit 0 · `gofmt -l internal/palace internal/mcpserver | grep -q . && exit 1 …` · acceptance-sha256:7cc34bddaa74de7ad539b7df53a8821ff0c753567c0f1a56ae4a9a68e77b38de
+
+## Class Audit
+
+The class: **any code path that reads `EntryRoom` and assumes such a record is ONE
+chunk.** Enumerated 2026-09-01, before the deletion:
+
+    grep -rn "EntryRoom" --include=*.go . | grep -v _test
+
+Fifteen references across four files, and none assumes one chunk:
+
+- `service.go:715,720` — the refusal itself. Deleted by this task.
+- `service.go:885` — `attachDerivedEdgeTo`'s root-mint branch. Keyed on `d.Room == EntryRoom`, runs only for drawers with an empty `ParentID`, and guards once per wing per batch. A chunked record has exactly one root, so it is indifferent — but it had never been GIVEN one, which is why `TestAWingRootIsMintedFromAChunkedEntryRecord` exists rather than a note saying it should be fine.
+- `graphquery.go:465,471,518` — the constant and `DerivedEdgeSubject(wing, EntryRoom)` for entry-point resolution. Room-level; never reads a drawer's content. Checked separately that `EntryPoint` inlines no content (its only `MayReturnContent` call filters which edges to LIST), so `am_entry_point` cannot truncate a record the way `am_bootstrap` did.
+- `kg.go:1187,1259-1300` — `EnsureWingRoot` and `BackfillWingRoots`, both operating on room SUBJECTS rather than drawers.
+- `drawers.go:201,207` — the two descriptions, rewritten by this task.
+
+So exactly one sibling needed a test and got one. The audit is recorded rather than
+summarised because "I checked and it was fine" and "I did not check" read identically
+six months later.

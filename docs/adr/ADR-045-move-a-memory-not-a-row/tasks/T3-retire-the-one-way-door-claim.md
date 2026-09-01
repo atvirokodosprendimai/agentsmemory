@@ -78,7 +78,7 @@ claims more than it covers is worse than a narrower one.
 ## Invariants
 
 - The description still states the chunking fact and the one-vector-per-drawer recall reason. This task removes an enforcement claim, not the advice.
-- The description still names what IS refused: relocating an ended record, and the `llm_init` entry-room refusal, which are unaffected by ADR-045.
+- The description still names what IS refused. ⚠AMENDED 2026-09-01 by ADR-046: when this task shipped that meant TWO refusals — relocating an ended record, and a chunking record in the entry room. ADR-046 deleted the second (`am_bootstrap` now serves entry records whole, so the refusal was a workaround for a serving bug), leaving only the ENDED-record clause. The invariant is unchanged in substance — the description names what is actually refused and nothing else — but the LIST moved, and a task file left asserting the old one is the drift this repo gates elsewhere.
 - `AGENTS.md` §Reachability names every gate that exists and no gate that does not.
 
 ## Risks
