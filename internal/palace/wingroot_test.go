@@ -77,71 +77,93 @@ func TestFilingIntoTheEntryRoomMintsTheWingRoot(t *testing.T) {
 	}
 }
 
-// TestAnEntryRecordThatChunksIsRefused pins a limit no agent can measure.
+// TestAnEntryRecordThatChunksIsServedWholeHoweverItArrives replaces
+// TestAnEntryRecordThatChunksIsRefused, which pinned a limit ADR-046 deleted.
 //
-// ⚠ REPORTED BY A SESSION THAT BROKE IT IN THE SAME TURN IT READ THE RULE. It
-// filed a ~1750-rune entry record minutes after reading "keep it under 1600
-// runes", and said why: "I cannot count runes and did not try to bound it.
-// Nothing warned me; am_add_drawer returned chunks: 2 as a success." The server
-// counts instead, and refuses rather than warning — a warning beside a success is
-// the shape that was already ignored once.
-func TestAnEntryRecordThatChunksIsRefused(t *testing.T) {
+// ⚠ THE ORIGINAL WAS WRITTEN FROM A REAL REPORT and its evidence still stands: a
+// session filed a ~1750-rune entry record minutes after reading "keep it under 1600
+// runes", and said why — "I cannot count runes and did not try to bound it. Nothing
+// warned me; am_add_drawer returned chunks: 2 as a success." The conclusion drawn then
+// was that the server must count and refuse. The conclusion ADR-046 draws is that a
+// limit an agent cannot measure should not exist: am_bootstrap now reassembles, so
+// there is nothing to protect against.
+//
+// What is KEPT is the shape that made the original valuable. A review found the first
+// version's guard sat in Add and was walked past by two doors, so the test drove all
+// three. Those three doors still matter — they are now the three ways a chunked entry
+// record can reach the store, and each must be SERVED WHOLE rather than refused. Same
+// coverage, opposite expectation.
+func TestAnEntryRecordThatChunksIsServedWholeHoweverItArrives(t *testing.T) {
 	ctx := context.Background()
 	svc := newTestService(t)
 	const team, wing = "team-entrysize", "wing_alpha"
 
 	long := longNote(headA, tailA) // built to exceed ChunkSize by construction
 
-	_, err := svc.Add(ctx, team, AddInput{Wing: wing, Room: EntryRoom, Content: long})
-	if err == nil {
-		t.Fatal("a multi-chunk entry record was accepted; the eager tier serves one chunk, so " +
-			"the rest would arrive cut with nothing marking it partial")
+	// Door 1: a direct write.
+	if _, err := svc.Add(ctx, team, AddInput{Wing: wing, Room: EntryRoom, SourceFile: "d1", Content: long}); err != nil {
+		t.Fatalf("a multi-chunk entry record was refused: %v", err)
 	}
-	// The refusal has to be actionable: name the room and the remedy, or it is a
-	// wall rather than an instruction.
-	if !strings.Contains(err.Error(), EntryRoom) {
-		t.Errorf("the refusal does not name the room it binds: %v", err)
-	}
-	if !strings.Contains(err.Error(), "ONE chunk") {
-		t.Errorf("the refusal does not say what the limit is: %v", err)
+	if !eagerServes(t, ctx, svc, team, wing, long) {
+		t.Error("door 1 (Add): the record was accepted and the eager tier did not serve it whole — " +
+			"which is the state the deleted refusal existed to prevent, now reached through the " +
+			"front door instead of around it")
 	}
 
-	// ⚠ AND IT BINDS ONLY THE ENTRY ROOM. Every other room may chunk freely; this
-	// is the one whose read path cannot reassemble.
-	if _, err := svc.Add(ctx, team, AddInput{Wing: wing, Room: "decisions", Content: long}); err != nil {
+	// An ordinary room was always allowed to chunk, and still is. Kept so a future
+	// change that reinstates a room-keyed limit cannot do it silently.
+	if _, err := svc.Add(ctx, team, AddInput{Wing: wing, Room: "decisions", SourceFile: "d0", Content: long}); err != nil {
 		t.Errorf("a multi-chunk memory in an ordinary room was refused: %v", err)
 	}
 
-	// ⚠ THE TWO BYPASSES A REVIEW FOUND, both of which the first version allowed
-	// because the guard sat in Add rather than in prepareWrite.
-	//
-	// (a) A CORRECTION. Supersede and content-Update call prepareWrite DIRECTLY and
-	// never touch Add — so a correction could still produce a multi-chunk entry
-	// record, and correcting an entry record is the case that motivated the limit.
+	// Door 2: a CORRECTION. Supersede and content-Update call prepareWrite directly
+	// and never touch Add, which is why the original guard had to live there. That
+	// remains the interesting path: correcting an entry record is the case that
+	// motivated the limit in the first place.
 	short, err := svc.Add(ctx, team, AddInput{
-		Wing: wing, Room: EntryRoom, Content: "WHAT MUST I LOAD AT THE START OF A SESSION? — v1",
+		Wing: wing, Room: EntryRoom, SourceFile: "d2",
+		Content: "WHAT MUST I LOAD AT THE START OF A SESSION? — v1",
 	})
 	if err != nil {
 		t.Fatalf("seed a short entry record: %v", err)
 	}
-	if _, err := svc.Supersede(ctx, team, short.Drawers[0].ID, long, "made it too long"); err == nil {
-		t.Error("a CORRECTION grew an entry record past one chunk; Supersede reaches prepareWrite " +
-			"without passing through Add, so a guard in Add never sees it")
+	grown := longNote(headB, tailB)
+	if _, err := svc.Supersede(ctx, team, short.Drawers[0].ID, grown, "the protocol grew"); err != nil {
+		t.Fatalf("a CORRECTION that grows an entry record past one chunk was refused: %v", err)
+	}
+	if !eagerServes(t, ctx, svc, team, wing, grown) {
+		t.Error("door 2 (Supersede): a corrected entry record is not served whole; the correction " +
+			"is precisely the case the original limit was written for")
 	}
 
-	// (b) NORMALISATION. prepareWrite trims the room; a guard reading the raw
-	// argument is walked past by a space.
-	if _, err := svc.Add(ctx, team, AddInput{Wing: wing, Room: " " + EntryRoom + " ", Content: long}); err == nil {
-		t.Errorf("a multi-chunk entry record was accepted for room %q — the guard must read the "+
-			"NORMALISED room, not the raw argument", " "+EntryRoom+" ")
+	// Door 3: NORMALISATION. prepareWrite trims the room, so " llm_init " lands in the
+	// entry room. It must be served like any other entry record.
+	padded := longNote(headA, tailB)
+	if _, err := svc.Add(ctx, team, AddInput{Wing: wing, Room: " " + EntryRoom + " ", SourceFile: "d3", Content: padded}); err != nil {
+		t.Fatalf("a multi-chunk entry record was refused for room %q: %v", " "+EntryRoom+" ", err)
 	}
+	if !eagerServes(t, ctx, svc, team, wing, padded) {
+		t.Errorf("door 3 (padded room name): a record filed as %q is in the entry room after "+
+			"normalisation and must be served whole like any other", " "+EntryRoom+" ")
+	}
+}
 
-	// A short one is fine, and still mints the root.
-	if _, err := svc.Add(ctx, team, AddInput{
-		Wing: wing, Room: EntryRoom, Content: "WHAT MUST I LOAD AT THE START OF A SESSION? — short enough",
-	}); err != nil {
-		t.Fatalf("a single-chunk entry record was refused: %v", err)
+// eagerServes reports whether am_bootstrap's eager tier carries this exact text.
+//
+// Byte equality, because the failure being guarded is the ChunkOverlap seam: a
+// reassembly that drops or duplicates 320 runes still produces a plausible length.
+func eagerServes(t *testing.T, ctx context.Context, svc *Service, team, wing, want string) bool {
+	t.Helper()
+	got, err := svc.Bootstrap(ctx, team, wing)
+	if err != nil {
+		t.Fatalf("bootstrap: %v", err)
 	}
+	for _, d := range got.Eager {
+		if d.Content == want {
+			return true
+		}
+	}
+	return false
 }
 
 // TestCorrectingAnEntryRecordEndsItsDerivedEdge pins the front door.

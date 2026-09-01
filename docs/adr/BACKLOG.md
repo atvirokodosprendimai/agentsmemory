@@ -3119,3 +3119,97 @@ gate earns its place the day an offender exists.
 
 **The general rule:** a guard that has never fired is not evidence that it works. Before trusting
 one, make its condition true and watch the exit code.
+
+## From ADR-045 (move a memory, not a row)
+
+- **The vectors a superseded memory leaves behind, and whether a job queue should reap them.**
+  `supersedeInto` ends the predecessor's rows in SQLite and upserts the successor's vectors beside
+  them; it deletes no points. The validity filter runs POST-retrieval in Go
+  (`internal/palace/memory_search.go:87`, counted as `drops.Superseded`), and the design note above
+  it says the consequence out loud: an ended drawer keeps its vector, so the index still returns it
+  and a page can come back shorter than `limit` with nothing saying why. Measured 2026-09-01 against
+  the hosted palace: `am_status` reported `drawers.indexed` 8972 against `total_drawers` 8935. The
+  widen loop (`k *= 2`, ceiling `8 × candidateK`, `memory_search.go:20`) refills most short pages;
+  past that ceiling recall degrades with only an `am.dropped_superseded` trace attribute to show it.
+  Three options, none free: **delete the points** — cheapest, but `include_history` searches the
+  same index, so history becomes address-reachable and no longer searchable, and `IndexDrift` starts
+  counting every ended row as `IndexMissing` until it learns that an ended row is expected to have
+  no point; **stamp `valid_to` into the payload** and filter server-side, which keeps history
+  searchable and costs one more payload key; **a separate history namespace**, which keeps both at
+  the cost of a second index to maintain. Note for whoever takes it: `Hybrid.Delete`
+  (`internal/store/hybrid.go:449`) deletes source-of-truth FIRST and index second on purpose,
+  because `Rebuild` reconstructs the index from the source of truth — deleting the index first and
+  crashing lets the next `Rebuild` resurrect the point. On the queue question specifically: the
+  desired index state is derivable from SQLite (`valid_to`, and `content_key` if it is stamped into
+  the payload), so a reconciler in the every-boot prepare slot beside `BackfillContentKeys` and
+  `BackfillWingRoots` repairs drift from causes it never witnessed — including every correction that
+  predates the mechanism — while a queue repairs only what it recorded. A queue is a latency
+  optimisation ON a reconciler, never a replacement for one; it earns its place when the O(corpus)
+  scan becomes the binding constraint, which at ~9k drawers it is not.
+  **Trigger: the first time a recall is measurably short because superseded points crowded the
+  prefix, or when the corpus is large enough that the drift scan itself costs.**
+  Deferred from `docs/adr/ADR-045-move-a-memory-not-a-row.md` §Out of Scope.
+
+## From ADR-046 (serve the whole entry record)
+
+- **Paging or byte-bounding the eager bootstrap tier.** ADR-046 makes `am_bootstrap`
+  serve each eager record WHOLE, which is what makes `truncation.omitted: 0` true
+  instead of merely present. It leaves `bootstrapEagerLimit` bounding how MANY records
+  are inlined and nothing bounding how LARGE each is, so a long entry record now costs
+  its full length on the one call no session skips. That is the deliberate trade —
+  a front door that is correct beats one that is cheap — and the discipline that a
+  spine points at detail rather than inlining it becomes advice, exactly as
+  relocatability did in ADR-045. **Trigger: the first time a wake-up is measurably
+  expensive because of entry-record size, or the first entry record past a few
+  thousand runes.** The shape to reach for is a byte budget with an honest
+  `truncation` report, NOT a refusal at write time — the refusal is what ADR-046
+  removed, and reinstating it under a different name would be the same workaround
+  wearing a new shape. Deferred from
+  `docs/adr/ADR-046-serve-the-whole-entry-record.md` §Out of Scope.
+
+## From the review of PR #147 (two independent reviews, 2026-09-01)
+
+- **`doctor --index` compares the payload's WING only, so a ROOM-only drift reports clean.**
+  `internal/palace/indexdrift.go` reads `p.Payload["wing"]` and compares that alone. A move now
+  writes both keys with one `SetPayload`, and when that call fails the operator is pointed at a
+  check that can only see half of what went wrong — a memory whose stored room is stale answers
+  no room-scoped search while `--index` says the index and the rows agree. The fix is small
+  (compare both keys, report which one drifted) and the cost of not doing it is the shape this
+  corpus keeps recording: a check whose green is narrower than the question the reader asked.
+  **Trigger: the next time anything is added to a point's payload, or the first room-scoped
+  recall that comes back empty against rows that look right.**
+
+- **`sync --repair-payload` refuses every backend but Qdrant.** `cmd/server/sync.go` returns an
+  error unless `VectorBackend == qdrant`, so the remedy named in `Service.Update`'s fail-open
+  warning does not exist on the default sqlite backend or on chromem. It is narrower than it
+  sounds — on sqlite the source of truth IS the index, and chromem refills from SQLite at boot —
+  but "run this command" is advice an operator on those backends cannot take. Either teach the
+  command to say what to do per backend, or have the warning name the backend-specific route.
+  **Trigger: the first operator report of that warning on a non-Qdrant deployment.**
+
+- **A pinned tunnel does not follow a move.** `tunnelRow` stores the source and target wing+room
+  beside the drawer id, and `canonicalTunnelID` hashes wing+room; `moveMemory` updates neither.
+  ADR-045's claim that "every pinned tunnel goes on naming a live row" is true of the ID and
+  misleading about REACHABILITY: after a move, following the tunnel from the new location finds
+  nothing, and following it from the old previews a drawer that has left. Note for whoever takes
+  it: rewriting the endpoint changes `canonicalTunnelID`, so this is a re-key rather than a field
+  update, and the same pointer-survival question ADR-045 answered for drawers has to be answered
+  again for tunnels. **Trigger: the first move of a memory that has an explicit tunnel pinned to
+  it — today rare, and it stops being rare as soon as relocation is advertised as free.**
+
+- **`moveMemory` has no compare-and-set.** `MemoryChunks` and the ended-record check both happen
+  BEFORE the transaction opens, so a concurrent supersede or move landing in between relabels rows
+  the caller never read. `supersedeInto` already solves the same race properly, by counting open
+  chunks inside the transaction and treating a short `RowsAffected` as `ErrConcurrentCorrection`.
+  Source-traced, not reproduced; narrow while relocation is rare. **Trigger: adopt the supersede
+  path's CAS the first time two writers are expected on one wing, or the first unexplained
+  half-moved memory.**
+
+- **`memoryChunkQuery` has no `valid_to` filter**, so reassembly reads ended siblings alongside
+  live ones (`internal/palace/repo.go`). Pre-existing — the search path has always used this query
+  — but ADR-046 put it on `am_bootstrap`, which is the one call no session skips, so the blast
+  radius changed even though the code did not. Confirm first whether an ended chunk can share a
+  live root at all: `supersedeInto` mints a new root for the successor, which may make this
+  unreachable in practice and therefore a comment rather than a fix. **Trigger: before adding any
+  second caller of the reassembly path, or the first entry record that reads with a duplicated
+  passage.**

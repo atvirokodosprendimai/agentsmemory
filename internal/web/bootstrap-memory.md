@@ -168,15 +168,15 @@ Create each by filing one real memory. No empty placeholders.
 **The filing test for all of them:** *could the next session recover this from the code?* If
 yes, do not file it. Git history, file structure and existing docs are not memory's job.
 
-### 4.2 The state rooms — agent-maintained, edited in place
+### 4.2 The state rooms — agent-maintained, rewritten whole
 
 These are what make a returning session productive instead of archaeological. The `llm_` prefix
 records that an agent originated the convention.
 
 | Room | Holds | ⚠ Rule |
 |---|---|---|
-| `llm_open_threads` | **ONE live list** of unfinished work | Edit in place. **Under ~800 chars.** |
-| `llm_index` | Routing: which room answers which question | Edit in place. **Each drawer under ~800 chars.** |
+| `llm_open_threads` | **ONE live list** of unfinished work | One chunk (**under ~1600 runes**), so it recalls sharply. |
+| `llm_index` | Routing: which room answers which question | One chunk each, same reason. |
 | `llm_corrections` | Claims published and then retracted | **Append-only.** New record per batch. |
 
 > ⚠ **Same prefix, opposite rules.** The first two are *state* and must stay editable. The
@@ -192,7 +192,7 @@ record titled by its topic answers no question.
 ```
 am_add_drawer(wing: "<project wing>", room: "llm_index", content: """
 WHAT SHOULD I LOAD NEXT / WHERE DO I LOOK / WHAT EXISTS — the routing index, organised by
-QUESTION. Under 800 chars so it stays ONE chunk and can be edited in place.
+QUESTION. Under 1600 runes so it stays ONE chunk and recalls sharply.
 
 UNFINISHED, AWAITING A HUMAN → room `llm_open_threads`. Read first.
 WHAT WE GOT WRONG → `llm_corrections`.
@@ -445,14 +445,17 @@ ask memory first, grep only the gap.
 
 - **`am_add_drawer`** — a decision WITH ITS REJECTED ALTERNATIVE, an incident, cached reference.
   Add `code_anchors` — a verbatim snippet, NEVER a line number, which rots silently.
-- **`llm_open_threads`** — the LIVE list of unfinished work. ⚠ Keep under ~800 chars so it stays
-  ONE CHUNK; `am_update_drawer` refuses in-place edits to anything multi-chunk. Adding an item
-  means compressing another. Same rule governs `llm_index`.
+- **`llm_open_threads`** — the LIVE list of unfinished work. ⚠ Keep under ~1600 runes so it
+  stays ONE CHUNK and recalls sharply — one drawer is one vector. Adding an item means
+  compressing another. Same rule governs `llm_index`.
 - **`llm_corrections`** — APPEND-ONLY log of claims published and retracted. ⚠ Same prefix as
   above, opposite rule.
 - **`am_diary_write`** — the narrative. But put anything a future session must FIND into a room
   above; a diary tail is unretrievable.
-- **`am_kg_add`** — entity-level facts true of the WORKSPACE. ⚠ Facts are NOT wing-scoped.
+- **`am_kg_add`** — **MUST, not optional**: entity-level facts true of the WORKSPACE, filed in
+  the same breath as the drawer they describe. A drawer with no edge is an orphan — reachable
+  by search, invisible to traversal, and it still surfaces in your OWN search, which is why
+  authors believe it is reachable. ⚠ Facts are NOT wing-scoped.
 - **`am_update_skill`** — ONLY for a NEW confident-error class, or a rule here that became
   wrong. Test: is it already reachable through a pointer this skill carries?
 
@@ -515,7 +518,11 @@ Nothing else in the system solves this.
   every project in the workspace. File here only what is true of the workspace; anything
   project-specific goes in a drawer.
 - **⚠ `am_kg_add` is idempotent.** Re-adding an identical current fact is a no-op. To *replace*
-  a fact you must `am_kg_invalidate` the old one **first**, then add. There is no update.
+  a fact, use **`am_kg_supersede`**: it ends the old value and starts the new one at the SAME
+  instant, so no query sees both values or neither. Hand-rolling it as invalidate-then-add
+  leaves both live in between, ends the old one at day precision, and leaves the graph with no
+  current value at all if the session dies between the two calls. Use `am_kg_invalidate` alone
+  only when nothing replaces the fact.
 - **Invalidate means "stopped being true", not "was recorded wrong."** A fact recorded in error
   is not history; delete-and-refile is a different operation from expiry.
 - **Reuse an existing predicate** rather than minting a near-synonym. `uses` and `is_using`
@@ -647,11 +654,12 @@ practice contradict each other and nobody notices until a cold session fails.
 
 ### 8.2 `llm_open_threads` — one live list
 
-**One drawer. Always current. Always single-chunk.** Edited in place, never appended to.
+**One drawer. Always current. Always single-chunk.** Rewritten whole, never appended to — and a
+content update SUPERSEDES it, so expect a new id (§10).
 
 ```
 WHAT IS STILL OPEN OR UNRESOLVED, WHAT IS WAITING ON A HUMAN — the live list,
-<project>, <date>. Under 800 chars so it stays ONE chunk, editable in place.
+<project>, <date>. Under 1600 runes so it stays ONE chunk and recalls sharply.
 
 1. <thing> — <why it is stuck / who it is waiting on>.
 2. <thing> — <the next concrete action>.
@@ -661,8 +669,8 @@ WHAT IS STILL OPEN OR UNRESOLVED, WHAT IS WAITING ON A HUMAN — the live list,
 Rules that make it work:
 
 - **The first line is the question**, not "Open threads". §9.1 explains why.
-- **Under ~800 characters**, so it stays one chunk and `am_update_drawer` will edit it in place
-  (§10). This is the *reason* it is terse.
+- **Under ~1600 runes**, so it stays one chunk and recalls sharply — one drawer is one vector,
+  so a record averaging three topics is outranked on all three (§10). That is *why* it is terse.
 - **Adding an item means compressing another.** That pressure is a feature: a list of forty
   items is not a list anyone reads.
 - **One line per item, and each line says what it is *waiting on*** — a person, a decision, a
@@ -708,10 +716,11 @@ A verified change that is not written back is memory lost. Every session ends wi
    sessions — check with `am_diary_read` before inventing one, or you fork the journal.
 3. **`am_add_drawer`** — decisions with their rejected alternative, incidents, anything traced
    the hard way.
-4. **`am_kg_add`** — durable entity facts (§6), and add any new key to the `llm_index` key list.
+4. **`am_kg_add`** — **required, not optional**: durable entity facts (§6), and add any new key
+   to the `llm_index` key list. The edge is what makes 3 findable by traversal at all.
 
-Skip only when the session produced nothing worth recalling — **and say so** rather than
-skipping silently.
+Steps 2 and 4 are the gate. Skip a step only when the session produced nothing worth recalling
+— **and say so** rather than skipping silently.
 
 ---
 
@@ -807,28 +816,37 @@ the real record's **0.820**, sixty seconds after being filed.
 
 ---
 
-## 10. ⚠ A document you intend to maintain must fit in one chunk
+## 10. ⚠ A maintained document is one chunk for RECALL, not because anything refuses it
 
-Content over roughly **800 characters is split into multiple drawers**, and **`am_update_drawer`
-refuses in-place content edits to anything multi-chunk.** A maintained document that outgrows
-one chunk can only be delete-and-refiled, losing its id, its `filed_at` and its history.
+Content over roughly **1600 runes is split into several drawers sharing a parent**. Nothing
+refuses that: a memory of any chunk count can be corrected, and since ADR-045 it can be
+relocated too — `am_update_drawer` moves every chunk of it in one transaction, or none.
 
-This catches people who already know the rule, because it gets written down as a fact about one
-document instead of a constraint on the class. One team filed the rule for their open-threads
-list and broke it the same day on their routing index — which shipped with a closing line
-saying *"add a line here when a room appears"*, an instruction the store could not honour.
+⚠ **But a correction is not an in-place edit, at any size.** `am_update_drawer` with `content`
+SUPERSEDES: it writes a NEW record, ends the old one with your reason, and links the two. **The
+id changes**, and the superseded text stays readable by its own id. That is equally true of a
+one-chunk memory — nothing keeps its id across a content change, so do not size a document in
+the hope that it will.
 
-**When a maintained document does not fit: SPLIT, do not compress.** Two single-chunk drawers,
-each opening with the question it answers, is *better* by §9.1 anyway — a record too big for one
-chunk is usually answering more than one question.
+**So the reason to keep one under 1600 runes is RECALL, and it is a good one.** One drawer is
+one vector. The more topics a memory averages, the less sharply it matches any of them: a record
+answering three questions is outranked, on all three, by three records that each answer one.
 
-**Confirm it:** `am_add_drawer` returns a `chunks` field. It must say `1`. After an
-`am_update_drawer`, check the `id` and `filed_at` are unchanged — that is proof the edit
-happened in place.
+**When a maintained document does not fit: SPLIT BY QUESTION, do not compress.** Two
+single-chunk drawers, each opening with the question it answers, is *better* by §9.1 anyway — a
+record too big for one chunk is usually answering more than one question. Splitting by byte
+count instead is what produces a fragment that answers nothing completely.
+
+⚠ **One room costs differently.** `llm_init` records are served WHOLE at every wake-up
+(ADR-046), on the one call no session skips, so length there is paid by every session rather
+than only by a search that matches. Keep an entry record a spine that POINTS at ordinary
+memories — because that is cheaper for every reader, not because the server will stop you.
+
+**Confirm it:** `am_add_drawer` returns a `chunks` field. It must say `1`.
 
 | Kind | Rule |
 |---|---|
-| **State** (`llm_open_threads`, `llm_index`) | One chunk. Edit in place. Adding means compressing. |
+| **State** (`llm_open_threads`, `llm_index`) | One chunk, so it recalls sharply. A content update supersedes: expect a new id. |
 | **History** (`llm_corrections`, `decisions`, `diary`) | Multi-chunk fine. Append a new record. |
 
 ---
@@ -892,7 +910,7 @@ The auto-loaded protocol should say, at minimum:
 | 5 | `am_search("what should I load next", wing)` | `llm_index` routing drawer **rank 1** | §4.3 missing or not question-titled |
 | 6 | `am_search("what is still open or unresolved", wing)` | `llm_open_threads` **rank 1** | Not titled with the question (§9.1) |
 | 7 | `am_add_drawer(...)` on a maintained doc | response says `chunks: 1` | Too long — split it (§10) |
-| 8 | `am_update_drawer(id, content)` on it | same `id`, same `filed_at` | It is multi-chunk (§10) |
+| 8 | `am_update_drawer(id, content)` on it | a **new** `id`, plus `supersedes` naming the old | Correction is supersession, never in-place editing (§10) |
 | 9 | Search one fact you moved skill→drawer | comes back at/near the top | **A pointer to nothing (§5.2).** Restore it. |
 | 10 | `am_kg_add` then `am_kg_query(subject)` | returns for the **exact** key | Spelling differs; add it to §4.3 |
 | 11 | `am_recall_stats()` | it answers | The stats table may be missing; check the schema |

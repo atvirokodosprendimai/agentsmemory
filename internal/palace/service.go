@@ -690,36 +690,36 @@ func (s *Service) prepareWrite(ctx context.Context, teamID string, in AddInput) 
 
 	chunks := ChunkText(content, ChunkSize, ChunkOverlap, ChunkMin)
 
-	// ⚠ AN ENTRY RECORD THAT CHUNKS IS REFUSED, and the check lives HERE rather
-	// than in Add for three reasons that are one reason: this is the only place
-	// that sees the write as it will actually be stored.
+	// AN ENTRY RECORD THAT CHUNKS IS NO LONGER REFUSED (ADR-046). A guard stood
+	// here and was deleted, which is worth recording because the reasoning that
+	// justified it was good and still led to the wrong thing.
 	//
-	//   - `room` is normalised above, so " llm_init " is caught. Add sees the raw
-	//     argument and would wave it through.
-	//   - Supersede and content-Update call prepareWrite DIRECTLY and never touch
-	//     Add, so a guard in Add left a CORRECTION free to produce a multi-chunk
-	//     entry record — and correcting an entry record is precisely the case that
-	//     motivated the limit.
-	//   - It runs before embedOrDefer, so a refused write costs no embedding call.
+	// It refused a multi-chunk record in EntryRoom because am_bootstrap's eager
+	// tier served ONE chunk: a longer record arrived cut mid-sentence with
+	// truncation.omitted:0 and nothing marking it partial. Measured 2026-09-01 on
+	// a 3,600-rune record, the front door served 1,600 and reported no omission.
+	// The refusal's own error message named that serving bug as its reason — which
+	// is what made it a workaround wearing the shape of a rule.
 	//
-	// The limit exists because am_bootstrap's eager tier serves ONE chunk: a
-	// longer entry record arrives cut mid-sentence with truncation.omitted:0 and
-	// nothing marking it partial — the front door silently losing whatever came
-	// after the seam.
+	// ADR-046 T1 fixed the serving: Bootstrap reassembles every chunk, so there is
+	// nothing left to protect against. Two further facts settled it rather than
+	// merely permitting it:
 	//
-	// It REFUSES rather than warning because a warning beside a success is the
-	// shape that was already ignored twice: two authors filed an over-long entry
-	// record in the same turn they read the rule, both saying the same thing —
-	// "I cannot count runes". A limit an agent cannot measure is a limit on
-	// nothing, so the server counts.
-	if room == EntryRoom && len(chunks) > 1 {
-		return preparedWrite{}, fmt.Errorf("%w: an entry record for room %q must fit in ONE chunk "+
-			"and this one is %d — am_bootstrap serves the eager tier one chunk at a time, so the "+
-			"rest would arrive cut with nothing marking it partial. Shorten it to about %d runes "+
-			"and file the detail as an ordinary memory the entry record points at",
-			ErrInvalidInput, EntryRoom, len(chunks), ChunkSize)
-	}
-
+	//   - It was ALREADY reachable around. This lived in prepareWrite, while
+	//     moveMemory patches rows directly and never routes through here, so
+	//     ADR-045 made "file it elsewhere and move it in" a two-call bypass. A rule
+	//     enforced on one path and open on another is worse than no rule, because
+	//     it reads as a guarantee.
+	//   - Refusing had been chosen over warning for a good reason — two authors
+	//     filed an over-long entry record in the same turn they read the rule, both
+	//     saying "I cannot count runes", so a limit an agent cannot measure is a
+	//     limit on nothing. That reasoning is sound and is exactly why the fix had
+	//     to be removing the limit rather than restating it.
+	//
+	// What remains is a COST, not a refusal: an entry record is served whole at
+	// every wake-up, so length is paid on the one call no session skips. A spine
+	// that points at detail still beats one that inlines it; that is now advice,
+	// and the byte-bounding option is in the backlog with a trigger.
 	// A failed embed does not fail the write — see embedOrDefer. vectors is nil in
 	// that case and the rows are absorbed onto the background queue instead.
 	vectors := s.embedOrDefer(ctx, chunks)
@@ -1214,11 +1214,22 @@ type UpdateResult struct {
 //
 // A supplied field must be non-empty — update_drawer must not be a back door
 // around the non-empty invariant add_drawer enforces (a blank wing/room would
-// file the drawer into an unaddressable taxonomy bucket). A move re-embeds the
-// drawer's final content and re-upserts the vector *before* the row is written,
-// so a failed embed leaves the drawer fully consistent in its old state rather
-// than with a row ahead of its stale vector. A no-op patch just returns the
-// current drawer.
+// file the drawer into an unaddressable taxonomy bucket). A no-op patch just
+// returns the current drawer.
+//
+// ⚠ A MOVE COMMITS THE ROWS FIRST AND RELABELS THE INDEX SECOND, AND RE-EMBEDS
+// NOTHING (ADR-045). This comment promised the reverse until 2026-09-01 — that a
+// move "re-embeds the drawer's final content and re-upserts the vector before the
+// row is written" — which was true while a move was ONE row that could not
+// partially fail. A move now takes every chunk of a memory in one transaction, so
+// the rows must commit before anything describes them: an index written first
+// would describe a move that a rollback then undid. And nothing is re-embedded,
+// because a move changes no content — only the wing and room a scoped search
+// filters on, written with SetPayload, which fails open. See moveMemory.
+//
+// It went false in the commit that made it false and was caught in review, not by
+// a gate; a doc comment on an exported declaration is the one thing that ships to
+// a reader who has none of this context, so it is worth the paragraph.
 func (s *Service) Update(ctx context.Context, teamID, id string, patch DrawerPatch) (result UpdateResult, err error) {
 	_, sp := telemetry.Start(ctx, telemetry.StageUpdate)
 	defer func() { endStage(sp, err) }()
@@ -1279,43 +1290,29 @@ func (s *Service) Update(ctx context.Context, teamID, id string, patch DrawerPat
 		return UpdateResult{Drawer: d, Supersedes: res.Supersedes, Reason: res.Reason, EndedAt: res.EndedAt}, nil
 	}
 
-	// A memory over ChunkSize is several rows sharing a parent, and this function
-	// updates ONE row. Rewriting the content of one chunk leaves the others live,
-	// individually embedded, and still returning the retracted claim — observed
-	// in production, with the stale chunks ranking ABOVE the correction, and the
-	// call reporting success throughout. Refuse instead of half-doing it.
+	// A memory over ChunkSize is several rows sharing a parent, and a MOVE has to
+	// take all of them or none. This used to refuse instead (ADR-045 removed the
+	// refusal), because the function could only patch the one row it was given and
+	// moving that row split the memory across two scopes: no single search returned
+	// all of it, and the fragment did not say it was one.
 	//
-	// Refusing rather than re-chunking is deliberate for now: re-chunking changes
-	// how many rows exist and which ids they carry, which silently invalidates
-	// every anchor, tunnel and knowledge-graph fact pointing at the old ones.
-	// That is a bigger change than a bug fix and it is recorded in the backlog.
-	// Every patchable field is one the chunks of a memory must agree on, so the
-	// guard covers all of them rather than content alone.
+	// Refusing was never protecting an invariant — it was the honest answer of a
+	// function doing 1/N of the job, and it was the last row-scoped write path in
+	// this package. Delete, Supersede and InvalidateDrawer all resolve MemoryChunks
+	// in order to ACT on every chunk; this one resolved them in order to decline.
 	//
-	// Content was the reported case: rewriting one chunk left the others live with
-	// the old text, ranking above the correction. Wing and room split the memory
-	// instead — one chunk moves and the rest stay — and this release makes that
-	// worse than it was, because recall now defaults to the registration's wing:
-	// after a split neither wing returns the whole memory, and nothing tells the
-	// reader that what they got is a fragment.
+	// What made it safe to remove is that a move changes no CONTENT. Chunk
+	// boundaries and chunk_index are therefore unchanged, no row is minted or
+	// destroyed, and every knowledge-graph fact, anchor and pinned tunnel keeps
+	// pointing at a live id — which is why ADR-045 needs no answer to ADR-027's
+	// open question about a reference into a chunk a re-chunk would delete.
+	// Re-chunking on a CONTENT update remains unsolved and remains in the backlog.
 	chunks, err := s.repo.MemoryChunks(ctx, teamID, id)
 	if err != nil {
 		return UpdateResult{}, fmt.Errorf("look up the memory this drawer belongs to: %w", err)
 	}
-	if len(chunks) > 1 {
-		return UpdateResult{}, fmt.Errorf(
-			"%w: drawer %s is chunk %d of a %d-chunk memory, and changing its wing or room would "+
-				"move this chunk away from the rest, so no single scope returns all of it and a "+
-				"scoped search answers with a fragment that does not say it is one. Moving a whole "+
-				"multi-chunk memory is not expressible yet",
-			ErrInvalidInput, short12(id), current.ChunkIndex, len(chunks))
-	}
 
-	// Compute the post-patch state and refresh the derived index first.
-	finalContent, finalWing, finalRoom := current.Content, current.Wing, current.Room
-	if patch.Content != nil {
-		finalContent = *patch.Content
-	}
+	finalWing, finalRoom := current.Wing, current.Room
 	if patch.Wing != nil {
 		finalWing = *patch.Wing
 	}
@@ -1323,32 +1320,72 @@ func (s *Service) Update(ctx context.Context, teamID, id string, patch DrawerPat
 		finalRoom = *patch.Room
 	}
 
-	// There is no length guard here, and its absence is deliberate. One used to
-	// stand at this line: Update re-embedded a whole memory with EmbedOne and never
-	// chunked, so a memory created small and grown in place was the one unbounded
-	// input, and the embedder truncates rather than failing — the tail read back
-	// whole from am_get_drawer while being unfindable by search.
-	//
-	// A content change no longer arrives here (it supersedes, and Add chunks), so
-	// finalContent is now always the text this row was ALREADY storing. Refusing a
-	// relocation because that text is long would block the move without improving
-	// the vector, which is truncated to exactly the same prefix either way.
-	//
-	vec, err := s.embed.EmbedOne(ctx, finalContent)
-	if err != nil {
-		return UpdateResult{}, fmt.Errorf("re-embed updated drawer: %w", err)
-	}
-	point := store.Point{
-		ID:      id,
-		Vector:  vec,
-		Payload: map[string]any{"wing": finalWing, "room": finalRoom},
-	}
-	if err := s.vectors.Upsert(ctx, teamID, []store.Point{point}); err != nil {
-		return UpdateResult{}, fmt.Errorf("re-upsert updated vector: %w", err)
+	if err := s.moveMemory(ctx, teamID, chunks, finalWing, finalRoom); err != nil {
+		return UpdateResult{}, err
 	}
 
-	// Index is current; now commit the authoritative row.
-	updated, err := s.repo.Update(ctx, teamID, id, patch)
+	// ⚠ THE INDEX IS UPDATED AFTER THE ROWS, WHICH REVERSES THE OLD ORDER. This
+	// path used to write the vector first and commit the row second ("index is
+	// current; now commit the authoritative row"), which was safe while a move was
+	// one row that could not partially fail. It is wrong for N rows with a rollback
+	// path: a collision on chunk k aborts the transaction, and an index written
+	// beforehand would describe a move that did not happen — the memory answering
+	// from a wing it is not in.
+	//
+	// And it is SetPayload, not Upsert, so nothing is re-embedded. The text did not
+	// change, so the stored vector is already correct; only the wing and room
+	// strings a scoped search filters on need to move. am_merge_wing has relabelled
+	// this way since it was written (see MergeWing) — this is the same repair on a
+	// single memory.
+	//
+	// One call, not a batch: these are the chunks of ONE memory, so the id list is
+	// bounded by how far a single note can be split, far below the batch size
+	// MergeWing needs for a whole wing.
+	ids := make([]string, 0, len(chunks))
+	for _, c := range chunks {
+		ids = append(ids, c.ID)
+	}
+	// Fails OPEN, for the reason carryAnchors does: by this point the move is
+	// durable, and returning an error would report a write that succeeded as one
+	// that failed — sending the caller to retry a move that has already happened.
+	//
+	// ⚠ THE NAMED RECOVERY IS NARROWER THAN IT LOOKS, and stating the gap is the
+	// point — this comment claimed "a stale payload is recoverable and named" until
+	// a reviewer checked both commands (PR #147). Neither covers every case:
+	//
+	//   - `doctor --index` compares the payload's WING only (see indexdrift.go), so
+	//     a ROOM-only move whose relabel failed reports CLEAN. The one check offered
+	//     for this drift cannot see half of it.
+	//   - `sync --repair-payload` refuses every backend but Qdrant (cmd/server/sync.go),
+	//     so it is not a remedy on the default sqlite backend or on chromem — though
+	//     on those two the source of truth IS the index, or is refilled from it at
+	//     boot, which is why the gap is narrower than it first reads.
+	//
+	// Both are in BACKLOG.md. Until they close, the warning below is an operator's
+	// only signal for a room-only move, so it names what moved rather than only
+	// reporting that something did.
+	if err := s.vectors.SetPayload(ctx, teamID, ids, map[string]string{"wing": finalWing, "room": finalRoom}); err != nil {
+		slog.Warn("memory moved but its stored payloads were not relabelled, so a scoped search "+
+			"will not find it at its new address; on Qdrant run `agentsmemory doctor --index` "+
+			"then `agentsmemory sync --repair-payload` — but --index compares the WING only, so "+
+			"a room-only move has to be checked against the row by hand",
+			"error", err, "drawer", short12(id), "wing", finalWing, "room", finalRoom)
+	}
+
+	// Re-attach at the NEW address, after the commit and non-fatally, because
+	// attachDerivedEdgeTo is non-fatal everywhere it is called: the rows are the
+	// memory and the edge is only how it is reached. It edges the ROOT chunk only
+	// and reads each drawer's CURRENT wing/room, so post-move copies are what it
+	// needs — and a memory moved INTO the entry room mints that wing's by-name
+	// root here, exactly as filing one there would.
+	moved := make([]Drawer, len(chunks))
+	copy(moved, chunks)
+	for i := range moved {
+		moved[i].Wing, moved[i].Room = finalWing, finalRoom
+	}
+	s.attachDerivedEdgeTo(ctx, teamID, moved)
+
+	updated, err := s.repo.Get(ctx, teamID, id)
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return UpdateResult{}, ErrNotFound
 	}
@@ -1356,6 +1393,86 @@ func (s *Service) Update(ctx context.Context, teamID, id string, patch DrawerPat
 		return UpdateResult{}, err
 	}
 	return UpdateResult{Drawer: updated}, nil
+}
+
+// moveMemory relabels every chunk of one memory to a new wing/room in a single
+// transaction, so a memory is never left split across two scopes.
+//
+// The transaction is the whole point rather than a precaution. content_key hashes
+// wing and room (ADR-038), so relocating an N-chunk memory recomputes N keys
+// against a partial unique index, and any one of them can collide with a memory
+// already at the destination — "this wing already has that memory" is precisely
+// when somebody relocates one. Without a rollback, a collision on chunk k would
+// leave chunks 0..k-1 moved, which is the split state the old refusal existed to
+// prevent, reintroduced by the fix meant to remove it.
+//
+// Repo.Update writes through the Repo's own handle, so the transaction is passed
+// as one — the same construction supersedeInto uses for persistRows. It also
+// recomputes content_key from post-patch state and names a collision rather than
+// leaking the driver's, so both behaviours carry over per chunk unchanged.
+func (s *Service) moveMemory(ctx context.Context, teamID string, chunks []Drawer, wing, room string) error {
+	ids := make([]string, 0, len(chunks))
+	for _, c := range chunks {
+		ids = append(ids, c.ID)
+	}
+	return s.repo.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		txRepo := &Repo{db: tx}
+		for _, c := range chunks {
+			w, r := wing, room
+			if _, err := txRepo.Update(ctx, teamID, c.ID, DrawerPatch{Wing: &w, Room: &r}); err != nil {
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					return ErrNotFound
+				}
+				return err
+			}
+		}
+		// ⚠ AND END THE DERIVED EDGES, IN THIS SAME TRANSACTION. A derived edge
+		// names the ROOM a drawer is in, so a move invalidates it by definition —
+		// leave it current and a session traversing the old room is sent to a
+		// memory that is no longer there.
+		//
+		// Inside the transaction because the ending and the relabel are one fact:
+		// a collision that rolls the rows back must roll the edges back with them,
+		// or the memory stays where it was with nothing pointing at it.
+		//
+		// Only DERIVED edges end. An AUTHORED edge keeps pointing at the drawer and
+		// must, because a move preserves the id — that is the property that lets
+		// ADR-045 relabel rows at all, and ending an author's edge would silently
+		// discard a pointer somebody wove by hand.
+		//
+		// This is the FOURTH call site of a pair that already had three: Add
+		// attaches, Supersede ends and re-attaches, Delete drops, InvalidateDrawer
+		// ends. The move having none was a defect older than ADR-045 — a
+		// SINGLE-chunk relocation has always been allowed and has always orphaned
+		// its old room's edge.
+		now := time.Now().UTC().Format(time.RFC3339)
+		if err := endDerivedEdgesFor(tx, teamID, ids, now,
+			"the drawer this derived edge points at was moved to another wing or room"); err != nil {
+			return fmt.Errorf("end the moved memory's derived edges: %w", err)
+		}
+		// ⚠ AND IF THAT EMPTIED AN ENTRY ROOM, THE WING'S ROOT GOES WITH IT.
+		//
+		// EnsureWingRoot mints `<wing>.root` when a record lands in the entry room
+		// and nothing ever ended it, so the move shipped a move-IN half with no
+		// move-OUT half. endDerivedEdgesFor cannot be that half: it filters
+		// `object IN drawerIDs`, and the root edge's object is the ROOM node, so
+		// the loop above takes the record's own holds edge and leaves the root
+		// pointing at a room that now holds nothing. That resolves `matched` with
+		// zero edges one hop on — the state BackfillWingRoots' own comment calls
+		// worse than unknown_term, and the one
+		// TestBackfillLeavesAWingWithNoLiveEntryRecordNameless pins on the boot
+		// path. Reported by review on PR #147.
+		//
+		// The condition covers a move to another ROOM and a move to another WING:
+		// the latter keeps the record in an entry room, just not in THIS wing's.
+		if from := chunks[0]; from.Room == EntryRoom && (room != EntryRoom || wing != from.Wing) {
+			if err := endWingRootIfEntryRoomIsEmpty(tx, teamID, from.Wing, now,
+				"the last live record left this wing's entry room"); err != nil {
+				return fmt.Errorf("release the wing root the move emptied: %w", err)
+			}
+		}
+		return nil
+	})
 }
 
 // Delete removes a drawer's metadata row and its vector. The row goes first so

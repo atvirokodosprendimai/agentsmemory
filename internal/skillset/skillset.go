@@ -252,13 +252,20 @@ that recalls but never records leaves the next one cold.
 - ` + "`am_diary_write <agent>`" + ` — journal what you did, decided, and learned, in
   AAAK. Use a stable agent name so the journal threads across sessions. This one is
   mandatory: **do not end your turn without it.**
+- ` + "`am_kg_add`" + ` — **MUST, not optional.** Record what this session established as
+  subject → predicate → object. Two reasons it is a gate rather than a nicety: a
+  drawer with no edge is an ORPHAN — reachable by search, invisible to traversal,
+  and it surfaces in your OWN search, which is why authors believe it is reachable;
+  and the graph is the only layer that answers in an ARCHIVE, where search is weak
+  because you cannot retrieve what you do not know to ask for. When a session truly
+  established no durable fact, **say that in one line** — the same way a skipped
+  diary would have to be justified. Silence is not the same as "nothing was durable".
 
 **Optional — only when the task produced something worth keeping on its own:**
 - ` + "`am_add_drawer <wing> <room>`" + ` — file an important decision, a verbatim quote,
   a reusable snippet, or a tool gotcha you had to work out. Skip it when the diary
   already says enough; reach for it when a fact deserves to be found on its own
   later (the diary is the narrative, a drawer is the lookup).
-- ` + "`am_kg_add`" + ` — record a durable subject → predicate → object fact.
 - ` + "`am_create_tunnel`" + ` — link related memories across wings.
 
 ## About this playbook

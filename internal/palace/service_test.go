@@ -686,9 +686,9 @@ func TestRerankPresenceSurvivesAZeroScore(t *testing.T) {
 // It was fixed by REFUSING a multi-chunk content edit and telling the caller to
 // delete the memory and file it again by hand. ADR-038 T4 does that correctly and
 // without the delete: a correction supersedes, so EVERY old chunk ends and one new
-// set is written. What still refuses is a MOVE, and for a different reason — a
-// move relocates one chunk and splits the memory across two scopes, so no single
-// search returns all of it and the fragment does not say it is one.
+// set is written. ADR-045 then removed the refusal's remaining half — a MOVE now
+// relocates every chunk in one transaction — so what this test still pins is the
+// correction, and the move assertions below say only what is still true.
 func TestUpdateRefusesToHalfRewriteAMultiChunkMemory(t *testing.T) {
 	ctx := context.Background()
 	svc := newTestService(t)
@@ -737,19 +737,25 @@ func TestUpdateRefusesToHalfRewriteAMultiChunkMemory(t *testing.T) {
 		}
 	}
 
-	// A wing or room MOVE splits the same memory instead of contradicting it: one
-	// chunk leaves and the rest stay. This release sharpens the consequence,
-	// because recall now defaults to the registration's wing — after a split
-	// neither wing returns the whole memory, and nothing marks what you get as a
-	// fragment. Found by review, one field over from the reported defect.
+	// ⚠ THIS BLOCK USED TO ASSERT THAT MOVING A MULTI-CHUNK MEMORY IS REFUSED, AND
+	// IT COULD NOT FAIL ON THAT CLAIM. `parent` has been SUPERSEDED by the
+	// correction above, and Update refuses a move of an ENDED record before it ever
+	// looks at the chunk count — so the assertion was satisfied by a guard it was
+	// not written about, and would have stayed green with the chunk guard deleted.
+	// Measured 2026-09-01 while executing ADR-045: the error is `drawer <id> was
+	// ended on <t> ("...") and cannot be moved`, never the multi-chunk message.
+	//
+	// So it now asserts the reason it was ACTUALLY exercising, which is a real and
+	// separate rule: history does not move, because the first ending is the one
+	// that is true and relocating it rewrites where a decision was taken.
 	other := "other-wing"
-	if _, err := svc.Update(ctx, team, parent, DrawerPatch{Wing: &other}); err == nil {
-		t.Error("moving one chunk of a multi-chunk memory to another wing was accepted — the memory " +
-			"is now split and no single scope returns all of it")
-	}
-	otherRoom := "other-room"
-	if _, err := svc.Update(ctx, team, parent, DrawerPatch{Room: &otherRoom}); err == nil {
-		t.Error("moving one chunk of a multi-chunk memory to another room was accepted")
+	_, err = svc.Update(ctx, team, parent, DrawerPatch{Wing: &other})
+	if err == nil {
+		t.Error("an ENDED record was relocated; the first ending is the one that is true, and " +
+			"moving it rewrites where the decision was taken")
+	} else if !strings.Contains(err.Error(), "cannot be moved") {
+		t.Errorf("the refusal does not name the ending as its reason, so this assertion is being "+
+			"satisfied by some other guard — the defect this comment records: %v", err)
 	}
 	if chunks, err := svc.repo.MemoryChunks(ctx, team, parent); err != nil {
 		t.Fatalf("MemoryChunks: %v", err)
@@ -760,6 +766,8 @@ func TestUpdateRefusesToHalfRewriteAMultiChunkMemory(t *testing.T) {
 			}
 		}
 	}
+	// That a CURRENT multi-chunk memory moves whole is TestAMoveRelocatesEveryChunkOfAMemory
+	// in move_test.go, which is where ADR-045's assertions live.
 
 	// A single-chunk memory still updates, or the fix has broken the common case.
 	one, err := svc.Add(ctx, team, AddInput{Wing: "w", Room: "r", SourceFile: "short", Content: "a short memory"})

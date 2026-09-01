@@ -107,7 +107,8 @@ if [ "$IS_SUBAGENT" -eq 1 ]; then
 agentsmemory — this subagent is stopping. Offer back what it found:
   1. am_add_drawer — the finding or decision, verbatim, into the right room
                      ("decisions", "incidents", …). Not a retelling of the task.
-  2. am_kg_add     — anything durable, as subject -> predicate -> object.
+  2. am_kg_add     — REQUIRED, not optional: anything durable, as subject ->
+                     predicate -> object. A drawer with no edge is an orphan.
 Pass no wing unless you were given one: the registration already scopes the
 write, and a guessed wing files this work into another project's palace.
 Your dispatcher writes the session summary; you write the finding. Nothing worth
@@ -121,11 +122,14 @@ fi
 cat >&2 <<'MSG'
 agentsmemory checkpoint — persist this session into team memory before stopping:
   1. am_diary_write — an AAAK session summary (what changed, why, open threads).
-  2. am_kg_add      — new durable facts as subject -> predicate -> object triples.
+  2. am_kg_add      — REQUIRED, not optional: new durable facts as subject ->
+                      predicate -> object triples. A drawer with no edge is an
+                      orphan, and the graph is what answers once search goes cold.
   3. am_add_drawer  — notable decisions / code, verbatim, into the right wing + room.
-Use the agentsmemory MCP tools (am_ prefix). Skip only if nothing was worth
-remembering — and say so. This fires once per session; AGENTSMEMORY_STOP_HOOK=on
-reminds every turn, =off disables it.
+Use the agentsmemory MCP tools (am_ prefix). 1 and 2 are the gate; 3 is for what
+deserves its own lookup. Skip only if nothing was worth remembering — and say so.
+This fires once per session; AGENTSMEMORY_STOP_HOOK=on reminds every turn, =off
+disables it.
 MSG
 
 # ...and the half a reminder cannot give you: whether the memory is actually
