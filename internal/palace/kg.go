@@ -1210,6 +1210,48 @@ func (r *Repo) EnsureWingRoot(ctx context.Context, teamID, wing string) error {
 	})
 }
 
+// endWingRootIfEntryRoomIsEmpty ends a wing's by-name root once its entry room
+// holds nothing live, and is the move-OUT half EnsureWingRoot shipped without.
+//
+// ⚠ THE ASYMMETRY WAS INVISIBLE TO THE OBVIOUS GUARD. endDerivedEdgesFor filters
+// `object IN drawerIDs`, so it ends the edges that POINT AT a moved drawer. A wing
+// root's object is the ROOM node, not a drawer, so no set of drawer ids reaches it
+// and a move emptied the room while leaving the root current. What that produces is
+// not a missing answer but a confident empty one: `<wing>.root` resolves `matched`,
+// and the hop a session makes next answers known_term_no_facts with zero edges —
+// the exact shape BackfillWingRoots' comment calls worse than unknown_term, arriving
+// through the move path instead of through the backfill. Found by review on PR #147.
+//
+// ⚠ THE TEST IS LIVE `holds` EDGES, NOT ROWS, for the reason the backfill's query is:
+// endDerivedEdgesFor ends a room's holds edge when the drawer it names is retracted,
+// so "no live edge" already covers a room whose records are all retracted as well as
+// one whose records have left. Counting rows would keep a root over a room no session
+// can read, which is the population the backfill exists to refuse.
+//
+// It takes a *gorm.DB rather than sitting on Repo so moveMemory can call it inside
+// the transaction that did the relabelling: a collision that rolls the move back must
+// roll the root's ending back with it, or a wing loses its front door to a move that
+// never happened.
+func endWingRootIfEntryRoomIsEmpty(db *gorm.DB, teamID, wing, endedAt, reason string) error {
+	roomID := normalizeEntityID(DerivedEdgeSubject(wing, EntryRoom))
+	p := normalizePredicate(DerivedEdgePredicate)
+
+	var live int64
+	if err := db.Model(&kgTripleRow{}).
+		Where("team_id = ? AND subject = ? AND predicate = ? AND valid_to = '' AND derived = ?",
+			teamID, roomID, p, true).
+		Count(&live).Error; err != nil {
+		return err
+	}
+	if live > 0 {
+		return nil
+	}
+	return db.Model(&kgTripleRow{}).
+		Where("team_id = ? AND subject = ? AND predicate = ? AND object = ? AND valid_to = '' AND derived = ?",
+			teamID, normalizeEntityID(WingRootSubject(wing)), p, roomID, true).
+		Updates(map[string]any{"valid_to": endedAt, "ended_reason": reason}).Error
+}
+
 // BackfillWingRoots gives a name to every entry room that has none, and returns
 // how many roots it minted.
 //

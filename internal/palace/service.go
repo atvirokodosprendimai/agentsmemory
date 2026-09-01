@@ -1214,11 +1214,22 @@ type UpdateResult struct {
 //
 // A supplied field must be non-empty — update_drawer must not be a back door
 // around the non-empty invariant add_drawer enforces (a blank wing/room would
-// file the drawer into an unaddressable taxonomy bucket). A move re-embeds the
-// drawer's final content and re-upserts the vector *before* the row is written,
-// so a failed embed leaves the drawer fully consistent in its old state rather
-// than with a row ahead of its stale vector. A no-op patch just returns the
-// current drawer.
+// file the drawer into an unaddressable taxonomy bucket). A no-op patch just
+// returns the current drawer.
+//
+// ⚠ A MOVE COMMITS THE ROWS FIRST AND RELABELS THE INDEX SECOND, AND RE-EMBEDS
+// NOTHING (ADR-045). This comment promised the reverse until 2026-09-01 — that a
+// move "re-embeds the drawer's final content and re-upserts the vector before the
+// row is written" — which was true while a move was ONE row that could not
+// partially fail. A move now takes every chunk of a memory in one transaction, so
+// the rows must commit before anything describes them: an index written first
+// would describe a move that a rollback then undid. And nothing is re-embedded,
+// because a move changes no content — only the wing and room a scoped search
+// filters on, written with SetPayload, which fails open. See moveMemory.
+//
+// It went false in the commit that made it false and was caught in review, not by
+// a gate; a doc comment on an exported declaration is the one thing that ships to
+// a reader who has none of this context, so it is worth the paragraph.
 func (s *Service) Update(ctx context.Context, teamID, id string, patch DrawerPatch) (result UpdateResult, err error) {
 	_, sp := telemetry.Start(ctx, telemetry.StageUpdate)
 	defer func() { endStage(sp, err) }()
@@ -1337,12 +1348,27 @@ func (s *Service) Update(ctx context.Context, teamID, id string, patch DrawerPat
 	// Fails OPEN, for the reason carryAnchors does: by this point the move is
 	// durable, and returning an error would report a write that succeeded as one
 	// that failed — sending the caller to retry a move that has already happened.
-	// A stale payload is recoverable and named: `doctor --index` reports it as
-	// mislabelled and `sync --repair-payload` rebuilds payloads from the rows.
+	//
+	// ⚠ THE NAMED RECOVERY IS NARROWER THAN IT LOOKS, and stating the gap is the
+	// point — this comment claimed "a stale payload is recoverable and named" until
+	// a reviewer checked both commands (PR #147). Neither covers every case:
+	//
+	//   - `doctor --index` compares the payload's WING only (see indexdrift.go), so
+	//     a ROOM-only move whose relabel failed reports CLEAN. The one check offered
+	//     for this drift cannot see half of it.
+	//   - `sync --repair-payload` refuses every backend but Qdrant (cmd/server/sync.go),
+	//     so it is not a remedy on the default sqlite backend or on chromem — though
+	//     on those two the source of truth IS the index, or is refilled from it at
+	//     boot, which is why the gap is narrower than it first reads.
+	//
+	// Both are in BACKLOG.md. Until they close, the warning below is an operator's
+	// only signal for a room-only move, so it names what moved rather than only
+	// reporting that something did.
 	if err := s.vectors.SetPayload(ctx, teamID, ids, map[string]string{"wing": finalWing, "room": finalRoom}); err != nil {
-		slog.Warn("memory moved but its stored payloads were not relabelled, so it is unreachable "+
-			"from the wing it now lives in; run `agentsmemory doctor --index` and "+
-			"`agentsmemory sync --repair-payload`",
+		slog.Warn("memory moved but its stored payloads were not relabelled, so a scoped search "+
+			"will not find it at its new address; on Qdrant run `agentsmemory doctor --index` "+
+			"then `agentsmemory sync --repair-payload` — but --index compares the WING only, so "+
+			"a room-only move has to be checked against the row by hand",
 			"error", err, "drawer", short12(id), "wing", finalWing, "room", finalRoom)
 	}
 
@@ -1419,9 +1445,31 @@ func (s *Service) moveMemory(ctx context.Context, teamID string, chunks []Drawer
 		// ends. The move having none was a defect older than ADR-045 — a
 		// SINGLE-chunk relocation has always been allowed and has always orphaned
 		// its old room's edge.
-		if err := endDerivedEdgesFor(tx, teamID, ids, time.Now().UTC().Format(time.RFC3339),
+		now := time.Now().UTC().Format(time.RFC3339)
+		if err := endDerivedEdgesFor(tx, teamID, ids, now,
 			"the drawer this derived edge points at was moved to another wing or room"); err != nil {
 			return fmt.Errorf("end the moved memory's derived edges: %w", err)
+		}
+		// ⚠ AND IF THAT EMPTIED AN ENTRY ROOM, THE WING'S ROOT GOES WITH IT.
+		//
+		// EnsureWingRoot mints `<wing>.root` when a record lands in the entry room
+		// and nothing ever ended it, so the move shipped a move-IN half with no
+		// move-OUT half. endDerivedEdgesFor cannot be that half: it filters
+		// `object IN drawerIDs`, and the root edge's object is the ROOM node, so
+		// the loop above takes the record's own holds edge and leaves the root
+		// pointing at a room that now holds nothing. That resolves `matched` with
+		// zero edges one hop on — the state BackfillWingRoots' own comment calls
+		// worse than unknown_term, and the one
+		// TestBackfillLeavesAWingWithNoLiveEntryRecordNameless pins on the boot
+		// path. Reported by review on PR #147.
+		//
+		// The condition covers a move to another ROOM and a move to another WING:
+		// the latter keeps the record in an entry room, just not in THIS wing's.
+		if from := chunks[0]; from.Room == EntryRoom && (room != EntryRoom || wing != from.Wing) {
+			if err := endWingRootIfEntryRoomIsEmpty(tx, teamID, from.Wing, now,
+				"the last live record left this wing's entry room"); err != nil {
+				return fmt.Errorf("release the wing root the move emptied: %w", err)
+			}
 		}
 		return nil
 	})
