@@ -20,17 +20,33 @@ import (
 
 // Embedder is a client for Ollama's /api/embed endpoint.
 type Embedder struct {
-	endpoint string
-	model    string
-	http     *http.Client
+	endpoint  string
+	model     string
+	numThread int
+	http      *http.Client
 }
 
 // New constructs an Embedder for the given Ollama base URL and model.
-func New(baseURL, model string, timeout time.Duration) *Embedder {
+//
+// numThread, when positive, is sent as options.num_thread on every request and
+// exists because a cgroup quota alone makes embedding SLOWER, not smaller.
+// llama.cpp sizes its thread pool from the HOST's core count and knows nothing
+// about the container's quota, so a capped Ollama runs permanently throttled —
+// and lowering the cap widens the mismatch, which is the opposite of what the
+// knob's name promises. Measured 2026-08-31 on a 16-core host with a quota of 12
+// (issue #149): 16 threads 4.1s, 12 threads 0.054s, 1 thread 0.172s. The cliff is
+// at threads > quota, not at too few CPUs, and even ONE thread is ~24x faster
+// than the throttled default.
+//
+// Zero sends no option at all, so an unconstrained Ollama keeps choosing for
+// itself — that is the right default for a host install, where there is no quota
+// to match and llama.cpp's own choice is already correct.
+func New(baseURL, model string, timeout time.Duration, numThread int) *Embedder {
 	return &Embedder{
-		endpoint: strings.TrimRight(baseURL, "/") + "/api/embed",
-		model:    model,
-		http:     telemetry.HTTPClient(timeout),
+		endpoint:  strings.TrimRight(baseURL, "/") + "/api/embed",
+		model:     model,
+		numThread: numThread,
+		http:      telemetry.HTTPClient(timeout),
 	}
 }
 
@@ -38,6 +54,18 @@ func New(baseURL, model string, timeout time.Duration) *Embedder {
 type embedRequest struct {
 	Model string   `json:"model"`
 	Input []string `json:"input"`
+	// Options is omitted entirely when empty: Ollama merges what it is given
+	// over the model's own defaults, and sending `"options":{}` is harmless but
+	// makes a request that says nothing look like one that says something.
+	Options *embedOptions `json:"options,omitempty"`
+}
+
+// embedOptions carries the llama.cpp knobs we set per request. Only num_thread
+// today, and it is a pointer field on the request rather than a value so that
+// "not configured" and "configured to zero" cannot both marshal to the same
+// thing.
+type embedOptions struct {
+	NumThread int `json:"num_thread"`
 }
 
 // embedResponse carries the parallel list of embedding vectors.
@@ -51,7 +79,11 @@ func (e *Embedder) Embed(ctx context.Context, inputs []string) ([][]float32, err
 	if len(inputs) == 0 {
 		return nil, nil
 	}
-	raw, err := json.Marshal(embedRequest{Model: e.model, Input: inputs})
+	body := embedRequest{Model: e.model, Input: inputs}
+	if e.numThread > 0 {
+		body.Options = &embedOptions{NumThread: e.numThread}
+	}
+	raw, err := json.Marshal(body)
 	if err != nil {
 		return nil, err
 	}
