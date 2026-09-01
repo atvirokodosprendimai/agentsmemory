@@ -52,7 +52,23 @@ services:
       # this at a full path yields /v1/rerank/rerank, a 404, and a search that
       # silently falls back to the hybrid order — which is exactly how it read in
       # an eval run before the fallback started logging why.
-      RERANK_URL: http://reranker:8080/v1
+      #
+      # ⚠ INTERPOLATED, so the documented disable route works. An `environment:`
+      # entry beats `env_file:`, so a literal here made `RERANK_URL=` in
+      # .env.docker inert while .env.docker.example went on advertising it as the
+      # way to turn reranking off — an operator edited the documented file,
+      # restarted, and nothing changed (#154). The overlay still applies with no
+      # env file, because the default is on this line; the difference is that
+      # `RERANK_URL= docker compose ... up -d`, or an empty value in a `.env`
+      # beside this file, now reaches the server. `-` and not `:-`: an operator
+      # who sets it EMPTY means "off", which `:-` would silently overrule with the
+      # default — the exact half-applying behaviour this comment block warns about
+      # in the other direction.
+      #
+      # As with AGENTSMEMORY_RERANK_CPUS below, interpolation reads your shell or
+      # a `.env` beside this file, NOT .env.docker, which is the container's
+      # env_file rather than Compose's.
+      RERANK_URL: "${RERANK_URL-http://reranker:8080/v1}"
       # How many fused candidates the cross-encoder scores. Cost is LINEAR: it
       # scores every pair in a full forward pass. Measured on this stack
       # 2026-08-21 with drawer-sized documents: ~435ms per document, so
@@ -87,7 +103,7 @@ services:
       # am.rerank_timeout_ms beside the rerank stage duration, and an overrun
       # ends that stage failed_open reason=timeout — distinct from reason=error,
       # which means the endpoint is unwell rather than too slow.
-      RERANK_POOL: "10"
+      RERANK_POOL: "${RERANK_POOL-10}"
       # How much the cross-encoder decides versus the hybrid score it refines.
       # 1.0 lets it overwrite the lexical evidence entirely, which measurably
       # ranks worse; see `agentsmemory eval` and its weight sweep.
@@ -108,7 +124,7 @@ services:
       # is an OTLP HTTP endpoint when you have a collector; `stdout` needs none.
       # scripts/redeploy.sh FAILS the deploy when the smoke search leaves no
       # span, so this cannot quietly stop working.
-      AGENTSMEMORY_OTEL_ENDPOINT: "stdout"
+      AGENTSMEMORY_OTEL_ENDPOINT: "${AGENTSMEMORY_OTEL_ENDPOINT-stdout}"
 
   qdrant:
     image: qdrant/qdrant:v1.15.0
