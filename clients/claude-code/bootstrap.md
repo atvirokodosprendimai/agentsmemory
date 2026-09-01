@@ -429,7 +429,13 @@ Write back what this session produced so the next one starts ahead:
 - **`am_diary_write`** — an AAAK session summary (compressed, entity-coded,
   emotion-marked): what you built, decided, or learned, plus any open thread. Use a
   stable `agent_name` so the diary threads across sessions.
-- **`am_kg_add`** — new durable facts as subject → predicate → object triples.
+- **`am_kg_add`** — **MUST, not optional.** New durable facts as subject →
+  predicate → object triples. A drawer with no edge is an orphan: reachable by
+  search, invisible to traversal — and it surfaces in your OWN search, which is why
+  authors believe it is reachable. The graph is also the layer that still answers in
+  a dormant wing, where search is weak because you cannot retrieve what you do not
+  know to ask for. If the session established no durable fact, say so in one line;
+  do not skip it silently.
 - **`am_add_drawer`** — notable decisions or code, verbatim, in the right wing and
   room. The wing is the one you resolved in Step 0c; the room is the aspect
   (`decisions`, `incidents`, `backend`, …).

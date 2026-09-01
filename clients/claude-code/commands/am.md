@@ -124,7 +124,11 @@ Write back what this session produced so the next one recalls it:
 - **`am_diary_write`** — an AAAK session summary: what you built, decided, or
   learned, plus any open thread. Use a stable `agent_name` so the diary threads
   across sessions.
-- **`am_kg_add`** — new durable facts as subject → predicate → object triples.
+- **`am_kg_add`** — **MUST, not optional.** New durable facts as subject →
+  predicate → object triples. A drawer with no edge is an orphan: reachable by
+  search, invisible to traversal, and it still surfaces in your OWN search, which
+  is why authors believe it is reachable. If this session established no durable
+  fact, say that in one line rather than skipping silently.
 - **`am_add_drawer`** — notable decisions or code, verbatim, into the right wing
   and room.
 - ⚠ **If this wing has no entry point, give it one.** `am_status` reports it: no

@@ -452,7 +452,10 @@ ask memory first, grep only the gap.
   above, opposite rule.
 - **`am_diary_write`** — the narrative. But put anything a future session must FIND into a room
   above; a diary tail is unretrievable.
-- **`am_kg_add`** — entity-level facts true of the WORKSPACE. ⚠ Facts are NOT wing-scoped.
+- **`am_kg_add`** — **MUST, not optional**: entity-level facts true of the WORKSPACE, filed in
+  the same breath as the drawer they describe. A drawer with no edge is an orphan — reachable
+  by search, invisible to traversal, and it still surfaces in your OWN search, which is why
+  authors believe it is reachable. ⚠ Facts are NOT wing-scoped.
 - **`am_update_skill`** — ONLY for a NEW confident-error class, or a rule here that became
   wrong. Test: is it already reachable through a pointer this skill carries?
 
@@ -708,10 +711,11 @@ A verified change that is not written back is memory lost. Every session ends wi
    sessions — check with `am_diary_read` before inventing one, or you fork the journal.
 3. **`am_add_drawer`** — decisions with their rejected alternative, incidents, anything traced
    the hard way.
-4. **`am_kg_add`** — durable entity facts (§6), and add any new key to the `llm_index` key list.
+4. **`am_kg_add`** — **required, not optional**: durable entity facts (§6), and add any new key
+   to the `llm_index` key list. The edge is what makes 3 findable by traversal at all.
 
-Skip only when the session produced nothing worth recalling — **and say so** rather than
-skipping silently.
+Steps 2 and 4 are the gate. Skip a step only when the session produced nothing worth recalling
+— **and say so** rather than skipping silently.
 
 ---
 
