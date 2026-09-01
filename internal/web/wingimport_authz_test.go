@@ -22,7 +22,11 @@ import (
 // newRoleEnv builds a Server over a migrated in-memory database with one user
 // holding the given role, so the handler's authorization runs through the real
 // membership lookup rather than a stub that could agree with anything.
-func newRoleEnv(t *testing.T, role tenant.Role) (*Server, string, string) {
+//
+// It returns the *gorm.DB as well, because the sharpest assertion for a refused
+// mutation is that the row it would have written is not there — a flash message
+// is what the handler says, the database is what it did.
+func newRoleEnv(t *testing.T, role tenant.Role) (*Server, *gorm.DB, string, string) {
 	t.Helper()
 	gdb, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
 	if err != nil {
@@ -58,7 +62,7 @@ func newRoleEnv(t *testing.T, role tenant.Role) (*Server, string, string) {
 			t.Fatalf("seed: %v", err)
 		}
 	}
-	return &Server{tenants: tenant.NewRepo(gdb)}, userID, teamID
+	return &Server{tenants: tenant.NewRepo(gdb)}, gdb, userID, teamID
 }
 
 // TestWingImportRefusesAReadOnlyMember is the authorization gate for the one web
@@ -75,7 +79,7 @@ func newRoleEnv(t *testing.T, role tenant.Role) (*Server, string, string) {
 // membership lookup, because a stubbed role would agree with whatever the handler
 // asked it.
 func TestWingImportRefusesAReadOnlyMember(t *testing.T) {
-	srv, userID, teamID := newRoleEnv(t, tenant.RoleMember)
+	srv, _, userID, teamID := newRoleEnv(t, tenant.RoleMember)
 
 	req := httptest.NewRequest(http.MethodPost, "/app/teams/"+teamID+"/wings/import", strings.NewReader(""))
 	rctx := chi.NewRouteContext()
