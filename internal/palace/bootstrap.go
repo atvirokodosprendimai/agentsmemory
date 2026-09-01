@@ -146,6 +146,23 @@ func (s *Service) Bootstrap(ctx context.Context, teamID, wing string) (Bootstrap
 		if err != nil {
 			return BootstrapResult{}, err
 		}
+		// A record over ChunkSize is several rows sharing a parent, and DrawersByIDs
+		// returns the ROOT. Serving that row alone gave a session the first 1600
+		// runes of the entry protocol and reported truncation.omitted: 0 — measured
+		// 2026-09-01 on a 3,600-rune record, cut mid-sentence with nothing marking
+		// it partial. That silent cut is what prepareWrite's entry-room refusal
+		// existed to prevent, which made the refusal a workaround for this bug.
+		//
+		// ByRoots and not per id: this is the one call no session skips, and
+		// resolving up to bootstrapEagerLimit memories one at a time would be N
+		// queries for an answer one query gives. Reassembly is reassembleMemory,
+		// the SAME function the search path uses (memory_search.go) — a second
+		// implementation would be a second answer to one question, and the seam it
+		// removes is exactly where a hand-rolled join goes wrong.
+		chunks, err := s.repo.MemoryChunksByRoots(ctx, teamID, inline)
+		if err != nil {
+			return BootstrapResult{}, err
+		}
 		found := make(map[string]bool, len(drawers))
 		for _, d := range drawers {
 			found[d.ID] = true
@@ -153,8 +170,16 @@ func (s *Service) Bootstrap(ctx context.Context, teamID, wing string) (Bootstrap
 			// every other response path. An entry edge can name a record in
 			// another wing, and inlining it here would be the leak that a
 			// subject/predicate/object check never sees.
+			//
+			// ⚠ Placed on the ROOT's id, before reassembly and unchanged by it. The
+			// rule is about where the memory is filed, and every chunk of a memory
+			// shares that — deciding on a reassembled body would be deciding on
+			// text rather than on placement.
 			placement, _ := policy.Place(ctx, d.ID)
 			if policy.MayReturnContent(placement) {
+				if whole := reassembleMemory(chunks[d.ID]); whole != "" {
+					d.Content = whole
+				}
 				out.Eager = append(out.Eager, d)
 				continue
 			}

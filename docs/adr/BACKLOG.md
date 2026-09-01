@@ -3149,3 +3149,20 @@ one, make its condition true and watch the exit code.
   **Trigger: the first time a recall is measurably short because superseded points crowded the
   prefix, or when the corpus is large enough that the drift scan itself costs.**
   Deferred from `docs/adr/ADR-045-move-a-memory-not-a-row.md` §Out of Scope.
+
+## From ADR-046 (serve the whole entry record)
+
+- **Paging or byte-bounding the eager bootstrap tier.** ADR-046 makes `am_bootstrap`
+  serve each eager record WHOLE, which is what makes `truncation.omitted: 0` true
+  instead of merely present. It leaves `bootstrapEagerLimit` bounding how MANY records
+  are inlined and nothing bounding how LARGE each is, so a long entry record now costs
+  its full length on the one call no session skips. That is the deliberate trade —
+  a front door that is correct beats one that is cheap — and the discipline that a
+  spine points at detail rather than inlining it becomes advice, exactly as
+  relocatability did in ADR-045. **Trigger: the first time a wake-up is measurably
+  expensive because of entry-record size, or the first entry record past a few
+  thousand runes.** The shape to reach for is a byte budget with an honest
+  `truncation` report, NOT a refusal at write time — the refusal is what ADR-046
+  removed, and reinstating it under a different name would be the same workaround
+  wearing a new shape. Deferred from
+  `docs/adr/ADR-046-serve-the-whole-entry-record.md` §Out of Scope.
