@@ -1,4 +1,4 @@
-# ADR-045 tasks
+# ADR-048 tasks
 
 One task. The change is a single coherent removal plus the gate that keeps it removed, and splitting
 it would produce a commit where the fields are gone and nothing stops them returning.

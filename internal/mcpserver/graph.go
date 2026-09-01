@@ -33,7 +33,7 @@ type endpointView struct {
 
 // tunnelView is a tunnel's JSON shape.
 //
-// It deliberately carries none of palace.Dynamics. ADR-045 retired strength,
+// It deliberately carries none of palace.Dynamics. ADR-048 retired strength,
 // stability, last_activated and access_count from this surface: initDynamics
 // stamps them once and nothing in the tree writes them again, so publishing them
 // advertised a reinforcement layer the server does not implement. The owner's
@@ -60,7 +60,7 @@ func toTunnelView(t palace.Tunnel) tunnelView {
 
 // hallwayView is a hallway's JSON shape.
 //
-// Like tunnelView it carries none of palace.Dynamics, per ADR-045. The measurement
+// Like tunnelView it carries none of palace.Dynamics, per ADR-048. The measurement
 // behind that: access_count > 0 held for 0 of 1,338 hallways on 2026-08-25, because
 // initDynamics is the only writer in the tree — a fact internal/palace/hallway.go
 // already records in prose. CreatedAt survives and LastActivated does not, which is

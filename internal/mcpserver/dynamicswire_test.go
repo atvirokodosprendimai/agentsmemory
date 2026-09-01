@@ -20,7 +20,7 @@ var dynamicsBlock = regexp.MustCompile(`(?s)type Dynamics struct \{(.*?)\n\}`)
 // The universe is DERIVED rather than written out as a literal, because a list kept
 // beside the truth is the shape this repository rejects: a fifth dynamics field
 // added tomorrow joins this check on the same commit instead of waiting for someone
-// to remember ADR-045. It returns an error message rather than failing so the
+// to remember ADR-048. It returns an error message rather than failing so the
 // falsifiability subtest can drive it over a fixture.
 func dynamicsKeys(src string) []string {
 	block := dynamicsBlock.FindStringSubmatch(src)
@@ -61,7 +61,7 @@ func dynamicsKeysOnTheWire(forbidden []string, sources map[string]string) []stri
 // TestNoUnwrittenDynamicsFieldReachesTheWire fails when this package publishes a
 // field of palace.Dynamics.
 //
-// ADR-045 retires the L7 dynamics surface: strength, stability, last_activated and
+// ADR-048 retires the L7 dynamics surface: strength, stability, last_activated and
 // access_count were stamped once by initDynamics and never written again, so every
 // result advertised a reinforcement layer the server does not implement. Removing
 // them is a one-commit edit; keeping them removed is what this gate is for, because
@@ -82,7 +82,7 @@ func TestNoUnwrittenDynamicsFieldReachesTheWire(t *testing.T) {
 
 	if found := dynamicsKeysOnTheWire(forbidden, packageSources(t)); len(found) > 0 {
 		t.Errorf("these palace.Dynamics fields are published on the wire: %s\n"+
-			"  ADR-045 retired them: nothing writes them after initDynamics stamps them, so each one "+
+			"  ADR-048 retired them: nothing writes them after initDynamics stamps them, so each one "+
 			"describes a reinforcement layer this server does not implement. Remove the field from "+
 			"the view rather than documenting it.", strings.Join(found, ", "))
 	}

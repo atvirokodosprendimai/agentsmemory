@@ -3214,12 +3214,12 @@ one, make its condition true and watch the exit code.
   second caller of the reassembly path, or the first entry record that reads with a duplicated
   passage.**
 
-## From ADR-045 (retire the reinforcement fields nothing writes)
+## From ADR-048 (retire the reinforcement fields nothing writes)
 
 Receipts for that record's two deferrals, written with it rather than after it, so `adr-debt` finds
 the destination knows about them.
 
-- **The four dynamics columns on `hallways` and `tunnels` are still there.** ADR-045 removed
+- **The four dynamics columns on `hallways` and `tunnels` are still there.** ADR-048 removed
   `strength`, `stability`, `last_activated` and `access_count` from the wire only. The columns keep
   their `NOT NULL` defaults, and `palace.Dynamics` keeps its json tags, because
   `internal/palace/hallway.go` still reads `LastActivated` as a fallback input to `earliestStamp`

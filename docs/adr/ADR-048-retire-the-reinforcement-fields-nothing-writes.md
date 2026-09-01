@@ -1,4 +1,4 @@
-# ADR-045: Retire the reinforcement fields nothing writes
+# ADR-048: Retire the reinforcement fields nothing writes
 
 **Status:** Proposed
 **Date:** 2026-08-30
@@ -59,7 +59,7 @@ None — single task.
 
 ## Implementation
 
-One task; see `ADR-045-retire-the-reinforcement-fields-nothing-writes/tasks/README.md`.
+One task; see `ADR-048-retire-the-reinforcement-fields-nothing-writes/tasks/README.md`.
 
 ## Consequences
 

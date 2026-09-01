@@ -1,4 +1,4 @@
-# Task ADR-045-T1: Remove the four inert dynamics keys from both wire views and gate their return
+# Task ADR-048-T1: Remove the four inert dynamics keys from both wire views and gate their return
 
 **Depends-on:** none
 **Covers:** none — no spec stage
@@ -36,7 +36,7 @@ forbidden key set from `palace.Dynamics` itself rather than from a literal list.
    `last_activated` entry. That failure is the existing gate working; delete the entry to close it.
    Do not delete it in step 2 — seeing it fire is what proves the coupling is real rather than
    assumed.
-4. Record the two deferrals in `docs/adr/BACKLOG.md` naming ADR-045, in this same commit, so the
+4. Record the two deferrals in `docs/adr/BACKLOG.md` naming ADR-048, in this same commit, so the
    pointers are honoured rather than merely resolvable.
 5. Run the full suite as regression.
 
