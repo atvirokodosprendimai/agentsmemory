@@ -53,6 +53,14 @@ var docCitedADRExemptions = map[string]map[string]string{
 			"about allocation, not a reference to a record",
 		"023": "the same Numbering line, second number",
 	},
+	"docs/adr/ADR-047-measure-the-writing-rule.md": {
+		"046": "its Numbering line states which number this record is next after — a statement " +
+			"about allocation, not a reference to a record. The number belongs to a record on " +
+			"another branch and not on this one, which is exactly the state a Numbering line " +
+			"exists to report. The reason is written without the prefixed form on purpose: " +
+			"TestEveryCitedADRResolves reads this file as Go source and has no exemption list, " +
+			"so spelling it out here would make the justification its own violation",
+	},
 	"docs/adr/ADR-037-the-why-travels-with-the-code.md": {
 		"999": "it shows a deliberately unresolvable record number as the failing example, in " +
 			"the record that introduced the citation gate: the number has to resolve to nothing " +

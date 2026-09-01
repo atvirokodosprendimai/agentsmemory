@@ -54,8 +54,7 @@ ships with a flag before there is anything to run is a knob that does nothing (A
 ## Acceptance
 
 ```bash
-docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c '
-  apk add --no-cache bash git >/dev/null
+set -o pipefail
   if [ -n "$(gofmt -l internal/longmemeval)" ]; then echo "gofmt"; exit 1; fi
   go vet ./... || exit 1
   go test ./internal/longmemeval/ -run "TestDatasetLoadsEverySixQuestionTypes|TestDatasetPairsEverySessionWithItsOwnDate|TestDatasetRejectsAQuestionWhoseGoldSessionIsNotInItsHaystack|TestDatasetRejectsMisalignedHaystackArrays|TestDatasetRecordsItsFileDigest|TestSubsetIsDeterministicForASeed|TestSubsetStratifiesByQuestionType|TestSubsetOfMoreThanTheCorpusIsTheCorpus" -count=1 -v 2>&1 | tee /tmp/a47t1.out
@@ -68,7 +67,7 @@ docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v 
   grep -q -- "--- PASS: TestSubsetIsDeterministicForASeed" /tmp/a47t1.out || exit 1
   grep -q -- "--- PASS: TestSubsetStratifiesByQuestionType" /tmp/a47t1.out || exit 1
   if grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/a47t1.out; then echo "vacuous or failing"; exit 1; fi
-  go test ./... -count=1'
+go test ./... -count=1
 ```
 
 The named tests run first and each `--- PASS` is asserted individually, so the fence cannot be
@@ -98,6 +97,9 @@ test from exiting 0 on an empty filter.
 | 4 — it is used | nothing measures this yet |
 
 ## Mutation Log
+
+- 2026-09-01 · e4917c5* · mutant killed · exit 1 · `internal/longmemeval/dataset.go` · severs the haystack alignment check, the one Load failure that would otherwise date a session from its neighbour and make every temporal question wrong in silence · acceptance-sha256:78ed467169052a6ecc3073493786802ed65a2677eda6d53bfd77bf4941b12999
+- 2026-09-01 · e4917c5* · mutant killed · exit 1 · `internal/longmemeval/subset.go` · severs the seeded visit-order shuffle, so a subset smaller than the number of types silently admits the same alphabetically-first types at every seed · acceptance-sha256:78ed467169052a6ecc3073493786802ed65a2677eda6d53bfd77bf4941b12999
 
 ## Invariants
 
@@ -150,3 +152,32 @@ impossible to fail.
   [adr-verify] ENVIRONMENT: the Docker daemon was unreachable. Start Docker Desktop, or the engine, and re-run.
                This is a machine problem, not a verdict about the code. The run still counts as failed.
   ```
+- 2026-09-01 · e4917c5* · exit 1 · `set -o pipefail …` · acceptance-sha256:78ed467169052a6ecc3073493786802ed65a2677eda6d53bfd77bf4941b12999
+  ```
+  --- last 10 line(s) of stdout (of 73 after folding 73 raw)
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/store/sqlitevec	2.139s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/store/storetest	2.197s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/telemetry	0.519s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/tenant	1.563s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/updatecheck	0.927s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/usage	1.697s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/web	1.962s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/web/views	2.218s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/wingbundle	2.233s
+  FAIL
+  ```
+- 2026-09-01 · e4917c5* · exit 1 · `set -o pipefail …` · acceptance-sha256:78ed467169052a6ecc3073493786802ed65a2677eda6d53bfd77bf4941b12999
+  ```
+  --- last 10 line(s) of stdout (of 68 after folding 68 raw)
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/store/sqlitevec	1.878s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/store/storetest	1.096s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/telemetry	0.551s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/tenant	1.013s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/updatecheck	0.971s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/usage	1.141s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/web	1.232s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/web/views	0.952s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/wingbundle	1.053s
+  FAIL
+  ```
+- 2026-09-01 · e4917c5* · exit 0 · `set -o pipefail …` · acceptance-sha256:78ed467169052a6ecc3073493786802ed65a2677eda6d53bfd77bf4941b12999

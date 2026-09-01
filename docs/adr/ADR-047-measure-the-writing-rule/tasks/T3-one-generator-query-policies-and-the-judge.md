@@ -54,8 +54,7 @@ commit as the extraction, and both must build together or neither does.
 ## Acceptance
 
 ```bash
-docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c '
-  apk add --no-cache bash git >/dev/null
+set -o pipefail
   if [ -n "$(gofmt -l internal/gen internal/longmemeval cmd/server)" ]; then echo "gofmt"; exit 1; fi
   go vet ./... || exit 1
   go test ./internal/gen/ ./internal/longmemeval/ -run "TestGenClientCallsOllamaGenerate|TestGenClientCallsAnOpenAICompatibleEndpointForAV1URL|TestQueryPolicyVerbatimIsTheQuestion|TestJudgeNeverSeesThePolicyName|TestJudgeIsBinary|TestJudgeRefusesAnUnparseableVerdict" -count=1 -v 2>&1 | tee /tmp/a47t3.out
@@ -67,7 +66,7 @@ docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v 
   grep -q -- "--- PASS: TestJudgeRefusesAnUnparseableVerdict" /tmp/a47t3.out || exit 1
   if grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/a47t3.out; then echo "vacuous or failing"; exit 1; fi
   go test ./cmd/server/ -count=1 || exit 1
-  go test ./... -count=1'
+go test ./... -count=1
 ```
 
 `go test ./cmd/server/` runs separately and before the repo-wide run because the extraction's whole

@@ -39,8 +39,19 @@ it helps.
 
 Status: `pending` | `running` | `blocked` | `done` | `failed`.
 
+**T1 is built and its evidence is in its Verification Log — and it stays `pending`, on purpose.**
+The ADR is `Proposed`, and `adr-lint` refuses a `done` task under a record nobody has accepted:
+execution before acceptance is either a decision that was never taken or a record that was never
+updated. T1's log holds an exit-0 run of its fence and two killed mutants; the status moves the
+day the decision does, and not before.
+
 The Acceptance column is abbreviated for reading; the task file carries the full command including
-the Docker invocation this repo builds under, and `adr-verify` runs that one.
+its `gofmt`, `go vet` and per-test `--- PASS` assertions, and `adr-verify` runs that one.
+
+The fences run `go` directly rather than inside the container other records here use — M's call,
+2026-09-01. `set -o pipefail` is the first line of every one of them and is load-bearing: the test
+run is piped into `tee`, and without it the pipeline reports `tee`'s status, so a suite that never
+started would read as a pass.
 
 ## Contract Coupling
 

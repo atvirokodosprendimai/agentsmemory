@@ -54,8 +54,7 @@ one this repository has shipped broken before (`AGENTS.md` §Reachability).
 ## Acceptance
 
 ```bash
-docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c '
-  apk add --no-cache bash git >/dev/null
+set -o pipefail
   if [ -n "$(gofmt -l internal/longmemeval cmd/server)" ]; then echo "gofmt"; exit 1; fi
   go vet ./... || exit 1
   go test ./internal/longmemeval/ ./cmd/server/ -run "TestRunGridHoldsTheContextBudgetAcrossCells|TestRunGridRefusesANonEmptyWing|TestCellsRefuseToMergeAcrossDifferentHeaders|TestCellsCarryTheRankingProfileAndModel|TestLongmemevalIsRegistered|TestLongmemevalHelpListsEveryRegisteredPolicy" -count=1 -v 2>&1 | tee /tmp/a47t4.out
@@ -66,7 +65,7 @@ docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v 
   grep -q -- "--- PASS: TestLongmemevalIsRegistered" /tmp/a47t4.out || exit 1
   grep -q -- "--- PASS: TestLongmemevalHelpListsEveryRegisteredPolicy" /tmp/a47t4.out || exit 1
   if grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/a47t4.out; then echo "vacuous or failing"; exit 1; fi
-  go test ./... -count=1'
+go test ./... -count=1
 ```
 
 ## Tests

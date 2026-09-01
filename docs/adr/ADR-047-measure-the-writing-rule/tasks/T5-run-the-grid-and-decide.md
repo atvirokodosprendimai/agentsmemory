@@ -42,7 +42,18 @@ claim less than they do today.
 
 ## Acceptance
 
-Acceptance is human-observed: `adr-verify docs/adr/ADR-047-measure-the-writing-rule/tasks/T5-run-the-grid-and-decide.md --human "<date> · grid run n=<N> subset seed=<S> · reader/judge=<model> · budget=<T> tokens · profile=<ranking string> · judge agreement=<A> on <k> hand-scored · promoted: <policies or none> · decision <ship|withdraw|blocked>"`.
+Acceptance is human-observed: the run is a judgement about what a document may claim, and no exit
+code can carry that. The fence below is the sign-off template to copy, with every placeholder
+replaced by what the run actually produced.
+
+```bash
+adr-verify docs/adr/ADR-047-measure-the-writing-rule/tasks/T5-run-the-grid-and-decide.md \
+  --human "<date> · grid run n=<N> subset seed=<S> · reader/judge=<model> · budget=<T> tokens · profile=<ranking string> · judge agreement=<A> on <k> hand-scored · promoted: <policies or none> · decision <ship|withdraw|blocked>"
+```
+
+The `Data dependency` header is not `hermetic`, so the sign-off must record what the run was taken
+against — which is why the subset size, the seed, the model and the budget are in the template
+rather than left to whoever signs it.
 
 The sign-off must name a decision from `ship`, `withdraw`, `blocked` — the vocabulary
 `TestAHumanObservedSignOffAgreesWithTheIndex` requires — and the README status must match it.
