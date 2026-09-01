@@ -107,6 +107,11 @@ func (r *registrar) addWrite(tool mcp.Tool, handler server.ToolHandlerFunc) {
 
 // writeSemantics is what a client cannot derive from "does this tool write".
 //
+// It also APPENDS the retry contract to a write tool's description, which the
+// name does not say and this comment therefore must: the hints and the sentence
+// come from one map so they cannot drift, and generating the sentence here is
+// what puts it on every write tool rather than on the ones somebody remembered.
+//
 // readOnlyHint falls out of which registrar method was used, and destructive and
 // idempotent do not: both are properties of what the handler DOES, and MCP defines
 // them only for tools that write. So they are declared, with the reason, and
@@ -205,7 +210,13 @@ func classifyTool(tool mcp.Tool, write bool) mcp.Tool {
 	if s, ok := writeToolSemantics[strings.TrimPrefix(tool.Name, mcpprotocol.ToolPrefix)]; ok {
 		tool.Annotations.IdempotentHint = mcp.ToBoolPtr(s.idempotent)
 		tool.Annotations.DestructiveHint = mcp.ToBoolPtr(s.destructive)
-		tool.Description += " " + retrySentence(s)
+		// Guarded, not merely unrepeated: this function is called once per tool
+		// today, and "appends on every call" is a property that goes wrong the
+		// first time somebody classifies a tool twice — a second sentence, saying
+		// the same thing, in a description an agent reads before deciding.
+		if sentence := retrySentence(s); !strings.Contains(tool.Description, sentence) {
+			tool.Description += " " + sentence
+		}
 	}
 	return tool
 }
@@ -594,7 +605,7 @@ func registerStatus(reg *registrar, drawers *palace.Service, skills *skill.Servi
 		return drawers.IndexDrift(ctx, teamID)
 	}, driftTTL)
 	tool := newTool("status",
-		mcp.WithDescription("Wake-up call: the workspace this MCP session is scoped to (name, slug, and whether the server is self-hosted or hosted) plus your role, the memory overview (total drawers + the wing→rooms taxonomy with counts), and remaining monthly quota. Check the workspace to confirm you are talking to the palace you think you are — an empty wing list means nothing has been written yet, NOT that you are in the wrong place. ⚠READ entry_protocol IF IT IS PRESENT: it names the one skill this team wants loaded before anything else, with the exact call to make. The key is ABSENT when the workspace has no entry protocol, so its presence is the whole signal — a key that were always there is one every session learns to skip. version names the build that answered you: a release tag like v0.0.102, or dev-<commit> for an unreleased build — the one field that tells a stale palace from a current one, which nothing else here can."),
+		mcp.WithDescription("Wake-up call: the workspace this MCP session is scoped to (name, slug, and whether the server is self-hosted or hosted) plus your role, the memory overview (total drawers + the wing→rooms taxonomy with counts), and remaining monthly quota — usage.remaining is a NUMBER on a capped plan and NULL when the cap does not limit anything, so branch on null rather than on a low number: a plan with no ceiling has no remainder to report, and reading its absence as exhaustion is what stops a session writing. Check the workspace to confirm you are talking to the palace you think you are — an empty wing list means nothing has been written yet, NOT that you are in the wrong place. ⚠READ entry_protocol IF IT IS PRESENT: it names the one skill this team wants loaded before anything else, with the exact call to make. The key is ABSENT when the workspace has no entry protocol, so its presence is the whole signal — a key that were always there is one every session learns to skip. version names the build that answered you: a release tag like v0.0.102, or dev-<commit> for an unreleased build — the one field that tells a stale palace from a current one, which nothing else here can."),
 	)
 	reg.add(tool, func(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		t, errResult, ok := admit(ctx, usageSvc)

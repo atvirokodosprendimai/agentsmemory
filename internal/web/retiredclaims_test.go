@@ -23,7 +23,13 @@ import (
 // is banned is the claim of a REFUSAL or an IN-PLACE guarantee that no longer holds.
 var retiredWriteRuleClaim = regexp.MustCompile(
 	`(?i)refuses in-place|never\s+moved|cannot be moved|relocated for life|` +
-		`must fit in one chunk|served one chunk at a time|refused if it would chunk`)
+		`must fit in one chunk|served one chunk at a time|refused if it would chunk|` +
+		// An unqualified "kg_add is idempotent" is retired the same way: the no-op
+		// covers a CURRENT fact, and a closed-window one is not deduped. The
+		// qualified sentence must stay sayable, so the claim is matched only when
+		// nothing narrows it — `am_kg_add` is idempotent FOR A CURRENT FACT reads
+		// past this by design.
+		`am_kg_add`+"`"+` is idempotent\.`)
 
 // protocolDocs are the agent-facing documents this repository ships: the one the
 // server embeds and serves, and the ones the installer copies into an agent's

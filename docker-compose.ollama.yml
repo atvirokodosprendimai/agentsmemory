@@ -56,6 +56,11 @@ services:
       #
       # It travels on the SERVER, not on ollama: num_thread is a per-request
       # option and the server is what sends the request.
+      # `:-` here and `-` on RERANK_URL in the full overlay, deliberately: an
+      # EMPTY rerank URL means "off" and must survive, while an empty CPU quota
+      # means nothing at all, so falling back to the default is the only sensible
+      # reading. Written down because two sibling overlays now use both forms and
+      # the inconsistency otherwise looks like one to fix.
       AGENTSMEMORY_OLLAMA_CPUS: "${AGENTSMEMORY_OLLAMA_CPUS:-2}"
 
   ollama:

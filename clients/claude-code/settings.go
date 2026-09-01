@@ -114,7 +114,15 @@ func ensureHooks(path string, regs []hookReg) (map[string]bool, error) {
 			if !dropped {
 				continue
 			}
-			hooks[reg.event] = pruned
+			// An event with nothing left loses its key rather than keeping an empty
+			// array: `"SessionEnd": []` is a visible stub of a hook that is meant to
+			// be absent, and the next person to read the file has to work out
+			// whether it means "removed" or "never configured".
+			if len(pruned) == 0 {
+				delete(hooks, reg.event)
+			} else {
+				hooks[reg.event] = pruned
+			}
 			changed[reg.event] = true
 			continue
 		}
