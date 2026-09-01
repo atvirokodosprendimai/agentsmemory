@@ -144,11 +144,16 @@ func runLongmemeval(ctx context.Context, def config.Config, c *cli.Command) erro
 		return err
 	}
 	for _, cell := range cells.Cells {
-		fmt.Printf("%-16s %-14s judged %.3f (%d/%d)  retrieval %.3f (%d/%d)  budget %d runes\n",
+		// MRR is printed beside the hit rate because the rate SATURATES — measured
+		// on the real corpus, every policy scored 1.000 — so a summary that showed
+		// only the rate would report "no difference" over a grid where the rank had
+		// moved. It was in the results file and not on the console for one run, and
+		// that is exactly long enough to draw the wrong conclusion from a terminal.
+		fmt.Printf("%-16s %-14s judged %.3f (%d/%d)  hit %.3f  mrr %.3f  budget %d runes  skipped %d\n",
 			cell.Write, cell.Query,
 			cell.Accuracy(), cell.Correct, cell.Scored,
-			cell.RetrievalRate(), cell.RetrievalHit, cell.RetrievalScored,
-			cell.BudgetRunesUsed)
+			cell.RetrievalRate(), cell.RetrievalMRR,
+			cell.BudgetRunesUsed, cell.MemoriesSkipped)
 	}
 	fmt.Printf("wrote %s\n", c.String("out"))
 	return nil
