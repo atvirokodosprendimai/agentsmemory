@@ -75,13 +75,15 @@ one this repository has shipped broken before (`AGENTS.md` §Reachability).
 set -o pipefail
   if [ -n "$(gofmt -l internal/longmemeval cmd/server)" ]; then echo "gofmt"; exit 1; fi
   go vet ./... || exit 1
-  go test ./internal/longmemeval/ ./cmd/server/ -run "TestRunGridHoldsTheContextBudgetAcrossCells|TestRunGridRefusesANonEmptyWing|TestRunGridRefusesAZeroBudget|TestRunGridIsolatesEveryQuestion|TestRetrievalColumnExcludesAbstentionQuestions|TestCellsRefuseToMergeAcrossDifferentHeaders|TestCellsCarryTheRankingProfileAndModel|TestCellsReportTheRetrievalOnlyColumnBeside|TestCellsRecordTheReportedPromptTokens|TestCellsCountMemoriesTooLargeForTheBudget|TestLongmemevalIsRegistered|TestLongmemevalHelpListsEveryRegisteredPolicy" -count=1 -v 2>&1 | tee /tmp/a47t4.out
+  go test ./internal/longmemeval/ ./cmd/server/ -run "TestRunGridHoldsTheContextBudgetAcrossCells|TestRunGridRefusesANonEmptyWing|TestRunGridRefusesAZeroBudget|TestRunGridIsolatesEveryQuestion|TestRetrievalColumnExcludesAbstentionQuestions|TestGoldRankIsAPositionNotABoolean|TestCellsReportTheRetrievalRank|TestCellsRefuseToMergeAcrossDifferentHeaders|TestCellsCarryTheRankingProfileAndModel|TestCellsReportTheRetrievalOnlyColumnBeside|TestCellsRecordTheReportedPromptTokens|TestCellsCountMemoriesTooLargeForTheBudget|TestLongmemevalIsRegistered|TestLongmemevalHelpListsEveryRegisteredPolicy" -count=1 -v 2>&1 | tee /tmp/a47t4.out
   grep -q -- "--- PASS: TestRunGridHoldsTheContextBudgetAcrossCells" /tmp/a47t4.out || exit 1
   grep -q -- "--- PASS: TestRunGridRefusesANonEmptyWing" /tmp/a47t4.out || exit 1
   grep -q -- "--- PASS: TestRunGridRefusesAZeroBudget" /tmp/a47t4.out || exit 1
   grep -q -- "--- PASS: TestCellsReportTheRetrievalOnlyColumnBeside" /tmp/a47t4.out || exit 1
   grep -q -- "--- PASS: TestCellsRecordTheReportedPromptTokens" /tmp/a47t4.out || exit 1
   grep -q -- "--- PASS: TestCellsCountMemoriesTooLargeForTheBudget" /tmp/a47t4.out || exit 1
+  grep -q -- "--- PASS: TestGoldRankIsAPositionNotABoolean" /tmp/a47t4.out || exit 1
+  grep -q -- "--- PASS: TestCellsReportTheRetrievalRank" /tmp/a47t4.out || exit 1
   grep -q -- "--- PASS: TestRunGridIsolatesEveryQuestion" /tmp/a47t4.out || exit 1
   grep -q -- "--- PASS: TestRetrievalColumnExcludesAbstentionQuestions" /tmp/a47t4.out || exit 1
   grep -q -- "--- PASS: TestCellsRefuseToMergeAcrossDifferentHeaders" /tmp/a47t4.out || exit 1
@@ -132,6 +134,11 @@ go test ./... -count=1
 - 2026-09-01 · f5a5af7* · mutant killed · exit 1 · `internal/longmemeval/grid.go` · the skipped count stops being reported, so a budget too small for the baseline reads as a search that found nothing · acceptance-sha256:d56af1519c5dc4af9df50bb82c4fe38bbc5391a03b23cea8d2b572986cff242b
 - 2026-09-01 · f5a5af7* · mutant killed · exit 1 · `cmd/server/main.go` · the command is built, tested and registered by nothing — this repo signature defect, at the one line that makes the grid reachable · acceptance-sha256:d56af1519c5dc4af9df50bb82c4fe38bbc5391a03b23cea8d2b572986cff242b
 - 2026-09-01 · f5a5af7* · mutant killed · exit 1 · `internal/longmemeval/grid.go` · the scratch scope goes back to per-cell, so question 2 searches question 1 history and contamination grows through the cell · acceptance-sha256:d56af1519c5dc4af9df50bb82c4fe38bbc5391a03b23cea8d2b572986cff242b
+- 2026-09-01 · 3edc9a6* · mutant survived · exit 0 · `internal/longmemeval/grid.go` · every hit counts as rank 1, so the MRR column becomes the saturated hit rate it was added to replace · acceptance-sha256:dc3fa5aebb1474a8ba24d502e038585dc2e39388b779bd53f097ef84a671ca3b
+  ```
+  the fence passed with the mechanism broken
+  ```
+- 2026-09-01 · 3edc9a6* · mutant killed · exit 1 · `internal/longmemeval/grid.go` · every hit counts as rank 1, so the MRR column silently becomes the saturated hit rate it was added to replace · acceptance-sha256:dc3fa5aebb1474a8ba24d502e038585dc2e39388b779bd53f097ef84a671ca3b
 
 ## Invariants
 
@@ -195,3 +202,5 @@ exceeds the budget fails the test.
 - 2026-09-01 · cb803fa* · exit 0 · `set -o pipefail …` · acceptance-sha256:55504589d30f885c303cfedbba0a06bd603eefd6bff82d37dbe5047e72f43ae4
 - 2026-09-01 · d04e7d7* · exit 0 · `set -o pipefail …` · acceptance-sha256:5ca539f33313cf13cdc082270e27610460615ec1610816c9de8fc0c1f96aba73
 - 2026-09-01 · f5a5af7* · exit 0 · `set -o pipefail …` · acceptance-sha256:d56af1519c5dc4af9df50bb82c4fe38bbc5391a03b23cea8d2b572986cff242b
+- 2026-09-01 · 3edc9a6* · exit 0 · `set -o pipefail …` · acceptance-sha256:dc3fa5aebb1474a8ba24d502e038585dc2e39388b779bd53f097ef84a671ca3b
+- 2026-09-01 · 3edc9a6* · exit 0 · `set -o pipefail …` · acceptance-sha256:dc3fa5aebb1474a8ba24d502e038585dc2e39388b779bd53f097ef84a671ca3b

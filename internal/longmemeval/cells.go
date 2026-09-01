@@ -62,6 +62,22 @@ type Cell struct {
 	RetrievalHit    int `json:"retrieval_hit"`
 	RetrievalScored int `json:"retrieval_scored"`
 
+	// RetrievalMRR is the mean reciprocal rank of the first gold-session record,
+	// over the questions the retrieval column scores.
+	//
+	// It exists because RetrievalHit SATURATES and therefore cannot answer the
+	// question a query policy is for. Measured 2026-09-01 against the real corpus
+	// with a page limit of 20 and a cross-encoder in front: every write policy
+	// scored a retrieval rate of exactly 1.000, so the column separated nothing.
+	// A rate says the gold record was somewhere on the page; the reciprocal rank
+	// says WHERE, and moving it from position 9 to position 1 is precisely what
+	// "ask the question better" is supposed to do.
+	//
+	// ⚠A higher MRR is not by itself a reason to promote a policy. ADR-047 exists
+	// because rank is the metric a superset wins: this column is here so it can
+	// DISAGREE with the judged one in public, not so it can stand in for it.
+	RetrievalMRR float64 `json:"retrieval_mrr"`
+
 	// BudgetRunesUsed is how much of the shared budget this cell actually spent,
 	// averaged over its questions. A policy that cannot fill the window is a
 	// finding rather than a footnote: it means the budget was not the binding

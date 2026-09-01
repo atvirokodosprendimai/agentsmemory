@@ -134,6 +134,7 @@ func RunGrid(ctx context.Context, store Store, sel Selection, writes, queries []
 func runCell(ctx context.Context, store Store, sel Selection, wp WritePolicy, qp QueryPolicy, opts GridOptions) (Cell, error) {
 	cell := Cell{Write: wp.Name, Query: qp.Name}
 	var budgetUsed, promptTokens, skipped int
+	var reciprocalRank float64
 
 	for _, q := range sel.Questions {
 		wing := scratchWing(opts.Wing, wp.Name, qp.Name, q.ID)
@@ -209,8 +210,15 @@ func runCell(ctx context.Context, store Store, sel Selection, wp WritePolicy, qp
 
 		if scoresRetrieval(q) {
 			cell.RetrievalScored++
-			if retrieved(hits, sessionOf, q.GoldSessionIDs) {
+			// The RANK, not merely whether it came back. A boolean hit saturates:
+			// measured 2026-09-01 on the real corpus, every policy scored 1.000 at
+			// a page limit of 20, so the column could not tell any of them apart.
+			// The reciprocal rank still moves when a better-asked query pulls the
+			// gold record from position 9 to position 1, which is the question a
+			// query policy exists to answer.
+			if r := goldRank(hits, sessionOf, q.GoldSessionIDs); r > 0 {
 				cell.RetrievalHit++
+				reciprocalRank += 1 / float64(r)
 			}
 		}
 	}
@@ -218,6 +226,9 @@ func runCell(ctx context.Context, store Store, sel Selection, wp WritePolicy, qp
 		cell.BudgetRunesUsed = budgetUsed / cell.Scored
 		cell.PromptTokensReported = promptTokens / cell.Scored
 		cell.MemoriesSkipped = skipped
+	}
+	if cell.RetrievalScored > 0 {
+		cell.RetrievalMRR = reciprocalRank / float64(cell.RetrievalScored)
 	}
 	return cell, nil
 }
@@ -258,17 +269,29 @@ func assemble(hits []palace.SearchHit, budget int) (memories []string, used, ski
 // It resolves through the ingest-time map rather than through position, because
 // one-fact and bounded change the record count and duplicate content is legal —
 // so nothing about a returned drawer's ordinal says which session produced it.
-func retrieved(hits []palace.SearchHit, sessionOf map[string]string, gold []string) bool {
+func goldRank(hits []palace.SearchHit, sessionOf map[string]string, gold []string) int {
 	want := make(map[string]bool, len(gold))
 	for _, g := range gold {
 		want[g] = true
 	}
+	// Deduped in the order presented, because that is the order the reader saw and
+	// therefore the only order a rank can honestly describe. A merged multi-query
+	// result returns some memories twice, and counting a repeat as a position
+	// would make a decomposing policy's rank a function of how many searches it
+	// ran rather than of how well it asked.
+	seen := map[string]bool{}
+	rank := 0
 	for _, h := range hits {
+		if seen[h.MemoryID] {
+			continue
+		}
+		seen[h.MemoryID] = true
+		rank++
 		for _, id := range []string{h.Drawer.ID, h.MemoryID} {
 			if want[sessionOf[id]] {
-				return true
+				return rank
 			}
 		}
 	}
-	return false
+	return 0
 }

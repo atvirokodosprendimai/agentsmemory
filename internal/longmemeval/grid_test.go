@@ -16,6 +16,13 @@ type fakeStore struct {
 	byWing  map[string][]palace.Drawer
 	seeded  map[string][]palace.Drawer // wings that are NOT empty before the run
 	queries []string
+	// padHits prepends this many non-gold decoy hits to every search, which puts
+	// the gold record at a known position greater than 1. A test that needs a
+	// RANK other than 1 has no other way to arrange one here, and without it an
+	// MRR assertion cannot tell a reciprocal from a hit rate — relying on
+	// insertion order does not work, because the fixture's gold session lands
+	// first under both orders.
+	padHits int
 }
 
 func newFakeStore() *fakeStore {
@@ -30,8 +37,15 @@ func (f *fakeStore) Add(_ context.Context, _ string, in palace.AddInput) (palace
 
 func (f *fakeStore) Search(_ context.Context, _ string, q palace.SearchQuery) ([]palace.SearchHit, error) {
 	f.queries = append(f.queries, q.Query)
+	all := append(append([]palace.Drawer{}, f.seeded[q.Wing]...), f.byWing[q.Wing]...)
 	var out []palace.SearchHit
-	for _, d := range append(append([]palace.Drawer{}, f.seeded[q.Wing]...), f.byWing[q.Wing]...) {
+	for i := 0; i < f.padHits; i++ {
+		id := fmt.Sprintf("decoy-%d", i)
+		out = append(out, palace.SearchHit{
+			Drawer: palace.Drawer{ID: id, Content: "decoy"}, MemoryID: id, MemoryContent: "decoy",
+		})
+	}
+	for _, d := range all {
 		out = append(out, palace.SearchHit{Drawer: d, MemoryID: d.ID, MemoryContent: d.Content})
 	}
 	return out, nil

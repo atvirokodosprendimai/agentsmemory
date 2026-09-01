@@ -4,6 +4,8 @@ import (
 	"context"
 	"strings"
 	"testing"
+
+	"github.com/atvirokodosprendimai/agentsmemory/internal/palace"
 )
 
 func TestCellsCarryTheRankingProfileAndModel(t *testing.T) {
@@ -189,6 +191,90 @@ func TestCellsCountMemoriesTooLargeForTheBudget(t *testing.T) {
 			t.Errorf("cell %s/%s used %d runes against a %d-rune budget with oversized records",
 				c.Write, c.Query, c.BudgetRunesUsed, opts.ContextRunes)
 		}
+	}
+}
+
+// TestGoldRankIsAPositionNotABoolean is what makes "did asking better help?"
+// answerable at all.
+//
+// The retrieval column was a hit RATE, and measured 2026-09-01 against the real
+// corpus every write policy scored exactly 1.000 — saturated at a page limit of
+// 20 with a cross-encoder in front, so the column separated nothing. A rate says
+// the gold record was on the page; the rank says where, and moving it from
+// position 9 to position 1 is the whole claim a query policy makes.
+func TestGoldRankIsAPositionNotABoolean(t *testing.T) {
+	sessionOf := map[string]string{"d1": "s_other", "d2": "s_other", "d3": "s_gold"}
+	hits := []palace.SearchHit{
+		{Drawer: palace.Drawer{ID: "d1"}, MemoryID: "d1"},
+		{Drawer: palace.Drawer{ID: "d2"}, MemoryID: "d2"},
+		{Drawer: palace.Drawer{ID: "d3"}, MemoryID: "d3"},
+	}
+	if got := goldRank(hits, sessionOf, []string{"s_gold"}); got != 3 {
+		t.Errorf("goldRank = %d, want 3 — the position is the measurement", got)
+	}
+	if got := goldRank(hits, sessionOf, []string{"s_absent"}); got != 0 {
+		t.Errorf("goldRank = %d for a gold session that never came back, want 0", got)
+	}
+
+	// A repeated memory must not consume a position. A decomposing policy merges
+	// several searches and returns duplicates, and counting them would make its
+	// rank a function of how many searches it ran rather than of how well it
+	// asked — which is the confound the cap on decomposed already guards.
+	dup := []palace.SearchHit{
+		{Drawer: palace.Drawer{ID: "d1"}, MemoryID: "d1"},
+		{Drawer: palace.Drawer{ID: "d1"}, MemoryID: "d1"},
+		{Drawer: palace.Drawer{ID: "d3"}, MemoryID: "d3"},
+	}
+	if got := goldRank(dup, sessionOf, []string{"s_gold"}); got != 2 {
+		t.Errorf("goldRank = %d with a duplicated hit, want 2 — a repeat is not a position", got)
+	}
+}
+
+// TestCellsReportTheRetrievalRank asserts the column is a RECIPROCAL RANK and
+// not the hit rate wearing a new name.
+//
+// ⚠The first version of this test checked only that the value was non-zero and
+// at most 1 — which the broken arithmetic also satisfies, so a mutant that
+// counted every hit as rank 1 SURVIVED it. That is the gate-that-cannot-fail
+// class this repository keeps finding, and it is why the store returns hits in
+// reverse order here: the gold record is then not at position 1, so a genuine
+// reciprocal rank must come out STRICTLY BELOW the hit rate.
+func TestCellsReportTheRetrievalRank(t *testing.T) {
+	store := newFakeStore()
+	// Two decoys ahead of everything, so the gold record cannot be at position 1
+	// and a real reciprocal rank must fall below the hit rate.
+	store.padHits = 2
+	opts, _ := gridOpts(store)
+	cells, err := RunGrid(context.Background(), store, twoQuestionSelection(t),
+		[]string{"verbatim"}, []string{"verbatim"}, opts)
+	if err != nil {
+		t.Fatalf("RunGrid: %v", err)
+	}
+	var checked int
+	for _, c := range cells.Cells {
+		if c.RetrievalScored == 0 {
+			continue
+		}
+		checked++
+		if c.RetrievalMRR == 0 {
+			t.Errorf("cell %s/%s scored %d retrieval questions and reports no MRR — the rate is "+
+				"saturated on the real corpus, so the rank is the only column that can separate "+
+				"one query policy from another", c.Write, c.Query, c.RetrievalScored)
+		}
+		if c.RetrievalMRR > 1 {
+			t.Errorf("MRR = %f, which is not a reciprocal rank", c.RetrievalMRR)
+		}
+		// The binding assertion: gold is deliberately not first, so 1/rank must be
+		// strictly less than the hit rate. Equality means the reciprocal was never
+		// taken and this column is the saturated rate it exists to replace.
+		if c.RetrievalMRR >= c.RetrievalRate() {
+			t.Errorf("cell %s/%s reports MRR %.4f against hit rate %.4f with the gold record "+
+				"pushed off position 1 — the two can only match if the rank is being ignored",
+				c.Write, c.Query, c.RetrievalMRR, c.RetrievalRate())
+		}
+	}
+	if checked == 0 {
+		t.Fatal("no cell scored a retrieval question, so every assertion above passed over nothing")
 	}
 }
 

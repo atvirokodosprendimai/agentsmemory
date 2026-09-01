@@ -87,12 +87,14 @@ commit as the extraction, and both must build together or neither does.
 set -o pipefail
   if [ -n "$(gofmt -l internal/gen internal/longmemeval cmd/server)" ]; then echo "gofmt"; exit 1; fi
   go vet ./... || exit 1
-  go test ./internal/gen/ ./internal/longmemeval/ -run "TestGenClientPostsOllamaGenerate|TestGenClientPostsOllamaGenerateEvenForAV1URL|TestGenClientHintNamesTheKeyForAV1URL|TestQueryPolicyVerbatimIsTheQuestion|TestEveryDeclaredQueryPolicyIsSelectable|TestJudgeNeverSeesThePolicyName|TestJudgeIsBinary|TestJudgeRefusesAnUnparseableVerdict|TestJudgePromptBranchesOnQuestionType|TestJudgeScoresAnAbstentionQuestionForUnanswerability" -count=1 -v 2>&1 | tee /tmp/a47t3.out
+  go test ./internal/gen/ ./internal/longmemeval/ -run "TestGenClientPostsOllamaGenerate|TestGenClientPostsOllamaGenerateEvenForAV1URL|TestGenClientHintNamesTheKeyForAV1URL|TestQueryPolicyVerbatimIsTheQuestion|TestNamedThingStripsTheConversationalFrame|TestNamedThingKeepsTemporalRelations|TestEveryDeclaredQueryPolicyIsSelectable|TestJudgeNeverSeesThePolicyName|TestJudgeIsBinary|TestJudgeRefusesAnUnparseableVerdict|TestJudgePromptBranchesOnQuestionType|TestJudgeScoresAnAbstentionQuestionForUnanswerability" -count=1 -v 2>&1 | tee /tmp/a47t3.out
   grep -q -- "--- PASS: TestGenClientPostsOllamaGenerate" /tmp/a47t3.out || exit 1
   grep -q -- "--- PASS: TestGenClientPostsOllamaGenerateEvenForAV1URL" /tmp/a47t3.out || exit 1
   grep -q -- "--- PASS: TestGenClientHintNamesTheKeyForAV1URL" /tmp/a47t3.out || exit 1
   grep -q -- "--- PASS: TestEveryDeclaredQueryPolicyIsSelectable" /tmp/a47t3.out || exit 1
   grep -q -- "--- PASS: TestQueryPolicyVerbatimIsTheQuestion" /tmp/a47t3.out || exit 1
+  grep -q -- "--- PASS: TestNamedThingStripsTheConversationalFrame" /tmp/a47t3.out || exit 1
+  grep -q -- "--- PASS: TestNamedThingKeepsTemporalRelations" /tmp/a47t3.out || exit 1
   grep -q -- "--- PASS: TestJudgeNeverSeesThePolicyName" /tmp/a47t3.out || exit 1
   grep -q -- "--- PASS: TestJudgeIsBinary" /tmp/a47t3.out || exit 1
   grep -q -- "--- PASS: TestJudgeRefusesAnUnparseableVerdict" /tmp/a47t3.out || exit 1
@@ -136,6 +138,7 @@ does not say which package saved the task.
 - 2026-09-01 · f1d3468* · mutant killed · exit 1 · `internal/longmemeval/judge.go` · temporal questions judged without the off-by-one tolerance upstream applies, making this metric stricter than the benchmark it is named after · acceptance-sha256:d5f7c39b0b9f1a7d0680258c36679e32fad2e2bf5cbad23107b76f6da015bf42
 - 2026-09-01 · f1d3468* · mutant killed · exit 1 · `internal/longmemeval/judge.go` · abstention items scored for content against a gold answer they do not have, putting a constant into every cell alike · acceptance-sha256:d5f7c39b0b9f1a7d0680258c36679e32fad2e2bf5cbad23107b76f6da015bf42
 - 2026-09-01 · f1d3468* · mutant killed · exit 1 · `internal/gen/client.go` · the transport starts speaking OpenAI, the exact behaviour change the record falsely claimed already existed · acceptance-sha256:d5f7c39b0b9f1a7d0680258c36679e32fad2e2bf5cbad23107b76f6da015bf42
+- 2026-09-01 · 3edc9a6* · mutant killed · exit 1 · `internal/longmemeval/querypolicy.go` · named-thing stops stripping the conversational frame, so it silently becomes the verbatim baseline and the query axis measures nothing · acceptance-sha256:1378e9e05f2941007ec65adbd7524f573a26e30175f4d49daf1ebdfae7caa1ef
 
 ## Invariants
 
@@ -176,3 +179,4 @@ move, and a move that needs behaviour changes to land is two tasks wearing one i
 - 2026-09-01 · f1d3468* · exit 0 · `set -o pipefail …` · acceptance-sha256:d5f7c39b0b9f1a7d0680258c36679e32fad2e2bf5cbad23107b76f6da015bf42
 - 2026-09-01 · f1d3468* · exit 0 · `set -o pipefail …` · acceptance-sha256:d5f7c39b0b9f1a7d0680258c36679e32fad2e2bf5cbad23107b76f6da015bf42
 - 2026-09-01 · f1d3468* · exit 0 · `set -o pipefail …` · acceptance-sha256:d5f7c39b0b9f1a7d0680258c36679e32fad2e2bf5cbad23107b76f6da015bf42
+- 2026-09-01 · 3edc9a6* · exit 0 · `set -o pipefail …` · acceptance-sha256:1378e9e05f2941007ec65adbd7524f573a26e30175f4d49daf1ebdfae7caa1ef

@@ -29,6 +29,56 @@ type QueryPolicy struct {
 // the write axis and nothing else would prevent on this one.
 const decomposedCap = 3
 
+// frameWords are the tokens this corpus's questions are FRAMED with rather than
+// the ones they are about.
+//
+// Three groups, and each earned its place from the corpus rather than from a
+// generic stopword list: first-person pronouns, which 480 of the 500 questions
+// carry and which the haystack carries too, so they appear on both sides of
+// every comparison and separate nothing; interrogative and auxiliary openers,
+// which every question has by construction; and the conversational verbs the
+// preference items are wrapped in, where the request IS the frame.
+//
+// Deliberately NOT a general stopword list. Words like "first", "before",
+// "after", "last" and "most" stay, because temporal-reasoning questions are
+// about exactly those relations — 133 of the 500 — and a list that stripped them
+// would make this policy worse than verbatim on a quarter of the corpus while
+// looking like a cleanup.
+var frameWords = map[string]bool{
+	"i": true, "my": true, "me": true, "mine": true, "myself": true,
+	"what": true, "which": true, "who": true, "whom": true, "whose": true,
+	"when": true, "where": true, "why": true, "how": true,
+	// "how many" and "how much" open 164 of the 500 questions and carry no
+	// retrievable signal; "more" is deliberately NOT here, because a comparative
+	// question is about the comparison.
+	"many": true, "much": true,
+	"did": true, "do": true, "does": true, "is": true, "are": true, "was": true,
+	"were": true, "have": true, "has": true, "had": true, "the": true, "a": true,
+	"an": true, "of": true, "to": true, "at": true, "on": true, "in": true,
+	"for": true, "and": true, "or": true, "that": true, "this": true,
+	"thinking": true, "trying": true, "recommendations": true, "recommend": true,
+	"suggestions": true, "ideas": true, "tips": true, "any": true, "some": true,
+	"please": true, "could": true, "would": true, "should": true, "can": true,
+}
+
+// stripFrame keeps a question's content words, in order, dropping the frame.
+//
+// Order is preserved and nothing is stemmed: the goal is to name the thing, not
+// to build a bag of words. Duplicates are kept for the same reason — a question
+// that says "plants" twice is about plants twice.
+func stripFrame(question string) string {
+	fields := strings.FieldsFunc(strings.ToLower(question), func(r rune) bool {
+		return !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '-' || r == '\'')
+	})
+	var kept []string
+	for _, w := range fields {
+		if !frameWords[w] {
+			kept = append(kept, w)
+		}
+	}
+	return strings.Join(kept, " ")
+}
+
 var queryPolicies = map[string]QueryPolicy{}
 
 func registerQuery(p QueryPolicy) {
@@ -84,17 +134,36 @@ func init() {
 	})
 
 	// named-thing is start-here's rule that an unfamiliar wing must be asked with
-	// the entity named, measured here rather than assumed. The skill states it
+	// the entity NAMED, measured here rather than assumed. The skill states it
 	// with a 583x spread behind it, but that spread was measured on RECALL RANK,
-	// which is precisely the metric this ADR exists to stop treating as the answer.
+	// which is precisely the metric this ADR exists to stop treating as the
+	// answer.
+	//
+	// It strips the conversational frame and keeps the content words, because
+	// that is what "name the thing" means for this corpus. Measured over all 500
+	// questions on 2026-09-01: 480 are written in the FIRST PERSON ("What degree
+	// did I graduate with?"), and the haystack is first-person too, so the
+	// pronouns appear on both sides and discriminate nothing. 17 of the 30
+	// preference items are not questions at all but requests — "I was thinking of
+	// trying a new coffee creamer recipe. Any recommendations?" — where asking
+	// verbatim searches on "thinking", "trying" and "recommendations" while the
+	// retrievable content is "coffee creamer".
+	//
+	// ⚠This REPLACED a version that prefixed the raw question_date. That was
+	// noise by construction: the dates are formatted "2023/05/30 (Tue) 23:40" and
+	// appear nowhere in the session text, so it added tokens that could match
+	// nothing. No run had used it for a decision.
 	registerQuery(QueryPolicy{
 		Name:     "named-thing",
-		Describe: "the question with its date and subject stated first (start-here's rule)",
+		Describe: "the question's content words, conversational frame stripped (start-here's rule)",
 		Queries: func(q Question) []string {
-			if q.Date == "" {
-				return []string{q.Question}
+			if stripped := stripFrame(q.Question); stripped != "" {
+				return []string{stripped}
 			}
-			return []string{fmt.Sprintf("%s %s", q.Date, q.Question)}
+			// A question that is ALL frame leaves nothing to search for. Falling
+			// back to the verbatim question is the honest move: this policy's job is
+			// to ask better, never to ask for nothing.
+			return []string{q.Question}
 		},
 	})
 
