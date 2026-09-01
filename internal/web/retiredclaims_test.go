@@ -25,11 +25,22 @@ var retiredWriteRuleClaim = regexp.MustCompile(
 	`(?i)refuses in-place|never\s+moved|cannot be moved|relocated for life|` +
 		`must fit in one chunk|served one chunk at a time|refused if it would chunk|` +
 		// An unqualified "kg_add is idempotent" is retired the same way: the no-op
-		// covers a CURRENT fact, and a closed-window one is not deduped. The
-		// qualified sentence must stay sayable, so the claim is matched only when
-		// nothing narrows it — `am_kg_add` is idempotent FOR A CURRENT FACT reads
-		// past this by design.
-		`am_kg_add`+"`"+` is idempotent\.`)
+		// covers a CURRENT fact, and a fact filed with valid_to is not deduped.
+		//
+		// ⚠ NOT ANCHORED ON PUNCTUATION. The first version ended `idempotent\.`, so
+		// "is idempotent, so a repeat is always a no-op" walked straight through —
+		// demonstrated by a reviewer against this very gate. The claim is matched
+		// however it is punctuated, and the sentence that must stay sayable is
+		// excused by kgAddQualified instead.
+		"`" + `am_kg_add` + "`" + ` is idempotent`)
+
+// kgAddQualified is the sentence this gate must NOT flag: the no-op is real for a
+// current fact, and only the unqualified claim is retired.
+//
+// A separate pattern rather than a negative lookahead in the one above, because
+// Go's RE2 has no lookahead — "match X unless Y follows" is not expressible, and
+// the punctuation-anchored form that stood in for it let a comma past.
+var kgAddQualified = regexp.MustCompile(`(?i)idempotent\s+for a current fact`)
 
 // protocolDocs are the agent-facing documents this repository ships: the one the
 // server embeds and serves, and the ones the installer copies into an agent's
@@ -97,7 +108,7 @@ func TestNoShippedProtocolTeachesARetiredWriteRule(t *testing.T) {
 		}
 		checked++
 		for i, line := range strings.Split(string(raw), "\n") {
-			if loc := retiredWriteRuleClaim.FindString(line); loc != "" {
+			if loc := retiredWriteRuleClaim.FindString(line); loc != "" && !kgAddQualified.MatchString(line) {
 				t.Errorf("%s:%d teaches a retired write rule (%q).\n"+
 					"  A shipped protocol is the only route by which most sessions learn what "+
 					"the server accepts, so a false one does not merely mislead — it unships a "+

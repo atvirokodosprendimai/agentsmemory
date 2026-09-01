@@ -433,7 +433,8 @@ ask memory first, grep only the gap.
   only completion path. (Until 2026-08-29 nothing marked it at all, and this page said so.)
 - **⚠ A KG entity string is a KEY**, normalised only by lowercase + spaces→underscores, no fuzzy
   match. An invented name silently creates a new node. Keys are listed in `llm_index`.
-- **⚠ `am_kg_add` IS IDEMPOTENT**, so replacing a fact means `am_kg_invalidate` FIRST, then add.
+- **⚠ `am_kg_add` IS IDEMPOTENT FOR A CURRENT FACT** (a fact filed with `valid_to` is not deduped),
+  so replacing a fact means `am_kg_invalidate` FIRST, then add.
   Invalidate means "STOPPED being true", not "was recorded wrong"; there is no update.
 - **⚠ `am_mine` defaults to room `general`, which the graph tools EXCLUDE.** Pass a room.
 - **⚠ You can never rename or delete a room.** Name one as if the name is permanent.

@@ -107,11 +107,6 @@ func (r *registrar) addWrite(tool mcp.Tool, handler server.ToolHandlerFunc) {
 
 // writeSemantics is what a client cannot derive from "does this tool write".
 //
-// It also APPENDS the retry contract to a write tool's description, which the
-// name does not say and this comment therefore must: the hints and the sentence
-// come from one map so they cannot drift, and generating the sentence here is
-// what puts it on every write tool rather than on the ones somebody remembered.
-//
 // readOnlyHint falls out of which registrar method was used, and destructive and
 // idempotent do not: both are properties of what the handler DOES, and MCP defines
 // them only for tools that write. So they are declared, with the reason, and
@@ -196,6 +191,17 @@ var writeToolSemantics = map[string]writeSemantics{
 // given a guess. nil is honestly "not stated"; a guess is a wrong answer a client
 // would act on, and TestWriteToolSemanticsCoversEveryWriteTool fails the build
 // before it ships.
+//
+// ⚠ IT ALSO REWRITES THE DESCRIPTION, which the name does not say and this
+// comment therefore must: a write tool's retry contract is appended here, built
+// from the same writeToolSemantics entry that feeds the hints so the sentence and
+// the hint cannot drift. Generating it here is what puts it on EVERY write tool
+// rather than on the ones somebody remembered to edit.
+//
+// The append is guarded against running twice. Nothing calls this function twice
+// today, and that is a property rather than an invariant — the guard is what
+// makes a second call harmless instead of leaving a description that says the
+// same thing twice to an agent deciding what to do about a timeout.
 func classifyTool(tool mcp.Tool, write bool) mcp.Tool {
 	tool.Annotations.ReadOnlyHint = mcp.ToBoolPtr(!write)
 	tool.Annotations.OpenWorldHint = mcp.ToBoolPtr(false)
