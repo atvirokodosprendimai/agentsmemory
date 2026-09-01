@@ -18,24 +18,46 @@ the reader and the judge on it — the judge blind to which cell produced the an
 | File | Change | Why |
 |------|--------|-----|
 | `internal/gen/client.go` | add | the one implementation, moved from `cmd/server/eval.go:812-1033` |
-| `internal/gen/client_test.go` | add | Ollama and OpenAI-compatible wire shapes, and the `/v1` branch |
+| `internal/gen/client_test.go` | add | the Ollama wire shape, and that a `/v1` URL does NOT change the request — only the failure hint |
 | `cmd/server/eval.go` | edit | delete `questionGen`, call `gen.Client`; `genURL` and the `EVAL_GEN_*` flags stay where they are |
-| `cmd/server/kgextract.go` | edit | delete the duplicate at `:215-267`, call `gen.Client` |
+| `cmd/server/kgextract.go` | edit | `tripleGen` keeps its own prompt, temperature and parsing; only its HTTP transport moves to `gen.Client` |
 | `internal/longmemeval/querypolicy.go` | add | the registry and every shipped query policy |
 | `internal/longmemeval/judge.go` | add | the reader prompt, the judge prompt, the binary verdict |
 | `internal/longmemeval/querypolicy_test.go`, `internal/longmemeval/judge_test.go` | add | their tests |
+| `internal/longmemeval/policy_test.go` | edit | `TestEveryDeclaredQueryPolicyIsSelectable` joins its write-policy twin — T2 owns this file's creation, so this row is an edit |
 
 The move is the reason this task is `L`: two existing commands change call sites in the same
 commit as the extraction, and both must build together or neither does.
 
 ## Ordered Steps
 
-1. Write the failing tests first (TDD red): `TestGenClientCallsOllamaGenerate`,
-   `TestGenClientCallsAnOpenAICompatibleEndpointForAV1URL`,
+1. Write the failing tests first (TDD red): `TestGenClientPostsOllamaGenerate`,
+   `TestGenClientPostsOllamaGenerateEvenForAV1URL`, `TestGenClientHintNamesTheKeyForAV1URL`,
    `TestJudgeNeverSeesThePolicyName`, `TestJudgeIsBinary`, `TestQueryPolicyVerbatimIsTheQuestion`.
-2. Move `questionGen` to `internal/gen` as `Client`, unchanged in behaviour, keeping its
-   `openAIShaped()` `/v1` rule and its error text about an embedder being unable to answer
-   `/api/generate` — that message has saved a real debugging session and is not re-worded here.
+2. Move `questionGen`'s TRANSPORT to `internal/gen` as `Client`, unchanged in behaviour, keeping
+   its error text about an embedder being unable to answer `/api/generate` — that message has
+   saved a real debugging session and is not re-worded here.
+
+   ⚠**THERE IS NO `/v1` REQUEST BRANCH TO PRESERVE, AND THE EARLIER DRAFT OF THIS STEP SAID THERE
+   WAS.** It read "keeping its `openAIShaped()` `/v1` rule", and the Tests table promised
+   `TestGenClientCallsAnOpenAICompatibleEndpointForAV1URL` — "the `/v1` branch survives the move".
+   Read from source 2026-09-01: `openAIShaped()` has exactly ONE caller, `hint()`, where it picks
+   the wording of a failure message; `ask()` never consults it and always posts `/api/generate`.
+   `questionGen`'s own doc comment states this deliberately — *"It is NOT OpenAI-shaped: an
+   OpenAI/Anthropic-compatible endpoint speaks /v1/chat/completions and would need a different
+   request and reply, which is deliberately out of scope here"*. Implementing the promised test
+   would therefore have ADDED an OpenAI request path while describing the change as a pure move.
+   The tests now pin what is true, including the negative: a `/v1` URL changes the hint and NOT the
+   request. Adding a real OpenAI branch is a separate decision, deferred in `BACKLOG.md`.
+
+   ⚠**AND `tripleGen` IS NOT A DUPLICATE OF `questionGen`.** They share the HTTP plumbing and
+   differ in every parameter that matters: prompt, temperature (0.1 against 0.2), response
+   handling (`tripleGen` returns the raw multi-line body, `questionGen` keeps a cleaned first
+   line), the 1200-rune input truncation, and the verbose writer. So what moves is the
+   TRANSPORT — one request/response path taking prompt and temperature — and each caller keeps
+   its own prompt and its own parsing. A move that unified the parsing would silently change what
+   `kgextract` extracts.
+3. Repoint `cmd/server/eval.go` and `cmd/server/kgextract.go`. Run the existing `cmd/server` suite;
 3. Repoint `cmd/server/eval.go` and `cmd/server/kgextract.go`. Run the existing `cmd/server` suite;
    it is inside this task's fence for exactly this reason.
 4. Register query policies: `verbatim` (the question as typed — the baseline), `named-thing`
@@ -65,9 +87,11 @@ commit as the extraction, and both must build together or neither does.
 set -o pipefail
   if [ -n "$(gofmt -l internal/gen internal/longmemeval cmd/server)" ]; then echo "gofmt"; exit 1; fi
   go vet ./... || exit 1
-  go test ./internal/gen/ ./internal/longmemeval/ -run "TestGenClientCallsOllamaGenerate|TestGenClientCallsAnOpenAICompatibleEndpointForAV1URL|TestQueryPolicyVerbatimIsTheQuestion|TestJudgeNeverSeesThePolicyName|TestJudgeIsBinary|TestJudgeRefusesAnUnparseableVerdict|TestJudgePromptBranchesOnQuestionType|TestJudgeScoresAnAbstentionQuestionForUnanswerability" -count=1 -v 2>&1 | tee /tmp/a47t3.out
-  grep -q -- "--- PASS: TestGenClientCallsOllamaGenerate" /tmp/a47t3.out || exit 1
-  grep -q -- "--- PASS: TestGenClientCallsAnOpenAICompatibleEndpointForAV1URL" /tmp/a47t3.out || exit 1
+  go test ./internal/gen/ ./internal/longmemeval/ -run "TestGenClientPostsOllamaGenerate|TestGenClientPostsOllamaGenerateEvenForAV1URL|TestGenClientHintNamesTheKeyForAV1URL|TestQueryPolicyVerbatimIsTheQuestion|TestEveryDeclaredQueryPolicyIsSelectable|TestJudgeNeverSeesThePolicyName|TestJudgeIsBinary|TestJudgeRefusesAnUnparseableVerdict|TestJudgePromptBranchesOnQuestionType|TestJudgeScoresAnAbstentionQuestionForUnanswerability" -count=1 -v 2>&1 | tee /tmp/a47t3.out
+  grep -q -- "--- PASS: TestGenClientPostsOllamaGenerate" /tmp/a47t3.out || exit 1
+  grep -q -- "--- PASS: TestGenClientPostsOllamaGenerateEvenForAV1URL" /tmp/a47t3.out || exit 1
+  grep -q -- "--- PASS: TestGenClientHintNamesTheKeyForAV1URL" /tmp/a47t3.out || exit 1
+  grep -q -- "--- PASS: TestEveryDeclaredQueryPolicyIsSelectable" /tmp/a47t3.out || exit 1
   grep -q -- "--- PASS: TestQueryPolicyVerbatimIsTheQuestion" /tmp/a47t3.out || exit 1
   grep -q -- "--- PASS: TestJudgeNeverSeesThePolicyName" /tmp/a47t3.out || exit 1
   grep -q -- "--- PASS: TestJudgeIsBinary" /tmp/a47t3.out || exit 1
@@ -87,8 +111,9 @@ does not say which package saved the task.
 
 | Test name | File | Verifies | Covers |
 |-----------|------|----------|--------|
-| `TestGenClientCallsOllamaGenerate` | `internal/gen/client_test.go` | the default wire shape is unchanged by the move | — |
-| `TestGenClientCallsAnOpenAICompatibleEndpointForAV1URL` | `internal/gen/client_test.go` | the `/v1` branch survives the move | — |
+| `TestGenClientPostsOllamaGenerate` | `internal/gen/client_test.go` | the default wire shape is unchanged by the move | — |
+| `TestGenClientPostsOllamaGenerateEvenForAV1URL` | `internal/gen/client_test.go` | a `/v1` URL does NOT get an OpenAI request — pins the absence the earlier draft mistook for a branch | — |
+| `TestGenClientHintNamesTheKeyForAV1URL` | `internal/gen/client_test.go` | `/v1` changes the failure hint, which is the one thing `openAIShaped()` actually governs | — |
 | `TestQueryPolicyVerbatimIsTheQuestion` | `internal/longmemeval/querypolicy_test.go` | the baseline column adds nothing | — |
 | `TestEveryDeclaredQueryPolicyIsSelectable` | `internal/longmemeval/policy_test.go` | same universe-from-the-registry check as T2, for columns | — |
 | `TestJudgeNeverSeesThePolicyName` | `internal/longmemeval/judge_test.go` | the rendered judge prompt contains no registered policy name | — |
@@ -107,6 +132,10 @@ does not say which package saved the task.
 | 4 — it is used | `eval` and `kgextract` already use it; the third caller arrives in T4 |
 
 ## Mutation Log
+
+- 2026-09-01 · f1d3468* · mutant killed · exit 1 · `internal/longmemeval/judge.go` · temporal questions judged without the off-by-one tolerance upstream applies, making this metric stricter than the benchmark it is named after · acceptance-sha256:d5f7c39b0b9f1a7d0680258c36679e32fad2e2bf5cbad23107b76f6da015bf42
+- 2026-09-01 · f1d3468* · mutant killed · exit 1 · `internal/longmemeval/judge.go` · abstention items scored for content against a gold answer they do not have, putting a constant into every cell alike · acceptance-sha256:d5f7c39b0b9f1a7d0680258c36679e32fad2e2bf5cbad23107b76f6da015bf42
+- 2026-09-01 · f1d3468* · mutant killed · exit 1 · `internal/gen/client.go` · the transport starts speaking OpenAI, the exact behaviour change the record falsely claimed already existed · acceptance-sha256:d5f7c39b0b9f1a7d0680258c36679e32fad2e2bf5cbad23107b76f6da015bf42
 
 ## Invariants
 
@@ -134,3 +163,16 @@ move, and a move that needs behaviour changes to land is two tasks wearing one i
 - A judge with partial credit or a rubric (deferred: `docs/adr/BACKLOG.md` §"From ADR-047")
 
 ## Verification Log
+- 2026-09-01 · f1d3468* · exit 1 · `set -o pipefail …` · acceptance-sha256:d5f7c39b0b9f1a7d0680258c36679e32fad2e2bf5cbad23107b76f6da015bf42
+  ```
+  --- last 6 line(s) of stderr
+  # github.com/atvirokodosprendimai/agentsmemory/internal/gen
+  # [github.com/atvirokodosprendimai/agentsmemory/internal/gen]
+  vet: internal/gen/client_test.go:28:8: undefined: Client
+  # github.com/atvirokodosprendimai/agentsmemory/internal/longmemeval
+  # [github.com/atvirokodosprendimai/agentsmemory/internal/longmemeval]
+  vet: internal/longmemeval/judge_test.go:16:12: undefined: JudgePrompt
+  ```
+- 2026-09-01 · f1d3468* · exit 0 · `set -o pipefail …` · acceptance-sha256:d5f7c39b0b9f1a7d0680258c36679e32fad2e2bf5cbad23107b76f6da015bf42
+- 2026-09-01 · f1d3468* · exit 0 · `set -o pipefail …` · acceptance-sha256:d5f7c39b0b9f1a7d0680258c36679e32fad2e2bf5cbad23107b76f6da015bf42
+- 2026-09-01 · f1d3468* · exit 0 · `set -o pipefail …` · acceptance-sha256:d5f7c39b0b9f1a7d0680258c36679e32fad2e2bf5cbad23107b76f6da015bf42

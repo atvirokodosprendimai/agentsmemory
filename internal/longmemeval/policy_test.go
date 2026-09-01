@@ -100,3 +100,27 @@ func TestEveryPolicyPreservesSessionProvenance(t *testing.T) {
 		}
 	}
 }
+
+// TestEveryDeclaredQueryPolicyIsSelectable is this file's write-policy gate
+// applied to the grid's columns.
+//
+// ⚠It cannot notice a DELETED registration, for the reason T2's Reachability
+// rung 2 records: a universe derived from the registry loses the deleted member
+// along with the wiring, so the loop passes over what remains and reports
+// success. TestQueryPolicyVerbatimIsTheQuestion is the named anchor that does
+// catch it.
+func TestEveryDeclaredQueryPolicyIsSelectable(t *testing.T) {
+	policies := QueryPolicies()
+	if len(policies) == 0 {
+		t.Fatal("the query-policy registry is empty, so every assertion here is vacuous")
+	}
+	usage := QueryPolicyUsage()
+	for _, p := range policies {
+		if _, ok := QueryPolicyByName(p.Name); !ok {
+			t.Errorf("query policy %q is registered but does not resolve by name", p.Name)
+		}
+		if !strings.Contains(usage, p.Name) {
+			t.Errorf("query policy %q is missing from QueryPolicyUsage(): %s", p.Name, usage)
+		}
+	}
+}
