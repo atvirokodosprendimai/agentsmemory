@@ -1,0 +1,6 @@
+{
+  "check": "templ generate && go test ./...",
+  "scoped_check": "templ generate && go test {packages}",
+  "timeout_seconds": 300,
+  "tail_lines": 30
+}
