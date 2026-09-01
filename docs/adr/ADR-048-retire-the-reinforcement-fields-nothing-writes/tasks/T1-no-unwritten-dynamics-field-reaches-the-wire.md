@@ -4,7 +4,7 @@
 **Covers:** none — no spec stage
 **Estimated scope:** S (one source file, one new test, one deleted allowlist entry)
 **Owner:** unassigned
-**Produces:** `TestNoUnwrittenDynamicsFieldReachesTheWire` and the reduced `tunnelView` / `hallwayView` shapes
+**Produces:** `TestNoDynamicsFieldIsDeclaredOnTheWireInThisPackage` and the reduced `tunnelView` / `hallwayView` shapes
 **Consumes:** `palace.Dynamics`'s json tags, which are the gate's universe — an existing type, not produced by a sibling task
 **Data dependency:** none. Every check here is hermetic: the gate parses source text and the suite needs no corpus, no live server and no populated palace.
 
@@ -44,7 +44,7 @@ forbidden key set from `palace.Dynamics` itself rather than from a literal list.
 
 ```bash
 set -o pipefail
-go test ./internal/mcpserver/ -run 'TestNoUnwrittenDynamicsFieldReachesTheWire|TestUndescribedOnPurposeIsJustified|TestEveryOmitemptyWireKeyInThisPackageIsDescribed' -count=1 2>&1 | tee /tmp/adr045-t1.out && ! grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/adr045-t1.out && gofmt -l internal/mcpserver | (! grep -q .) && go vet ./... && go test ./... -count=1
+go test ./internal/mcpserver/ -run 'TestNoDynamicsFieldIsDeclaredOnTheWireInThisPackage|TestUndescribedOnPurposeIsJustified|TestEveryOmitemptyWireKeyInThisPackageIsDescribed' -count=1 2>&1 | tee /tmp/adr045-t1.out && ! grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/adr045-t1.out && gofmt -l internal/mcpserver | (! grep -q .) && go vet ./... && go test ./... -count=1
 ```
 
 The three named units run alone first, so no already-passing suite can carry the verdict, and the
@@ -57,15 +57,15 @@ run follows as regression, chained with `&&` so every stage must pass.
 
 | Test name | File | Verifies | Covers |
 |-----------|------|----------|--------|
-| `TestNoUnwrittenDynamicsFieldReachesTheWire` | `internal/mcpserver/dynamicswire_test.go` | No json tag in this package's non-test sources names a field of `palace.Dynamics` | none — no spec stage |
-| `TestNoUnwrittenDynamicsFieldReachesTheWire/a_returned_key_is_caught` | same | The falsifiability half: the detector reports a key when one IS present, driven over a fixture through the same function the gate uses | none — no spec stage |
+| `TestNoDynamicsFieldIsDeclaredOnTheWireInThisPackage` | `internal/mcpserver/dynamicswire_test.go` | No json tag in this package's non-test sources names a field of `palace.Dynamics` | none — no spec stage |
+| `TestNoDynamicsFieldIsDeclaredOnTheWireInThisPackage/a_returned_key_is_caught` | same | The falsifiability half: the detector reports a key when one IS present, driven over a fixture through the same function the gate uses | none — no spec stage |
 | `TestUndescribedOnPurposeIsJustified` | `internal/mcpserver/wirekeys_test.go` | Existing gate; must stay green after the exemption is deleted | none — no spec stage |
 
 ## Reachability
 
 | Rung | How this task shows it |
 |------|------------------------|
-| 1 — exists | `TestNoUnwrittenDynamicsFieldReachesTheWire` |
+| 1 — exists | `TestNoDynamicsFieldIsDeclaredOnTheWireInThisPackage` |
 | 2 — something selects it | It is an ordinary test in the package, run by `go test ./...`; it needs no registration and no build tag, so nothing can leave it compiled-out the way `internal/mcptest`'s contract axis can be |
 | 3 — the caller can discover it | `n/a: no declared interface` — this task REMOVES wire keys, so the discoverability question it raises is the inverse one, and `TestEveryOmitemptyWireKeyInThisPackageIsDescribed` is in the fence to prove the removal leaves no undescribed survivor |
 | 4 — it is used | The gate's universe is `palace.Dynamics`'s own tags, so it is exercised by every future field added to that struct, not only by today's four |
@@ -82,7 +82,7 @@ run follows as regression, chained with `&&` so every stage must pass.
 
 ## Risks
 
-- The gate could pass vacuously if its source glob returns nothing. Mitigated by failing on an empty read, the same guard `packageSources` uses at `wirekeys_test.go:208`.
+- The gate could pass vacuously if its source glob returns nothing. Mitigated by failing on an empty read, the same guard `packageSources` uses in `wirekeys_test.go`.
 - Parsing json tags by regex could miss a field spelled unusually. Mitigated by driving the falsifiability subtest through the same extraction function, so a detector that sees nothing fails the subtest rather than passing the gate.
 
 ## Stop Condition

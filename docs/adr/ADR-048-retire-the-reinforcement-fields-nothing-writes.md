@@ -6,7 +6,7 @@
 **Spec:** None — no spec stage
 **Cross-references:** ADR-016 (governs `internal/mcpserver/graph.go` and found the derived graph structurally empty), ADR-014 (a shipped default must be the measured one), ADR-010 (a memory ends because something ended it)
 **Governs:** internal/mcpserver/graph.go
-**Enforced-by:** `internal/mcpserver/dynamicswire_test.go::TestNoUnwrittenDynamicsFieldReachesTheWire`
+**Enforced-by:** `internal/mcpserver/dynamicswire_test.go::TestNoDynamicsFieldIsDeclaredOnTheWireInThisPackage`
 **Invalidates:** none — checked
 **Served-path change:** `am_create_tunnel`, `am_list_tunnels` and `am_list_hallways` stop returning `strength`, `stability`, `last_activated` and `access_count`, so an agent reading a result no longer sees four fields describing a reinforcement layer this server does not implement. Three tool responses change, and `am_find_tunnels` is **not** one of them: its handler returns raw rooms (`registerFindTunnels`, which answers `{"rooms": ...}` rather than a `tunnelView`) and it never carried these fields.
 
@@ -20,7 +20,7 @@ So the decision this record carries has been taken. What is missing is the remov
 
 ## Existing Primitives Audit
 
-- **`internal/mcpserver/wirekeys_test.go`** — already carries the judgement this record acts on. Its `undescribedOnPurpose` map excuses `last_activated` from needing a description, with a reason naming issue #38 and stating that describing it *"would promise reinforcement this store does not implement"*. Reused, not reshaped: removing the field makes that entry dead, and the sibling `TestUndescribedOnPurposeIsJustified` at `:183` refuses an entry excusing a field the package no longer emits. The existing gate therefore forces the exemption to be deleted in the same change.
+- **`internal/mcpserver/wirekeys_test.go`** — already carries the judgement this record acts on. Its `undescribedOnPurpose` map excuses `last_activated` from needing a description, with a reason naming issue #38 and stating that describing it *"would promise reinforcement this store does not implement"*. Reused, not reshaped: removing the field makes that entry dead, and the sibling `TestUndescribedOnPurposeIsJustified` refuses an entry excusing a field the package no longer emits. The existing gate therefore forces the exemption to be deleted in the same change.
 - **The wire-view indirection** — `tunnelView` and `hallwayView` exist precisely so the JSON shape can differ from the domain type. Reused as-is: this record changes the views and leaves `palace.Dynamics` alone.
 - **`internal/wingbundle`** — declares its own record types with their own tags and never carries these four fields, so the export format needs no change. Checked by reading `wingbundle.go`, not assumed.
 
@@ -80,8 +80,8 @@ One task; see `ADR-048-retire-the-reinforcement-fields-nothing-writes/tasks/READ
 |------|------------|--------|------------|
 | An unknown client parses these keys as required | Low | Med | The values are constants, so a client reading them learns nothing, and the Served-path change line above names the three responses that change. ⚠ A release note is **owed, not written**: `CHANGELOG.md` is authored at release time in its own `docs(changelog):` commit, never in the PR that does the work, so this record cannot ship one — the obligation is carried as a Follow-up rather than claimed here |
 | The gate hardcodes the four names and rots when a fifth is added | Low | Med | It derives its universe from `palace.Dynamics`'s own json tags rather than a literal list, so a new dynamics field joins the check on the same commit |
-| The gate passes vacuously because it read no sources | Low | High | It fails when the package glob returns nothing, the same guard `packageSources` already uses at `wirekeys_test.go:208` |
-| Removing the field leaves a dead exemption nobody notices | Low | Low | It cannot: `TestUndescribedOnPurposeIsJustified` at `wirekeys_test.go:183` fails on an entry excusing a field the package no longer emits |
+| The gate passes vacuously because it read no sources | Low | High | It fails when the package glob returns nothing, the same guard `packageSources` already uses in `wirekeys_test.go` |
+| Removing the field leaves a dead exemption nobody notices | Low | Low | It cannot: `TestUndescribedOnPurposeIsJustified` in `wirekeys_test.go` fails on an entry excusing a field the package no longer emits |
 
 ## Rollback
 
