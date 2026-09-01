@@ -120,6 +120,10 @@ reporting success.
 - `agentsmemory-session-end-hook.sh` → the `SessionEnd` hook: what recall actually
   did across the whole session. It is the only one of the hooks that can report
   that, because at `Stop` the session has barely begun.
+  ⚠ **Not registered on Windows**, and retired there on upgrade: process creation
+  costs ~1s per spawn, the hook needs ~3.2s, and it loses the teardown race, so
+  every exit reported `Hook cancelled` (#150). Ask the server instead —
+  `curl -fsS "${AGENTSMEMORY_MCP_URL%/mcp}/stats?hours=2"`.
 - `agentsmemory-recall-hook.sh` → a second `SessionStart` hook: it PERFORMS a
   recall for the current branch and injects the result, so a fresh context does
   not start blind. It is the one mechanism here that asks nothing of the agent —

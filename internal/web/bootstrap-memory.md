@@ -433,7 +433,8 @@ ask memory first, grep only the gap.
   only completion path. (Until 2026-08-29 nothing marked it at all, and this page said so.)
 - **⚠ A KG entity string is a KEY**, normalised only by lowercase + spaces→underscores, no fuzzy
   match. An invented name silently creates a new node. Keys are listed in `llm_index`.
-- **⚠ `am_kg_add` IS IDEMPOTENT**, so replacing a fact means `am_kg_invalidate` FIRST, then add.
+- **⚠ `am_kg_add` IS IDEMPOTENT FOR A CURRENT FACT** (a fact filed with `valid_to` is not deduped),
+  so replacing a fact means `am_kg_invalidate` FIRST, then add.
   Invalidate means "STOPPED being true", not "was recorded wrong"; there is no update.
 - **⚠ `am_mine` defaults to room `general`, which the graph tools EXCLUDE.** Pass a room.
 - **⚠ You can never rename or delete a room.** Name one as if the name is permanent.
@@ -529,7 +530,10 @@ Nothing else in the system solves this.
 - **⚠ Facts are WORKSPACE-wide, not wing-scoped.** A fact filed from one project is returned to
   every project in the workspace. File here only what is true of the workspace; anything
   project-specific goes in a drawer.
-- **⚠ `am_kg_add` is idempotent.** Re-adding an identical current fact is a no-op. To *replace*
+- **⚠ `am_kg_add` is idempotent FOR A CURRENT FACT.** Re-adding an identical current fact is a
+  no-op. A fact filed WITH `valid_to` — a closed window — is not deduped and its id is derived
+  from the time of writing, so a repeat either collides on the id or files a second row saying
+  the same thing. Read the timeline back before repeating a closed one. To *replace*
   a fact, use **`am_kg_supersede`**: it ends the old value and starts the new one at the SAME
   instant, so no query sees both values or neither. Hand-rolling it as invalidate-then-add
   leaves both live in between, ends the old one at day precision, and leaves the graph with no
