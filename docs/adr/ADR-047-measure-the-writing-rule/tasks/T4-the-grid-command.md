@@ -32,22 +32,40 @@ one this repository has shipped broken before (`AGENTS.md` §Reachability).
 ## Ordered Steps
 
 1. Write the failing tests first (TDD red), `TestLongmemevalIsRegistered` among them.
-2. `RunGrid(ctx, svc, ds Subset, writes, queries []string, opts)` — for each cell: create the
-   scratch wing, ingest through `Service.Add`, search under the query policy, assemble up to
-   `opts.ContextTokens`, read, judge, tally.
-3. **Refuse to run when the wing is not empty**, and refuse when `ContextTokens` is zero. A run
-   into a populated wing measures somebody else's memories.
+2. `RunGrid(ctx, svc, ds Subset, writes, queries []string, opts)` — for each cell, and within a
+   cell for each question: create the scratch store, ingest through `Service.Add`, search under
+   the query policy, assemble up to `opts.ContextRunes`, read, judge, tally.
+3. **The isolation boundary is per (cell, question), not per cell**, and this is the step to get
+   right. Each question in LongMemEval-S carries its own ~48-session haystack; upstream evaluates
+   each instance against its own haystack alone. A wing created once per cell and written to for
+   every question leaves question 2 searching question 1's history, and the contamination grows
+   monotonically through the cell — so the last questions of a cell are measured under a
+   different instrument than the first, and the cell mean is not a mean of anything. Use a fresh
+   wing per `(cell, question)`, or a query scope that provably cannot see another question's
+   records. **Refuse to run when the scope is not empty**, and refuse when `ContextRunes` is
+   zero. Prove it with a two-question test whose haystacks carry conflicting answers, asserting
+   the second question's results cannot retrieve the first's history. (Found in review of PR
+   #148.)
 4. Assemble the reader context by taking returned memories in rank order until the budget is
    spent, and record how much of the budget each cell actually used — a policy that cannot fill
-   the window is a finding, not a footnote.
+   the window is a finding, not a footnote. The budget is counted in **runes**, per ADR-047's
+   property 1; alongside it, record the reader endpoint's own reported prompt-token count for
+   each cell wherever the endpoint supplies one, so the realised token spread across a row is
+   measured rather than assumed.
 5. Score with `palace.WilsonInterval` for the cell and `palace.PairedDelta` against the baseline
    cell on the same question ids. Compute the retrieval-only secondary column from
-   `answer_session_ids` at the same time; it is nearly free and the ADR wants the disagreement.
+   `answer_session_ids`, mapping each returned drawer back through the `Record.SessionID` T2
+   carries; it is nearly free and the ADR wants the disagreement. **Exclude `_abs` questions from
+   that column** — they have no answer location, which is why the upstream retrieval evaluator
+   excludes them too, and scoring them would put a fixed zero into every cell alike and damp
+   every contrast. They stay in the judged column, where unanswerability is the thing being
+   scored.
 6. Write `<out>.cells.json` with a header carrying: dataset path and SHA-256, subset ids and seed,
-   reader/judge model id and endpoint kind, context budget, ranking profile string, and the commit.
-   `LoadCells` refuses to merge two files whose headers differ in any of those.
+   reader/judge model id and endpoint kind, context budget in runes and the realised token
+   tolerance, ranking profile string, and the commit. `LoadCells` refuses to merge two files
+   whose headers differ in any of those.
 7. Add the subcommand with `--data`, `--wing`, `--write`, `--query`, `--n`, `--seed`,
-   `--context-tokens`, `--out`. Build `--write` / `--query` usage text from the registries so
+   `--context-runes`, `--out`. Build `--write` / `--query` usage text from the registries so
    `--help` cannot list a policy that does not exist or omit one that does.
 8. Register it in `main.go`.
 
@@ -57,9 +75,11 @@ one this repository has shipped broken before (`AGENTS.md` §Reachability).
 set -o pipefail
   if [ -n "$(gofmt -l internal/longmemeval cmd/server)" ]; then echo "gofmt"; exit 1; fi
   go vet ./... || exit 1
-  go test ./internal/longmemeval/ ./cmd/server/ -run "TestRunGridHoldsTheContextBudgetAcrossCells|TestRunGridRefusesANonEmptyWing|TestCellsRefuseToMergeAcrossDifferentHeaders|TestCellsCarryTheRankingProfileAndModel|TestLongmemevalIsRegistered|TestLongmemevalHelpListsEveryRegisteredPolicy" -count=1 -v 2>&1 | tee /tmp/a47t4.out
+  go test ./internal/longmemeval/ ./cmd/server/ -run "TestRunGridHoldsTheContextBudgetAcrossCells|TestRunGridRefusesANonEmptyWing|TestRunGridIsolatesEveryQuestion|TestRetrievalColumnExcludesAbstentionQuestions|TestCellsRefuseToMergeAcrossDifferentHeaders|TestCellsCarryTheRankingProfileAndModel|TestLongmemevalIsRegistered|TestLongmemevalHelpListsEveryRegisteredPolicy" -count=1 -v 2>&1 | tee /tmp/a47t4.out
   grep -q -- "--- PASS: TestRunGridHoldsTheContextBudgetAcrossCells" /tmp/a47t4.out || exit 1
   grep -q -- "--- PASS: TestRunGridRefusesANonEmptyWing" /tmp/a47t4.out || exit 1
+  grep -q -- "--- PASS: TestRunGridIsolatesEveryQuestion" /tmp/a47t4.out || exit 1
+  grep -q -- "--- PASS: TestRetrievalColumnExcludesAbstentionQuestions" /tmp/a47t4.out || exit 1
   grep -q -- "--- PASS: TestCellsRefuseToMergeAcrossDifferentHeaders" /tmp/a47t4.out || exit 1
   grep -q -- "--- PASS: TestCellsCarryTheRankingProfileAndModel" /tmp/a47t4.out || exit 1
   grep -q -- "--- PASS: TestLongmemevalIsRegistered" /tmp/a47t4.out || exit 1
@@ -75,6 +95,8 @@ go test ./... -count=1
 | `TestRunGridHoldsTheContextBudgetAcrossCells` | `internal/longmemeval/grid_test.go` | every cell's assembled context is bounded by the same budget — the ADR's central invariant | — |
 | `TestRunGridRefusesANonEmptyWing` | `internal/longmemeval/grid_test.go` | a run cannot measure pre-existing memories | — |
 | `TestRunGridRefusesAZeroBudget` | `internal/longmemeval/grid_test.go` | an unbounded run is not silently allowed | — |
+| `TestRunGridIsolatesEveryQuestion` | `internal/longmemeval/grid_test.go` | two questions with conflicting answers in one cell: the second cannot retrieve the first's history — without this the cell mean is taken over a contaminated store | — |
+| `TestRetrievalColumnExcludesAbstentionQuestions` | `internal/longmemeval/cells_test.go` | `_abs` items are out of the retrieval column, as upstream excludes them; scoring them would damp every contrast equally | — |
 | `TestCellsRefuseToMergeAcrossDifferentHeaders` | `internal/longmemeval/cells_test.go` | cells from different models/budgets are never pooled | — |
 | `TestCellsCarryTheRankingProfileAndModel` | `internal/longmemeval/cells_test.go` | ADR-007: no number without its population | — |
 | `TestCellsReportTheRetrievalOnlyColumnBeside` | `internal/longmemeval/cells_test.go` | the secondary metric is present so the two can disagree in public | — |

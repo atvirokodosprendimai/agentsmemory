@@ -94,6 +94,30 @@ func TestDatasetRejectsAQuestionWhoseGoldSessionIsNotInItsHaystack(t *testing.T)
 	}
 }
 
+func TestDatasetRejectsAnUnknownQuestionType(t *testing.T) {
+	raw := readSample(t)
+	// One letter out from TypeSingleSessionUser: the shape a real typo takes, and
+	// the shape an upstream schema addition takes from this loader's point of view.
+	raw[0]["question_type"] = "single-session-usr"
+
+	_, err := Load(writeTemp(t, raw))
+	if err == nil {
+		t.Fatal("an unrecognised question type must fail loudly: Subset stratifies by type, so a " +
+			"seventh stratum holding one question enters every small run as a peer of the six")
+	}
+	if !strings.Contains(err.Error(), "single-session-usr") {
+		t.Errorf("the error must name the unrecognised type, got: %v", err)
+	}
+	// The fixture is mutated in exactly one field — the arrays stay aligned and the
+	// gold session stays present — so the closed-set check is the only rule that can
+	// reject it. Without that property this test would still pass with the check
+	// deleted, which is the failure `negative-test-fixtures` records: a fixture
+	// satisfying several refusal conditions proves nothing about the one under test.
+	if !strings.Contains(err.Error(), "q_user_1") {
+		t.Errorf("the error must name the offending question, got: %v", err)
+	}
+}
+
 func TestDatasetRecordsItsFileDigest(t *testing.T) {
 	ds, err := Load(samplePath)
 	if err != nil {

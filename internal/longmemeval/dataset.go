@@ -22,6 +22,25 @@ const (
 	TypeMultiSession            = "multi-session"
 )
 
+// questionTypes is the closed set the constants above name, and it is what Load
+// actually enforces.
+//
+// The constants alone did not enforce it. Until 2026-09-01 `question` copied
+// `question_type` through unchecked, so the comment above promised a guard that
+// no code performed — found in review of PR #148. An upstream schema addition,
+// or one letter wrong in a hand-edited file, would have minted a seventh
+// stratum holding a single question, and `Subset` round-robins strata, so that
+// stratum would enter every small run as a full peer of the six real ones. The
+// sample design would have changed with nothing to show it.
+var questionTypes = map[string]bool{
+	TypeSingleSessionUser:       true,
+	TypeSingleSessionAssistant:  true,
+	TypeSingleSessionPreference: true,
+	TypeTemporalReasoning:       true,
+	TypeKnowledgeUpdate:         true,
+	TypeMultiSession:            true,
+}
+
 // Turn is one message in a session.
 //
 // HasAnswer is LongMemEval's own turn-level evidence label, and it is the whole
@@ -88,14 +107,16 @@ type wireQuestion struct {
 // Load reads a LongMemEval-S file, joins each question's three parallel haystack
 // arrays into dated sessions, and refuses anything it cannot join honestly.
 //
-// It fails rather than repairs, for two failures that are invisible downstream.
-// A question whose ids, dates and sessions disagree in length would zip short
-// and hand a session its neighbour's date — every temporal-reasoning question
-// then has a wrong premise and no test anywhere would show it. And a gold
+// It fails rather than repairs, for three failures that are invisible
+// downstream. A question whose ids, dates and sessions disagree in length would
+// zip short and hand a session its neighbour's date — every temporal-reasoning
+// question then has a wrong premise and no test anywhere would show it. A gold
 // session that is not in the haystack cannot be retrieved by any policy, so it
 // scores zero across the whole grid: a broken row that reads as the honest
-// finding "no policy helps here". Both errors name the question so the first
-// real file says exactly what disagreed.
+// finding "no policy helps here". And a question type outside the six is a
+// seventh stratum the subset selector treats as a peer, which changes the
+// sample design rather than the sample. Every error names the question so the
+// first real file says exactly what disagreed.
 func Load(path string) (Dataset, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -122,9 +143,17 @@ func Load(path string) (Dataset, error) {
 	return ds, nil
 }
 
-// question joins the wire form's parallel arrays and validates the two
+// question joins the wire form's parallel arrays and validates the three
 // invariants Load's comment records.
 func (w wireQuestion) question() (Question, error) {
+	if !questionTypes[w.Type] {
+		return Question{}, fmt.Errorf(
+			"question %q: unknown question type %q — Subset stratifies by type, so an "+
+				"unrecognised one becomes a seventh stratum that a small run admits as a "+
+				"peer of the six",
+			w.ID, w.Type)
+	}
+
 	if len(w.HaystackIDs) != len(w.HaystackSessions) || len(w.HaystackDates) != len(w.HaystackSessions) {
 		return Question{}, fmt.Errorf(
 			"question %q: haystack arrays disagree — %d session ids, %d dates, %d sessions; "+

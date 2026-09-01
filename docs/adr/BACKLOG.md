@@ -3244,3 +3244,12 @@ never received anything passes every check there is.
 - **Nothing measures whether a promoted rule is actually followed.** ADR-047 T5 can put an
   instruction into a centralised skill and has no way to observe compliance. Related to
   §"The product is a runtime quality control plane, not an eval score" — the same gap, one level up.
+- **A tokenizer tied to the reader model, so the shared context budget is counted in tokens.**
+  ADR-047's central invariant is one budget every cell shares, and the pilot enforces it in
+  **runes**, because `go.mod` declares no tokenizer and `internal/palace/chunk.go:52-54` already
+  records that the palace cannot ask one. Raised in review of PR #148, and the finding is right
+  that a rune bound is an approximation: policies that rewrite and split text differently can
+  carry different token counts at the same rune count. What the pilot does instead is record the
+  reader endpoint's own reported prompt-token count per cell, so the realised spread is measured
+  rather than assumed. Revisit when a run's realised spread actually exceeds its declared
+  tolerance — a tokenizer dependency bought before that would be bought on a hypothesis.

@@ -136,9 +136,9 @@ impossible to fail.
   ```
   --- last 6 line(s) of stderr
   docker: Cannot connect to the Docker daemon at unix://~/.docker/run/docker.sock. Is the docker daemon running?
-  
+
   Run 'docker run --help' for more information
-  
+
   [adr-verify] ENVIRONMENT: the Docker daemon was unreachable. Start Docker Desktop, or the engine, and re-run.
                This is a machine problem, not a verdict about the code. The run still counts as failed.
   ```
@@ -146,9 +146,9 @@ impossible to fail.
   ```
   --- last 6 line(s) of stderr
   docker: Cannot connect to the Docker daemon at unix://~/.docker/run/docker.sock. Is the docker daemon running?
-  
+
   Run 'docker run --help' for more information
-  
+
   [adr-verify] ENVIRONMENT: the Docker daemon was unreachable. Start Docker Desktop, or the engine, and re-run.
                This is a machine problem, not a verdict about the code. The run still counts as failed.
   ```

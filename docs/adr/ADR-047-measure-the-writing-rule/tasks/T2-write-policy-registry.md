@@ -29,7 +29,19 @@ registration removes the row from both.
 
 1. Write the failing tests first (TDD red), including `TestEveryDeclaredPolicyIsSelectable`.
 2. Define `WritePolicy{Name, Describe string, Write func(Question) []Record}` where `Record` is
-   `{Room, Content string}` — deliberately not a palace type, so a policy cannot reach the store.
+   `{Room, Content string, SessionID string, AnsweringTurns []int}` — deliberately not a palace
+   type, so a policy cannot reach the store. `SessionID` names the haystack session the record's
+   text came from and `AnsweringTurns` the indices of that session's `has_answer` turns it
+   carries. Both are **provenance, not content**: neither is written into the drawer and neither
+   reaches the reader, so no policy can spend budget on them or leak the answer's location into
+   the prompt. T4 keeps the returned drawer id against the `Record` that produced it, which is
+   what lets the retrieval-only column be scored against `answer_session_ids` at all. Without
+   this, once a transformed record is in the store nothing recovers which session produced it —
+   ordinal position cannot, because `one-fact` and `bounded` change the record count and
+   duplicate content is legal. A policy that cannot name its source session is a policy whose
+   retrieval column is unscoreable, so this is a contract rather than a convenience. (Found in
+   review of PR #148: T2 defined the record and T4 required the column, and neither task could
+   see that the first made the second impossible.)
 3. Register `verbatim` — one record per haystack session, turns joined unedited. **This is the
    baseline the ADR names**, and it is registered first so a reader of the file meets it first.
 4. Register `question-first` — each session rewritten so its first line is the question it answers,
@@ -42,6 +54,12 @@ registration removes the row from both.
    one in here would make the row a measurement of that model.
 8. Write `TestEveryDeclaredPolicyIsSelectable` so it iterates `WritePolicies()` and asserts each
    name resolves through `WritePolicyByName` and appears in the flag's usage string.
+9. Write `TestEveryPolicyPreservesSessionProvenance` so it iterates `WritePolicies()`, runs each
+   over a fixture question, and asserts every returned `Record` names a `SessionID` that is in
+   that question's haystack, and that the union of `AnsweringTurns` across a policy's records
+   covers every `has_answer` turn the question has. It derives its universe from the registry for
+   the same reason `TestEveryDeclaredPolicyIsSelectable` does: a policy added tomorrow joins the
+   check on the same commit, rather than being the one whose retrieval column is silently blank.
 
 ## Acceptance
 
@@ -49,12 +67,13 @@ registration removes the row from both.
 set -o pipefail
   if [ -n "$(gofmt -l internal/longmemeval)" ]; then echo "gofmt"; exit 1; fi
   go vet ./... || exit 1
-  go test ./internal/longmemeval/ -run "TestVerbatimPolicyIsOneRecordPerSession|TestQuestionFirstPolicyOpensWithTheQuestion|TestOneFactPolicyKeepsEveryAnsweringTurn|TestBoundedPolicySplitsAtTheThreshold|TestEveryDeclaredPolicyIsSelectable" -count=1 -v 2>&1 | tee /tmp/a47t2.out
+  go test ./internal/longmemeval/ -run "TestVerbatimPolicyIsOneRecordPerSession|TestQuestionFirstPolicyOpensWithTheQuestion|TestOneFactPolicyKeepsEveryAnsweringTurn|TestBoundedPolicySplitsAtTheThreshold|TestEveryDeclaredPolicyIsSelectable|TestEveryPolicyPreservesSessionProvenance" -count=1 -v 2>&1 | tee /tmp/a47t2.out
   grep -q -- "--- PASS: TestVerbatimPolicyIsOneRecordPerSession" /tmp/a47t2.out || exit 1
   grep -q -- "--- PASS: TestQuestionFirstPolicyOpensWithTheQuestion" /tmp/a47t2.out || exit 1
   grep -q -- "--- PASS: TestOneFactPolicyKeepsEveryAnsweringTurn" /tmp/a47t2.out || exit 1
   grep -q -- "--- PASS: TestBoundedPolicySplitsAtTheThreshold" /tmp/a47t2.out || exit 1
   grep -q -- "--- PASS: TestEveryDeclaredPolicyIsSelectable" /tmp/a47t2.out || exit 1
+  grep -q -- "--- PASS: TestEveryPolicyPreservesSessionProvenance" /tmp/a47t2.out || exit 1
   if grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/a47t2.out; then echo "vacuous or failing"; exit 1; fi
 go test ./... -count=1
 ```
@@ -69,6 +88,7 @@ go test ./... -count=1
 | `TestBoundedPolicySplitsAtTheThreshold` | `internal/longmemeval/writepolicy_test.go` | splitting happens at the documented rune count, counted in runes not bytes | — |
 | `TestEveryDeclaredPolicyIsSelectable` | `internal/longmemeval/policy_test.go` | every registered policy is reachable by name and named in the usage text | — |
 | `TestEveryPolicyIsDeterministic` | `internal/longmemeval/writepolicy_test.go` | two calls on one question give identical records | — |
+| `TestEveryPolicyPreservesSessionProvenance` | `internal/longmemeval/policy_test.go` | every registered policy names the haystack session each record came from, and covers every `has_answer` turn — without which T4's retrieval column cannot be scored | — |
 
 ## Reachability
 

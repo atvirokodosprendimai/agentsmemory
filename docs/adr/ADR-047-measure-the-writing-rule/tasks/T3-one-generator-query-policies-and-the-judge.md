@@ -43,10 +43,18 @@ commit as the extraction, and both must build together or neither does.
    several searches whose results are merged, capped so it cannot buy its win with more retrieval).
 5. Write the reader prompt: question, then the assembled memories, and an instruction to answer
    from them alone. It is one string, held constant across the grid.
-6. Write the judge: it receives question, gold answer, candidate answer, and returns
-   `correct` / `incorrect`. It receives no policy names, no cell label, no ordering hint —
-   `TestJudgeNeverSeesThePolicyName` asserts the rendered prompt contains none of the registered
-   policy names.
+6. Write the judge: it receives question, `question_type`, the abstention flag, gold answer and
+   candidate answer, and returns `correct` / `incorrect`. It receives no policy names, no cell
+   label, no ordering hint — `TestJudgeNeverSeesThePolicyName` asserts the rendered prompt
+   contains none of the registered policy names.
+7. Branch the judge prompt on `question_type`, because the upstream evaluator does and a generic
+   consistency prompt is therefore not the benchmark's metric: preference items are scored
+   against a rubric rather than for equality, temporal items tolerate a stated off-by-one,
+   knowledge-update items accept the superseded value when the update is present too, and `_abs`
+   items are scored for unanswerability against their own prompt. Pin each branch with a test.
+   Where a branch deliberately departs from upstream, say so in the results header and name the
+   metric as ours — reporting a house metric under the benchmark's name is the failure this step
+   exists to prevent. (Found in review of PR #148.)
 7. Make the judge's parse strict: an unparseable verdict is an error that aborts the cell, never a
    silent `incorrect`. A judge failure scored as a wrong answer is a model outage recorded as a
    policy losing.
@@ -57,13 +65,15 @@ commit as the extraction, and both must build together or neither does.
 set -o pipefail
   if [ -n "$(gofmt -l internal/gen internal/longmemeval cmd/server)" ]; then echo "gofmt"; exit 1; fi
   go vet ./... || exit 1
-  go test ./internal/gen/ ./internal/longmemeval/ -run "TestGenClientCallsOllamaGenerate|TestGenClientCallsAnOpenAICompatibleEndpointForAV1URL|TestQueryPolicyVerbatimIsTheQuestion|TestJudgeNeverSeesThePolicyName|TestJudgeIsBinary|TestJudgeRefusesAnUnparseableVerdict" -count=1 -v 2>&1 | tee /tmp/a47t3.out
+  go test ./internal/gen/ ./internal/longmemeval/ -run "TestGenClientCallsOllamaGenerate|TestGenClientCallsAnOpenAICompatibleEndpointForAV1URL|TestQueryPolicyVerbatimIsTheQuestion|TestJudgeNeverSeesThePolicyName|TestJudgeIsBinary|TestJudgeRefusesAnUnparseableVerdict|TestJudgePromptBranchesOnQuestionType|TestJudgeScoresAnAbstentionQuestionForUnanswerability" -count=1 -v 2>&1 | tee /tmp/a47t3.out
   grep -q -- "--- PASS: TestGenClientCallsOllamaGenerate" /tmp/a47t3.out || exit 1
   grep -q -- "--- PASS: TestGenClientCallsAnOpenAICompatibleEndpointForAV1URL" /tmp/a47t3.out || exit 1
   grep -q -- "--- PASS: TestQueryPolicyVerbatimIsTheQuestion" /tmp/a47t3.out || exit 1
   grep -q -- "--- PASS: TestJudgeNeverSeesThePolicyName" /tmp/a47t3.out || exit 1
   grep -q -- "--- PASS: TestJudgeIsBinary" /tmp/a47t3.out || exit 1
   grep -q -- "--- PASS: TestJudgeRefusesAnUnparseableVerdict" /tmp/a47t3.out || exit 1
+  grep -q -- "--- PASS: TestJudgePromptBranchesOnQuestionType" /tmp/a47t3.out || exit 1
+  grep -q -- "--- PASS: TestJudgeScoresAnAbstentionQuestionForUnanswerability" /tmp/a47t3.out || exit 1
   if grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/a47t3.out; then echo "vacuous or failing"; exit 1; fi
   go test ./cmd/server/ -count=1 || exit 1
 go test ./... -count=1
@@ -84,6 +94,8 @@ does not say which package saved the task.
 | `TestJudgeNeverSeesThePolicyName` | `internal/longmemeval/judge_test.go` | the rendered judge prompt contains no registered policy name | — |
 | `TestJudgeIsBinary` | `internal/longmemeval/judge_test.go` | correct/incorrect, no partial credit to argue about later | — |
 | `TestJudgeRefusesAnUnparseableVerdict` | `internal/longmemeval/judge_test.go` | a model outage is an error, not a lost point | — |
+| `TestJudgePromptBranchesOnQuestionType` | `internal/longmemeval/judge_test.go` | the rendered prompt differs per `question_type`, so the score is the benchmark's metric rather than a generic consistency check | — |
+| `TestJudgeScoresAnAbstentionQuestionForUnanswerability` | `internal/longmemeval/judge_test.go` | an `_abs` item is judged for refusing to answer, not for matching a gold string it has none of | — |
 
 ## Reachability
 
