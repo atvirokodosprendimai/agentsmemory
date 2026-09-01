@@ -138,10 +138,12 @@ Write back what this session produced so the next one recalls it:
   content OPENS with the words `WHAT MUST I LOAD AT THE START OF A SESSION?` —
   the server mints the wing's by-name root from that write, so the address
   resolves for every session afterwards.
-  ⚠ **Keep it under 1600 runes**: the entry tier is served one chunk at a time, so
-  a longer record arrives cut with nothing marking it partial. And put in it only
-  what a session cannot notice it needed until after it has broken something —
-  that judgement is the whole of the tier and no tool can make it for you.
+  ⚠ **An entry record is served WHOLE at every wake-up**, on the one call no session skips,
+  so its length is paid by every session rather than only by a search that matches. Nothing
+  refuses a long one — keep it a spine that POINTS at ordinary memories because that is
+  cheaper for every reader. And put in it only what a session cannot notice it needed until
+  after it has broken something — that judgement is the whole of the tier and no tool can
+  make it for you.
 
 A verified change that isn't written back is memory lost. Skip only when the
 session produced nothing worth recalling — and say so.
