@@ -3119,3 +3119,33 @@ gate earns its place the day an offender exists.
 
 **The general rule:** a guard that has never fired is not evidence that it works. Before trusting
 one, make its condition true and watch the exit code.
+
+## From ADR-045 (move a memory, not a row)
+
+- **The vectors a superseded memory leaves behind, and whether a job queue should reap them.**
+  `supersedeInto` ends the predecessor's rows in SQLite and upserts the successor's vectors beside
+  them; it deletes no points. The validity filter runs POST-retrieval in Go
+  (`internal/palace/memory_search.go:87`, counted as `drops.Superseded`), and the design note above
+  it says the consequence out loud: an ended drawer keeps its vector, so the index still returns it
+  and a page can come back shorter than `limit` with nothing saying why. Measured 2026-09-01 against
+  the hosted palace: `am_status` reported `drawers.indexed` 8972 against `total_drawers` 8935. The
+  widen loop (`k *= 2`, ceiling `8 × candidateK`, `memory_search.go:20`) refills most short pages;
+  past that ceiling recall degrades with only an `am.dropped_superseded` trace attribute to show it.
+  Three options, none free: **delete the points** — cheapest, but `include_history` searches the
+  same index, so history becomes address-reachable and no longer searchable, and `IndexDrift` starts
+  counting every ended row as `IndexMissing` until it learns that an ended row is expected to have
+  no point; **stamp `valid_to` into the payload** and filter server-side, which keeps history
+  searchable and costs one more payload key; **a separate history namespace**, which keeps both at
+  the cost of a second index to maintain. Note for whoever takes it: `Hybrid.Delete`
+  (`internal/store/hybrid.go:449`) deletes source-of-truth FIRST and index second on purpose,
+  because `Rebuild` reconstructs the index from the source of truth — deleting the index first and
+  crashing lets the next `Rebuild` resurrect the point. On the queue question specifically: the
+  desired index state is derivable from SQLite (`valid_to`, and `content_key` if it is stamped into
+  the payload), so a reconciler in the every-boot prepare slot beside `BackfillContentKeys` and
+  `BackfillWingRoots` repairs drift from causes it never witnessed — including every correction that
+  predates the mechanism — while a queue repairs only what it recorded. A queue is a latency
+  optimisation ON a reconciler, never a replacement for one; it earns its place when the O(corpus)
+  scan becomes the binding constraint, which at ~9k drawers it is not.
+  **Trigger: the first time a recall is measurably short because superseded points crowded the
+  prefix, or when the corpus is large enough that the drift scan itself costs.**
+  Deferred from `docs/adr/ADR-045-move-a-memory-not-a-row.md` §Out of Scope.

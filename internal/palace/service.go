@@ -1279,43 +1279,29 @@ func (s *Service) Update(ctx context.Context, teamID, id string, patch DrawerPat
 		return UpdateResult{Drawer: d, Supersedes: res.Supersedes, Reason: res.Reason, EndedAt: res.EndedAt}, nil
 	}
 
-	// A memory over ChunkSize is several rows sharing a parent, and this function
-	// updates ONE row. Rewriting the content of one chunk leaves the others live,
-	// individually embedded, and still returning the retracted claim — observed
-	// in production, with the stale chunks ranking ABOVE the correction, and the
-	// call reporting success throughout. Refuse instead of half-doing it.
+	// A memory over ChunkSize is several rows sharing a parent, and a MOVE has to
+	// take all of them or none. This used to refuse instead (ADR-045 removed the
+	// refusal), because the function could only patch the one row it was given and
+	// moving that row split the memory across two scopes: no single search returned
+	// all of it, and the fragment did not say it was one.
 	//
-	// Refusing rather than re-chunking is deliberate for now: re-chunking changes
-	// how many rows exist and which ids they carry, which silently invalidates
-	// every anchor, tunnel and knowledge-graph fact pointing at the old ones.
-	// That is a bigger change than a bug fix and it is recorded in the backlog.
-	// Every patchable field is one the chunks of a memory must agree on, so the
-	// guard covers all of them rather than content alone.
+	// Refusing was never protecting an invariant — it was the honest answer of a
+	// function doing 1/N of the job, and it was the last row-scoped write path in
+	// this package. Delete, Supersede and InvalidateDrawer all resolve MemoryChunks
+	// in order to ACT on every chunk; this one resolved them in order to decline.
 	//
-	// Content was the reported case: rewriting one chunk left the others live with
-	// the old text, ranking above the correction. Wing and room split the memory
-	// instead — one chunk moves and the rest stay — and this release makes that
-	// worse than it was, because recall now defaults to the registration's wing:
-	// after a split neither wing returns the whole memory, and nothing tells the
-	// reader that what they got is a fragment.
+	// What made it safe to remove is that a move changes no CONTENT. Chunk
+	// boundaries and chunk_index are therefore unchanged, no row is minted or
+	// destroyed, and every knowledge-graph fact, anchor and pinned tunnel keeps
+	// pointing at a live id — which is why ADR-045 needs no answer to ADR-027's
+	// open question about a reference into a chunk a re-chunk would delete.
+	// Re-chunking on a CONTENT update remains unsolved and remains in the backlog.
 	chunks, err := s.repo.MemoryChunks(ctx, teamID, id)
 	if err != nil {
 		return UpdateResult{}, fmt.Errorf("look up the memory this drawer belongs to: %w", err)
 	}
-	if len(chunks) > 1 {
-		return UpdateResult{}, fmt.Errorf(
-			"%w: drawer %s is chunk %d of a %d-chunk memory, and changing its wing or room would "+
-				"move this chunk away from the rest, so no single scope returns all of it and a "+
-				"scoped search answers with a fragment that does not say it is one. Moving a whole "+
-				"multi-chunk memory is not expressible yet",
-			ErrInvalidInput, short12(id), current.ChunkIndex, len(chunks))
-	}
 
-	// Compute the post-patch state and refresh the derived index first.
-	finalContent, finalWing, finalRoom := current.Content, current.Wing, current.Room
-	if patch.Content != nil {
-		finalContent = *patch.Content
-	}
+	finalWing, finalRoom := current.Wing, current.Room
 	if patch.Wing != nil {
 		finalWing = *patch.Wing
 	}
@@ -1323,32 +1309,44 @@ func (s *Service) Update(ctx context.Context, teamID, id string, patch DrawerPat
 		finalRoom = *patch.Room
 	}
 
-	// There is no length guard here, and its absence is deliberate. One used to
-	// stand at this line: Update re-embedded a whole memory with EmbedOne and never
-	// chunked, so a memory created small and grown in place was the one unbounded
-	// input, and the embedder truncates rather than failing — the tail read back
-	// whole from am_get_drawer while being unfindable by search.
-	//
-	// A content change no longer arrives here (it supersedes, and Add chunks), so
-	// finalContent is now always the text this row was ALREADY storing. Refusing a
-	// relocation because that text is long would block the move without improving
-	// the vector, which is truncated to exactly the same prefix either way.
-	//
-	vec, err := s.embed.EmbedOne(ctx, finalContent)
-	if err != nil {
-		return UpdateResult{}, fmt.Errorf("re-embed updated drawer: %w", err)
-	}
-	point := store.Point{
-		ID:      id,
-		Vector:  vec,
-		Payload: map[string]any{"wing": finalWing, "room": finalRoom},
-	}
-	if err := s.vectors.Upsert(ctx, teamID, []store.Point{point}); err != nil {
-		return UpdateResult{}, fmt.Errorf("re-upsert updated vector: %w", err)
+	if err := s.moveMemory(ctx, teamID, chunks, finalWing, finalRoom); err != nil {
+		return UpdateResult{}, err
 	}
 
-	// Index is current; now commit the authoritative row.
-	updated, err := s.repo.Update(ctx, teamID, id, patch)
+	// ⚠ THE INDEX IS UPDATED AFTER THE ROWS, WHICH REVERSES THE OLD ORDER. This
+	// path used to write the vector first and commit the row second ("index is
+	// current; now commit the authoritative row"), which was safe while a move was
+	// one row that could not partially fail. It is wrong for N rows with a rollback
+	// path: a collision on chunk k aborts the transaction, and an index written
+	// beforehand would describe a move that did not happen — the memory answering
+	// from a wing it is not in.
+	//
+	// And it is SetPayload, not Upsert, so nothing is re-embedded. The text did not
+	// change, so the stored vector is already correct; only the wing and room
+	// strings a scoped search filters on need to move. am_merge_wing has relabelled
+	// this way since it was written (see MergeWing) — this is the same repair on a
+	// single memory.
+	//
+	// One call, not a batch: these are the chunks of ONE memory, so the id list is
+	// bounded by how far a single note can be split, far below the batch size
+	// MergeWing needs for a whole wing.
+	ids := make([]string, 0, len(chunks))
+	for _, c := range chunks {
+		ids = append(ids, c.ID)
+	}
+	// Fails OPEN, for the reason carryAnchors does: by this point the move is
+	// durable, and returning an error would report a write that succeeded as one
+	// that failed — sending the caller to retry a move that has already happened.
+	// A stale payload is recoverable and named: `doctor --index` reports it as
+	// mislabelled and `sync --repair-payload` rebuilds payloads from the rows.
+	if err := s.vectors.SetPayload(ctx, teamID, ids, map[string]string{"wing": finalWing, "room": finalRoom}); err != nil {
+		slog.Warn("memory moved but its stored payloads were not relabelled, so it is unreachable "+
+			"from the wing it now lives in; run `agentsmemory doctor --index` and "+
+			"`agentsmemory sync --repair-payload`",
+			"error", err, "drawer", short12(id), "wing", finalWing, "room", finalRoom)
+	}
+
+	updated, err := s.repo.Get(ctx, teamID, id)
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return UpdateResult{}, ErrNotFound
 	}
@@ -1356,6 +1354,37 @@ func (s *Service) Update(ctx context.Context, teamID, id string, patch DrawerPat
 		return UpdateResult{}, err
 	}
 	return UpdateResult{Drawer: updated}, nil
+}
+
+// moveMemory relabels every chunk of one memory to a new wing/room in a single
+// transaction, so a memory is never left split across two scopes.
+//
+// The transaction is the whole point rather than a precaution. content_key hashes
+// wing and room (ADR-038), so relocating an N-chunk memory recomputes N keys
+// against a partial unique index, and any one of them can collide with a memory
+// already at the destination — "this wing already has that memory" is precisely
+// when somebody relocates one. Without a rollback, a collision on chunk k would
+// leave chunks 0..k-1 moved, which is the split state the old refusal existed to
+// prevent, reintroduced by the fix meant to remove it.
+//
+// Repo.Update writes through the Repo's own handle, so the transaction is passed
+// as one — the same construction supersedeInto uses for persistRows. It also
+// recomputes content_key from post-patch state and names a collision rather than
+// leaking the driver's, so both behaviours carry over per chunk unchanged.
+func (s *Service) moveMemory(ctx context.Context, teamID string, chunks []Drawer, wing, room string) error {
+	return s.repo.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		txRepo := &Repo{db: tx}
+		for _, c := range chunks {
+			w, r := wing, room
+			if _, err := txRepo.Update(ctx, teamID, c.ID, DrawerPatch{Wing: &w, Room: &r}); err != nil {
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					return ErrNotFound
+				}
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 // Delete removes a drawer's metadata row and its vector. The row goes first so

@@ -468,10 +468,13 @@ func (r *Repo) Update(ctx context.Context, teamID, id string, patch DrawerPatch)
 		// entities ADR-016 fixed on the Add and WriteDiary paths: an empty graph
 		// sends an agent to go and look, a wrong one tells it not to.
 		//
-		// Per-chunk is per-memory here. Service.Update refuses a content change
-		// on any memory of more than one chunk, so the row being written holds
-		// the whole content and extracting from it matches what Add stores per
-		// chunk.
+		// Per-chunk is per-memory here. A content change reaches this function
+		// only through supersedeInto, which files the replacement through the
+		// chunking path, so the row being written holds one chunk's content and
+		// extracting from it matches what Add stores per chunk. (Service.Update
+		// used to REFUSE a multi-chunk content edit and this comment said so;
+		// ADR-038 T4 moved corrections onto supersede and ADR-045 removed the
+		// refusal's remaining half, so the guard named here no longer exists.)
 		updates["entities"] = strings.Join(extractEntities(*patch.Content), ";")
 	}
 	if patch.Wing != nil {
