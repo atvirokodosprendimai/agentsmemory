@@ -2,7 +2,7 @@
 
 **Status:** Proposed
 **Date:** 2026-09-01
-**Owner:** kme
+**Owner:** M
 **Spec:** None — no spec stage. Grounded in `docs/adr/BACKLOG.md` §"Standing: the instrument is not allowed to decide the hypothesis space", which names the two metrics this ADR builds, and in the LongMemEval-S schema read 2026-09-01 from the benchmark's published field list.
 **Cross-references:** `docs/adr/ADR-032-the-corpus-that-chose-our-defaults.md` (why an externally-authored corpus is the point), `docs/adr/ADR-014-the-shipped-default-is-the-measured-one.md` (the principle this extends to prose), `docs/adr/ADR-003-retire-the-closet-prior.md` (cites LongMemEval as corroboration it deliberately never re-derived), `docs/adr/ADR-004-supersession-not-recall.md` (the same citation, load-bearing in a rejection), `docs/adr/ADR-009-tune-against-your-own-corpus.md` (per-install tuning; this is per-*rule* measurement and does not compete), `internal/palace/eval.go`, `internal/palace/evalstats.go`, `cmd/server/eval.go`, `cmd/server/kgextract.go`, `docs/adr/BACKLOG.md`
 **Numbering:** next free after ADR-046. Read live across all 388 heads and remotes on 2026-09-01: `docs/adr/` holds ADR-001–ADR-046 somewhere in the corpus; 047 is claimed by nothing.
