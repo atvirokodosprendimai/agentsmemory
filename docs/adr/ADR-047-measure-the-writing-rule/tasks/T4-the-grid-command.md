@@ -75,12 +75,13 @@ one this repository has shipped broken before (`AGENTS.md` §Reachability).
 set -o pipefail
   if [ -n "$(gofmt -l internal/longmemeval cmd/server)" ]; then echo "gofmt"; exit 1; fi
   go vet ./... || exit 1
-  go test ./internal/longmemeval/ ./cmd/server/ -run "TestRunGridHoldsTheContextBudgetAcrossCells|TestRunGridRefusesANonEmptyWing|TestRunGridRefusesAZeroBudget|TestRunGridIsolatesEveryQuestion|TestRetrievalColumnExcludesAbstentionQuestions|TestCellsRefuseToMergeAcrossDifferentHeaders|TestCellsCarryTheRankingProfileAndModel|TestCellsReportTheRetrievalOnlyColumnBeside|TestCellsRecordTheReportedPromptTokens|TestLongmemevalIsRegistered|TestLongmemevalHelpListsEveryRegisteredPolicy" -count=1 -v 2>&1 | tee /tmp/a47t4.out
+  go test ./internal/longmemeval/ ./cmd/server/ -run "TestRunGridHoldsTheContextBudgetAcrossCells|TestRunGridRefusesANonEmptyWing|TestRunGridRefusesAZeroBudget|TestRunGridIsolatesEveryQuestion|TestRetrievalColumnExcludesAbstentionQuestions|TestCellsRefuseToMergeAcrossDifferentHeaders|TestCellsCarryTheRankingProfileAndModel|TestCellsReportTheRetrievalOnlyColumnBeside|TestCellsRecordTheReportedPromptTokens|TestCellsCountMemoriesTooLargeForTheBudget|TestLongmemevalIsRegistered|TestLongmemevalHelpListsEveryRegisteredPolicy" -count=1 -v 2>&1 | tee /tmp/a47t4.out
   grep -q -- "--- PASS: TestRunGridHoldsTheContextBudgetAcrossCells" /tmp/a47t4.out || exit 1
   grep -q -- "--- PASS: TestRunGridRefusesANonEmptyWing" /tmp/a47t4.out || exit 1
   grep -q -- "--- PASS: TestRunGridRefusesAZeroBudget" /tmp/a47t4.out || exit 1
   grep -q -- "--- PASS: TestCellsReportTheRetrievalOnlyColumnBeside" /tmp/a47t4.out || exit 1
   grep -q -- "--- PASS: TestCellsRecordTheReportedPromptTokens" /tmp/a47t4.out || exit 1
+  grep -q -- "--- PASS: TestCellsCountMemoriesTooLargeForTheBudget" /tmp/a47t4.out || exit 1
   grep -q -- "--- PASS: TestRunGridIsolatesEveryQuestion" /tmp/a47t4.out || exit 1
   grep -q -- "--- PASS: TestRetrievalColumnExcludesAbstentionQuestions" /tmp/a47t4.out || exit 1
   grep -q -- "--- PASS: TestCellsRefuseToMergeAcrossDifferentHeaders" /tmp/a47t4.out || exit 1
@@ -104,6 +105,7 @@ go test ./... -count=1
 | `TestCellsCarryTheRankingProfileAndModel` | `internal/longmemeval/cells_test.go` | ADR-007: no number without its population | — |
 | `TestCellsReportTheRetrievalOnlyColumnBeside` | `internal/longmemeval/cells_test.go` | the secondary metric is present so the two can disagree in public | — |
 | `TestCellsRecordTheReportedPromptTokens` | `internal/longmemeval/cells_test.go` | the endpoint's own prompt-token count reaches the results file — the field shipped in T4's first commit populated by NOTHING, which is what makes the rune budget auditable rather than assumed | — |
+| `TestCellsCountMemoriesTooLargeForTheBudget` | `internal/longmemeval/cells_test.go` | a budget too small for the baseline's own records reports the skipped count rather than a bare 0 — the first real run scored the baseline 0 on an empty context, which would have made every chunking policy win by construction | — |
 | `TestLongmemevalIsRegistered` | `cmd/server/longmemeval_test.go` | the command is reachable from the real root; deleting the `main.go` line turns this red | — |
 | `TestLongmemevalHelpListsEveryRegisteredPolicy` | `cmd/server/longmemeval_test.go` | `--help` is documentation and it is derived, not typed | — |
 
@@ -127,6 +129,9 @@ go test ./... -count=1
 - 2026-09-01 · d04e7d7* · mutant killed · exit 1 · `internal/gen/client.go` · the transport discards the endpoint reported prompt-token count, leaving the rune budget an assumption — the exact defect T4 shipped · acceptance-sha256:5ca539f33313cf13cdc082270e27610460615ec1610816c9de8fc0c1f96aba73
 - 2026-09-01 · d04e7d7* · mutant killed · exit 1 · `cmd/server/main.go` · the command is built, tested and registered by nothing — this repo signature defect, at the one line that makes the grid reachable · acceptance-sha256:5ca539f33313cf13cdc082270e27610460615ec1610816c9de8fc0c1f96aba73
 - 2026-09-01 · d04e7d7* · mutant killed · exit 1 · `internal/longmemeval/grid.go` · the scratch scope goes back to per-cell, so question 2 searches question 1 history and contamination grows through the cell · acceptance-sha256:5ca539f33313cf13cdc082270e27610460615ec1610816c9de8fc0c1f96aba73
+- 2026-09-01 · f5a5af7* · mutant killed · exit 1 · `internal/longmemeval/grid.go` · the skipped count stops being reported, so a budget too small for the baseline reads as a search that found nothing · acceptance-sha256:d56af1519c5dc4af9df50bb82c4fe38bbc5391a03b23cea8d2b572986cff242b
+- 2026-09-01 · f5a5af7* · mutant killed · exit 1 · `cmd/server/main.go` · the command is built, tested and registered by nothing — this repo signature defect, at the one line that makes the grid reachable · acceptance-sha256:d56af1519c5dc4af9df50bb82c4fe38bbc5391a03b23cea8d2b572986cff242b
+- 2026-09-01 · f5a5af7* · mutant killed · exit 1 · `internal/longmemeval/grid.go` · the scratch scope goes back to per-cell, so question 2 searches question 1 history and contamination grows through the cell · acceptance-sha256:d56af1519c5dc4af9df50bb82c4fe38bbc5391a03b23cea8d2b572986cff242b
 
 ## Invariants
 
@@ -189,3 +194,4 @@ exceeds the budget fails the test.
 - 2026-09-01 · cb803fa* · exit 0 · `set -o pipefail …` · acceptance-sha256:c46e3afd1bc543f2d783e87467fadc831509848e044abb38ea9bc9b6cdbd1c6f
 - 2026-09-01 · cb803fa* · exit 0 · `set -o pipefail …` · acceptance-sha256:55504589d30f885c303cfedbba0a06bd603eefd6bff82d37dbe5047e72f43ae4
 - 2026-09-01 · d04e7d7* · exit 0 · `set -o pipefail …` · acceptance-sha256:5ca539f33313cf13cdc082270e27610460615ec1610816c9de8fc0c1f96aba73
+- 2026-09-01 · f5a5af7* · exit 0 · `set -o pipefail …` · acceptance-sha256:d56af1519c5dc4af9df50bb82c4fe38bbc5391a03b23cea8d2b572986cff242b

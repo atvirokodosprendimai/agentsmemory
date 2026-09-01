@@ -118,6 +118,29 @@ func TestDatasetRejectsAnUnknownQuestionType(t *testing.T) {
 	}
 }
 
+// TestDatasetAcceptsANumericAnswer covers a shape the hand-written fixture could
+// not have: LongMemEval-S answers counting questions with a bare number, 32 of
+// its 500, and a plain string field fails the WHOLE load on the first of them.
+//
+// Found 2026-09-01 by pointing the loader at the published corpus for the first
+// time — the suite was green and had no way to find it. A fixture is a
+// hypothesis about the data; only the data settles it.
+func TestDatasetAcceptsANumericAnswer(t *testing.T) {
+	raw := readSample(t)
+	raw[0]["answer"] = 3 // a "how many …" question, as the real corpus writes it
+
+	ds, err := Load(writeTemp(t, raw))
+	if err != nil {
+		t.Fatalf("a numeric answer must load: the corpus writes counting answers as bare "+
+			"numbers, and refusing them loses 6%% of the questions: %v", err)
+	}
+	q := questionByID(t, ds, "q_user_1")
+	if q.Answer != "3" {
+		t.Errorf("Answer = %q, want \"3\" — the judge compares answers as text, so the gold for "+
+			"a counting question is its literal digits", q.Answer)
+	}
+}
+
 func TestDatasetRecordsItsFileDigest(t *testing.T) {
 	ds, err := Load(samplePath)
 	if err != nil {

@@ -100,6 +100,7 @@ test from exiting 0 on an empty filter.
 
 - 2026-09-01 · e4917c5* · mutant killed · exit 1 · `internal/longmemeval/dataset.go` · severs the haystack alignment check, the one Load failure that would otherwise date a session from its neighbour and make every temporal question wrong in silence · acceptance-sha256:78ed467169052a6ecc3073493786802ed65a2677eda6d53bfd77bf4941b12999
 - 2026-09-01 · e4917c5* · mutant killed · exit 1 · `internal/longmemeval/subset.go` · severs the seeded visit-order shuffle, so a subset smaller than the number of types silently admits the same alphabetically-first types at every seed · acceptance-sha256:78ed467169052a6ecc3073493786802ed65a2677eda6d53bfd77bf4941b12999
+- 2026-09-01 · f5a5af7* · mutant killed · exit 1 · `internal/longmemeval/dataset.go` · a numeric answer silently becomes empty, so 32 of 500 gold answers vanish and the judge scores against nothing · acceptance-sha256:78ed467169052a6ecc3073493786802ed65a2677eda6d53bfd77bf4941b12999
 
 ## Invariants
 
@@ -181,3 +182,5 @@ impossible to fail.
   FAIL
   ```
 - 2026-09-01 · e4917c5* · exit 0 · `set -o pipefail …` · acceptance-sha256:78ed467169052a6ecc3073493786802ed65a2677eda6d53bfd77bf4941b12999
+- 2026-09-01 · f5a5af7* · exit 0 · `set -o pipefail …` · acceptance-sha256:78ed467169052a6ecc3073493786802ed65a2677eda6d53bfd77bf4941b12999
+- 2026-09-01 · f5a5af7* · exit 0 · `set -o pipefail …` · acceptance-sha256:78ed467169052a6ecc3073493786802ed65a2677eda6d53bfd77bf4941b12999

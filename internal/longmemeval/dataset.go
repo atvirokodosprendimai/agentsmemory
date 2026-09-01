@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 )
 
 // The six question types LongMemEval-S labels its questions with.
@@ -54,6 +55,34 @@ type Turn struct {
 	HasAnswer bool   `json:"has_answer"`
 }
 
+// looseString is a string field that also accepts a JSON number.
+//
+// LongMemEval-S answers counting questions with a BARE NUMBER — 32 of its 500
+// questions, measured 2026-09-01 against the published file — while every other
+// answer is a string. A plain string field fails the entire load on the first of
+// them, which is exactly what happened the first time this loader met the real
+// corpus: T1's fixture was hand-written and carried only strings, so nothing in
+// the suite could have found this. The corpus is the only thing that could.
+//
+// A number is kept as its literal JSON text, which is what the judge should see:
+// it compares answers as text, and the gold for "how many" questions really is
+// "3".
+type looseString string
+
+// UnmarshalJSON accepts either a JSON string or a bare scalar.
+func (s *looseString) UnmarshalJSON(b []byte) error {
+	if len(b) > 0 && b[0] == '"' {
+		var str string
+		if err := json.Unmarshal(b, &str); err != nil {
+			return err
+		}
+		*s = looseString(str)
+		return nil
+	}
+	*s = looseString(strings.TrimSpace(string(b)))
+	return nil
+}
+
 // Session is one dated user/assistant conversation in a question's haystack.
 //
 // The id and the date do not live in the session object in the published format
@@ -93,15 +122,15 @@ type Dataset struct {
 // because the file stores one session across three parallel arrays and this
 // package refuses to carry that representation any further than Load.
 type wireQuestion struct {
-	ID               string   `json:"question_id"`
-	Type             string   `json:"question_type"`
-	Question         string   `json:"question"`
-	Answer           string   `json:"answer"`
-	Date             string   `json:"question_date"`
-	HaystackIDs      []string `json:"haystack_session_ids"`
-	HaystackDates    []string `json:"haystack_dates"`
-	HaystackSessions [][]Turn `json:"haystack_sessions"`
-	AnswerSessionIDs []string `json:"answer_session_ids"`
+	ID               string      `json:"question_id"`
+	Type             string      `json:"question_type"`
+	Question         string      `json:"question"`
+	Answer           looseString `json:"answer"`
+	Date             string      `json:"question_date"`
+	HaystackIDs      []string    `json:"haystack_session_ids"`
+	HaystackDates    []string    `json:"haystack_dates"`
+	HaystackSessions [][]Turn    `json:"haystack_sessions"`
+	AnswerSessionIDs []string    `json:"answer_session_ids"`
 }
 
 // Load reads a LongMemEval-S file, joins each question's three parallel haystack
@@ -165,7 +194,7 @@ func (w wireQuestion) question() (Question, error) {
 		ID:             w.ID,
 		Type:           w.Type,
 		Question:       w.Question,
-		Answer:         w.Answer,
+		Answer:         string(w.Answer),
 		Date:           w.Date,
 		GoldSessionIDs: w.AnswerSessionIDs,
 		Haystack:       make([]Session, 0, len(w.HaystackSessions)),

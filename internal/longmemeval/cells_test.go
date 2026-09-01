@@ -154,6 +154,44 @@ func TestCellsRecordTheReportedPromptTokens(t *testing.T) {
 	}
 }
 
+// TestCellsCountMemoriesTooLargeForTheBudget pins the pathology the first real
+// run walked into.
+//
+// assemble SKIPS a memory larger than the remaining budget rather than
+// truncating it — right, because half a record is not what any policy wrote.
+// But skipping silently made two very different failures print the same thing:
+// "every record was too big" and "search returned nothing" both reported 0 runes
+// used. Measured 2026-09-01 on the real corpus, where the median session is
+// 9,808 characters and the budget was 4,000: the verbatim baseline assembled
+// nothing and scored 0, which would have made every chunking policy beat it by
+// construction rather than by merit.
+//
+// The count is what turns that from a mystery into the finding ADR-047 says it
+// is: a policy that cannot fill the window.
+func TestCellsCountMemoriesTooLargeForTheBudget(t *testing.T) {
+	store := newFakeStore()
+	opts, _ := gridOpts(store)
+	// Well under one verbatim session, so every record is too large to place.
+	opts.ContextRunes = 50
+
+	cells, err := RunGrid(context.Background(), store, twoQuestionSelection(t),
+		[]string{"verbatim"}, []string{"verbatim"}, opts)
+	if err != nil {
+		t.Fatalf("RunGrid: %v", err)
+	}
+	for _, c := range cells.Cells {
+		if c.MemoriesSkipped == 0 {
+			t.Errorf("cell %s/%s assembled %d runes and reported 0 skipped memories — a run that "+
+				"could place nothing must say so, or it is indistinguishable from a search that "+
+				"returned nothing", c.Write, c.Query, c.BudgetRunesUsed)
+		}
+		if c.BudgetRunesUsed != 0 {
+			t.Errorf("cell %s/%s used %d runes against a %d-rune budget with oversized records",
+				c.Write, c.Query, c.BudgetRunesUsed, opts.ContextRunes)
+		}
+	}
+}
+
 func TestCellsJSONNamesItsConfiguration(t *testing.T) {
 	store := newFakeStore()
 	opts, _ := gridOpts(store)

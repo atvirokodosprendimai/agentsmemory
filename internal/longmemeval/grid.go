@@ -133,7 +133,7 @@ func RunGrid(ctx context.Context, store Store, sel Selection, writes, queries []
 // runCell scores one square of the grid.
 func runCell(ctx context.Context, store Store, sel Selection, wp WritePolicy, qp QueryPolicy, opts GridOptions) (Cell, error) {
 	cell := Cell{Write: wp.Name, Query: qp.Name}
-	var budgetUsed, promptTokens int
+	var budgetUsed, promptTokens, skipped int
 
 	for _, q := range sel.Questions {
 		wing := scratchWing(opts.Wing, wp.Name, qp.Name, q.ID)
@@ -174,7 +174,8 @@ func runCell(ctx context.Context, store Store, sel Selection, wp WritePolicy, qp
 			hits = append(hits, got...)
 		}
 
-		memories, used := assemble(hits, opts.ContextRunes)
+		memories, used, missed := assemble(hits, opts.ContextRunes)
+		skipped += missed
 		budgetUsed += used
 
 		answer, err := opts.Reader.Generate(ctx, ReaderPrompt(q.Question, memories), readerTemperature)
@@ -216,6 +217,7 @@ func runCell(ctx context.Context, store Store, sel Selection, wp WritePolicy, qp
 	if cell.Scored > 0 {
 		cell.BudgetRunesUsed = budgetUsed / cell.Scored
 		cell.PromptTokensReported = promptTokens / cell.Scored
+		cell.MemoriesSkipped = skipped
 	}
 	return cell, nil
 }
@@ -226,9 +228,7 @@ func runCell(ctx context.Context, store Store, sel Selection, wp WritePolicy, qp
 // A memory that does not fit is skipped rather than truncated: half a record is
 // not what any policy wrote, and scoring a policy on a fragment it did not
 // produce would make the budget a property of the assembler instead of the run.
-func assemble(hits []palace.SearchHit, budget int) ([]string, int) {
-	var out []string
-	used := 0
+func assemble(hits []palace.SearchHit, budget int) (memories []string, used, skipped int) {
 	seen := map[string]bool{}
 	for _, h := range hits {
 		if seen[h.MemoryID] {
@@ -241,12 +241,16 @@ func assemble(hits []palace.SearchHit, budget int) ([]string, int) {
 		}
 		n := len([]rune(text))
 		if used+n > budget {
+			// Counted, not silent: a policy whose records are all larger than the
+			// budget assembles NOTHING, and without this the run reports 0 runes
+			// used — indistinguishable from a search that returned nothing at all.
+			skipped++
 			continue
 		}
-		out = append(out, text)
+		memories = append(memories, text)
 		used += n
 	}
-	return out, used
+	return memories, used, skipped
 }
 
 // retrieved reports whether any returned memory came from a gold session.

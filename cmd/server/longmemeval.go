@@ -38,7 +38,11 @@ func longmemevalCommand(def config.Config) *cli.Command {
 	return &cli.Command{
 		Name:  "longmemeval",
 		Usage: "Score judged answer accuracy over a (write-policy x query-policy) grid on LongMemEval-S",
-		Flags: []cli.Flag{
+		// serveFlags carries the storage and embedder settings configFromCmd reads.
+		// Declaring only this command's own flags left configFromCmd with nothing to
+		// read, so the command could not be pointed at a database or an embedder at
+		// all — and no gate saw it, because every flag it DID declare was read.
+		Flags: append(serveFlags(def),
 			&cli.StringFlag{Name: "data", Usage: "path to the LongMemEval-S JSON file", Required: true},
 			&cli.StringFlag{Name: "wing", Usage: "base name for the scratch scopes this run writes", Value: "longmemeval_scratch"},
 			&cli.StringSliceFlag{Name: "write", Usage: longmemeval.WritePolicyUsage(), Value: []string{"verbatim"}},
@@ -49,7 +53,15 @@ func longmemevalCommand(def config.Config) *cli.Command {
 			// invariant after a unit nothing here can compute would make the
 			// instrument's central property unauditable. ADR-047 property 1 records
 			// what the approximation costs and how the run bounds it.
-			&cli.IntFlag{Name: "context-runes", Usage: "shared context budget per cell, in runes", Value: 6000},
+			// ⚠24000, not a round guess: measured 2026-09-01 over 2,051 real
+			// LongMemEval-S sessions, the MEDIAN session is 9,808 characters and p90
+			// is 16,884. The first default here was 6000 — below the median — so the
+			// verbatim baseline could not fit a single record and scored 0 by
+			// construction, which would have made every other policy look good
+			// against a baseline that cannot play. A budget must hold at least one
+			// baseline record or the comparison is degenerate.
+			&cli.IntFlag{Name: "context-runes", Value: 24000,
+				Usage: "shared context budget per cell, in runes. Must hold at least one whole session (median 9.8k, p90 16.9k) or the verbatim baseline assembles nothing"},
 			&cli.IntFlag{Name: "search-limit", Usage: "memories retrieved per search", Value: 20},
 			&cli.StringFlag{Name: "out", Usage: "write the results file here", Value: "longmemeval.cells.json"},
 			&cli.StringFlag{Name: "gen-url", Usage: "generative endpoint for the reader and judge", Sources: cli.EnvVars("EVAL_GEN_URL")},
@@ -62,7 +74,7 @@ func longmemevalCommand(def config.Config) *cli.Command {
 			&cli.StringFlag{Name: "gen-model", Value: "qwen2.5-coder:7b", Sources: cli.EnvVars("EVAL_GEN_MODEL"),
 				Usage: "model that reads the assembled memories AND judges the answers. Held fixed across the whole grid, so a cell delta is the policy rather than the model; a stronger general-purpose model judges prose better than a coder model, and the run records which one was used"},
 			&cli.StringFlag{Name: "gen-api-key", Usage: "bearer token for the generative endpoint", Sources: cli.EnvVars("EVAL_GEN_API_KEY")},
-		},
+		),
 		Action: func(ctx context.Context, c *cli.Command) error {
 			return runLongmemeval(ctx, def, c)
 		},

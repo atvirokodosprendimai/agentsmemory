@@ -71,6 +71,17 @@ type Cell struct {
 	// one, and 0 where it does not. It is what makes the rune budget auditable
 	// rather than assumed — see ADR-047 property 1.
 	PromptTokensReported int `json:"prompt_tokens_reported"`
+	// MemoriesSkipped is how many retrieved memories did not fit the budget and
+	// were left out, summed over the cell's questions.
+	//
+	// ADR-047 says a policy that cannot fill the window is a finding rather than
+	// a footnote, and without this the finding is INVISIBLE: assemble skips an
+	// oversized memory rather than truncating it, so a policy whose records are
+	// all too large reports BudgetRunesUsed 0 — indistinguishable from a policy
+	// whose search returned nothing. Measured 2026-09-01 on the real corpus: at a
+	// 4000-rune budget the verbatim baseline assembled NOTHING, because the median
+	// LongMemEval session is 9,808 characters.
+	MemoriesSkipped int `json:"memories_skipped"`
 }
 
 // Accuracy is the judged share correct, the headline number.
