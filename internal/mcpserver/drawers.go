@@ -186,16 +186,19 @@ func registerAddDrawer(reg *registrar, drawers *palace.Service, usageSvc *usage.
 		// truth; deriving it means the drift cannot recur.
 		mcp.WithDescription(fmt.Sprintf(
 			"File a verbatim memory (drawer) into a wing/room. Content over %d runes is chunked into "+
-				"several drawers sharing a parent; re-adding the same source is idempotent. ⚠That "+
-				"threshold binds at CREATION: a multi-chunk memory can be CORRECTED (am_update_drawer "+
-				"with content supersedes the whole memory) but never MOVED, because moving one chunk "+
-				"would split the memory across two scopes and no single search would return all of it. "+
-				"A memory created at or under %d runes stays ONE row and can be relocated for life. "+
-				"⚠ONE ROOM IS DIFFERENT: a memory filed into %q is REFUSED if it would chunk, on "+
-				"creation AND on correction, because am_bootstrap serves that room's records one "+
-				"chunk at a time — a longer one arrives cut with nothing marking it partial. Keep an "+
-				"entry record under %d runes and point it at ordinary memories for the detail.",
-			palace.ChunkSize, palace.ChunkSize, palace.EntryRoom, palace.ChunkSize)),
+				"several drawers sharing a parent; re-adding the same source is idempotent. A memory "+
+				"of ANY length can be corrected (am_update_drawer with content supersedes the whole "+
+				"memory) and relocated (wing/room moves every chunk in one transaction), so length "+
+				"costs you no capability — do not spend turns trimming to fit. What it does cost is "+
+				"SHARPNESS: one drawer is one vector, so the more topics a memory averages, the less "+
+				"sharply it matches any of them. Prefer splitting by QUESTION over splitting by size. "+
+				"⚠TWO THINGS ARE STILL REFUSED. A memory filed into %q is refused if it would chunk, "+
+				"on creation AND on correction, because am_bootstrap serves that room's records one "+
+				"chunk at a time — a longer one arrives cut with nothing marking it partial; keep an "+
+				"entry record under %d runes and point it at ordinary memories for the detail. And an "+
+				"ENDED record cannot be relocated at all: the first ending is the one that is true, "+
+				"and moving it rewrites where a decision was taken.",
+			palace.ChunkSize, palace.EntryRoom, palace.ChunkSize)),
 		mcp.WithString("wing", mcp.Description("Project namespace the memory belongs to. Optional when this MCP was registered for a project — then it defaults to that project's wing.")),
 		mcp.WithString("room", mcp.Required(), mcp.Description(fmt.Sprintf(
 			"Aspect within the wing, e.g. \"backend\" or \"decisions\". ⚠%q is the ENTRY room and "+

@@ -73,6 +73,8 @@ claims more than it covers is worse than a narrower one.
 
 ## Mutation Log
 
+- 2026-09-01 · 84b09c8* · mutant killed · exit 1 · `internal/mcpserver/drawers.go` · puts the retired relocation refusal back into the shipped am_add_drawer description · acceptance-sha256:440e1396b0fbed522965e6c2d759f916e497f80e6ec83b7edf276e8d8f487b44
+
 ## Invariants
 
 - The description still states the chunking fact and the one-vector-per-drawer recall reason. This task removes an enforcement claim, not the advice.
@@ -96,3 +98,18 @@ today's offender will not see tomorrow's either.
 - Every other tool description in the package (permanent: this gate is about one retired claim, and widening it to "descriptions must be true" is a gate nothing could pass).
 
 ## Verification Log
+- 2026-09-01 · 84b09c8* · exit 1 · `set -o pipefail …` · acceptance-sha256:440e1396b0fbed522965e6c2d759f916e497f80e6ec83b7edf276e8d8f487b44
+  ```
+  --- last 10 line(s) of stdout (of 780 after folding 784 raw)
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/store/sqlitevec	1.917s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/store/storetest	1.121s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/telemetry	0.595s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/tenant	1.176s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/updatecheck	1.059s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/usage	1.109s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/web	0.921s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/web/views	1.057s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/wingbundle	1.145s
+  FAIL
+  ```
+- 2026-09-01 · 84b09c8* · exit 0 · `set -o pipefail …` · acceptance-sha256:440e1396b0fbed522965e6c2d759f916e497f80e6ec83b7edf276e8d8f487b44

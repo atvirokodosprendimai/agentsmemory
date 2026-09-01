@@ -419,6 +419,25 @@ every sign-off agreed with its index — over a corpus where one did not. Both n
 through a `testing.TB` the falsifiability half substitutes, which is the only form that catches a
 severed call site.
 
+**A DESCRIPTION IS THE ONLY ROUTE BY WHICH A CALLER LEARNS WHAT THE SERVER ACCEPTS, SO
+A DESCRIPTION THAT GOES FALSE UNSHIPS A CAPABILITY.** Every gate above asks whether code
+is reachable; none asks whether the sentence describing it is still true, and the two
+fail differently. `am_add_drawer` told every session a memory over the chunk threshold
+was "never MOVED" and a short one "can be relocated for life" — true when written, false
+the moment ADR-045 made a memory of any chunk count relocatable. Nothing would have
+caught it: the move works, so behaviour passes; the description is emitted, so
+reachability passes. What it costs is measurable in the other direction — agents spent
+turns trimming records to fit, four measure-and-trim rounds on a single record on
+2026-09-01, buying a capability they already had.
+`TestNoToolDescriptionClaimsALongMemoryCannotBeMoved` parses `internal/mcpserver`'s
+description strings and fails on a claim that a chunked memory cannot be relocated. It
+matches the retired CLAIM rather than the topic, because the chunking advice beside it —
+one drawer is one vector — must keep being said; a gate that forbids the true sentence
+along with the false one is a gate somebody deletes. Its falsifiability case is a
+SUBTEST driving the same regexp over a fixture that IS an offender, inside the fence for
+the reason `TestASpecBindingThatNamesNothingIsCaught` already records, and it asserts
+BOTH directions: the matcher must catch the retired clause and must not catch the advice.
+
 The same principle covers the gates already in the tree: `internal/doclint`
 (a doc comment must document the declaration it sits on), `TestEveryDeclaredArmIsRegistered`
 (an eval arm that no code path registers appears in no table, silently), and
