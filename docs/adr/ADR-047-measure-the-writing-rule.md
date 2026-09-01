@@ -1,6 +1,6 @@
 # ADR-047: Measure the writing rule, not only the ranking knob
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-09-01
 **Owner:** M
 **Spec:** None — no spec stage. Grounded in `docs/adr/BACKLOG.md` §"Standing: the instrument is not allowed to decide the hypothesis space", which names the two metrics this ADR builds, and in the LongMemEval-S schema read 2026-09-01 from the benchmark's published field list.

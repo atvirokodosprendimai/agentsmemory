@@ -31,19 +31,26 @@ it helps.
 
 | ID | Title | Status | Covers | Acceptance |
 |----|-------|--------|--------|------------|
-| T1 | Load LongMemEval-S into typed records, with the subset written into the run | pending | — | `go test ./internal/longmemeval/ -run "TestDataset\|TestSubset"` |
-| T2 | The write-policy registry, and a flag that can select every member of it | pending | — | `go test ./internal/longmemeval/ -run "TestWritePolicy\|TestEveryDeclaredPolicyIsSelectable"` |
+| T1 | Load LongMemEval-S into typed records, with the subset written into the run | done | — | `go test ./internal/longmemeval/ -run "TestDataset\|TestSubset"` |
+| T2 | The write-policy registry, and a flag that can select every member of it | done | — | `go test ./internal/longmemeval/ -run "TestWritePolicy\|TestEveryDeclaredPolicyIsSelectable"` |
 | T3 | Extract one generative client, then the query policies and the blind judge | pending | — | `go test ./internal/gen/ ./internal/longmemeval/ ./cmd/server/ -run "TestGen\|TestQueryPolicy\|TestJudge"` |
 | T4 | `agentsmemory longmemeval` — the grid, the fixed budget, the results file | pending | — | `go test ./internal/longmemeval/ ./cmd/server/ -run "TestRunGrid\|TestLongmemevalIsRegistered\|TestCells"` |
 | T5 | Run the grid, apply the pre-registered rule, decide what the skills may say | blocked | — | human-observed: `adr-verify --human "…decision <ship\|withdraw\|blocked>…"` |
 
 Status: `pending` | `running` | `blocked` | `done` | `failed`.
 
-**T1 is built and its evidence is in its Verification Log — and it stays `pending`, on purpose.**
-The ADR is `Proposed`, and `adr-lint` refuses a `done` task under a record nobody has accepted:
-execution before acceptance is either a decision that was never taken or a record that was never
-updated. T1's log holds an exit-0 run of its fence and two killed mutants; the status moves the
-day the decision does, and not before.
+**T1 and T2 are `done`, and the record they sit under is `Accepted` as of 2026-09-01.** Until that
+day T1 was built, verified and still `pending` on purpose: `adr-lint` refuses a `done` task under a
+record nobody has accepted, because execution before acceptance is either a decision that was never
+taken or a record that was never updated. Both statuses moved when the decision did, and not before.
+Each carries an exit-0 run of its own fence and killed mutants, all tool-written by `adr-verify`.
+
+⚠**T2 changed this plan while executing it, in two places, and both are recorded in the task file
+rather than only here.** Its step 8 asserted that every policy "appears in the flag's usage string",
+but the flag is built by T4 — so T2 now produces `WritePolicyUsage()` and gates that instead, and
+T4's flag is required to call it. And its Reachability rung 2 claimed a deletion mutation that was
+measured NOT to kill: severing a registration leaves a registry-derived gate green, because the
+deleted policy leaves the gate's universe along with the wiring.
 
 The Acceptance column is abbreviated for reading; the task file carries the full command including
 its `gofmt`, `go vet` and per-test `--- PASS` assertions, and `adr-verify` runs that one.
