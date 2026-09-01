@@ -42,6 +42,21 @@ services:
         condition: service_healthy
     environment:
       OLLAMA_URL: http://ollama:11434
+      # THE QUOTA, NOT A THREAD COUNT, and the server derives the pool from it.
+      # llama.cpp sizes its pool from the HOST's cores and never learns about the
+      # cgroup limit, so a capped Ollama runs throttled — 4.1s against 0.054s on a
+      # 16-core host with a quota of 12, and 0.172s at ONE thread (#149). The
+      # cliff is at threads > quota, not at too few CPUs.
+      #
+      # Passing the QUOTA rather than setting OLLAMA_NUM_THREAD here is what keeps
+      # the documented knob usable: an `environment:` entry outranks .env.docker
+      # (the precedence #154 was about), so pinning it here would take the setting
+      # away from the file that documents it. OLLAMA_NUM_THREAD stays unset, an
+      # operator's .env.docker value wins, and this is only the fallback.
+      #
+      # It travels on the SERVER, not on ollama: num_thread is a per-request
+      # option and the server is what sends the request.
+      AGENTSMEMORY_OLLAMA_CPUS: "${AGENTSMEMORY_OLLAMA_CPUS:-2}"
 
   ollama:
     image: ollama/ollama:latest
@@ -80,12 +95,17 @@ services:
     # a second and the harness started cancelling hooks. The cap is what keeps a
     # `mine-claude` run in the background instead of in the way.
     #
-    # ⚠ THE QUOTA IS THE ONLY LEVER HERE. Ollama has no thread setting to match
-    # it with — OLLAMA_NUM_PARALLEL bounds concurrent REQUESTS, not threads — so
-    # unlike the reranker this throttles a thread pool sized for the whole host
-    # rather than shrinking it. It still bounds the damage, and it is why
-    # embedding a large corpus is slower with this set than without: that is the
-    # trade being made deliberately.
+    # ⚠ THE QUOTA IS NOT THE ONLY LEVER, AND THIS COMMENT USED TO SAY IT WAS.
+    # It read "Ollama has no thread setting to match it with — OLLAMA_NUM_PARALLEL
+    # bounds concurrent REQUESTS, not threads", which is true of that variable and
+    # false as a conclusion: the per-request `options.num_thread` does exactly
+    # this, and the server now sends it as OLLAMA_NUM_THREAD above, from this same
+    # variable.
+    #
+    # The trade the old comment described — "slower with this set than without" —
+    # was the bug, not the cost. A quota with a host-sized pool is 75x slower than
+    # the same quota with a matched one (#149), so capping now costs roughly what
+    # the cap says it costs.
     #
     # ⚠ AND DOCKER REFUSES A LIMIT ABOVE THE HOST'S CPU COUNT — "range of CPUs is
     # from 0.01 to N.00" at `up`, not a warning. On a smaller host set

@@ -154,6 +154,36 @@ type Config struct {
 	// vectors, matching the frozen Python palace so data stays comparable.
 	OllamaEmbedModel string
 
+	// OllamaNumThread caps the thread pool Ollama's llama.cpp sizes for itself,
+	// and 0 — the default — sends nothing and lets it choose.
+	//
+	// It exists because a cgroup quota is not a thread setting. llama.cpp reads
+	// the HOST's core count, so a container capped at N CPUs still starts a pool
+	// sized for the whole machine and spends the quota being descheduled;
+	// LOWERING the cap makes that worse, which is the opposite of what an
+	// operator reading the cap's name expects. Measured 2026-08-31 on a 16-core
+	// host with a quota of 12 (issue #149): 4.1s at the default 16 threads
+	// against 0.054s at 12, with latency also becoming wildly variable (3.6s,
+	// 3.9s, 10.7s on consecutive identical calls) — the signature of throttling
+	// rather than of slow compute.
+	//
+	// Set it to the same number as the container's CPU limit. The compose overlay
+	// that applies the limit does exactly that from one variable, so the two
+	// cannot drift apart.
+	OllamaNumThread int
+
+	// OllamaCPUQuota is the container CPU limit Ollama runs under, as Docker
+	// spells it — a decimal, "0.5" included. It is consulted ONLY when
+	// OllamaNumThread is unset, and it exists so the compose overlay can pass the
+	// limit it already applies without an operator repeating it.
+	//
+	// Two fields rather than one because the two values have different shapes and
+	// different owners: an operator's explicit thread count is an integer they
+	// chose, while a quota is Docker's fractional value and is derived. Parsing
+	// one flag as both made a valid `cpus: 0.5` unparseable and stopped the
+	// server booting — a fix for slow embedding turning into no server at all.
+	OllamaCPUQuota string
+
 	// RerankURL is the base URL of a cross-encoder rerank service whose scores
 	// re-order search results. EMPTY — the default — turns reranking off entirely
 	// and search behaves exactly as it did before.
