@@ -132,3 +132,56 @@ func TestAMoveBetweenWingsEntryRoomsMovesTheRoot(t *testing.T) {
 			"session can guess")
 	}
 }
+
+// TestTheWingRootIsMintedOnceHoweverOftenItIsEnsured pins the idempotence that
+// BackfillWingRoots takes for granted on every boot.
+//
+// ⚠ FOUND BY MUTATION. Deleting EnsureWingRoot's check-then-return — the branch
+// that finds the existing triple and stops — left the whole package green. The
+// backfill's own comment two hundred lines below says "EnsureWingRoot is
+// idempotent either way", and that sentence was resting on a branch nothing
+// asserted.
+//
+// What it would cost is unbounded rather than cosmetic: BackfillWingRoots runs on
+// every prepared boot and calls this for EVERY wing, so a lost early return adds
+// one `<wing>.root --holds--> room:<wing>/llm_init` edge per wing per restart. A
+// session's first call then resolves to a pile of identical edges that grows with
+// uptime, and nothing in the response says which of them is the front door —
+// because they all are.
+//
+// The id is derived from the time of writing, so duplicates do not collide on the
+// primary key: two calls a second apart produce two rows, which is why the
+// existence check is the only thing preventing this.
+func TestTheWingRootIsMintedOnceHoweverOftenItIsEnsured(t *testing.T) {
+	ctx := context.Background()
+	svc := newTestService(t)
+	const team, wing = "team-root-idem", "wing_alpha"
+
+	if _, err := svc.Add(ctx, team, AddInput{
+		Wing: wing, Room: EntryRoom,
+		Content: "WHAT MUST I LOAD AT THE START OF A SESSION? The entry record that mints the root.",
+	}); err != nil {
+		t.Fatalf("add the entry record: %v", err)
+	}
+
+	// Three more ensures, standing in for three restarts of a server whose
+	// backfill visits this wing every time.
+	for i := 0; i < 3; i++ {
+		if err := svc.repo.EnsureWingRoot(ctx, team, wing); err != nil {
+			t.Fatalf("ensure %d: %v", i, err)
+		}
+	}
+
+	got, err := svc.KGQuery(ctx, team, KGQueryInput{
+		Entity: WingRootSubject(wing), Direction: "outgoing", Status: KGStatusCurrent,
+	})
+	if err != nil {
+		t.Fatalf("query the wing root: %v", err)
+	}
+	if len(got.Facts) != 1 {
+		t.Errorf("%s resolves to %d current edges after four ensures, want exactly 1. A backfill "+
+			"runs on every boot, so a root minted per restart grows without bound and a session's "+
+			"first call cannot tell which edge is the front door",
+			WingRootSubject(wing), len(got.Facts))
+	}
+}
