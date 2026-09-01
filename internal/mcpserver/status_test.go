@@ -238,18 +238,22 @@ func TestEntryProtocolLeadsTheHintAndHasItsOwnField(t *testing.T) {
 }
 
 // TestAddDrawerDescribesTheEntryRoomsDifferentRules pins a description against the
-// behaviour it describes.
+// behaviour it describes. The entry room has always behaved differently from every
+// other room; WHAT that difference IS has now changed twice, and this test has to
+// track the current one rather than the one it was born pinning.
 //
-// ⚠ THE DESCRIPTION MADE A POSITIVE CLAIM THAT HAD STOPPED BEING TRUE. It said
-// "Content over N runes is chunked into several drawers sharing a parent",
-// unconditionally, while a memory filed into the entry room is now REFUSED rather
-// than chunked — and the sentence after it elaborated on multi-chunk entry
-// memories that can no longer exist. Found in review 2026-08-30, with the note
-// that "nothing currently gates a tool description against the behaviour it
-// describes, which is why this got through". This is that gate.
+// ⚠ THIS TEST WAS GREEN FOR THE WRONG REASON AND A REVIEWER CAUGHT IT (PR #147).
+// It originally required the word "REFUSED", because a write to the entry room that
+// would chunk was refused. ADR-046 deleted that refusal — and the assertion kept
+// passing, because the description had gained an UNRELATED refusal in the meantime
+// ("an ENDED record cannot be relocated"). A substring check on a word that appears
+// for a second reason is not a check; it is a coincidence with a green tick, and it
+// survived the very commit that removed the thing it was written to pin.
 //
-// The audience that hits the refusal is exactly the one the rule was written for:
-// an agent that cannot count runes, reading a description promising chunking.
+// So the assertion below is keyed to the CURRENT difference — entry-room records are
+// served WHOLE at every wake-up (ADR-046), which is a cost every session pays rather
+// than a limit the server enforces — and it separately refuses the retired sentence,
+// so the description cannot drift back to promising a refusal that is gone.
 func TestAddDrawerDescribesTheEntryRoomsDifferentRules(t *testing.T) {
 	srv := New(Deps{})
 	tool := srv.GetTool(mcpprotocol.ToolPrefix + "add_drawer")
@@ -263,11 +267,22 @@ func TestAddDrawerDescribesTheEntryRoomsDifferentRules(t *testing.T) {
 			"refused rather than chunked — so the rule is undiscoverable until an agent hits "+
 			"it:\n%s", palace.EntryRoom, desc)
 	}
-	// Naming the room is not enough: the description must not still promise the
-	// behaviour that room does not have.
-	if !strings.Contains(desc, "REFUSED") {
-		t.Errorf("the description names %q but never says the write is refused, so it still reads "+
-			"as a promise that everything chunks:\n%s", palace.EntryRoom, desc)
+	// Naming the room is not enough: the description must say what is different
+	// about it. Today that is the SERVING cost, not a write-time refusal.
+	if !strings.Contains(desc, "WHOLE") {
+		t.Errorf("the description names %q but never says its records are served WHOLE at every "+
+			"wake-up. That is the entry room's only remaining difference, and an agent who does "+
+			"not know it cannot know that length there is paid by every session:\n%s",
+			palace.EntryRoom, desc)
+	}
+	// And it must not drift back to the refusal ADR-046 deleted. Keyed to the
+	// retired CLAUSE rather than to the word "REFUSED", which the description
+	// still uses correctly for the unrelated ended-record rule — matching that
+	// word is what let this test pass through the commit that removed its subject.
+	if strings.Contains(desc, "REFUSED if it would chunk") {
+		t.Errorf("the description still says a write to %q is refused if it would chunk. ADR-046 "+
+			"deleted that refusal, so this promises a limit the server no longer has:\n%s",
+			palace.EntryRoom, desc)
 	}
 
 	raw, err := json.Marshal(tool.Tool.InputSchema)
