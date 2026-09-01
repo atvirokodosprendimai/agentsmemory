@@ -3,7 +3,7 @@
 **Depends-on:** T2, T3
 **Covers:** none — no spec
 **Estimated scope:** L (cross-boundary)
-**Owner:** unassigned
+**Owner:** kme
 **Produces:** `longmemeval.RunGrid()`, `longmemeval.Cells`, `<out>.cells.json`, the `longmemeval` subcommand
 **Consumes:** `longmemeval.Dataset` (T1), `WritePolicy` registry (T2), `QueryPolicy` registry + `Judge` + `gen.Client` (T3)
 **Data dependency:** needs a palace database, an embedder and a generative endpoint for a real run. The Acceptance fence is hermetic: `RunGrid` is driven against an in-memory service and a stub judge, and the registration check reads source.

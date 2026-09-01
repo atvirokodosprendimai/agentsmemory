@@ -3,7 +3,7 @@
 **Depends-on:** none
 **Covers:** none — no spec
 **Estimated scope:** M (multi-file)
-**Owner:** unassigned
+**Owner:** kme
 **Produces:** `longmemeval.Dataset`, `longmemeval.Question`, `longmemeval.Session`, `longmemeval.Turn`, `longmemeval.Subset`
 **Consumes:** none
 **Data dependency:** needs the LongMemEval-S JSON file for a real run; every Ordered Step and the whole Acceptance fence are hermetic and run against committed fixtures.

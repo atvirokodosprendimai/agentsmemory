@@ -3,7 +3,7 @@
 **Depends-on:** T1
 **Covers:** none — no spec
 **Estimated scope:** L (cross-boundary)
-**Owner:** unassigned
+**Owner:** kme
 **Produces:** `gen.Client`, `longmemeval.QueryPolicy`, `longmemeval.QueryPolicies()`, `longmemeval.Judge`
 **Consumes:** `longmemeval.Question` (T1)
 **Data dependency:** needs a generative endpoint for a real run; the Acceptance fence is hermetic and drives `gen.Client` and `Judge` against an `httptest` server.

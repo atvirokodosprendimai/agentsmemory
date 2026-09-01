@@ -3,7 +3,7 @@
 **Depends-on:** T4
 **Covers:** none — no spec
 **Estimated scope:** L (cross-boundary)
-**Owner:** unassigned
+**Owner:** kme
 **Produces:** `docs/adr/ADR-047-measure-the-writing-rule/evidence/grid-<date>.md`, and either a skill amendment or a recorded refusal to make one
 **Consumes:** `<out>.cells.json` (T4)
 **Data dependency:** needs the real LongMemEval-S file, a palace with an embedder, and a generative endpoint. The sign-off must record the subset size, the model and the context budget the run was taken against.

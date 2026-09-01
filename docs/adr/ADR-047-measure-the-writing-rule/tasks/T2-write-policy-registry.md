@@ -3,7 +3,7 @@
 **Depends-on:** T1
 **Covers:** none — no spec
 **Estimated scope:** M (multi-file)
-**Owner:** unassigned
+**Owner:** kme
 **Produces:** `longmemeval.WritePolicy`, `longmemeval.WritePolicies()`, `longmemeval.WritePolicyByName()`
 **Consumes:** `longmemeval.Dataset` / `Question` / `Session` (T1)
 **Data dependency:** hermetic — policies are pure functions from a `Question` to a slice of records; the palace write happens in T4.
