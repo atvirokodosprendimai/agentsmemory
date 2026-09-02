@@ -255,7 +255,7 @@ func recordedMCPCommand(path string) (string, error) {
 type hookVerdict struct {
 	name   string
 	events []string // every event this script is registered for, in the settings file
-	label  string   // UNREGISTERED | DISCARDED | FAILED | silent | speaks
+	label  string   // UNREGISTERED | DISCARDED | FAILED | NOT-INSTALLED | silent | speaks
 	detail string
 	stderr string
 	bad    bool // counts toward a non-zero exit
@@ -474,7 +474,58 @@ func hookVerdictsIn(ctx context.Context, c *cli.Command, kit agentKit, dir, proj
 	for _, name := range names {
 		verdicts = append(verdicts, judgeHook(ctx, c, dir, name, registered[name], projectDir))
 	}
+	verdicts = append(verdicts, uninstalledRegistrations(dir, scripts, registered)...)
 	return verdicts, nil
+}
+
+// uninstalledRegistrations reports hooks settings.json selects that are not on
+// disk: the arrow this command was missing.
+//
+// ⚠ THE SCAN'S UNIVERSE IS THE DIRECTORY, SO A DELETED HOOK LEAVES IT SILENTLY.
+// judgeHook is called once per script FOUND by scanning dir for a
+// `# hook-output:` declaration. A registration naming a file that is not there
+// declares nothing, so it never enters `names`, never gets a verdict, and simply
+// lowers the count in the closing line — which then reports "all N injecting
+// hook(s) are registered on an injecting event and ran" over a config that selects
+// a script the agent cannot run. Measured 2026-09-02: deleting an installed recall
+// hook while leaving its SessionStart registration gave exit 0 and that sentence.
+//
+// Every other state this command reports is "installed, and something about the
+// registration is wrong". This is the reverse arrow, and it is unambiguous in a way
+// STALE and STALE-PATH are not: an operator may run a hand-edited hook or a
+// deliberate build on purpose, but nothing selects a file it means to be absent.
+// So it is fatal, where drift is not.
+//
+// It cannot cry wolf on a foreign hook. `registered` is keyed off
+// installerHookPath, the installer's own parser for the command shapes it writes,
+// so a config full of unrelated hooks contributes no entries here at all.
+func uninstalledRegistrations(dir string, scripts map[string]string, registered map[string]hookRegistration) []hookVerdict {
+	names := make([]string, 0, len(registered))
+	for name := range registered {
+		if _, found := scripts[name]; found {
+			continue // installed and already judged
+		}
+		// A file that exists but declares no channel is a DIFFERENT finding, and
+		// the empty-universe branch above already names it. Only absence is ours.
+		if _, err := os.Stat(filepath.Join(dir, name)); err == nil {
+			continue
+		}
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	out := make([]hookVerdict, 0, len(names))
+	for _, name := range names {
+		out = append(out, hookVerdict{
+			name:   name,
+			events: registered[name].events,
+			label:  "NOT-INSTALLED",
+			detail: "registered in " + filepath.Base(dir) + " but no such file — the agent runs " +
+				"nothing for this event; `aiagentmemory install` writes it back",
+			bad: true,
+		})
+	}
+	return out
 }
 
 // reportServerBin prints the bridge-binary verdict, then the command's summary.
@@ -511,13 +562,15 @@ func reportServerBin(out io.Writer, kit agentKit, dir string, bad, hooks int) er
 	if bad > 0 {
 		return fmt.Errorf("%d finding(s) across %d injecting hook(s) and the bridge binary.\n"+
 			"  UNREGISTERED:   the script is installed and %s registers it for no event.\n"+
+			"  NOT-INSTALLED:  the reverse — %s registers it and the file is not there, so\n"+
+			"                  the agent runs nothing for that event.\n"+
 			"  DISCARDED:      it is registered on an event whose stdout goes to the debug\n"+
 			"                  log; only %s inject.\n"+
 			"  FAILED:         it exited non-zero. The stderr above says why.\n"+
 			"  MISSING /\n"+
 			"  NOT-EXECUTABLE: the MCP registration names a binary that cannot be spawned.\n"+
 			"  Re-running `aiagentmemory install` rewrites the registrations",
-			bad, hooks, kit.hooksFile, strings.Join(sortedInjectingEvents(), ", "))
+			bad, hooks, kit.hooksFile, kit.hooksFile, strings.Join(sortedInjectingEvents(), ", "))
 	}
 	switch {
 	case hooks > 0 && bv != nil:
