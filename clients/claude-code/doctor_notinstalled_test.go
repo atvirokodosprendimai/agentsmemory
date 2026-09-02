@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -138,5 +139,154 @@ func TestAnInstalledHookThatDeclaresNothingIsNotReportedMissing(t *testing.T) {
 	if strings.Contains(report, "NOT-INSTALLED") {
 		t.Errorf("a hook that is on disk was reported as not installed, so the advice "+
 			"names a file the operator already has:\n%s", report)
+	}
+}
+
+// TestAHookRegisteredInAnotherConfigDirIsNotReportedMissing pins that the check
+// asks about the path the registration NAMES, not the one this command expected.
+//
+// ⚠ THE REGISTRATION MAP IS KEYED BY BASENAME, WHICH DISCARDS THE DIRECTORY.
+// Keying by base is right for matching a registration against scripts found by
+// scanning the config dir, but the absence check then asked whether dir/<base>
+// existed. A hook installed in a SECOND config directory and registered by its real
+// absolute path — which is what an operator running more than one config does, and
+// what `--config-dir` produces — was reported NOT-INSTALLED with a message saying
+// the agent runs nothing for that event. The agent runs it perfectly well.
+//
+// Found in review of #171, after that PR had merged, and reproduced against a real
+// second directory before this test was written.
+//
+// A false alarm is the specific way this check dies: staleHooksIn's own comment
+// records that reasoning about the absent-file case, and doctor exits NON-ZERO on
+// this one, so the cost is a red build on a healthy install.
+func TestAHookRegisteredInAnotherConfigDirIsNotReportedMissing(t *testing.T) {
+	other := t.TempDir()
+	elsewhere := filepath.Join(other, recallHookFile)
+	if err := os.WriteFile(elsewhere, []byte(injectingHookBody), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// hookFile lives in the config dir; recallHookFile lives in `other` and is
+	// registered by its absolute path there.
+	dir := doctorEnv(t, map[string]string{hookFile: injectingHookBody},
+		map[string][]string{"SessionStart": {hookFile}})
+
+	settings := filepath.Join(dir, "settings.json")
+	body, err := os.ReadFile(settings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(body, &doc); err != nil {
+		t.Fatalf("fixture does not parse: %v", err)
+	}
+	hooks, _ := doc["hooks"].(map[string]any)
+	if hooks == nil {
+		t.Fatalf("no hooks block in the fixture:\n%s", body)
+	}
+	entries, _ := hooks["SessionStart"].([]any)
+	hooks["SessionStart"] = append(entries, map[string]any{
+		"hooks": []any{map[string]any{"type": "command", "command": bashHookCommand(elsewhere)}},
+	})
+	patched, err := json.MarshalIndent(doc, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(settings, patched, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	report, err := runDoctor(t, dir)
+	if err != nil {
+		t.Fatalf("a healthy install with a hook in another config dir failed: %v\n%s", err, report)
+	}
+	if strings.Contains(report, "NOT-INSTALLED") {
+		t.Errorf("reported a hook that is on disk in the directory its registration names:\n%s", report)
+	}
+
+	// The half that keeps the fix honest: deleting it from where it actually lives
+	// must still be caught, and the report must name THAT path rather than the
+	// config dir it is not in.
+	if err := os.Remove(elsewhere); err != nil {
+		t.Fatal(err)
+	}
+	report, err = runDoctor(t, dir)
+	if err == nil {
+		t.Fatalf("a registration naming a file that exists nowhere reported success:\n%s", report)
+	}
+	if !strings.Contains(report, "NOT-INSTALLED") {
+		t.Errorf("a genuinely absent hook was not reported:\n%s", report)
+	}
+	if !strings.Contains(report, elsewhere) {
+		t.Errorf("the report does not name the path the registration points at, so the "+
+			"operator is sent to the wrong directory:\n%s", report)
+	}
+}
+
+// TestAnUnreadablePathIsNotReportedAsAbsent pins that only ErrNotExist counts as
+// absence.
+//
+// ⚠ EVERY OTHER Stat ERROR MEANS "I COULD NOT ANSWER", NOT "IT IS NOT THERE", and
+// this check exits NON-ZERO on its finding — so reading them the same way fails a
+// build over an EACCES on a parent directory, a dangling symlink, or a path on an
+// unmounted volume, while telling the operator "the agent runs nothing for this
+// event" about a file that is sitting right there.
+//
+// It was a minor point while the path was always dir/<base>, inside the operator's
+// own config directory. It stopped being minor when the path started coming from
+// whatever absolute location a registration names, which is what the sibling test
+// above exists for. Raised in review of #176; doctor.go already used this form
+// twice for the bridge binary.
+func TestAnUnreadablePathIsNotReportedAsAbsent(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root can stat through a 0000 directory, so the case cannot be built here")
+	}
+	locked := t.TempDir()
+	hook := filepath.Join(locked, recallHookFile)
+	if err := os.WriteFile(hook, []byte(injectingHookBody), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	dir := doctorEnv(t, map[string]string{hookFile: injectingHookBody},
+		map[string][]string{"SessionStart": {hookFile}})
+	settings := filepath.Join(dir, "settings.json")
+	body, err := os.ReadFile(settings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(body, &doc); err != nil {
+		t.Fatalf("fixture does not parse: %v", err)
+	}
+	hooks, _ := doc["hooks"].(map[string]any)
+	entries, _ := hooks["SessionStart"].([]any)
+	hooks["SessionStart"] = append(entries, map[string]any{
+		"hooks": []any{map[string]any{"type": "command", "command": bashHookCommand(hook)}},
+	})
+	patched, err := json.MarshalIndent(doc, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(settings, patched, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// The file exists; the directory holding it cannot be traversed. Restored by
+	// the cleanup so t.TempDir can remove the tree.
+	if err := os.Chmod(locked, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(locked, 0o755) })
+	if _, err := os.Stat(hook); errors.Is(err, os.ErrNotExist) {
+		t.Skipf("this filesystem reports ErrNotExist through an unreadable parent, so the case cannot be built: %v", err)
+	}
+
+	report, err := runDoctor(t, dir)
+	if err != nil {
+		t.Errorf("a hook this command could not stat failed the run: %v\n%s", err, report)
+	}
+	if strings.Contains(report, "NOT-INSTALLED") {
+		t.Errorf("an unreadable path was reported as absent — the file is on disk and the "+
+			"agent runs it:\n%s", report)
 	}
 }
