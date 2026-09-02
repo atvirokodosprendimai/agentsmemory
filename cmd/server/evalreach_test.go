@@ -33,7 +33,13 @@ func TestEvalOutputsAreReachableFromTheCommand(t *testing.T) {
 		"cellsPath":              "runEval",
 		"resultsPath":            "runEval",
 		"readCasesWithMeta":      "loadOrGenerateCases",
-		"Setup":                  "runEval",
+		// "Setup": "runEval" lived here until issue #53. It was the only gate in
+		// the tree binding a flag to an entry point, and its limits were the
+		// finding: it parses one file, so it could not express the same
+		// requirement for run() in main.go, and its universe was this
+		// hand-maintained map. telemetry.Setup now has a single call site that
+		// TestTelemetrySetupHasOneChokepoint holds, and wrapTelemetry reaches
+		// runEval along with every other action.
 	}
 
 	fset := token.NewFileSet()
