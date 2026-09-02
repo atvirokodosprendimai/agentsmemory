@@ -57,9 +57,39 @@ docker inspect "$CONTAINER" >/dev/null 2>&1 || die "container $CONTAINER not fou
 TS="$(date +%Y%m%d%H%M%S)"
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/repair-corpus-$TS.XXXXXX")"
 
-# The palace must come back up whatever happens below.
+# The palace must come back up whatever happens below — EXCEPT where starting it is
+# the corruption.
+#
+# ⚠ TWO FLAGS, BECAUSE THEY ANSWER DIFFERENT QUESTIONS. STOPPED says "did I stop it";
+# SAFE says "is starting it safe right now". An earlier version had only the first,
+# so every `die` inside the copy-back printed "do NOT start the server" and then the
+# trap started it anyway — on a repaired main file with the stale -wal still beside
+# it, which is traps 1 and 2 from the header, i.e. exactly the corruption this script
+# exists to prevent. Found in review of this PR and reproduced against a replica of
+# this control flow before being fixed.
+#
+# ⚠ AND IT RETURNS 0 EXPLICITLY. `[ "$STOPPED" = 1 ] && { … }` as the last command
+# makes the function return 1 whenever STOPPED is 0 — which is the SUCCESS path — and
+# bash takes the EXIT trap's status as the script's. A completed repair exited 1,
+# indistinguishable from a failure to any `&&` chain or CI step. The dry-run cannot
+# catch it: --dry-run exits with STOPPED still 1, so the trap ends on the restart's
+# `|| true` and the status is 0. The bug lived only on the path the dry-run avoids.
 STOPPED=0
-restart_if_stopped() { [ "$STOPPED" = 1 ] && { say "restarting the palace"; "${COMPOSE[@]}" up -d "$SVC" || true; }; }
+SAFE=1
+restart_if_stopped() {
+  if [ "$STOPPED" = 1 ]; then
+    if [ "$SAFE" = 1 ]; then
+      say "restarting the palace"
+      "${COMPOSE[@]}" up -d "$SVC" || true
+    else
+      printf '\n⚠ NOT restarting: the volume is mid-repair and starting now would replay\n'
+      printf '  a stale WAL over a changed database. Restore the backup first:\n'
+      printf '    %s\n' "$WORK/db.before"
+      printf '  then start with: %s up -d %s\n' "${COMPOSE[*]}" "$SVC"
+    fi
+  fi
+  return 0
+}
 trap restart_if_stopped EXIT
 
 say "1/7  stopping the palace"
@@ -69,7 +99,20 @@ STOPPED=1
 # docker cp reads a stopped container's filesystem; docker exec does not run in one.
 say "2/7  copying the database out, sidecars included"
 docker cp "$CONTAINER:$DB" "$WORK/db" || die "docker cp out failed"
-for ext in -wal -shm; do docker cp "$CONTAINER:$DB$ext" "$WORK/db$ext" 2>/dev/null || true; done
+
+# ⚠ ASK WHICH SIDECARS EXIST, THEN REQUIRE THOSE COPIES TO SUCCEED. `docker cp … ||
+# true` gives one outcome for two very different states: a sidecar that is genuinely
+# absent (fine — a cleanly checkpointed database has none) and one that exists but
+# failed to copy (trap 1). The second is silent and its consequences are not: the
+# checkpoint below folds in a log that is not there, BEFORE is counted on short data,
+# and the copy-back drops every write the WAL held. Raised in review of this PR.
+PRESENT="$(docker run --rm -v "$(docker inspect "$CONTAINER" --format '{{range .Mounts}}{{if eq .Destination "/data"}}{{.Name}}{{end}}{{end}}'):/data" \
+  alpine sh -c "ls /data/$DBNAME-wal /data/$DBNAME-shm 2>/dev/null" | sed "s|/data/$DBNAME||")"
+for ext in $PRESENT; do
+  docker cp "$CONTAINER:$DB$ext" "$WORK/db$ext" \
+    || die "$DBNAME$ext exists in the volume but could not be copied — a checkpoint without it would silently drop the writes it holds"
+done
+echo "     sidecars present: ${PRESENT:-none}"
 
 say "3/7  backing up, then folding the log into the file"
 cp "$WORK/db" "$WORK/db.before"
@@ -98,6 +141,10 @@ sqlite3 -readonly "$WORK/db" "PRAGMA integrity_check;" | head -1 | grep -qx ok \
 [ "$DRY" = 1 ] && { say "dry run — NOT copying back. Modified copy: $WORK/db"; exit 0; }
 
 say "6/7  copying back, clearing sidecars, restoring ownership"
+# From here until the sidecars are gone and ownership is restored, the volume holds a
+# NEW main file beside an OLD log. Starting the server in that window is the
+# corruption, so the trap must not.
+SAFE=0
 docker cp "$WORK/db" "$CONTAINER:$DB" || die "docker cp back failed — backup is $WORK/db.before"
 VOL="$(docker inspect "$CONTAINER" --format '{{range .Mounts}}{{if eq .Destination "/data"}}{{.Name}}{{end}}{{end}}')"
 [ -n "$VOL" ] || die "could not discover the /data volume — do NOT start the server; restore $WORK/db.before"
@@ -109,6 +156,7 @@ docker run --rm -v "$VOL:/data" alpine sh -c \
 LEFT="$(docker run --rm -v "$VOL:/data" alpine sh -c "ls /data/$DBNAME-wal /data/$DBNAME-shm 2>/dev/null | wc -l" | tr -d ' ')"
 [ "$LEFT" = "0" ] || die "sidecars survived removal — do NOT start; restore $WORK/db.before"
 echo "     volume $VOL, owner $OWNER, sidecars cleared"
+SAFE=1   # the window is closed: one complete database, no stale log, right owner
 
 say "7/7  restarting and re-checking"
 STOPPED=0
