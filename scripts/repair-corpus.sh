@@ -28,10 +28,10 @@
 # The palace is restarted on every failure path — a stopped container is a worse
 # outcome than an unrepaired one.
 #
-# Usage: scripts/repair-corpus.sh <repair.sql> [--dry-run]
-#   --dry-run does everything except copy back, and leaves the modified copy for
-#   inspection. Run it first; it is the only way to see what the SQL does before
-#   the palace sees it.
+# Usage: scripts/repair-corpus.sh <repair.sql> [--apply|--dry-run]
+#   Dry by DEFAULT: with no second argument it does everything except copy back,
+#   and leaves the modified copy for inspection. Pass --apply to copy back. The
+#   dry pass is the only way to see what the SQL does before the palace sees it.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -41,15 +41,25 @@ CONTAINER=agentsmemory-agentsmemory-1
 DB=/data/agentsmemory.db
 DBNAME="$(basename "$DB")"
 
+# ⚠ DRY BY DEFAULT, DESTRUCTIVE ON PURPOSE. The default used to be the copy-back,
+# with safety opt-in via --dry-run — so the whole class of "somebody omitted a flag
+# they meant to pass" ended in a mutated database. For a script whose ancestor
+# corrupted a palace that is the wrong way round, and it made the tool's default
+# disagree with its own instructions, which already say to run the dry pass first.
+# Raised in review of this PR. The real run now costs one deliberate word.
 SQL="${1:-}"
-DRY=0
-[ "${2:-}" = "--dry-run" ] && DRY=1
-[ "${1:-}" = "--dry-run" ] && { echo "usage: $0 <repair.sql> [--dry-run]" >&2; exit 2; }
+DRY=1
+case "${2:-}" in
+  --apply)   DRY=0 ;;
+  --dry-run|"") DRY=1 ;;
+  *) echo "unknown option: ${2}" >&2; echo "usage: $0 <repair.sql> [--apply|--dry-run]" >&2; exit 2 ;;
+esac
+case "$SQL" in --*) echo "usage: $0 <repair.sql> [--apply|--dry-run]" >&2; exit 2 ;; esac
 
 say() { printf '\n=== %s\n' "$*"; }
 die() { printf '\nFAILED: %s\n' "$*" >&2; exit 1; }
 
-[ -n "$SQL" ] || die "usage: $0 <repair.sql> [--dry-run]"
+[ -n "$SQL" ] || die "usage: $0 <repair.sql> [--apply|--dry-run]"
 [ -f "$SQL" ] || die "no such SQL file: $SQL"
 command -v sqlite3 >/dev/null || die "sqlite3 is not on PATH"
 docker inspect "$CONTAINER" >/dev/null 2>&1 || die "container $CONTAINER not found"
@@ -92,7 +102,14 @@ restart_if_stopped() {
 }
 trap restart_if_stopped EXIT
 
-say "1/7  stopping the palace"
+# Discovered ONCE, above the first use, and guarded. It was resolved inline in step 2
+# and again in step 6, and only the second was checked — so a failure in the first
+# reached a `docker run -v :/data`, which Docker reads as an anonymous volume rather
+# than an error. Raised in review of this PR.
+VOL="$(docker inspect "$CONTAINER" --format '{{range .Mounts}}{{if eq .Destination "/data"}}{{.Name}}{{end}}{{end}}')"
+[ -n "$VOL" ] || die "could not discover the /data volume of $CONTAINER — nothing was touched"
+
+say "1/7  stopping the palace  (data volume: $VOL)"
 "${COMPOSE[@]}" stop "$SVC" || die "could not stop $SVC"
 STOPPED=1
 
@@ -106,8 +123,17 @@ docker cp "$CONTAINER:$DB" "$WORK/db" || die "docker cp out failed"
 # failed to copy (trap 1). The second is silent and its consequences are not: the
 # checkpoint below folds in a log that is not there, BEFORE is counted on short data,
 # and the copy-back drops every write the WAL held. Raised in review of this PR.
-PRESENT="$(docker run --rm -v "$(docker inspect "$CONTAINER" --format '{{range .Mounts}}{{if eq .Destination "/data"}}{{.Name}}{{end}}{{end}}'):/data" \
-  alpine sh -c "ls /data/$DBNAME-wal /data/$DBNAME-shm 2>/dev/null" | sed "s|/data/$DBNAME||")"
+#
+# ⚠ `|| true` ON THE LISTING, WHICH IS NOT THE SAME `|| true` THIS PARAGRAPH REJECTS.
+# `ls` exits non-zero when an operand is missing, and under `set -euo pipefail` that
+# aborts the whole script from inside a command substitution. Measured against
+# BusyBox `ls` in alpine, which is what actually runs here: NEITHER sidecar exits 1,
+# ONE sidecar exits 1, both exit 0 — so a cleanly checkpointed database, which is
+# precisely what a successful repair leaves behind, made the SECOND run abort at
+# step 2. Letting the listing come back empty is safe because the guard that matters
+# is the loop below: for each sidecar found, the copy must succeed.
+PRESENT="$(docker run --rm -v "$VOL:/data" alpine \
+  sh -c "ls /data/$DBNAME-wal /data/$DBNAME-shm 2>/dev/null || true" | sed "s|/data/$DBNAME||" | tr '\n' ' ')"
 for ext in $PRESENT; do
   docker cp "$CONTAINER:$DB$ext" "$WORK/db$ext" \
     || die "$DBNAME$ext exists in the volume but could not be copied — a checkpoint without it would silently drop the writes it holds"
@@ -138,7 +164,7 @@ sqlite3 -readonly "$WORK/db" "PRAGMA integrity_check;" | head -1 | grep -qx ok \
 # is allowed: a SQL file may be fixing something this counter does not measure.
 [ "$AFTER" -le "$BEFORE" ] || die "dangling references rose from $BEFORE to $AFTER — refusing to copy back"
 
-[ "$DRY" = 1 ] && { say "dry run — NOT copying back. Modified copy: $WORK/db"; exit 0; }
+[ "$DRY" = 1 ] && { say "dry run (default) — NOT copying back. Pass --apply to commit it.\n     Modified copy: $WORK/db"; exit 0; }
 
 say "6/7  copying back, clearing sidecars, restoring ownership"
 # From here until the sidecars are gone and ownership is restored, the volume holds a
@@ -146,8 +172,6 @@ say "6/7  copying back, clearing sidecars, restoring ownership"
 # corruption, so the trap must not.
 SAFE=0
 docker cp "$WORK/db" "$CONTAINER:$DB" || die "docker cp back failed — backup is $WORK/db.before"
-VOL="$(docker inspect "$CONTAINER" --format '{{range .Mounts}}{{if eq .Destination "/data"}}{{.Name}}{{end}}{{end}}')"
-[ -n "$VOL" ] || die "could not discover the /data volume — do NOT start the server; restore $WORK/db.before"
 OWNER="$(docker run --rm -v "$VOL:/data" alpine sh -c 'stat -c "%u:%g" /data')"
 [ -n "$OWNER" ] || die "could not read /data ownership — do NOT start the server"
 docker run --rm -v "$VOL:/data" alpine sh -c \
