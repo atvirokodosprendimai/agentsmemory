@@ -3294,3 +3294,38 @@ the destination knows about them.
   overturned an ALL-CAPS exclusion once already because it would have killed `HTTP`, `MCP`, `ADR`,
   `TEI` and `RRF`. So this wants a preregistered measurement over the real corpus before any
   heuristic ships — the same discipline ADR-014 applies to a ranking default.
+
+## From the 2026-09-02 corpus repair (no ADR yet)
+
+Filed after repairing 16 facts whose `source_drawer_id` named no row, on this project's own
+palace. Both entries are receipts for work that was NOT done, written now because the evidence
+was in front of me and will not be again.
+
+- **`doctor --corpus` reports damage nothing can repair.** It is deliberately read-only —
+  `TestTheReadOnlyPathMintsNothing` exists so a checker never reports on a palace it has just
+  changed — and no `am_*` tool clears or repoints a `source_drawer_id`. So the only route from
+  "16 facts name no row" to a clean corpus is raw SQL against the container's database, which is
+  what was done here: stop the server, `docker cp` the file out, `UPDATE`, copy back. Three
+  separate ways that goes wrong were found by doing it. The database is in **WAL mode**, so
+  copying `agentsmemory.db` alone silently omits the sidecar — 4 MB of recent writes on the day
+  measured. `docker exec` cannot run in a stopped container, so a removal step written that way
+  fails silently. And `docker cp` writes as the host uid, so the next start fails with `attempt
+  to write a readonly database (8)` on a file that is perfectly intact. The first two together
+  replayed a stale WAL over a changed main file and produced `database disk image is malformed`
+  with a crash-looping server. **Any repair path worth shipping has to own those three, which is
+  the argument for it living in the tool rather than in each operator's shell history.**
+
+- **Nothing notices when a fact goes FALSE, and `--corpus` is structurally blind to it.** The
+  check asks whether a pointer RESOLVES, never whether the fact still agrees with the memory it
+  points at. Measured the same day: a fact of the shape `<host> -[<permits-a-thing>]-> <value>`
+  sat `current` and answerable for two weeks, while a drawer in the same wing recorded that the
+  setting had been turned off estate-wide on a named date. Search returns both; nothing
+  reconciles them. The dangling pointers were cosmetic beside this — a current fact asserting a
+  weaker security posture than production actually has is a false belief an agent acts on, and
+  it was found only by reading the drawer a repointing exercise happened to open. The specifics
+  stay in the palace, which is private; this repository is public, and none of the argument
+  depends on which host or which setting. **Whether this is detectable at all is the open question**: the
+  cheap version (flag a fact whose source drawer was superseded after the fact's `valid_from`)
+  is a heuristic that would have caught this one and will produce false positives, so it wants a
+  measurement over the real corpus before it wants an implementation. This is ADR-shaped and has
+  no record yet.

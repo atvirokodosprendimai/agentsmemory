@@ -229,11 +229,34 @@ func reportCorpus(out io.Writer, slug string, f corpusFindings) error {
 // lines — the count above is the number that matters.
 const corpusSample = 10
 
-// shortSample returns at most corpusSample ids, saying how many were elided.
+// shortSample returns at most corpusSample DISTINCT ids, saying how many were
+// elided.
+//
+// ⚠ THE COUNT IS PER REFERENCE AND THE SAMPLE IS PER ROW, AND CONFLATING THEM SPENT
+// THE BUDGET ON REPEATS. LostFacts is plucked one entry per triple, so a drawer
+// cited by four facts is four entries — correct for the headline, which says how
+// many FACTS are affected, and wrong for the list, which exists to name the rows an
+// operator must go and look at. Measured 2026-09-02 on this project's own palace:
+// "16 facts name no row" printed ten lines holding seven distinct ids, three of them
+// twice, and hid the remainder behind "… and 6 more". Nearly a third of a
+// deliberately small budget went on ids already on screen.
+//
+// Deduplicating changes no count and no exit code. The headline still says 16,
+// because sixteen facts really do have provenance that resolves to nothing; only
+// the sample is per row now, which is what it was always for.
 func shortSample(ids []string) []string {
-	if len(ids) <= corpusSample {
-		return ids
+	seen := make(map[string]bool, len(ids))
+	distinct := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+		distinct = append(distinct, id)
 	}
-	out := append([]string(nil), ids[:corpusSample]...)
-	return append(out, fmt.Sprintf("… and %d more", len(ids)-corpusSample))
+	if len(distinct) <= corpusSample {
+		return distinct
+	}
+	out := append([]string(nil), distinct[:corpusSample]...)
+	return append(out, fmt.Sprintf("… and %d more", len(distinct)-corpusSample))
 }
