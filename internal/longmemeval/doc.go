@@ -16,7 +16,7 @@
 //
 // So the unit here is a CELL: one write policy crossed with one query policy,
 // scored by whether a reader answered the question correctly from what recall
-// returned, inside a token budget every cell shares. The shared budget is what
+// returned, inside a rune budget every cell shares. The shared budget is what
 // makes it a metric a superset cannot automatically win. ADR-047 carries the
 // decision, the pre-registered rule for promoting a policy into the centralised
 // skills, and what would falsify it.
