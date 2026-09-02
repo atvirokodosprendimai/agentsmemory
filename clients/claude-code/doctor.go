@@ -515,7 +515,15 @@ func uninstalledRegistrations(dir string, scripts map[string]string, registered 
 		}
 		// A file that exists but declares no channel is a DIFFERENT finding, and
 		// the empty-universe branch above already names it. Only absence is ours.
-		if _, err := os.Stat(at); err == nil {
+		//
+		// ⚠ ONLY ErrNotExist IS ABSENCE. Reading every Stat error that way says "no
+		// such file — the agent runs nothing for this event" over an EACCES on a
+		// parent, a dangling symlink, or a path on an unmounted volume, and exits
+		// non-zero for it. That was minor while this always asked about dir/<base>;
+		// it is not, now that the path comes from someone else's config directory,
+		// where those states are considerably more likely. Raised in review of #176,
+		// and the file already uses this form twice for the bridge binary.
+		if _, err := os.Stat(at); !errors.Is(err, os.ErrNotExist) {
 			continue
 		}
 		names = append(names, name)
