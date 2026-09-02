@@ -505,9 +505,17 @@ func uninstalledRegistrations(dir string, scripts map[string]string, registered 
 		if _, found := scripts[name]; found {
 			continue // installed and already judged
 		}
+		// ⚠ STAT WHERE THE REGISTRATION POINTS, NOT WHERE WE EXPECT IT. The command
+		// carries an absolute path and an operator may legitimately keep hooks in a
+		// different config directory; asking about dir/<base> answers a question
+		// nobody registered.
+		at := registered[name].path
+		if at == "" {
+			at = filepath.Join(dir, name)
+		}
 		// A file that exists but declares no channel is a DIFFERENT finding, and
 		// the empty-universe branch above already names it. Only absence is ours.
-		if _, err := os.Stat(filepath.Join(dir, name)); err == nil {
+		if _, err := os.Stat(at); err == nil {
 			continue
 		}
 		names = append(names, name)
@@ -520,8 +528,8 @@ func uninstalledRegistrations(dir string, scripts map[string]string, registered 
 			name:   name,
 			events: registered[name].events,
 			label:  "NOT-INSTALLED",
-			detail: "registered in " + filepath.Base(dir) + " but no such file — the agent runs " +
-				"nothing for this event; `aiagentmemory install` writes it back",
+			detail: "registered as " + registeredPathOf(registered, dir, name) + " but no such file — " +
+				"the agent runs nothing for this event; `aiagentmemory install` writes it back",
 			bad: true,
 		})
 	}
@@ -688,6 +696,12 @@ func registeredHookEvents(settingsPath string) (map[string]hookRegistration, err
 				}
 				name := filepath.Base(path)
 				reg := out[name]
+				// First registration wins, for the same reason env does below: a
+				// script registered twice with different paths is a hand edit this
+				// command must not silently average away.
+				if reg.path == "" {
+					reg.path = path
+				}
 				if !containsString(reg.events, event) {
 					reg.events = append(reg.events, event)
 				}
@@ -718,6 +732,26 @@ func registeredHookEvents(settingsPath string) (map[string]hookRegistration, err
 type hookRegistration struct {
 	events []string
 	env    []string
+	// path is the command's own path, kept whole.
+	//
+	// ⚠ THE MAP IS KEYED BY BASENAME AND THAT DISCARDS WHERE THE HOOK ACTUALLY IS.
+	// Keying by base is right for matching a registration against the scripts found
+	// by scanning dir, but uninstalledRegistrations then asked whether dir/<base>
+	// exists — so a hook installed in ANOTHER config directory and registered by its
+	// real absolute path was reported NOT-INSTALLED, with a message saying the agent
+	// runs nothing for that event. The agent runs it fine. Found in review of #171
+	// and reproduced: a declaring recall hook in a second directory, registered
+	// absolutely, reported missing and exited 1 on a healthy install.
+	path string
+}
+
+// registeredPathOf names the path the registration actually points at, so the
+// report tells an operator where to look rather than where this command guessed.
+func registeredPathOf(registered map[string]hookRegistration, dir, name string) string {
+	if p := registered[name].path; p != "" {
+		return p
+	}
+	return filepath.Join(dir, name)
 }
 
 // containsString reports whether haystack already holds needle.

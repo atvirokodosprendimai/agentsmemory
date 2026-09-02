@@ -140,3 +140,84 @@ func TestAnInstalledHookThatDeclaresNothingIsNotReportedMissing(t *testing.T) {
 			"names a file the operator already has:\n%s", report)
 	}
 }
+
+// TestAHookRegisteredInAnotherConfigDirIsNotReportedMissing pins that the check
+// asks about the path the registration NAMES, not the one this command expected.
+//
+// ⚠ THE REGISTRATION MAP IS KEYED BY BASENAME, WHICH DISCARDS THE DIRECTORY.
+// Keying by base is right for matching a registration against scripts found by
+// scanning the config dir, but the absence check then asked whether dir/<base>
+// existed. A hook installed in a SECOND config directory and registered by its real
+// absolute path — which is what an operator running more than one config does, and
+// what `--config-dir` produces — was reported NOT-INSTALLED with a message saying
+// the agent runs nothing for that event. The agent runs it perfectly well.
+//
+// Found in review of #171, after that PR had merged, and reproduced against a real
+// second directory before this test was written.
+//
+// A false alarm is the specific way this check dies: staleHooksIn's own comment
+// records that reasoning about the absent-file case, and doctor exits NON-ZERO on
+// this one, so the cost is a red build on a healthy install.
+func TestAHookRegisteredInAnotherConfigDirIsNotReportedMissing(t *testing.T) {
+	other := t.TempDir()
+	elsewhere := filepath.Join(other, recallHookFile)
+	if err := os.WriteFile(elsewhere, []byte(injectingHookBody), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// hookFile lives in the config dir; recallHookFile lives in `other` and is
+	// registered by its absolute path there.
+	dir := doctorEnv(t, map[string]string{hookFile: injectingHookBody},
+		map[string][]string{"SessionStart": {hookFile}})
+
+	settings := filepath.Join(dir, "settings.json")
+	body, err := os.ReadFile(settings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(body, &doc); err != nil {
+		t.Fatalf("fixture does not parse: %v", err)
+	}
+	hooks, _ := doc["hooks"].(map[string]any)
+	if hooks == nil {
+		t.Fatalf("no hooks block in the fixture:\n%s", body)
+	}
+	entries, _ := hooks["SessionStart"].([]any)
+	hooks["SessionStart"] = append(entries, map[string]any{
+		"hooks": []any{map[string]any{"type": "command", "command": bashHookCommand(elsewhere)}},
+	})
+	patched, err := json.MarshalIndent(doc, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(settings, patched, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	report, err := runDoctor(t, dir)
+	if err != nil {
+		t.Fatalf("a healthy install with a hook in another config dir failed: %v\n%s", err, report)
+	}
+	if strings.Contains(report, "NOT-INSTALLED") {
+		t.Errorf("reported a hook that is on disk in the directory its registration names:\n%s", report)
+	}
+
+	// The half that keeps the fix honest: deleting it from where it actually lives
+	// must still be caught, and the report must name THAT path rather than the
+	// config dir it is not in.
+	if err := os.Remove(elsewhere); err != nil {
+		t.Fatal(err)
+	}
+	report, err = runDoctor(t, dir)
+	if err == nil {
+		t.Fatalf("a registration naming a file that exists nowhere reported success:\n%s", report)
+	}
+	if !strings.Contains(report, "NOT-INSTALLED") {
+		t.Errorf("a genuinely absent hook was not reported:\n%s", report)
+	}
+	if !strings.Contains(report, elsewhere) {
+		t.Errorf("the report does not name the path the registration points at, so the "+
+			"operator is sent to the wrong directory:\n%s", report)
+	}
+}
