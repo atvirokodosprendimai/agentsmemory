@@ -687,6 +687,32 @@ func (s *Service) prepareWrite(ctx context.Context, teamID string, in AddInput) 
 	if wing == "" || room == "" || content == "" {
 		return preparedWrite{}, fmt.Errorf("%w: wing, room and content are required", ErrInvalidInput)
 	}
+	// ⚠ THE ROOM IS A NAME AND WAS THE ONE NAME NOTHING CHECKED. SanitizeName's own
+	// doc calls it "a wing/room/agent/topic name", am_create_tunnel sanitises
+	// source_room and target_room, and am_mine sanitises room — but the call every
+	// session makes most did not, so a room could carry `/` and `..`.
+	//
+	// That is not cosmetic, because a room name is ENCODED INTO A GRAPH SUBJECT by
+	// an unescaped join: DerivedEdgeSubject builds "room:<wing>/<room>", and
+	// BackfillWingRoots recovers the wing from it by stripping affixes, on the
+	// stated assumption that "a wing name is sanitised and carries no slash". True
+	// of the wing, false of the room. Measured 2026-09-02: one am_add_drawer into
+	// room "evil/llm_init" satisfied that function's HasSuffix("/llm_init") check
+	// and, on the next boot, minted `wing_acme/evil.root` — a by-name root for a
+	// wing that does not exist. That is exactly the failure its own ⚠ comment was
+	// written to prevent, arriving through the unvalidated field rather than the
+	// wildcard it anticipated.
+	//
+	// Checked against the live corpus before enforcing: of 46 distinct rooms, the
+	// only two this rejects are the two the probe created.
+	wing, err := SanitizeName(wing, "wing")
+	if err != nil {
+		return preparedWrite{}, err
+	}
+	room, err = SanitizeName(room, "room")
+	if err != nil {
+		return preparedWrite{}, err
+	}
 
 	chunks := ChunkText(content, ChunkSize, ChunkOverlap, ChunkMin)
 
