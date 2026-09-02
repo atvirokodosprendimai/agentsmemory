@@ -276,3 +276,56 @@ func TestADocumentIsFoundAfterAnIdPositional(t *testing.T) {
 		t.Fatalf("reason = %v", sent["reason"])
 	}
 }
+
+// TestAFrontmatterKeyDoesNotSilentlyReplaceTheBody pins that the document body
+// fills the body argument even when the frontmatter names that argument too.
+//
+// ⚠ IT USED TO LOSE THE WHOLE BODY, SILENTLY, AND SAY OTHERWISE. DocumentArgs set
+// frontmatter keys first and the body assignment was guarded by "already set" — a
+// guard written so an explicit -a wins, which cannot tell an operator's flag from
+// the file's own frontmatter. So a document carrying `content:` stored that scalar
+// and discarded every line of prose, exit 0, while stderr reported "N runes →
+// content". Found by stress-testing the document path 2026-09-02: a 47-rune body
+// filed as the string "12345".
+//
+// An explicit -a must still win over both, because that IS the operator's last
+// word — it is in args before DocumentArgs runs, so the body assignment skips it
+// exactly as a frontmatter key would.
+func TestAFrontmatterKeyDoesNotSilentlyReplaceTheBody(t *testing.T) {
+	tool := updateSkill()
+	doc := Document{
+		Fields: map[string]string{"content": "12345", "name": "stress"},
+		Body:   "the prose that must survive",
+	}
+
+	t.Run("the body wins over a frontmatter key of the same name", func(t *testing.T) {
+		args := map[string]any{}
+		DocumentArgs(tool, doc, args)
+		if got := args["content"]; got != "the prose that must survive" {
+			t.Errorf("content = %q, want the body — a frontmatter key silently replaced it", got)
+		}
+		if got := args["name"]; got != "stress" {
+			t.Errorf("name = %q, want the frontmatter value: only the BODY key collides", got)
+		}
+	})
+
+	t.Run("an explicit -a still beats both", func(t *testing.T) {
+		args := map[string]any{"content": "from the flag"}
+		DocumentArgs(tool, doc, args)
+		if got := args["content"]; got != "from the flag" {
+			t.Errorf("content = %q, want the flag's value — -a is the operator's last word", got)
+		}
+	})
+
+	t.Run("the collision is reported rather than swallowed", func(t *testing.T) {
+		note := DocumentNote("m.md", doc, "content", nil)
+		if !strings.Contains(note, "content") || !strings.Contains(note, "body fills it") {
+			t.Errorf("the note does not say the frontmatter content key was ignored: %s", note)
+		}
+		// ⚠ AND IT MUST NOT REUSE THE UNDECLARED-KEY LABEL, which would be false:
+		// content IS an argument of this tool.
+		if strings.Contains(note, "not an argument of this tool") {
+			t.Errorf("the note calls a declared argument undeclared: %s", note)
+		}
+	})
+}
