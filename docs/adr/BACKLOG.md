@@ -3303,13 +3303,14 @@ was in front of me and will not be again.
 
 - **Nothing notices when a fact goes FALSE, and `--corpus` is structurally blind to it.** The
   check asks whether a pointer RESOLVES, never whether the fact still agrees with the memory it
-  points at. Measured the same day: `miami_sshd -[permits_direct_key_root_login]-> permitrootlogin
-  without-password` sat `current` and answerable for two weeks while a drawer in the same wing
-  recorded *"Direct root SSH is OFF estate-wide. miami was the last holdout — disabled
-  2026-08-20 by owner decision."* Search returns both; nothing reconciles them. The dangling
-  pointers were cosmetic beside this — a current fact asserting an open root login on production
-  is a false belief an agent acts on, and it was found only by reading the drawer a repointing
-  exercise happened to open. **Whether this is detectable at all is the open question**: the
+  points at. Measured the same day: a fact of the shape `<host> -[<permits-a-thing>]-> <value>`
+  sat `current` and answerable for two weeks, while a drawer in the same wing recorded that the
+  setting had been turned off estate-wide on a named date. Search returns both; nothing
+  reconciles them. The dangling pointers were cosmetic beside this — a current fact asserting a
+  weaker security posture than production actually has is a false belief an agent acts on, and
+  it was found only by reading the drawer a repointing exercise happened to open. The specifics
+  stay in the palace, which is private; this repository is public, and none of the argument
+  depends on which host or which setting. **Whether this is detectable at all is the open question**: the
   cheap version (flag a fact whose source drawer was superseded after the fact's `valid_from`)
   is a heuristic that would have caught this one and will produce false positives, so it wants a
   measurement over the real corpus before it wants an implementation. This is ADR-shaped and has
