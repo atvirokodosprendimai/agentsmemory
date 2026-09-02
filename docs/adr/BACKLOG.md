@@ -3218,6 +3218,45 @@ one, make its condition true and watch the exit code.
   second caller of the reassembly path, or the first entry record that reads with a duplicated
   passage.**
 
+## From ADR-047 (measure the writing rule, not only the ranking knob)
+
+Filed with the ADR, in the same commit as the deferrals that point here — a pointer to a file that
+never received anything passes every check there is.
+
+- **LongMemEval-V2, its web/enterprise domains and any leaderboard submission.** V2's harness is
+  Python: a backend registers with `@register_memory` and implements `insert(trajectory)` /
+  `query(q)`, and a fixed reader model scores it. Comparability with a public leaderboard is a
+  different goal from deciding what a skill should tell an agent, and it would put a conda
+  environment into a Go repository whose entire gate corpus reads Go source. Revisit if anyone
+  needs an externally comparable number rather than an internally actionable one.
+- **Crossing the write/query policies with the ~30 ranking arms in one table.** The most
+  informative shape and the one whose cells go thin fastest. Worth doing once the policy axis has
+  produced a non-neutral result, so the cross is spent on a difference that exists.
+- **Running the full ~48-session haystack for all 500 questions.** ADR-047 runs a declared subset.
+  The full run is a corpus-scale ingest per cell and deserves its own cost estimate before anyone
+  starts it; the subset ids and seed are in `.cells.json` so a larger run stays comparable.
+- **A write policy that calls a model to summarise, and a judge with partial credit.** Both were
+  kept out of ADR-047 deliberately: a generative policy makes its row partly a measurement of that
+  model, and a rubric judge introduces a second thing to argue about before the first has produced
+  a number.
+- **Re-deriving ADR-003's cited LongMemEval figures** — summary-as-key costing 0.134 Recall@5, and
+  +9.4% for the concatenated variant. ADR-003 §Out of Scope marks this `permanent`, on the reason
+  that they are corroboration and the decision rests on our own runs. That reason is untouched;
+  what changes is that ADR-047 builds the instrument which would make re-deriving them possible.
+  Recorded here because `permanent` is the one disposition `adr-debt` never sweeps, so a boundary
+  that becomes re-openable has to be written down somewhere that is read.
+- **Nothing measures whether a promoted rule is actually followed.** ADR-047 T5 can put an
+  instruction into a centralised skill and has no way to observe compliance. Related to
+  §"The product is a runtime quality control plane, not an eval score" — the same gap, one level up.
+- **A tokenizer tied to the reader model, so the shared context budget is counted in tokens.**
+  ADR-047's central invariant is one budget every cell shares, and the pilot enforces it in
+  **runes**, because `go.mod` declares no tokenizer and `internal/palace/chunk.go:52-54` already
+  records that the palace cannot ask one. Raised in review of PR #148, and the finding is right
+  that a rune bound is an approximation: policies that rewrite and split text differently can
+  carry different token counts at the same rune count. What the pilot does instead is record the
+  reader endpoint's own reported prompt-token count per cell, so the realised spread is measured
+  rather than assumed. Revisit when a run's realised spread actually exceeds its declared
+  tolerance — a tokenizer dependency bought before that would be bought on a hypothesis.
 ## From ADR-048 (retire the reinforcement fields nothing writes)
 
 Receipts for that record's two deferrals, written with it rather than after it, so `adr-debt` finds

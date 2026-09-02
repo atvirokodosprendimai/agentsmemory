@@ -21,7 +21,6 @@ package main
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -34,6 +33,7 @@ import (
 	"time"
 
 	"github.com/atvirokodosprendimai/agentsmemory/internal/config"
+	"github.com/atvirokodosprendimai/agentsmemory/internal/gen"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/palace"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/rerank/tei"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/telemetry"
@@ -73,7 +73,7 @@ func evalCommand(def config.Config) *cli.Command {
 			&cli.StringFlag{Name: "rerank-model", Usage: "operator-declared label for the reranker in force, recorded in the calibration. Not detected: Reranker.Rerank returns floats and does not report what produced them"},
 			&cli.StringFlag{Name: "cases", Usage: "read cases from this JSONL file if it exists, otherwise write the generated ones there. Several comma-separated files are merged, which is how answerable and unanswerable questions get scored in one run — the only way the distance separation can be computed"},
 			&cli.StringFlag{Name: "gen-model", Sources: cli.EnvVars("EVAL_GEN_MODEL"), Value: "qwen2.5-coder:7b", Usage: "model that writes the questions (must be GENERATIVE — an embedder like bge-m3 cannot answer /api/generate)"},
-			&cli.StringFlag{Name: "gen-url", Sources: cli.EnvVars("EVAL_GEN_URL"), Usage: "where the question generator runs; defaults to --ollama-url. A URL containing /v1 is called as an OpenAI-compatible chat API, so a hosted model works here too"},
+			&cli.StringFlag{Name: "gen-url", Sources: cli.EnvVars("EVAL_GEN_URL"), Usage: "where the question generator runs; defaults to --ollama-url. It is called as Ollama's own /api/generate — a URL containing /v1 changes the failure hint only, NOT the request, so an OpenAI-compatible endpoint is not supported here"},
 			&cli.StringFlag{Name: "gen-api-key", Sources: cli.EnvVars("EVAL_GEN_API_KEY"), Usage: "bearer token for --gen-url; required by hosted providers, ignored by a local one"},
 			&cli.IntFlag{Name: "pool", Value: defaultEvalPool, Usage: "candidates fetched per query; every arm re-orders this same pool"},
 			&cli.BoolFlag{Name: "supersession-gate", Usage: "decide whether the supersession failure is common enough to justify a mechanism against it, from this run's temporal cases. Refuses rather than answering when the evidence is too thin, unhardened, or missing the pre-registered arm"},
@@ -809,6 +809,12 @@ func genURL(c *cli.Command) string {
 
 // questionGen asks a model for a question a given memory answers.
 //
+// The transport lives in internal/gen since ADR-047 T3: the same request path
+// had been written twice here and in kgextract.go, and that ADR needed a third
+// caller for its reader and judge. What stayed behind is what actually differs
+// between callers — this one's prompt, its 1200-rune input cap, its temperature,
+// and cleanQuestion keeping only a first line.
+//
 // The wire format is Ollama's own POST /api/generate ({model, prompt, stream,
 // options} in, {response} out), so --gen-url accepts a local Ollama, a remote
 // one, or hosted Ollama with a bearer token. It is NOT OpenAI-shaped: an
@@ -825,43 +831,28 @@ type questionGen struct {
 	verbose io.Writer
 }
 
+// client builds the transport for one call. It is rebuilt per call rather than
+// stored so the struct's fields stay the single source of truth — every call
+// site here constructs a questionGen by field, and a cached client would go
+// stale against a field somebody set afterwards.
+func (g *questionGen) client() *gen.Client {
+	return &gen.Client{URL: g.url, Model: g.model, APIKey: g.apiKey, HTTP: g.http, Verbose: g.verbose}
+}
+
 // openAIShaped reports whether the endpoint should be called as an
 // OpenAI-compatible chat API rather than Ollama's own. The /v1 convention is what
 // every hosted provider and every local shim agrees on, so it is the honest
-// discriminator — and it means a cloud model needs no new flag beyond its URL.
-func (g *questionGen) openAIShaped() bool { return strings.Contains(g.url, "/v1") }
+// discriminator.
+//
+// ⚠It governs the wording of hint and NOTHING ELSE — ask has never branched on
+// it, and a URL containing /v1 still gets an /api/generate request. ADR-047 and
+// its T3 task both claimed a "/v1 branch" here for a while, written from this
+// method's name rather than its one call site.
+func (g *questionGen) openAIShaped() bool { return g.client().OpenAIShaped() }
 
 // hint turns a generator failure into something actionable: which models the
 // endpoint actually serves, when it can be asked.
-func (g *questionGen) hint(ctx context.Context) string {
-	var b strings.Builder
-	fmt.Fprintf(&b, "  endpoint: %s\n  model:    %s\n", g.url, g.model)
-	if g.openAIShaped() {
-		b.WriteString("  Set EVAL_GEN_MODEL to a model this endpoint serves, and EVAL_GEN_API_KEY if it needs a key.\n")
-		return b.String()
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(g.url, "/")+"/api/tags", nil)
-	if err == nil {
-		if resp, err := g.http.Do(req); err == nil {
-			defer resp.Body.Close()
-			var tags struct {
-				Models []struct {
-					Name string `json:"name"`
-				} `json:"models"`
-			}
-			if json.NewDecoder(resp.Body).Decode(&tags) == nil && len(tags.Models) > 0 {
-				names := make([]string, 0, len(tags.Models))
-				for _, m := range tags.Models {
-					names = append(names, m.Name)
-				}
-				fmt.Fprintf(&b, "  this endpoint serves: %s\n", strings.Join(names, ", "))
-			}
-		}
-	}
-	b.WriteString("  Set EVAL_GEN_MODEL to one of those, pull the one you want (ollama pull <model>),\n")
-	b.WriteString("  or point EVAL_GEN_URL at another endpoint — a URL containing /v1 is called as an OpenAI-compatible API.\n")
-	return b.String()
-}
+func (g *questionGen) hint(ctx context.Context) string { return g.client().Hint(ctx) }
 
 // Two prompts, because there are two regimes and they rank differently.
 //
@@ -1016,44 +1007,13 @@ func (g *questionGen) ask(ctx context.Context, content string) (string, error) {
 	if len([]rune(content)) > 1200 {
 		content = string([]rune(content)[:1200])
 	}
-	body, err := json.Marshal(map[string]any{
-		"model":  g.model,
-		"prompt": fmt.Sprintf(g.prompt, content),
-		"stream": false,
-		"options": map[string]any{
-			// Low temperature: the eval wants a representative question, not a
-			// creative one, and reproducibility across runs matters more here than
-			// variety.
-			"temperature": 0.2,
-		},
-	})
+	// Low temperature: the eval wants a representative question, not a creative
+	// one, and reproducibility across runs matters more here than variety.
+	raw, err := g.client().Generate(ctx, fmt.Sprintf(g.prompt, content), 0.2)
 	if err != nil {
 		return "", err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(g.url, "/")+"/api/generate", bytes.NewReader(body))
-	if err != nil {
-		return "", err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	if g.apiKey != "" {
-		req.Header.Set("Authorization", "Bearer "+g.apiKey)
-	}
-	resp, err := g.http.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-	raw, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", fmt.Errorf("generate: %d: %s", resp.StatusCode, firstLineOf(string(raw), 120))
-	}
-	var out struct {
-		Response string `json:"response"`
-	}
-	if err := json.Unmarshal(raw, &out); err != nil {
-		return "", err
-	}
-	return cleanQuestion(out.Response), nil
+	return cleanQuestion(raw.Text), nil
 }
 
 // cleanQuestion trims the shapes a small model wraps an answer in.
