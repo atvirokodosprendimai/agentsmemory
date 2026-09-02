@@ -182,6 +182,26 @@ func unquote(value string) string {
 // Nothing here overwrites a value already in args: an explicit -a flag is the
 // operator's last word and beats what the file says.
 func DocumentArgs(tool mcp.Tool, doc Document, args map[string]any) (ignored []string) {
+	// ⚠ THE BODY IS CLAIMED BEFORE THE FRONTMATTER LOOP RUNS, and that ordering is
+	// the whole of this fix. The loop below skips a key already in args so an
+	// explicit -a wins — but it cannot tell an operator's -a from the file's OWN
+	// frontmatter, so a document carrying a `content:` key silently REPLACED its
+	// entire body while the stderr note went on reporting "N runes → content".
+	// Measured 2026-09-02: a 47-rune body filed as the string "12345" from a
+	// frontmatter key, exit 0, no warning. A write that quietly stores something
+	// other than what it was handed is the failure this document path already
+	// fixed once for the path placeholder.
+	//
+	// An explicit -a still wins over both: it is set in args before this is called,
+	// so the body assignment below is skipped exactly as a frontmatter key would be.
+	if body := strings.TrimSpace(doc.Body); body != "" {
+		if key := bodyKey(tool); key != "" {
+			if _, set := args[key]; !set {
+				args[key] = doc.Body
+			}
+		}
+	}
+
 	for key, value := range doc.Fields {
 		if _, declared := tool.InputSchema.Properties[key]; !declared {
 			ignored = append(ignored, key)
@@ -196,13 +216,6 @@ func DocumentArgs(tool mcp.Tool, doc Document, args map[string]any) (ignored []s
 	// diagnostic reads as the tool behaving differently on each run.
 	sort.Strings(ignored)
 
-	if body := strings.TrimSpace(doc.Body); body != "" {
-		if key := bodyKey(tool); key != "" {
-			if _, set := args[key]; !set {
-				args[key] = doc.Body
-			}
-		}
-	}
 	return ignored
 }
 
@@ -233,6 +246,16 @@ func DocumentNote(path string, doc Document, bodyKey string, ignored []string) s
 	}
 	if len(ignored) > 0 {
 		fmt.Fprintf(&note, "; IGNORED (not an argument of this tool): %s", strings.Join(ignored, ", "))
+	}
+	// ⚠ A SEPARATE CLAUSE, BECAUSE THE REASON IS DIFFERENT AND THE OTHER LABEL WOULD
+	// BE FALSE. `content` IS an argument of add_drawer — it is skipped because the
+	// body already fills it, not because the tool does not take it. Reported at all
+	// because the alternative is what this fix removed: a `content:` line that
+	// silently replaced the whole document body while stderr said the body was used.
+	if bodyKey != "" {
+		if _, collides := doc.Fields[bodyKey]; collides {
+			fmt.Fprintf(&note, "; frontmatter %s ignored — the document body fills it", bodyKey)
+		}
 	}
 	return note.String()
 }
