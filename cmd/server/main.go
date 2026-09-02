@@ -119,6 +119,7 @@ func rootCommand(def config.Config) *cli.Command {
 			drawerCommand(def),
 			importCommand(),
 			evalCommand(def),
+			longmemevalCommand(def),
 			kgExtractCommand(def),
 			shareCommand(def),
 			setPlanCommand(def),
