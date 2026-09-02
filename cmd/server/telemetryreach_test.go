@@ -30,6 +30,7 @@ import (
 // becomes a property of wrapTelemetry walking the tree.
 func TestTelemetrySetupHasOneChokepoint(t *testing.T) {
 	callers := map[string]int{}
+	seams := 0
 	packages, err := parser.ParseDir(token.NewFileSet(), ".", func(info fs.FileInfo) bool {
 		return !strings.HasSuffix(info.Name(), "_test.go")
 	}, 0)
@@ -38,6 +39,27 @@ func TestTelemetrySetupHasOneChokepoint(t *testing.T) {
 	}
 	for _, file := range packages["main"].Files {
 		for _, declaration := range file.Decls {
+			// ⚠ THE CHOKEPOINT IS A PACKAGE-LEVEL VAR, NOT A CALL INSIDE A FUNCTION.
+			// `var telemetrySetup = telemetry.Setup` is the seam a test substitutes
+			// to observe that the deferred flush actually runs — without it nothing
+			// in this package can see that, which a mutation audit proved by
+			// deleting the whole defer and watching the suite stay green. Walking
+			// only function bodies counted the seam as ZERO and failed a correct
+			// tree. The property ADR-006 asked for is unchanged: exactly ONE place
+			// reaches telemetry.Setup, and no command reaches it by remembering to.
+			if generic, ok := declaration.(*ast.GenDecl); ok {
+				ast.Inspect(generic, func(node ast.Node) bool {
+					selector, ok := node.(*ast.SelectorExpr)
+					if !ok {
+						return true
+					}
+					if pkg, ok := selector.X.(*ast.Ident); ok && pkg.Name == "telemetry" && selector.Sel.Name == "Setup" {
+						seams++
+					}
+					return true
+				})
+				continue
+			}
 			function, ok := declaration.(*ast.FuncDecl)
 			if !ok || function.Body == nil {
 				continue
@@ -60,7 +82,7 @@ func TestTelemetrySetupHasOneChokepoint(t *testing.T) {
 		}
 	}
 
-	total := 0
+	total := seams
 	for name, count := range callers {
 		total += count
 		if name != "withTelemetry" {

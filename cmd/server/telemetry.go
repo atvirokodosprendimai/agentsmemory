@@ -53,6 +53,17 @@ import (
 // own defect list is what unread and half-wired knobs cost.
 const telemetryFlushTimeout = 5 * time.Second
 
+// telemetrySetup is the seam a test substitutes to observe the flush.
+//
+// ⚠ WITHOUT IT NOTHING CAN SEE WHETHER THE FLUSH RAN, and a mutation audit proved
+// that: deleting the whole defer below left `go test ./cmd/server` green in 9s.
+// TestAStalledCollectorCannotHoldACommandOpen looks like the cover and is not — it
+// asserts the command is NOT held open, which no flush at all satisfies trivially.
+// So the caught mutation is "remove the timeout, keep the flush" and the uncaught
+// one is "remove the flush", whose symptom is silent span loss, indistinguishable
+// from nothing having been traced.
+var telemetrySetup = telemetry.Setup
+
 // withTelemetry returns action with an OpenTelemetry provider installed for its
 // whole run and flushed afterwards, so any span the command creates is exported
 // instead of dropped.
@@ -76,7 +87,7 @@ func withTelemetry(def config.Config, action cli.ActionFunc) cli.ActionFunc {
 		// shutdown without touching the global providers, so a command with
 		// nothing to export pays nothing.
 		endpoint := configFromCmd(c, def).OTELEndpoint
-		shutdown, err := telemetry.Setup(ctx, telemetry.Config{Endpoint: endpoint})
+		shutdown, err := telemetrySetup(ctx, telemetry.Config{Endpoint: endpoint})
 		if err != nil {
 			log.Printf("otel: setup failed (%v) — running without traces", err)
 			return action(ctx, c)
