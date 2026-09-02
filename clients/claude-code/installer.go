@@ -1264,6 +1264,33 @@ func ourHookCommand(cmd, keep string) bool {
 // anchored form matched nothing and warned nobody — on every agent.
 var hookCommandURL = regexp.MustCompile(regexp.QuoteMeta(mcpprotocol.MCPURLEnvVar) + `='([^']*)'`)
 
+// decodeHookCommandURL undoes the one escape a hooks file can leave inside the
+// endpoint the regex above matches.
+//
+// ⚠ MATCHING RAW TEXT MEANS READING WHATEVER THE WRITER ESCAPED. `/` is a character
+// JSON MAY escape as `\/` — legal, optional, and emitted by several writers,
+// including whichever one last rewrote this machine's settings.json. Reading raw
+// bytes is deliberate and stays: codex keeps its hooks in config.toml, and the
+// unmarshal this replaced failed there and so warned nobody, which is the
+// reachability defect this repository is named for. The price of that choice is
+// that a JSON escape arrives at the comparison intact, and this is where it is paid.
+//
+// Measured 2026-09-02 on a healthy install: settings.json carried
+// `http:\/\/localhost:8080\/mcp` while the install pointed at exactly
+// `http://localhost:8080/mcp`. Nothing was being repointed, and the warning fired
+// anyway — with BOTH endpoints rendered "(an endpoint that does not parse)", since
+// a backslash is not legal in a host, so the message named no URL a reader could
+// act on and its own advice was `--mcp-url (an endpoint that does not parse)`.
+// A false alarm on a healthy install is how a check earns being switched off.
+//
+// Only `\/` is undone, and only because a backslash cannot appear in a real host
+// or path — so an endpoint loses nothing. A general unquote is the wrong tool: it
+// would rewrite TOML values that never carried an escape, which is the format the
+// raw-text match exists to serve.
+func decodeHookCommandURL(raw string) string {
+	return strings.ReplaceAll(raw, `\/`, "/")
+}
+
 // warnIfRepointing says so out loud when this install is about to send the hooks
 // at a DIFFERENT server than the one they currently talk to.
 //
@@ -1292,8 +1319,8 @@ func (i *Installer) warnIfRepointing(hooksFile string) {
 	// the container around it.
 	seen := map[string]bool{}
 	for _, m := range hookCommandURL.FindAllStringSubmatch(string(raw), -1) {
-		if m[1] != "" {
-			seen[m[1]] = true
+		if got := decodeHookCommandURL(m[1]); got != "" {
+			seen[got] = true
 		}
 	}
 	for existing := range seen {
