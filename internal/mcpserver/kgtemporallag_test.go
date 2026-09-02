@@ -1,0 +1,134 @@
+package mcpserver
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/atvirokodosprendimai/agentsmemory/internal/mcpprotocol"
+)
+
+// TestTheTemporalLagIsOnTheToolSurface is the advertisement half of issue #47,
+// and it is the half the fix cannot do without.
+//
+// The write path now stamps an instant, so no NEW retraction joins the ambiguous
+// class. What it cannot repair is a date-only `valid_to` a caller passes
+// explicitly, or one stored before the change — and for those, `as_of` still lags
+// status:"current" by up to a day. palace.TestADateOnlyEndStillStretchesToEndOfDay
+// proves that residual is real; this proves an agent can find out about it
+// without hitting it.
+//
+// The issue's own framing is why this is a gate rather than a note: option 1 was
+// "document it and stop", and a documentation-only remedy that nothing checks
+// decays into no remedy at all. AGENTS.md puts it generally — documentation is
+// load-bearing, and a promise a test does not read is a promise nobody keeps.
+//
+// It reads the LIVE tools/list schema, not the registration source, because the
+// wire is what an agent receives: a sentence that never reaches the caller is not
+// documentation, and a description edited in a file nothing publishes would pass
+// a source-level grep while telling no agent anything.
+func TestTheTemporalLagIsOnTheToolSurface(t *testing.T) {
+	_, tools := liveSurface(t, false)
+
+	// Each entry names ONE claim a reader has to be able to reach, and the words
+	// are matched case-insensitively so a rewording that keeps the meaning keeps
+	// the gate. What is pinned is that the sentence exists and says which two
+	// things disagree — never its phrasing.
+	for _, want := range []struct {
+		tool     string
+		property string
+		phrases  []string
+		why      string
+	}{
+		{
+			tool:     mcpprotocol.ToolPrefix + "kg_query",
+			property: "as_of",
+			phrases:  []string{"date-granular", "current"},
+			why: "as_of is the READING side of the lag. A caller asking for a past-date snapshot\n" +
+				"    gets a fact that status:\"current\" calls dead, and nothing in the answer says\n" +
+				"    the two were measured at different resolutions",
+		},
+		{
+			tool:     mcpprotocol.ToolPrefix + "kg_invalidate",
+			property: "ended",
+			phrases:  []string{"instant", "as_of"},
+			why: "ended is the WRITING side. It must say that omitting it stamps an instant — the\n" +
+				"    description used to say \"default today\", which is now simply wrong — and that a\n" +
+				"    date passed explicitly opts back into the day-scale reading",
+		},
+	} {
+		description, ok := livePropertyDescription(t, tools, want.tool, want.property)
+		if !ok {
+			t.Errorf("%s publishes no %s property, so the caveat has nowhere to live", want.tool, want.property)
+			continue
+		}
+		lowered := strings.ToLower(description)
+		for _, phrase := range want.phrases {
+			if !strings.Contains(lowered, strings.ToLower(phrase)) {
+				t.Errorf("%s's %s description never names %q.\n"+
+					"  description: %q\n"+
+					"  %s.\n"+
+					"  Issue #47's cheapest option was \"document it and stop\"; this is what stops\n"+
+					"  that option from decaying into nothing being documented at all.",
+					want.tool, want.property, phrase, description, want.why)
+			}
+		}
+	}
+}
+
+// TestTheTemporalLagIsOnTheServedSurfacesToo covers the two surfaces the record
+// claims and the sibling gate cannot see.
+//
+// ⚠ FOUND BY MUTATION while reviewing this change. Issue #47's record says four
+// surfaces name the residual lag: the `ended` description, the `as_of`
+// description, bootstrap-memory.md §6.1, and temporalEndKey's doc comment.
+// TestTheTemporalLagIsOnTheToolSurface reads the first two off the live schema.
+// Deleting the other two left the WHOLE repository green — so half of a
+// documentation remedy was itself undocumented, which is the exact decay the
+// sibling gate's own comment warns about ("a promise a test does not read is a
+// promise nobody keeps").
+//
+// It greps files rather than a served schema because that is what these two are:
+// bootstrap-memory.md ships to an agent as the memory protocol, and the doc
+// comment ships to whoever next edits the promotion. Neither is on the wire, so
+// neither can be read the way the tool descriptions are — and a gate that could
+// only check the wire would keep exactly this half unchecked.
+func TestTheTemporalLagIsOnTheServedSurfacesToo(t *testing.T) {
+	for _, want := range []struct {
+		path    string
+		phrases []string
+		why     string
+	}{
+		{
+			path:    filepath.Join("..", "web", "bootstrap-memory.md"),
+			phrases: []string{"date-granular", "instant", "inclusive"},
+			why: "§6.1 is where an agent meets the two filters. It must name the lag, say that a\n" +
+				"    retraction now stamps an instant, and say that the end is INCLUSIVE — without the\n" +
+				"    third, the section promises an agreement that is false at the boundary",
+		},
+		{
+			path:    filepath.Join("..", "palace", "kg.go"),
+			phrases: []string{"THAT PROMOTION IS WHY", "NARROWS THE GAP"},
+			why: "temporalEndKey's doc comment is the only warning the next editor of the promotion\n" +
+				"    gets. It must say why the promotion is kept AND that an instant narrows the gap\n" +
+				"    to one point rather than closing it, or a future change 'fixes' the wrong end",
+		},
+	} {
+		body, err := os.ReadFile(want.path)
+		if err != nil {
+			t.Errorf("%s could not be read, so the caveat it is supposed to carry cannot be checked: %v",
+				want.path, err)
+			continue
+		}
+		lowered := strings.ToLower(string(body))
+		for _, phrase := range want.phrases {
+			if !strings.Contains(lowered, strings.ToLower(phrase)) {
+				t.Errorf("%s never says %q.\n  %s.\n"+
+					"  The record for issue #47 names this file as one of the surfaces carrying the\n"+
+					"  caveat; a surface nothing checks is a surface that quietly stops carrying it.",
+					want.path, phrase, want.why)
+			}
+		}
+	}
+}

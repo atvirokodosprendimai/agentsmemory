@@ -8,6 +8,11 @@ import (
 	"github.com/atvirokodosprendimai/agentsmemory/internal/store"
 )
 
+// entitySuffix marks a vector namespace as holding entity labels rather than
+// drawers. It is a constant shared by the mint and the predicate below so the
+// two cannot answer differently about the same string.
+const entitySuffix = "::kg_entities"
+
 // entityNamespace holds embedded KG entity LABELS, separate from the drawer
 // vectors.
 //
@@ -16,7 +21,22 @@ import (
 // is called X". Mixing them into one namespace would put nodes and passages in
 // competition for the same k slots, and a scoped drawer search would start
 // returning entities it cannot render.
-func entityNamespace(teamID string) string { return teamID + "::kg_entities" }
+func entityNamespace(teamID string) string { return teamID + entitySuffix }
+
+// IsEntityNamespace reports whether a vector namespace holds KG entity labels,
+// whose points carry a label and nothing a scoped search filters on.
+//
+// It is exported for the same reason qdrant.FilterKeys is: a caller that has to
+// tell the two kinds of namespace apart would otherwise re-derive the suffix,
+// and a copy of a naming rule is a copy that goes stale on the day the rule
+// moves. The boot payload check is that caller — it samples every namespace the
+// source of truth reports, and entity points legitimately carry no wing/room, so
+// without this predicate it warns that scoped search is broken for points no
+// scoped search ever touches (issue #164). entityMatches passes a nil filter,
+// which is what makes the absence correct rather than merely tolerated.
+func IsEntityNamespace(namespace string) bool {
+	return strings.HasSuffix(namespace, entitySuffix)
+}
 
 // IndexEntityLabel makes one KG entity reachable by a natural-language question
 // rather than only by exact name.

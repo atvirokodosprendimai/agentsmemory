@@ -867,3 +867,110 @@ func TestSessionEndKeepsAPayloadThatArrivedOnAStdinStillOpen(t *testing.T) {
 			"describes a fixed window instead of this session.\ncurl args = %q", raw)
 	}
 }
+
+// TestStopHookHonoursTheStatsOffSwitch covers the caller that has no guard of its
+// own.
+//
+// ⚠ FOUND BY MUTATION. The guard inside agentsmemory_stats_fetch is the ONLY
+// thing that suppresses the Stop hook's recall report: the session-end hook exits
+// on its own guard before the helper is ever sourced, so deleting the helper's
+// line left every test green while a documented knob stopped working.
+// TestSessionEndHonoursTheSharedStatsOffSwitch names both hooks and drives one.
+//
+// That is this repository's recurring defect wearing a shell script — a knob an
+// operator is told about in the hook's own header — it names the shared stats
+// off-switch as the way to suppress the recall report — and which nothing keeps
+// working. The
+// assertion is that curl is never invoked, because an off-switch that fetches and
+// discards is not off, it is quiet.
+func TestStopHookHonoursTheStatsOffSwitch(t *testing.T) {
+	dir := t.TempDir()
+	argsFile := filepath.Join(dir, "curl-args")
+	fakeCurl := filepath.Join(dir, "curl")
+	script := "#!/bin/sh\necho \"$@\" > " + argsFile + "\necho should-not-run\n"
+	if err := os.WriteFile(fakeCurl, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	hook := filepath.Join(repoRootForHooks(t), "clients", "claude-code", "hooks", "agentsmemory-stop-hook.sh")
+	cmd := exec.Command("bash", hook)
+	cmd.Stdin = strings.NewReader(`{"hook_event_name":"Stop","stop_hook_active":false}`)
+	cmd.Env = append(os.Environ(),
+		"PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"),
+		"AGENTSMEMORY_MCP_URL=http://palace.test:9/mcp",
+		"AGENTSMEMORY_STOP_HOOK=on",
+		"AGENTSMEMORY_STATS=off",
+	)
+	var out strings.Builder
+	cmd.Stdout = &out
+	cmd.Stderr = &out
+	_ = cmd.Run()
+
+	if _, err := os.Stat(argsFile); err == nil {
+		raw, _ := os.ReadFile(argsFile)
+		t.Errorf("AGENTSMEMORY_STATS=off and the Stop hook still fetched stats: curl %s", raw)
+	}
+	if strings.Contains(out.String(), "should-not-run") {
+		t.Errorf("the Stop hook printed a stats report with the switch off:\n%s", out.String())
+	}
+}
+
+// TestVerifyHookPrintsDriftAndIsOtherwiseSilent pins that the hook SPEAKS, which
+// is the half nobody was testing.
+//
+// ⚠ FOUND BY MUTATION: replacing the off-switch line with a bare `exit 0` — a
+// hook that is permanently mute — left every test green. That is the failure
+// AGENTS.md already describes for `doctor` ("one run cannot tell healthy silence
+// from muteness"), and it is worse here, because this hook is silent by design
+// when nothing drifted: a muted one is indistinguishable from a healthy one at
+// runtime AND in the suite.
+//
+// A test can tell them apart where a live run cannot, by making drift certain: a
+// fake `aiagentmemory` on PATH that reports a DRIFTED memory, and a fake `curl`
+// so the health probe passes. Both directions are asserted, since a hook that
+// prints on every session start is the other way this goes wrong — that is what
+// the off-switch and the case statement exist for.
+func TestVerifyHookPrintsDriftAndIsOtherwiseSilent(t *testing.T) {
+	hook := filepath.Join(repoRootForHooks(t), "clients", "claude-code", "hooks", "agentsmemory-verify-hook.sh")
+
+	run := func(t *testing.T, report string, env ...string) string {
+		t.Helper()
+		dir := t.TempDir()
+		// curl succeeds so the health probe does not short-circuit the hook.
+		if err := os.WriteFile(filepath.Join(dir, "curl"), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		cli := "#!/bin/sh\ncat <<'REPORT'\n" + report + "\nREPORT\n"
+		if err := os.WriteFile(filepath.Join(dir, "aiagentmemory"), []byte(cli), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		cmd := exec.Command("bash", hook)
+		cmd.Stdin = strings.NewReader(`{"hook_event_name":"SessionStart"}`)
+		cmd.Env = append(os.Environ(),
+			"PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"),
+			"AGENTSMEMORY_MCP_URL=http://palace.test:9/mcp",
+		)
+		cmd.Env = append(cmd.Env, env...)
+		var out strings.Builder
+		cmd.Stdout = &out
+		if err := cmd.Run(); err != nil {
+			t.Fatalf("verify hook: %v", err)
+		}
+		return out.String()
+	}
+
+	drifted := run(t, "DRIFTED  internal/palace/service.go — the pinned code is no longer there")
+	if !strings.Contains(drifted, "no longer match the code") || !strings.Contains(drifted, "DRIFTED") {
+		t.Errorf("the hook said nothing about a DRIFTED memory. A verify hook that cannot speak is "+
+			"indistinguishable from one with nothing to say, at runtime and in this suite:\n%q", drifted)
+	}
+
+	if clean := run(t, "all anchors verified, nothing drifted"); strings.TrimSpace(clean) != "" {
+		t.Errorf("the hook printed on a clean report; it is meant to be silent unless something "+
+			"drifted, or it becomes noise every session start:\n%q", clean)
+	}
+
+	if off := run(t, "DRIFTED  something", "AGENTSMEMORY_VERIFY_HOOK=off"); strings.TrimSpace(off) != "" {
+		t.Errorf("AGENTSMEMORY_VERIFY_HOOK=off still printed:\n%q", off)
+	}
+}
