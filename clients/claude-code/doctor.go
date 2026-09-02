@@ -255,7 +255,7 @@ func recordedMCPCommand(path string) (string, error) {
 type hookVerdict struct {
 	name   string
 	events []string // every event this script is registered for, in the settings file
-	label  string   // UNREGISTERED | DISCARDED | FAILED | silent | speaks
+	label  string   // UNREGISTERED | DISCARDED | FAILED | NOT-INSTALLED | silent | speaks
 	detail string
 	stderr string
 	bad    bool // counts toward a non-zero exit
@@ -357,7 +357,71 @@ func runHookDoctor(ctx context.Context, c *cli.Command, out io.Writer) error {
 			}
 		}
 	}
+	// Drift is reported AFTER the per-hook verdicts and never fails the run on
+	// its own, for the reason judgeServerBin gives about STALE-PATH: an operator
+	// may be running a hand-edited hook deliberately, and a check that fails a
+	// legitimate choice is one that gets switched off.
+	for _, name := range staleHooksIn(dir) {
+		fmt.Fprintf(out, "  %-38s %-14s %-12s %s\n", name, "—", "STALE",
+			"differs from this binary's embedded copy — `aiagentmemory install` rewrites it")
+	}
 	return reportServerBin(out, kit, dir, bad, len(verdicts))
+}
+
+// hookAssetFiles pairs every embedded hook asset with the filename install
+// writes it to. It is the one place the two names are tied together, so a hook
+// added to the //go:embed list and not to install — or the reverse — shows up
+// here as a missing entry rather than as a silently unchecked file.
+func hookAssetFiles() map[string]string {
+	return map[string]string{
+		hookFile:           hookAsset,
+		verifyHookFile:     verifyHookAsset,
+		sessionEndHookFile: sessionEndHookAsset,
+		subagentHookFile:   subagentHookAsset,
+		recallHookFile:     recallHookAsset,
+		statsHelperFile:    statsHelperAsset,
+	}
+}
+
+// staleHooksIn reports installed hooks whose bytes differ from this binary's
+// embedded copy, sorted so the output is stable.
+//
+// ⚠ THE BINARY IS HASHED FOR DRIFT AND THE HOOKS WERE NOT, THOUGH THE HOOKS ARE
+// WHAT ACTUALLY CARRY THE BEHAVIOUR. judgeServerBin exists because a frozen path
+// keeps serving old code; an install directory is the same problem one layer
+// out, and worse in one respect — `update` refreshes the BINARY in place and
+// says so in its own help text ("configs, sandboxes and MCP registration are
+// untouched"), so the supported upgrade path leaves every hook exactly as it
+// was. A current binary beside year-old hooks is not an edge case here, it is
+// what following the documented instructions produces.
+//
+// Reported 2026-09-02 from a sandbox install: the Stop hook still carried the
+// BSD-first `stat` probe fixed on 2026-08-25, so `stat -f %B` fed a multiline
+// filesystem block into an integer comparison on every Linux session. The
+// operator's binary was current. `doctor` said only that no hook declared
+// `# hook-output:` — true, because that hook predated the declaration line
+// itself — which named a symptom three refactors downstream of the cause.
+//
+// A file that is ABSENT is not drift: kits install different subsets, and an
+// unreadable one is reported by the checks that try to run it rather than
+// guessed at here.
+func staleHooksIn(dir string) []string {
+	var stale []string
+	for name, asset := range hookAssetFiles() {
+		want, err := assets.ReadFile(asset)
+		if err != nil {
+			continue // not embedded in this build; nothing to compare against
+		}
+		got, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil {
+			continue // absent or unreadable — not this check's finding
+		}
+		if string(got) != string(want) {
+			stale = append(stale, name)
+		}
+	}
+	sort.Strings(stale)
+	return stale
 }
 
 // hookVerdictsIn scans one install directory and judges every injecting hook in
@@ -369,11 +433,26 @@ func hookVerdictsIn(ctx context.Context, c *cli.Command, kit agentKit, dir, proj
 	if err != nil {
 		return nil, err
 	}
-	// ⚠ THREE EMPTY STATES, NOT ONE. "nothing is installed", "the declaration
-	// changed so this command now examines nothing", and "installed but registered
-	// nowhere" are different problems with different fixes, and an earlier version
-	// reported all three as the same alarm.
+	// ⚠ FOUR EMPTY STATES, NOT ONE. "nothing is installed", "the declaration
+	// changed so this command now examines nothing", "installed but registered
+	// nowhere" and "an OLD hook is installed that predates the declaration" are
+	// different problems with different fixes, and earlier versions reported the
+	// first three as the same alarm and the fourth not at all.
+	//
+	// The fourth is the one an operator cannot diagnose from the other three,
+	// because its symptom is indistinguishable from "nothing is installed" while
+	// its fix is the opposite of investigating an empty directory. Naming the
+	// drifted files turns it into one instruction.
 	if len(scripts) == 0 {
+		if stale := staleHooksIn(dir); len(stale) > 0 {
+			return nil, fmt.Errorf("no hook in %s declares `# hook-output: %s`, and %d installed "+
+				"hook(s) differ from this binary's embedded copies: %s.\n"+
+				"  That combination means an OLDER install is on disk — old enough to predate\n"+
+				"  the declaration line this check looks for. The binary being current does not\n"+
+				"  refresh them: `update` replaces the binary and leaves configs alone.\n"+
+				"  Run `aiagentmemory install` to rewrite the hooks",
+				dir, channelStdoutInjected, len(stale), strings.Join(stale, ", "))
+		}
 		return nil, fmt.Errorf("no hook in %s declares `# hook-output: %s`.\n"+
 			"  Either nothing is installed there — run `aiagentmemory install` — or the\n"+
 			"  declaration line changed, in which case this check now examines nothing\n"+
@@ -395,7 +474,74 @@ func hookVerdictsIn(ctx context.Context, c *cli.Command, kit agentKit, dir, proj
 	for _, name := range names {
 		verdicts = append(verdicts, judgeHook(ctx, c, dir, name, registered[name], projectDir))
 	}
+	verdicts = append(verdicts, uninstalledRegistrations(dir, scripts, registered)...)
 	return verdicts, nil
+}
+
+// uninstalledRegistrations reports hooks settings.json selects that are not on
+// disk: the arrow this command was missing.
+//
+// ⚠ THE SCAN'S UNIVERSE IS THE DIRECTORY, SO A DELETED HOOK LEAVES IT SILENTLY.
+// judgeHook is called once per script FOUND by scanning dir for a
+// `# hook-output:` declaration. A registration naming a file that is not there
+// declares nothing, so it never enters `names`, never gets a verdict, and simply
+// lowers the count in the closing line — which then reports "all N injecting
+// hook(s) are registered on an injecting event and ran" over a config that selects
+// a script the agent cannot run. Measured 2026-09-02: deleting an installed recall
+// hook while leaving its SessionStart registration gave exit 0 and that sentence.
+//
+// Every other state this command reports is "installed, and something about the
+// registration is wrong". This is the reverse arrow, and it is unambiguous in a way
+// STALE and STALE-PATH are not: an operator may run a hand-edited hook or a
+// deliberate build on purpose, but nothing selects a file it means to be absent.
+// So it is fatal, where drift is not.
+//
+// It cannot cry wolf on a foreign hook. `registered` is keyed off
+// installerHookPath, the installer's own parser for the command shapes it writes,
+// so a config full of unrelated hooks contributes no entries here at all.
+func uninstalledRegistrations(dir string, scripts map[string]string, registered map[string]hookRegistration) []hookVerdict {
+	names := make([]string, 0, len(registered))
+	for name := range registered {
+		if _, found := scripts[name]; found {
+			continue // installed and already judged
+		}
+		// ⚠ STAT WHERE THE REGISTRATION POINTS, NOT WHERE WE EXPECT IT. The command
+		// carries an absolute path and an operator may legitimately keep hooks in a
+		// different config directory; asking about dir/<base> answers a question
+		// nobody registered.
+		at := registered[name].path
+		if at == "" {
+			at = filepath.Join(dir, name)
+		}
+		// A file that exists but declares no channel is a DIFFERENT finding, and
+		// the empty-universe branch above already names it. Only absence is ours.
+		//
+		// ⚠ ONLY ErrNotExist IS ABSENCE. Reading every Stat error that way says "no
+		// such file — the agent runs nothing for this event" over an EACCES on a
+		// parent, a dangling symlink, or a path on an unmounted volume, and exits
+		// non-zero for it. That was minor while this always asked about dir/<base>;
+		// it is not, now that the path comes from someone else's config directory,
+		// where those states are considerably more likely. Raised in review of #176,
+		// and the file already uses this form twice for the bridge binary.
+		if _, err := os.Stat(at); !errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	out := make([]hookVerdict, 0, len(names))
+	for _, name := range names {
+		out = append(out, hookVerdict{
+			name:   name,
+			events: registered[name].events,
+			label:  "NOT-INSTALLED",
+			detail: "registered as " + registeredPathOf(registered, dir, name) + " but no such file — " +
+				"the agent runs nothing for this event; `aiagentmemory install` writes it back",
+			bad: true,
+		})
+	}
+	return out
 }
 
 // reportServerBin prints the bridge-binary verdict, then the command's summary.
@@ -432,13 +578,15 @@ func reportServerBin(out io.Writer, kit agentKit, dir string, bad, hooks int) er
 	if bad > 0 {
 		return fmt.Errorf("%d finding(s) across %d injecting hook(s) and the bridge binary.\n"+
 			"  UNREGISTERED:   the script is installed and %s registers it for no event.\n"+
+			"  NOT-INSTALLED:  the reverse — %s registers it and the file is not there, so\n"+
+			"                  the agent runs nothing for that event.\n"+
 			"  DISCARDED:      it is registered on an event whose stdout goes to the debug\n"+
 			"                  log; only %s inject.\n"+
 			"  FAILED:         it exited non-zero. The stderr above says why.\n"+
 			"  MISSING /\n"+
 			"  NOT-EXECUTABLE: the MCP registration names a binary that cannot be spawned.\n"+
 			"  Re-running `aiagentmemory install` rewrites the registrations",
-			bad, hooks, kit.hooksFile, strings.Join(sortedInjectingEvents(), ", "))
+			bad, hooks, kit.hooksFile, kit.hooksFile, strings.Join(sortedInjectingEvents(), ", "))
 	}
 	switch {
 	case hooks > 0 && bv != nil:
@@ -556,6 +704,12 @@ func registeredHookEvents(settingsPath string) (map[string]hookRegistration, err
 				}
 				name := filepath.Base(path)
 				reg := out[name]
+				// First registration wins, for the same reason env does below: a
+				// script registered twice with different paths is a hand edit this
+				// command must not silently average away.
+				if reg.path == "" {
+					reg.path = path
+				}
 				if !containsString(reg.events, event) {
 					reg.events = append(reg.events, event)
 				}
@@ -586,6 +740,26 @@ func registeredHookEvents(settingsPath string) (map[string]hookRegistration, err
 type hookRegistration struct {
 	events []string
 	env    []string
+	// path is the command's own path, kept whole.
+	//
+	// ⚠ THE MAP IS KEYED BY BASENAME AND THAT DISCARDS WHERE THE HOOK ACTUALLY IS.
+	// Keying by base is right for matching a registration against the scripts found
+	// by scanning dir, but uninstalledRegistrations then asked whether dir/<base>
+	// exists — so a hook installed in ANOTHER config directory and registered by its
+	// real absolute path was reported NOT-INSTALLED, with a message saying the agent
+	// runs nothing for that event. The agent runs it fine. Found in review of #171
+	// and reproduced: a declaring recall hook in a second directory, registered
+	// absolutely, reported missing and exited 1 on a healthy install.
+	path string
+}
+
+// registeredPathOf names the path the registration actually points at, so the
+// report tells an operator where to look rather than where this command guessed.
+func registeredPathOf(registered map[string]hookRegistration, dir, name string) string {
+	if p := registered[name].path; p != "" {
+		return p
+	}
+	return filepath.Join(dir, name)
 }
 
 // containsString reports whether haystack already holds needle.

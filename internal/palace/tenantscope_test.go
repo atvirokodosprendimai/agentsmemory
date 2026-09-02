@@ -120,3 +120,60 @@ func TestMemoryChunkQueriesRefuseToCrossTenants(t *testing.T) {
 		}
 	})
 }
+
+// TestGetManyRefusesToCrossTenants is the same control on the other id-driven
+// read, and it is here because mutation found it unguarded.
+//
+// ⚠ DELETING `team_id = ?` FROM GetMany LEFT internal/palace AND internal/mcpserver
+// GREEN. The sibling above was mutation-proven when it was written; this one had
+// no such test, so the isolation predicate on the hydration path was resting on
+// nobody having removed it yet.
+//
+// Today both callers pass ids that came from a scoped search — memory_search's
+// hydration of missing rows and eval's context fetch — so the practical exposure
+// is small. That is an argument for asserting it now rather than later: the
+// filter is what KEEPS those callers safe, and the next caller to pass ids from
+// anywhere else inherits the guarantee only if it is still there. A control whose
+// safety depends on the habits of its current callers is one refactor from being
+// a leak, and nothing would have said so.
+func TestGetManyRefusesToCrossTenants(t *testing.T) {
+	svc := newTestService(t)
+	ctx := context.Background()
+
+	const (
+		victim   = "team-getmany-victim"
+		attacker = "team-getmany-attacker"
+		secret   = "ATTACKER-ONLY-CONTENT-THAT-MUST-NOT-HYDRATE"
+	)
+
+	theirs, err := svc.Add(ctx, attacker, AddInput{
+		Wing: "wing_beta", Room: "decisions", Content: secret + ", filed by another tenant entirely",
+	})
+	if err != nil {
+		t.Fatalf("add attacker drawer: %v", err)
+	}
+	mine, err := svc.Add(ctx, victim, AddInput{
+		Wing: "wing_alpha", Room: "decisions", Content: "the victim's own memory, which it may of course read",
+	})
+	if err != nil {
+		t.Fatalf("add victim drawer: %v", err)
+	}
+	foreignID := theirs.Drawers[0].ID
+	ownID := mine.Drawers[0].ID
+
+	// The victim asks for both ids — the shape a caller produces when an id
+	// reaches it from anywhere other than its own scoped search.
+	got, err := svc.repo.GetMany(ctx, victim, []string{ownID, foreignID})
+	if err != nil {
+		t.Fatalf("GetMany: %v", err)
+	}
+	if _, leaked := got[foreignID]; leaked {
+		t.Errorf("GetMany returned %s to %s, a drawer owned by %s. team_id is the only predicate "+
+			"separating the two, and an id is not a secret: content: %q",
+			foreignID, victim, attacker, got[foreignID].Content)
+	}
+	if _, ok := got[ownID]; !ok {
+		t.Error("GetMany withheld the victim's OWN drawer; a filter that returns nothing is not " +
+			"isolation, it is a broken read path")
+	}
+}

@@ -24,13 +24,6 @@ var undescribedOnPurpose = map[string]string{
 		"column tag. So it is empty for every tunnel this store has written, and omitempty " +
 		"then drops it. Describing a field no response carries would be a promise with " +
 		"nothing behind it.",
-	"last_activated": "INERT on BOTH structs it appears on — tunnelView and hallwayView, since " +
-		"the map is keyed by field NAME rather than by field, so one entry excuses every " +
-		"struct carrying that name. internal/palace/hallway.go:143 " +
-		"records that nothing has ever written it after initDynamics stamped it at creation, " +
-		"so it reports the moment a hallway was derived and never an activation. Describing " +
-		"it would promise reinforcement this store does not implement — issue #38, where the " +
-		"finding is that decay and reinforcement are not miscomputed, they do not exist.",
 }
 
 // omitemptyTag finds a response field that is absent from an ordinary answer.

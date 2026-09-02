@@ -122,7 +122,34 @@ type Status struct {
 	CapFixed bool
 }
 
+// RemainingReported is Remaining for a caller that must be able to tell an
+// unlimited plan from an exhausted one, and it returns nil when the cap does not
+// limit anything.
+//
+// The two fields disagreed on the wire. am_status reported `monthly_cap: -1`
+// with `remaining: 0` — reported by two sessions on 2026-08-31 and still
+// reproducing on 2026-09-01 (issue #153) — where the cap says "unlimited" and
+// the count beside it reads as "quota exhausted". An agent that believes the
+// second stops writing, and stopping is the conservative reading of a number
+// that means the opposite. Remaining's own 0 is not wrong for arithmetic — there
+// is no remainder of an unlimited cap — it is unrenderable, so the wire gets an
+// absence instead of a number that has to be interpreted.
+//
+// am_status is the one call every session makes at wake-up, which is why a
+// misleading field there is read more often than almost anything else here.
+func (s Status) RemainingReported() *int {
+	if s.Cap <= 0 {
+		return nil
+	}
+	r := s.Remaining()
+	return &r
+}
+
 // Remaining returns how many requests are left this month (0 if unlimited cap).
+//
+// ⚠ ITS 0 IS AMBIGUOUS ON THE WIRE and must not be marshalled directly: an
+// unlimited cap and an exhausted one both return 0. RemainingReported is the
+// wire form and says why.
 func (s Status) Remaining() int {
 	if s.Cap <= 0 {
 		return 0

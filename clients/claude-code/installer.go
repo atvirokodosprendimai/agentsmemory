@@ -213,6 +213,7 @@ func (d dryRunner) runShell(script string) error {
 // companion extensions.
 type Installer struct {
 	kit            agentKit // which agent CLI we are installing for (claude|codex|pi)
+	goos           string   // OS to plan for; empty means this machine (see platform)
 	targetDir      string   // agent config dir to install into (~/.claude, ~/.codex, ~/.pi/agent or a sandbox)
 	sandboxName    string   // non-empty in isolated mode; drives messaging + run hint
 	explicitTarget bool     // true when --sandbox/--config-dir pinned the target ⇒ skip the mode prompt
@@ -1008,13 +1009,18 @@ func (i *Installer) registerStopHook() error {
 		return nil
 	}
 	hooksFile := filepath.Join(i.targetDir, i.kit.hooksFile)
-	plans := i.hookPlans()
+	plans := i.hookPlansOn(i.platform())
+	i.noteSessionEndSkippedOn(i.platform())
 	i.warnIfRepointing(hooksFile)
 	i.warnSocketHooksCannotReachTheServer()
 
 	if i.dryRun {
 		for _, p := range plans {
-			fmt.Fprintf(i.out, "  would register %s hook in %s: %q\n", p.event, hooksFile, p.cmd)
+			verb := "register"
+			if p.retire {
+				verb = "retire the"
+			}
+			fmt.Fprintf(i.out, "  would %s %s hook in %s: %q\n", verb, p.event, hooksFile, p.cmd)
 		}
 		if i.kit.name == agentCodex {
 			fmt.Fprintf(i.out, "  would retire the agentsmemory Stop hook from %s if present\n",
@@ -1054,7 +1060,15 @@ func (i *Installer) registerStopHook() error {
 
 	regs := make([]hookReg, len(plans))
 	for n, p := range plans {
-		regs[n] = hookReg{event: p.event, cmd: p.cmd, obsolete: foreignHookPredicate(p.cmd)}
+		// A retirement matches OUR script wherever it points — including the exact
+		// command a previous install wrote, which foreignHookPredicate deliberately
+		// spares because for a live registration that command is the one to keep.
+		obsolete := foreignHookPredicate(p.cmd)
+		if p.retire {
+			script := p.cmd
+			obsolete = func(cmd string) bool { return ourHookCommand(cmd, script) }
+		}
+		regs[n] = hookReg{event: p.event, cmd: p.cmd, obsolete: obsolete, retire: p.retire}
 	}
 	changed, err := ensureHooks(hooksFile, regs)
 	if err != nil {
@@ -1078,6 +1092,11 @@ type hookPlan struct {
 	event string
 	cmd   string
 	note  string
+
+	// retire says this plan REMOVES a registration rather than writing one. The
+	// command is then the script whose registrations are dropped, not one that
+	// will be installed.
+	retire bool
 }
 
 // hookPlans is every hook this kit registers, in the order they are reported.
@@ -1094,13 +1113,51 @@ type hookPlan struct {
 // reachable branch with an unverified protocol. pi never reaches here — it has
 // no hooks file, and its checkpoint ships inside the bridge extension.
 func (i *Installer) hookPlans() []hookPlan {
+	return i.hookPlansOn(i.platform())
+}
+
+// platform is the OS this install is planning for, injectable so the one
+// platform-conditional decision in this file can be driven from any machine.
+//
+// A zero value means "this machine", so nothing but a test passes it. It exists
+// because the Windows branch is otherwise unreachable in CI and on every
+// developer box here — a conditional nothing can execute is a conditional nobody
+// checks, which is what let its first version ship with a test file named
+// sessionend_windows_test.go that Go compiled on Windows only.
+func (i *Installer) platform() string {
+	if i.goos != "" {
+		return i.goos
+	}
+	return runtime.GOOS
+}
+
+// hookPlansOn is hookPlans with the platform passed in, so the one
+// platform-conditional registration below can be exercised from any machine —
+// the same seam globalConfigDirOn and serverBinLookupCandidatesOn already use.
+//
+// ⚠ SessionEnd IS NOT REGISTERED ON WINDOWS, and the reason is a floor rather
+// than a defect in the script. Measured on Windows 11 (issue #150, medians of
+// five): the full hook takes 3,210ms and loses the teardown race, reporting
+// "Hook cancelled" on essentially every exit. Almost none of that is its own
+// work — a bare `bash -c exit </dev/null` is already 1,032ms and `curl` another
+// 708ms, because process creation there costs ~1s each. The bounded stdin read
+// from fa918e1 was correct and contributes ~0 in the healthy case.
+//
+// So the hook cannot be made fast enough by editing it: what it does after
+// starting is a fraction of what starting it costs. An honest absence beats a
+// cancellation notice on every exit, which teaches an operator to ignore hook
+// errors — and the errors they then ignore are the ones that matter. The stats
+// it would have reported are available on demand from `/stats`; what is lost is
+// the automatic end-of-session line, and the install says so rather than leaving
+// a silent gap.
+func (i *Installer) hookPlansOn(goos string) []hookPlan {
 	plans := []hookPlan{
 		{event: "Stop", cmd: i.hookCommand(i.hookPath()), note: "registered Stop hook in " + i.kit.hooksFile},
 	}
 	if i.kit.name != agentClaude {
 		return plans
 	}
-	return append(plans,
+	plans = append(plans,
 		hookPlan{
 			event: "SessionStart",
 			cmd:   i.hookCommand(i.verifyHookPath()),
@@ -1119,11 +1176,7 @@ func (i *Installer) hookPlans() []hookPlan {
 			cmd:   i.hookCommand(i.hookPath()),
 			note:  "registered SubagentStop hook (a subagent offers back what it found)",
 		},
-		hookPlan{
-			event: "SessionEnd",
-			cmd:   i.hookCommand(i.sessionEndHookPath()),
-			note:  "registered SessionEnd hook (reports what recall did this session)",
-		},
+
 		// ADR-041 T4. THIS LINE IS THE MECHANISM: the script is inert without it,
 		// and a hook that is written but never registered is this repository's
 		// characteristic defect wearing a shell script.
@@ -1141,6 +1194,67 @@ func (i *Installer) hookPlans() []hookPlan {
 			note:  "registered SessionStart hook (a fresh context starts with a recall already done)",
 		},
 	)
+	if goos != "windows" {
+		plans = append(plans, hookPlan{
+			event: "SessionEnd",
+			cmd:   i.hookCommand(i.sessionEndHookPath()),
+			note:  "registered SessionEnd hook (reports what recall did this session)",
+		})
+		return plans
+	}
+	// ⚠ AND ON WINDOWS, RETIRE IT — an install that only stops PLANNING the hook
+	// leaves every upgraded machine registered. ensureHooks walks the events it is
+	// handed, so an omitted event keeps whatever an older install wrote: the hook
+	// goes on losing the teardown race and reporting "Hook cancelled" on every
+	// exit, while the installer's own output says it is not registered. Reported
+	// by review before this shipped.
+	return append(plans, hookPlan{
+		event:  "SessionEnd",
+		cmd:    i.hookCommand(i.sessionEndHookPath()),
+		note:   "retired the SessionEnd hook (it cannot finish before Windows tears the session down)",
+		retire: true,
+	})
+}
+
+// noteSessionEndSkippedOn says out loud what hookPlansOn leaves out on Windows,
+// at the one moment an operator is looking.
+//
+// An absence nobody announces is indistinguishable from a bug: the same operator
+// who saw "Hook cancelled" on every exit would otherwise see the hook simply stop
+// appearing and have no way to tell a deliberate omission from a broken install.
+// The remedy line matters as much as the absence — the stats are still there on
+// demand, so what is lost is the automatic report, not the data.
+func (i *Installer) noteSessionEndSkippedOn(goos string) {
+	if goos != "windows" || i.kit.name != agentClaude {
+		return
+	}
+	// ⚠ THE URL IS THE ONE THIS INSTALL WROTE, not an environment variable an
+	// operator may not have. The first version suggested $AGENTSMEMORY_URL, which
+	// is the PROXY origin (mcpprotocol.ProxyURLEnvVar) and is unset in an ordinary
+	// install — the hooks read AGENTSMEMORY_MCP_URL — so the command it printed
+	// expanded to a bare path. A remedy line that does not run is worse than none:
+	// it reads as help and fails in front of someone already looking at an error.
+	i.warn("SessionEnd hook NOT registered on Windows: process creation costs ~1s there, the "+
+		"hook needs ~3.2s, and it loses the teardown race — reporting \"Hook cancelled\" on every "+
+		"exit (#150). Any registration from an earlier install is retired. Nothing else is "+
+		"affected. For the same numbers on demand: curl -fsS %q",
+		strings.TrimSuffix(i.mcpURL, "/mcp")+"/stats?hours=2")
+}
+
+// ourHookCommand reports whether cmd is a registration of the same installer
+// script as keep, the exact command included.
+//
+// It is the retirement counterpart of foreignHookPredicate, which answers the
+// opposite question: that one spares the exact command because for a live
+// registration it is the one to keep, and a retirement has nothing to keep. A
+// hook somebody else wrote is left alone by both — an install may stop shipping a
+// hook, and it may never delete a hook it did not write.
+func ourHookCommand(cmd, keep string) bool {
+	path, ok := installerHookPath(keep)
+	if !ok {
+		return false
+	}
+	return cmd == keep || installerHookCommandMatches(cmd, path)
 }
 
 // hookCommandURL is the endpoint baked into an installed hook command, or "" when
@@ -1149,6 +1263,33 @@ func (i *Installer) hookPlans() []hookPlan {
 // string at a time; scanning the raw hooks file, nothing sits at position 0, so the
 // anchored form matched nothing and warned nobody — on every agent.
 var hookCommandURL = regexp.MustCompile(regexp.QuoteMeta(mcpprotocol.MCPURLEnvVar) + `='([^']*)'`)
+
+// decodeHookCommandURL undoes the one escape a hooks file can leave inside the
+// endpoint the regex above matches.
+//
+// ⚠ MATCHING RAW TEXT MEANS READING WHATEVER THE WRITER ESCAPED. `/` is a character
+// JSON MAY escape as `\/` — legal, optional, and emitted by several writers,
+// including whichever one last rewrote this machine's settings.json. Reading raw
+// bytes is deliberate and stays: codex keeps its hooks in config.toml, and the
+// unmarshal this replaced failed there and so warned nobody, which is the
+// reachability defect this repository is named for. The price of that choice is
+// that a JSON escape arrives at the comparison intact, and this is where it is paid.
+//
+// Measured 2026-09-02 on a healthy install: settings.json carried
+// `http:\/\/localhost:8080\/mcp` while the install pointed at exactly
+// `http://localhost:8080/mcp`. Nothing was being repointed, and the warning fired
+// anyway — with BOTH endpoints rendered "(an endpoint that does not parse)", since
+// a backslash is not legal in a host, so the message named no URL a reader could
+// act on and its own advice was `--mcp-url (an endpoint that does not parse)`.
+// A false alarm on a healthy install is how a check earns being switched off.
+//
+// Only `\/` is undone, and only because a backslash cannot appear in a real host
+// or path — so an endpoint loses nothing. A general unquote is the wrong tool: it
+// would rewrite TOML values that never carried an escape, which is the format the
+// raw-text match exists to serve.
+func decodeHookCommandURL(raw string) string {
+	return strings.ReplaceAll(raw, `\/`, "/")
+}
 
 // warnIfRepointing says so out loud when this install is about to send the hooks
 // at a DIFFERENT server than the one they currently talk to.
@@ -1178,8 +1319,8 @@ func (i *Installer) warnIfRepointing(hooksFile string) {
 	// the container around it.
 	seen := map[string]bool{}
 	for _, m := range hookCommandURL.FindAllStringSubmatch(string(raw), -1) {
-		if m[1] != "" {
-			seen[m[1]] = true
+		if got := decodeHookCommandURL(m[1]); got != "" {
+			seen[got] = true
 		}
 	}
 	for existing := range seen {

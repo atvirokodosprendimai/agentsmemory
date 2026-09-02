@@ -142,3 +142,31 @@ func TestNoToolDescriptionClaimsALongMemoryCannotBeMoved(t *testing.T) {
 	}
 	t.Logf("examined %d description string(s) across %d file(s)", checked, len(files))
 }
+
+// TestNoLiveToolDescriptionClaimsALongMemoryCannotBeMoved closes the half the
+// static scan cannot reach.
+//
+// TestNoToolDescriptionClaimsALongMemoryCannotBeMoved parses SOURCE and collects
+// string literals used as call arguments, which was the whole surface until
+// descriptions started carrying GENERATED text: classifyTool appends a retry
+// contract built from writeToolSemantics, and neither a retrySentence return
+// literal nor a `why` field is a call argument, so a retired claim reintroduced
+// through the generator would restore the banned sentence while the load-bearing
+// gate stayed green. Reported by review on the commit that added the generator.
+//
+// It reads the LIVE descriptions for that reason — the same surface a caller
+// receives, after every append the server makes.
+func TestNoLiveToolDescriptionClaimsALongMemoryCannotBeMoved(t *testing.T) {
+	_, live := liveSurface(t, false)
+	if len(live) == 0 {
+		t.Fatal("no live tools were listed, so this gate examined nothing")
+	}
+	for _, tool := range live {
+		if loc := relocationRefusalClaim.FindString(tool.Description); loc != "" {
+			t.Errorf("%s's served description claims %q. ADR-045 made a memory of any chunk count "+
+				"relocatable; a description is the only way a caller learns that, so this sentence "+
+				"turns a shipped capability into one nobody uses.", tool.Name, loc)
+		}
+	}
+	t.Logf("examined %d live description(s)", len(live))
+}

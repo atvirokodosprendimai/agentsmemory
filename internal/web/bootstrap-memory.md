@@ -433,7 +433,8 @@ ask memory first, grep only the gap.
   only completion path. (Until 2026-08-29 nothing marked it at all, and this page said so.)
 - **⚠ A KG entity string is a KEY**, normalised only by lowercase + spaces→underscores, no fuzzy
   match. An invented name silently creates a new node. Keys are listed in `llm_index`.
-- **⚠ `am_kg_add` IS IDEMPOTENT**, so replacing a fact means `am_kg_invalidate` FIRST, then add.
+- **⚠ `am_kg_add` IS IDEMPOTENT FOR A CURRENT FACT** (a fact filed with `valid_to` is not deduped),
+  so replacing a fact means `am_kg_invalidate` FIRST, then add.
   Invalidate means "STOPPED being true", not "was recorded wrong"; there is no update.
 - **⚠ `am_mine` defaults to room `general`, which the graph tools EXCLUDE.** Pass a room.
 - **⚠ You can never rename or delete a room.** Name one as if the name is permanent.
@@ -499,6 +500,23 @@ that were *also* in effect on D", not "facts in effect on D". For a real snapsho
 date, pass `as_of` **and** `status:"all"`. The call succeeds either way and the short answer
 still looks like history, which is what makes this one worth knowing.
 
+⚠ **And where they compose, they can also disagree — by up to a day.** `as_of` is
+date-granular on the retraction end: a fact whose `valid_to` is a bare date stays in effect
+through the **end** of that day, while `status:"current"` drops it the instant it is retracted.
+So `as_of:"<today>"` with `status:"all"` can hand you a fact that `status:"current"` says is
+already dead. Neither answer is wrong on its own terms; they are answering different questions
+at different resolutions.
+
+Retractions made through `am_kg_invalidate` and `am_kg_supersede` now stamp an **instant**, so
+nothing new joins that class. What is left is a date-only `valid_to` that someone passed
+explicitly, or a row written before that change. **Pass a datetime whenever the boundary
+matters** — for `ended` when you retract, and for `as_of` when you ask.
+
+⚠ An instant NARROWS the disagreement to one point; it does not remove it. The end is
+inclusive, so a fact whose `valid_to` equals the `as_of` you ask with is still in effect
+while `status:"current"` has already dropped it — and that instant is exactly what
+`am_kg_supersede` hands back. Ask a moment either side of a boundary you care about.
+
 ### 6.2 ⚠ The entity string is a KEY, not a label
 
 Normalised only by lowercase and spaces→underscores. **There is no fuzzy match.** `datastar`
@@ -517,7 +535,10 @@ Nothing else in the system solves this.
 - **⚠ Facts are WORKSPACE-wide, not wing-scoped.** A fact filed from one project is returned to
   every project in the workspace. File here only what is true of the workspace; anything
   project-specific goes in a drawer.
-- **⚠ `am_kg_add` is idempotent.** Re-adding an identical current fact is a no-op. To *replace*
+- **⚠ `am_kg_add` is idempotent FOR A CURRENT FACT.** Re-adding an identical current fact is a
+  no-op. A fact filed WITH `valid_to` — a closed window — is not deduped and its id is derived
+  from the time of writing, so a repeat either collides on the id or files a second row saying
+  the same thing. Read the timeline back before repeating a closed one. To *replace*
   a fact, use **`am_kg_supersede`**: it ends the old value and starts the new one at the SAME
   instant, so no query sees both values or neither. Hand-rolling it as invalidate-then-add
   leaves both live in between, ends the old one at day precision, and leaves the graph with no

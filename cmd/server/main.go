@@ -119,6 +119,7 @@ func rootCommand(def config.Config) *cli.Command {
 			drawerCommand(def),
 			importCommand(),
 			evalCommand(def),
+			longmemevalCommand(def),
 			kgExtractCommand(def),
 			shareCommand(def),
 			setPlanCommand(def),
@@ -150,6 +151,8 @@ func configFromCmd(c *cli.Command, def config.Config) config.Config {
 		QdrantAPIKey:           c.String("qdrant-api-key"),
 		OllamaURL:              c.String("ollama-url"),
 		OllamaEmbedModel:       c.String("ollama-model"),
+		OllamaNumThread:        c.Int("ollama-num-thread"),
+		OllamaCPUQuota:         c.String("ollama-cpu-quota"),
 		RerankURL:              strings.TrimSpace(c.String("rerank-url")),
 		RerankPool:             c.Int("rerank-pool"),
 		BM25Weight:             strings.TrimSpace(c.String("bm25-weight")),
@@ -211,6 +214,8 @@ func dataFlags(def config.Config) []cli.Flag {
 		&cli.StringFlag{Name: "qdrant-api-key", Sources: cli.EnvVars("QDRANT_API_KEY"), Value: def.QdrantAPIKey, Usage: "Qdrant API key (optional)"},
 		&cli.StringFlag{Name: "ollama-url", Sources: cli.EnvVars("OLLAMA_URL"), Value: def.OllamaURL, Usage: "Ollama base URL"},
 		&cli.StringFlag{Name: "ollama-model", Sources: cli.EnvVars("OLLAMA_EMBED_MODEL"), Value: def.OllamaEmbedModel, Usage: "Ollama embedding model"},
+		&cli.IntFlag{Name: "ollama-num-thread", Sources: cli.EnvVars("OLLAMA_NUM_THREAD"), Value: def.OllamaNumThread, Usage: "Threads Ollama may use per embed request (options.num_thread); 0 lets it choose. Set it to the container's CPU limit when Ollama runs under one — llama.cpp sizes its pool from the HOST's cores and a quota alone leaves it throttled, so a LOWER limit is slower, not lighter"},
+		&cli.StringFlag{Name: "ollama-cpu-quota", Sources: cli.EnvVars("AGENTSMEMORY_OLLAMA_CPUS"), Value: def.OllamaCPUQuota, Usage: "The CPU limit Ollama's container runs under, as Docker spells it (fractions allowed). Used ONLY when --ollama-num-thread is unset, to size the thread pool to the quota so the two cannot drift; the compose overlay passes the limit it already applies"},
 		&cli.StringFlag{Name: "rerank-url", Sources: cli.EnvVars("RERANK_URL"), Value: def.RerankURL, Usage: "cross-encoder base URL for re-ranking search results (TEI, or llama.cpp's server; empty disables re-ranking)"},
 		&cli.IntFlag{Name: "rerank-pool", Sources: cli.EnvVars("RERANK_POOL"), Value: def.RerankPool, Usage: "how many candidates to cross-encode per search (ignored without --rerank-url)"},
 		&cli.StringFlag{Name: "bm25-weight", Sources: cli.EnvVars("BM25_WEIGHT"), Value: def.BM25Weight, Usage: "lexical fusion weight: 'auto' scales per query by measured lexical signal (default), 'auto-idf' weights each query term by how much it discriminates (ahead on every table measured so far), or a fixed 0..1. DOES NOTHING when --fusion=rrf: rank fusion combines positions rather than magnitudes, so there is no weight to apply"},
@@ -249,6 +254,46 @@ func meteringFlags(def config.Config) []cli.Flag {
 	return []cli.Flag{
 		&cli.IntFlag{Name: "monthly-request-cap", Sources: cli.EnvVars("AGENTSMEMORY_MONTHLY_REQUEST_CAP"), Value: def.MonthlyRequestCap, Usage: "override the monthly metered-request cap for EVERY workspace this process serves: 0 (default) leaves the workspace's plan deciding, a positive number caps every workspace there, and a negative number uncaps them. For a self-hosted install with no billing, where the seeded Free plan's 10000/month prices a service nobody is selling. Refused alongside configured billing, which sells a cap this would override"},
 	}
+}
+
+// threadsFromQuota turns a Docker CPU quota into a thread count.
+//
+// ⚠ IT PARSES A DECIMAL BECAUSE THE VALUE IT IS HANDED IS A CPU QUOTA. The
+// compose overlay derives this from AGENTSMEMORY_OLLAMA_CPUS so the pool cannot
+// drift from the limit, and Docker's quota is fractional — its own error names a
+// range "from 0.01 to N.00". An integer flag therefore refused to start the
+// server on a perfectly valid `cpus: 0.5`, turning a fix for slow embedding into
+// a boot failure. Caught in review before it shipped.
+//
+// A fraction floors to 1 rather than to 0: a container with half a core still
+// runs one thread, and 0 means "let llama.cpp choose", which is the opposite of
+// what a small quota is asking for. Anything unparseable or negative yields 0 —
+// the same "unset" the flag documents — because a thread count is an
+// optimisation, and refusing to boot over one would trade a slow server for no
+// server.
+func threadsFromQuota(v string) int {
+	q, err := strconv.ParseFloat(strings.TrimSpace(v), 64)
+	if err != nil || q <= 0 {
+		return 0
+	}
+	if q < 1 {
+		return 1
+	}
+	return int(q)
+}
+
+// threadsFor resolves the two knobs into the one number the embedder needs.
+//
+// An explicit --ollama-num-thread wins and the quota is only a fallback, because
+// the quota is DERIVED — the compose overlay passes the limit it already applies
+// so an operator need not repeat it — while a thread count in .env.docker is
+// something an operator chose. Letting the overlay outrank that file is exactly
+// the precedence defect #154 was about.
+func threadsFor(cfg config.Config) int {
+	if cfg.OllamaNumThread != 0 {
+		return cfg.OllamaNumThread
+	}
+	return threadsFromQuota(cfg.OllamaCPUQuota)
 }
 
 // serveFlags are the flags the serving entry points expose: the listen address
@@ -1195,7 +1240,7 @@ func buildServicesWith(cfg config.Config, prepare bool) (*services, error) {
 // mistake differently from every other config mistake.
 func buildEmbedder(cfg config.Config) (palace.Embedder, error) {
 	if !strings.EqualFold(strings.TrimSpace(cfg.EmbedBackend), "tei") {
-		return ollama.New(cfg.OllamaURL, cfg.OllamaEmbedModel, cfg.EmbedTimeout), nil
+		return ollama.New(cfg.OllamaURL, cfg.OllamaEmbedModel, cfg.EmbedTimeout, threadsFor(cfg)), nil
 	}
 	url := strings.TrimSpace(cfg.EmbedURL)
 	if url == "" {
@@ -1328,15 +1373,44 @@ func warnIfPayloadMissing(ctx context.Context, cfg config.Config, svc *services)
 	if err != nil || len(namespaces) == 0 {
 		return
 	}
+	reportPayloadGaps(ctx, client, namespaces, log.Printf)
+}
+
+// payloadSampler reports how many of a sample of a namespace's points carry every
+// key. *qdrant.Client satisfies it.
+//
+// An interface at the consumer, one method wide, because the alternative is a
+// check that can only be exercised by standing up Qdrant — and this check went
+// out with no test at all, which is how it shipped warning about a namespace it
+// should never have sampled.
+type payloadSampler interface {
+	SamplePayloadCoverage(ctx context.Context, namespace string, keys []string, sample int) (withKeys, sampled int, err error)
+}
+
+// reportPayloadGaps is warnIfPayloadMissing's loop, over namespaces the caller
+// has already listed and through a warn function the caller supplies.
+//
+// Split out so a test can drive the real loop rather than a copy of it. Asserting
+// the skip on a predicate alone would leave the branch that USES the predicate
+// unpinned, and this repo's characteristic defect is exactly that: a component
+// that works, with nothing exercising its selection.
+func reportPayloadGaps(ctx context.Context, sampler payloadSampler, namespaces []string, warnf func(string, ...any)) {
 	for _, ns := range namespaces {
-		withKeys, sampled, err := client.SamplePayloadCoverage(ctx, ns, qdrant.FilterKeys(), 100)
+		// Entity points carry a label and no wing/room, by design, and
+		// entityMatches searches them with a nil filter — so the sentence below
+		// would be false about them in a way an operator cannot act on, and its
+		// advice names a repair driven by drawer rows they do not have (#164).
+		if palace.IsEntityNamespace(ns) {
+			continue
+		}
+		withKeys, sampled, err := sampler.SamplePayloadCoverage(ctx, ns, qdrant.FilterKeys(), 100)
 		if err != nil || sampled == 0 {
 			continue // an unreachable or empty collection is not this check's business
 		}
 		if withKeys == sampled {
 			continue
 		}
-		log.Printf("WARNING: %d of %d sampled points in the search index carry no wing/room label, "+
+		warnf("WARNING: %d of %d sampled points in the search index carry no wing/room label, "+
 			"so every wing-scoped search will silently return NOTHING for them — they will look like an empty wing. "+
 			"Repair without re-embedding: agentsmemory sync --repair-payload", sampled-withKeys, sampled)
 	}

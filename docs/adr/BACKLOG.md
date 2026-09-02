@@ -1794,14 +1794,18 @@ as the deferral so the pointer has a receiving end.
   ADR-015 exists because a merge can silently invalidate a search index. **Trigger: whenever an agent
   is found to have merged a wing nobody asked it to merge.** Found by review 2026-08-27, correcting an
   ADR-010 claim that both were "already outside the agent surface" — they were not.
-- **Does a date-only `valid_to` mean *through* that day, or *as of* it?** Issue #74. `temporalEndKey`
-  (`kg.go:117`) stretches a date-only `valid_to` to `T23:59:59Z`; `inEffectAt` (`:962`) excludes only
-  below `as_of`. So `status:"current"` drops an ended fact immediately while `as_of` keeps it for the
-  rest of that day — two filters, two answers, one day, nothing documenting the difference and no test
-  pinning either reading. ADR-038's `am_kg_supersede` sidesteps it by stamping instants rather than
-  dates, deliberately: answering it changes what the 15 already-ended facts on this palace mean.
-  **Trigger: before any second consumer of `as_of` ships, or the first time someone reports a fact
-  that "did not go away today".**
+- **Does a date-only `valid_to` mean *through* that day, or *as of* it?** Issue #47 — **not** #74,
+  which is closed and was the hand-rolled-supersede overlap; that pointer was stale from the day #47
+  was filed. `temporalEndKey` stretches a date-only `valid_to` to `T23:59:59Z` and `inEffectAt`
+  excludes only below `as_of`, so `status:"current"` drops an ended fact immediately while `as_of`
+  keeps it for the rest of that day. **The WRITE half shipped with #47:** `KGInvalidate` no longer
+  defaults `ended` to a bare date, so no new row joins the class, and both the `as_of` and `ended`
+  descriptions plus `bootstrap-memory.md` §6.1 now name the lag. **What is still open is the READ
+  half** — what a date-only `valid_to` MEANS for the rows that already carry one, which is the only
+  part that re-reads history and therefore the only part that needs a decision record.
+  **Trigger: the first time someone needs a past-date snapshot to be exact, or a backfill of the
+  existing date-only rows is proposed (ADR-026's write-path normalisation Follow-up is where that
+  lives).**
 - **A validity window for TUNNELS.** Found auditing ADR-038's own class 2026-08-27. `tunnels` has zero
   validity columns and `DeleteTunnel` destroys. ADR-038 T4 takes `delete_tunnel` off the AGENT surface
   but leaves the operator path destroying an **authored** artifact with no trace, while that record's
@@ -1812,7 +1816,7 @@ as the deferral so the pointer has a receiving end.
   the same link — the id is minted identically and the upsert updates the corpse. Tunnels need an
   opaque id before they can have a validity window. **Trigger: when someone takes on opaque ids for
   the graph tables, not before.**
-- **The interval is CLOSED where a validity window wants half-open.** Extends issue #74 from the other
+- **The interval is CLOSED where a validity window wants half-open.** Extends issue #47 from the other
   direction, found by review 2026-08-27 and reproduced: `inEffectAt` (`kg.go:955`) excludes only on
   `>` and `<`, never `>=`/`<=`, so with `old.valid_to == new.valid_from == B` both rows are in effect
   at exactly `B`. ADR-038's `am_kg_supersede` collapses the overlap from 86,400 seconds to 1 by
@@ -3213,3 +3217,101 @@ one, make its condition true and watch the exit code.
   unreachable in practice and therefore a comment rather than a fix. **Trigger: before adding any
   second caller of the reassembly path, or the first entry record that reads with a duplicated
   passage.**
+
+## From ADR-047 (measure the writing rule, not only the ranking knob)
+
+Filed with the ADR, in the same commit as the deferrals that point here — a pointer to a file that
+never received anything passes every check there is.
+
+- **LongMemEval-V2, its web/enterprise domains and any leaderboard submission.** V2's harness is
+  Python: a backend registers with `@register_memory` and implements `insert(trajectory)` /
+  `query(q)`, and a fixed reader model scores it. Comparability with a public leaderboard is a
+  different goal from deciding what a skill should tell an agent, and it would put a conda
+  environment into a Go repository whose entire gate corpus reads Go source. Revisit if anyone
+  needs an externally comparable number rather than an internally actionable one.
+- **Crossing the write/query policies with the ~30 ranking arms in one table.** The most
+  informative shape and the one whose cells go thin fastest. Worth doing once the policy axis has
+  produced a non-neutral result, so the cross is spent on a difference that exists.
+- **Running the full ~48-session haystack for all 500 questions.** ADR-047 runs a declared subset.
+  The full run is a corpus-scale ingest per cell and deserves its own cost estimate before anyone
+  starts it; the subset ids and seed are in `.cells.json` so a larger run stays comparable.
+- **A write policy that calls a model to summarise, and a judge with partial credit.** Both were
+  kept out of ADR-047 deliberately: a generative policy makes its row partly a measurement of that
+  model, and a rubric judge introduces a second thing to argue about before the first has produced
+  a number.
+- **Re-deriving ADR-003's cited LongMemEval figures** — summary-as-key costing 0.134 Recall@5, and
+  +9.4% for the concatenated variant. ADR-003 §Out of Scope marks this `permanent`, on the reason
+  that they are corroboration and the decision rests on our own runs. That reason is untouched;
+  what changes is that ADR-047 builds the instrument which would make re-deriving them possible.
+  Recorded here because `permanent` is the one disposition `adr-debt` never sweeps, so a boundary
+  that becomes re-openable has to be written down somewhere that is read.
+- **Nothing measures whether a promoted rule is actually followed.** ADR-047 T5 can put an
+  instruction into a centralised skill and has no way to observe compliance. Related to
+  §"The product is a runtime quality control plane, not an eval score" — the same gap, one level up.
+- **A tokenizer tied to the reader model, so the shared context budget is counted in tokens.**
+  ADR-047's central invariant is one budget every cell shares, and the pilot enforces it in
+  **runes**, because `go.mod` declares no tokenizer and `internal/palace/chunk.go:52-54` already
+  records that the palace cannot ask one. Raised in review of PR #148, and the finding is right
+  that a rune bound is an approximation: policies that rewrite and split text differently can
+  carry different token counts at the same rune count. What the pilot does instead is record the
+  reader endpoint's own reported prompt-token count per cell, so the realised spread is measured
+  rather than assumed. Revisit when a run's realised spread actually exceeds its declared
+  tolerance — a tokenizer dependency bought before that would be bought on a hypothesis.
+## From ADR-048 (retire the reinforcement fields nothing writes)
+
+Receipts for that record's two deferrals, written with it rather than after it, so `adr-debt` finds
+the destination knows about them.
+
+- **The four dynamics columns on `hallways` and `tunnels` are still there.** ADR-048 removed
+  `strength`, `stability`, `last_activated` and `access_count` from the wire only. The columns keep
+  their `NOT NULL` defaults, and `palace.Dynamics` keeps its json tags, because
+  `internal/palace/hallway.go` still reads `LastActivated` as a fallback input to `earliestStamp`
+  when preserving a hallway's `created_at` across a rebuild — the #38 stamp repair. Dropping the
+  columns needs a migration with no path back for the data, and buys nothing until something either
+  revives a verified-access signal or confirms nothing will. **Decide it then, not before.** Note the
+  asymmetry that makes this safe to leave: storage that nobody reads costs bytes, whereas the wire
+  fields cost a reader a wrong belief, which is why only one half was urgent.
+
+- **Entity extraction quality — issue #41's second half — is untouched and still needs a
+  measurement.** `internal/palace/entity.go` harvests capitalised Go identifiers through a general
+  proper-noun regex, which is why the wings holding pasted source produce hallways by the thousand
+  and the prose wings produce none. The obvious narrowing is already known to be wrong: `GitHub`,
+  `PostgreSQL`, `API` and `Handler` are the same lexical shape, and ADR-016's T1 measurement
+  overturned an ALL-CAPS exclusion once already because it would have killed `HTTP`, `MCP`, `ADR`,
+  `TEI` and `RRF`. So this wants a preregistered measurement over the real corpus before any
+  heuristic ships — the same discipline ADR-014 applies to a ranking default.
+
+## From the 2026-09-02 corpus repair (no ADR yet)
+
+Filed after repairing 16 facts whose `source_drawer_id` named no row, on this project's own
+palace. Both entries are receipts for work that was NOT done, written now because the evidence
+was in front of me and will not be again.
+
+- **`doctor --corpus` reports damage nothing can repair.** It is deliberately read-only —
+  `TestTheReadOnlyPathMintsNothing` exists so a checker never reports on a palace it has just
+  changed — and no `am_*` tool clears or repoints a `source_drawer_id`. So the only route from
+  "16 facts name no row" to a clean corpus is raw SQL against the container's database, which is
+  what was done here: stop the server, `docker cp` the file out, `UPDATE`, copy back. Three
+  separate ways that goes wrong were found by doing it. The database is in **WAL mode**, so
+  copying `agentsmemory.db` alone silently omits the sidecar — 4 MB of recent writes on the day
+  measured. `docker exec` cannot run in a stopped container, so a removal step written that way
+  fails silently. And `docker cp` writes as the host uid, so the next start fails with `attempt
+  to write a readonly database (8)` on a file that is perfectly intact. The first two together
+  replayed a stale WAL over a changed main file and produced `database disk image is malformed`
+  with a crash-looping server. **Any repair path worth shipping has to own those three, which is
+  the argument for it living in the tool rather than in each operator's shell history.**
+
+- **Nothing notices when a fact goes FALSE, and `--corpus` is structurally blind to it.** The
+  check asks whether a pointer RESOLVES, never whether the fact still agrees with the memory it
+  points at. Measured the same day: a fact of the shape `<host> -[<permits-a-thing>]-> <value>`
+  sat `current` and answerable for two weeks, while a drawer in the same wing recorded that the
+  setting had been turned off estate-wide on a named date. Search returns both; nothing
+  reconciles them. The dangling pointers were cosmetic beside this — a current fact asserting a
+  weaker security posture than production actually has is a false belief an agent acts on, and
+  it was found only by reading the drawer a repointing exercise happened to open. The specifics
+  stay in the palace, which is private; this repository is public, and none of the argument
+  depends on which host or which setting. **Whether this is detectable at all is the open question**: the
+  cheap version (flag a fact whose source drawer was superseded after the fact's `valid_from`)
+  is a heuristic that would have caught this one and will produce false positives, so it wants a
+  measurement over the real corpus before it wants an implementation. This is ADR-shaped and has
+  no record yet.
