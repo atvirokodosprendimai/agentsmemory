@@ -243,7 +243,7 @@ seam stops being a seam.
 |------|------------|-------|
 | `cmd/server/main.go` `buildServices` | the database, vector store, embedder, every domain service | `cmd/server/wiring_test.go` `TestEveryConfigFieldIsPopulatedAndRead` |
 | `cmd/server/main.go` `productionMCPServer` | the one MCP handler graph used by HTTP and the direct CLI | `cmd/server/mcp_test.go` `TestProductionMCPConstructionHasOneChokepoint` |
-| `cmd/server/main.go` `configureRanking` | the ranking configuration, retrieval unit and the reranker | `cmd/server/configureranking_test.go` `TestConfigureRankingSelectsTheReportedUnit`, `TestRerankSurvivesEveryFusionMode` |
+| `cmd/server/main.go` `configureRanking` | the ranking configuration, retrieval unit and the reranker | `cmd/server/configureranking_test.go` `TestConfigureRankingReportsTheMemoryUnit`, `TestRerankSurvivesEveryFusionMode` |
 | `internal/mcpserver` `registerAll` | every MCP tool, via `add` / `addWrite` | `internal/mcptest/exhaustive_test.go` `TestEveryToolIsExercisedEndToEnd` |
 
 ## Test Doubles
