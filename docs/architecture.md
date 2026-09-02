@@ -250,7 +250,7 @@ seam stops being a seam.
 
 | Fake | Stands in for | Contract | Check |
 |------|---------------|----------|-------|
-| `internal/mcptest` harness | a running server | real HTTP transport, real MCP client, real registration; ordinary scenarios substitute hosted identity, `NewHosted` crosses the real OAuth gate, and local-only scenarios cross `auth.LocalTenant` | `internal/mcptest/harness_test.go` `TestHarnessObservesAWriteThroughARead`, `TestHarnessFailsOnAnEmptyCatalogue`; `TestHostedMCPAuthenticationAndIsolation`; lifecycle registry uses `NewLocalWithWing` for `am_delete_wing` |
+| `internal/mcptest` harness | a running server | real HTTP transport, real MCP client, real registration; ordinary scenarios substitute hosted identity and `NewHosted` crosses the real OAuth gate. No scenario crosses the local-mode tenant edge any more — ADR-038 removed the local-only tools that were its only consumers `(deferred: docs/adr/BACKLOG.md)` | `internal/mcptest/harness_test.go` `TestHarnessObservesAWriteThroughARead`, `TestHarnessFailsOnAnEmptyCatalogue`; `internal/mcptest/hosted_auth_test.go` `TestHostedMCPAuthenticationAndIsolation` |
 | `mcptest.fakeEmbedder` | a real embedder | deterministic vectors of the configured dimension | none — the fake's vectors are not asserted to behave like a real model's `(deferred: docs/adr/BACKLOG.md)` |
 | `cmd/server` `noReranker` | a cross-encoder | returns nil, so the factory call is observable while nothing reranks | `cmd/server/configureranking_test.go` `TestConfigureRankingHonoursTheRerankURLGuard` |
 
