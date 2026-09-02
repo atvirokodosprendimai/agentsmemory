@@ -1,0 +1,110 @@
+[
+  {
+    "question_id": "q_user_1",
+    "question_type": "single-session-user",
+    "question": "What breed is my dog?",
+    "answer": "A border collie.",
+    "question_date": "2023-06-01",
+    "haystack_session_ids": ["s1", "s2"],
+    "haystack_dates": ["2023-05-01", "2023-05-02"],
+    "answer_session_ids": ["s1"],
+    "haystack_sessions": [
+      [
+        {"role": "user", "content": "I just adopted a border collie called Pip.", "has_answer": true},
+        {"role": "assistant", "content": "Congratulations on Pip!"}
+      ],
+      [
+        {"role": "user", "content": "What is a good rain jacket?"},
+        {"role": "assistant", "content": "Look for a taped-seam shell."}
+      ]
+    ]
+  },
+  {
+    "question_id": "q_assistant_1",
+    "question_type": "single-session-assistant",
+    "question": "What jacket did you recommend?",
+    "answer": "A taped-seam shell.",
+    "question_date": "2023-06-02",
+    "haystack_session_ids": ["s2"],
+    "haystack_dates": ["2023-05-02"],
+    "answer_session_ids": ["s2"],
+    "haystack_sessions": [
+      [
+        {"role": "user", "content": "What is a good rain jacket?"},
+        {"role": "assistant", "content": "Look for a taped-seam shell.", "has_answer": true}
+      ]
+    ]
+  },
+  {
+    "question_id": "q_pref_1",
+    "question_type": "single-session-preference",
+    "question": "How do I like my coffee?",
+    "answer": "Black, no sugar.",
+    "question_date": "2023-06-03",
+    "haystack_session_ids": ["s3"],
+    "haystack_dates": ["2023-05-03"],
+    "answer_session_ids": ["s3"],
+    "haystack_sessions": [
+      [
+        {"role": "user", "content": "I only drink coffee black, never with sugar.", "has_answer": true},
+        {"role": "assistant", "content": "Noted."}
+      ]
+    ]
+  },
+  {
+    "question_id": "q_temporal_1",
+    "question_type": "temporal-reasoning",
+    "question": "How long ago did I move house?",
+    "answer": "About one month before the question date.",
+    "question_date": "2023-06-04",
+    "haystack_session_ids": ["s4"],
+    "haystack_dates": ["2023-05-04"],
+    "answer_session_ids": ["s4"],
+    "haystack_sessions": [
+      [
+        {"role": "user", "content": "We finished moving into the new flat today.", "has_answer": true},
+        {"role": "assistant", "content": "That is a big week."}
+      ]
+    ]
+  },
+  {
+    "question_id": "q_update_1",
+    "question_type": "knowledge-update",
+    "question": "Where do I work now?",
+    "answer": "At Northwind.",
+    "question_date": "2023-06-05",
+    "haystack_session_ids": ["s5", "s6"],
+    "haystack_dates": ["2023-05-05", "2023-05-20"],
+    "answer_session_ids": ["s6"],
+    "haystack_sessions": [
+      [
+        {"role": "user", "content": "I work at Contoso."},
+        {"role": "assistant", "content": "Good to know."}
+      ],
+      [
+        {"role": "user", "content": "I left Contoso and joined Northwind last week.", "has_answer": true},
+        {"role": "assistant", "content": "Congratulations on the move."}
+      ]
+    ]
+  },
+  {
+    "question_id": "q_multi_1",
+    "question_type": "multi-session",
+    "question": "How many pets do I have in total?",
+    "answer": "Two.",
+    "question_date": "2023-06-06",
+    "haystack_session_ids": ["s7", "s8"],
+    "haystack_dates": ["2023-05-06", "2023-05-07"],
+    "answer_session_ids": ["s7", "s8"],
+    "haystack_sessions": [
+      [
+        {"role": "user", "content": "Pip the collie is settling in well.", "has_answer": true},
+        {"role": "assistant", "content": "Lovely."}
+      ],
+      [
+        {"role": "user", "content": "We also have a cat called Moss.", "has_answer": true},
+        {"role": "assistant", "content": "Two is a good number."}
+      ]
+    ]
+  }
+]

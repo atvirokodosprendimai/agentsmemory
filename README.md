@@ -1055,7 +1055,37 @@ docker compose exec agentsmemory agentsmemory kg-extract --wing wing_acme
 ```
 
 Use `--gen-model` (or `EVAL_GEN_MODEL`) to name a model you already have. The
-same model serves `agentsmemory eval`.
+same model serves `agentsmemory eval` and `agentsmemory longmemeval`.
+
+### `agentsmemory longmemeval` — does our writing advice actually help?
+
+Every other eval here scores ranking against questions generated from our own
+drawers. `longmemeval` scores **judged answer accuracy** over a (write-policy ×
+query-policy) grid on [LongMemEval-S](https://github.com/xiaowu0162/LongMemEval),
+a corpus written by people who have never seen this codebase — which is the
+property a self-derived corpus can never have.
+
+```bash
+# the dataset is third-party data with its own licence; fetch it yourself
+agentsmemory longmemeval --data longmemeval_s.json \
+  --write verbatim,question-first,one-fact,bounded \
+  --query verbatim,named-thing \
+  --n 20 --context-runes 6000 --out grid.cells.json
+```
+
+It needs the **same generative model** as `kg-extract` and `eval`, for the reader
+and the judge alike, and it writes into throwaway scratch scopes — one per
+(cell, question), so no question can retrieve another's history.
+
+⚠ **A pilot run decides nothing.** At small `--n` a paired interval spans zero for
+almost any real effect, so a neutral result is what the instrument says at that
+size whether the writing rules work or not. ADR-047 records this as a property
+rather than a caveat: no rule may be promoted *or retired* from a pilot.
+
+⚠ **The shared context budget is counted in RUNES, not tokens** (`--context-runes`),
+because this repository has no tokenizer. Each cell records the endpoint's own
+reported prompt-token count beside it where the endpoint supplies one, so the
+approximation is measured rather than assumed.
 
 ### Which ingest path do I want?
 

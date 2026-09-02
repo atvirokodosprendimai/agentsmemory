@@ -24,9 +24,7 @@
 package main
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -36,6 +34,7 @@ import (
 	"time"
 
 	"github.com/atvirokodosprendimai/agentsmemory/internal/config"
+	"github.com/atvirokodosprendimai/agentsmemory/internal/gen"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/palace"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/telemetry"
 
@@ -211,11 +210,14 @@ func runKGExtract(ctx context.Context, c *cli.Command, def config.Config, out io
 	return nil
 }
 
-// tripleGen asks a model to extract triples from one window of source text. Same
-// wire format as questionGen (Ollama's POST /api/generate — local, remote, or
-// hosted with a bearer token; deliberately NOT OpenAI-shaped, see questionGen),
-// but it returns the raw multi-line response: the caller parses triples out of
-// it, where questionGen keeps only a first line.
+// tripleGen asks a model to extract triples from one window of source text.
+//
+// It shares only its TRANSPORT with eval.go's questionGen — internal/gen since
+// ADR-047 T3 — and differs in every parameter that matters: its own prompt, a
+// lower temperature (extraction wants what the text states, and creativity here
+// is fabrication), and the raw multi-line body, because the caller parses triples
+// out of it where questionGen keeps a cleaned first line. Unifying the parsing
+// would have silently changed what this command extracts.
 type tripleGen struct {
 	url    string
 	model  string
@@ -251,43 +253,11 @@ TRIPLES:`
 
 // extract returns the model's raw answer for one window.
 func (g *tripleGen) extract(ctx context.Context, window string) (string, error) {
-	body, err := json.Marshal(map[string]any{
-		"model":  g.model,
-		"prompt": fmt.Sprintf(kgExtractPrompt, window),
-		"stream": false,
-		"options": map[string]any{
-			// Low temperature: extraction wants the facts the text states, and a
-			// re-run should reproduce them — creativity here is fabrication.
-			"temperature": 0.1,
-		},
-	})
-	if err != nil {
-		return "", err
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(g.url, "/")+"/api/generate", bytes.NewReader(body))
-	if err != nil {
-		return "", err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	if g.apiKey != "" {
-		req.Header.Set("Authorization", "Bearer "+g.apiKey)
-	}
-	resp, err := g.http.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-	raw, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", fmt.Errorf("generate: %d: %s", resp.StatusCode, firstLineOf(string(raw), 120))
-	}
-	var out struct {
-		Response string `json:"response"`
-	}
-	if err := json.Unmarshal(raw, &out); err != nil {
-		return "", err
-	}
-	return out.Response, nil
+	c := &gen.Client{URL: g.url, Model: g.model, APIKey: g.apiKey, HTTP: g.http}
+	// Low temperature: extraction wants the facts the text states, and a re-run
+	// should reproduce them — creativity here is fabrication.
+	res, err := c.Generate(ctx, fmt.Sprintf(kgExtractPrompt, window), 0.1)
+	return res.Text, err
 }
 
 // listMarker matches a leading ordered-list marker ("1. ", "12) ") so numbered

@@ -119,6 +119,7 @@ func rootCommand(def config.Config) *cli.Command {
 			drawerCommand(def),
 			importCommand(),
 			evalCommand(def),
+			longmemevalCommand(def),
 			kgExtractCommand(def),
 			shareCommand(def),
 			setPlanCommand(def),
@@ -1379,15 +1380,44 @@ func warnIfPayloadMissing(ctx context.Context, cfg config.Config, svc *services)
 	if err != nil || len(namespaces) == 0 {
 		return
 	}
+	reportPayloadGaps(ctx, client, namespaces, log.Printf)
+}
+
+// payloadSampler reports how many of a sample of a namespace's points carry every
+// key. *qdrant.Client satisfies it.
+//
+// An interface at the consumer, one method wide, because the alternative is a
+// check that can only be exercised by standing up Qdrant — and this check went
+// out with no test at all, which is how it shipped warning about a namespace it
+// should never have sampled.
+type payloadSampler interface {
+	SamplePayloadCoverage(ctx context.Context, namespace string, keys []string, sample int) (withKeys, sampled int, err error)
+}
+
+// reportPayloadGaps is warnIfPayloadMissing's loop, over namespaces the caller
+// has already listed and through a warn function the caller supplies.
+//
+// Split out so a test can drive the real loop rather than a copy of it. Asserting
+// the skip on a predicate alone would leave the branch that USES the predicate
+// unpinned, and this repo's characteristic defect is exactly that: a component
+// that works, with nothing exercising its selection.
+func reportPayloadGaps(ctx context.Context, sampler payloadSampler, namespaces []string, warnf func(string, ...any)) {
 	for _, ns := range namespaces {
-		withKeys, sampled, err := client.SamplePayloadCoverage(ctx, ns, qdrant.FilterKeys(), 100)
+		// Entity points carry a label and no wing/room, by design, and
+		// entityMatches searches them with a nil filter — so the sentence below
+		// would be false about them in a way an operator cannot act on, and its
+		// advice names a repair driven by drawer rows they do not have (#164).
+		if palace.IsEntityNamespace(ns) {
+			continue
+		}
+		withKeys, sampled, err := sampler.SamplePayloadCoverage(ctx, ns, qdrant.FilterKeys(), 100)
 		if err != nil || sampled == 0 {
 			continue // an unreachable or empty collection is not this check's business
 		}
 		if withKeys == sampled {
 			continue
 		}
-		log.Printf("WARNING: %d of %d sampled points in the search index carry no wing/room label, "+
+		warnf("WARNING: %d of %d sampled points in the search index carry no wing/room label, "+
 			"so every wing-scoped search will silently return NOTHING for them — they will look like an empty wing. "+
 			"Repair without re-embedding: agentsmemory sync --repair-payload", sampled-withKeys, sampled)
 	}
