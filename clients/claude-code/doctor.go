@@ -357,7 +357,71 @@ func runHookDoctor(ctx context.Context, c *cli.Command, out io.Writer) error {
 			}
 		}
 	}
+	// Drift is reported AFTER the per-hook verdicts and never fails the run on
+	// its own, for the reason judgeServerBin gives about STALE-PATH: an operator
+	// may be running a hand-edited hook deliberately, and a check that fails a
+	// legitimate choice is one that gets switched off.
+	for _, name := range staleHooksIn(dir) {
+		fmt.Fprintf(out, "  %-38s %-14s %-12s %s\n", name, "—", "STALE",
+			"differs from this binary's embedded copy — `aiagentmemory install` rewrites it")
+	}
 	return reportServerBin(out, kit, dir, bad, len(verdicts))
+}
+
+// hookAssetFiles pairs every embedded hook asset with the filename install
+// writes it to. It is the one place the two names are tied together, so a hook
+// added to the //go:embed list and not to install — or the reverse — shows up
+// here as a missing entry rather than as a silently unchecked file.
+func hookAssetFiles() map[string]string {
+	return map[string]string{
+		hookFile:           hookAsset,
+		verifyHookFile:     verifyHookAsset,
+		sessionEndHookFile: sessionEndHookAsset,
+		subagentHookFile:   subagentHookAsset,
+		recallHookFile:     recallHookAsset,
+		statsHelperFile:    statsHelperAsset,
+	}
+}
+
+// staleHooksIn reports installed hooks whose bytes differ from this binary's
+// embedded copy, sorted so the output is stable.
+//
+// ⚠ THE BINARY IS HASHED FOR DRIFT AND THE HOOKS WERE NOT, THOUGH THE HOOKS ARE
+// WHAT ACTUALLY CARRY THE BEHAVIOUR. judgeServerBin exists because a frozen path
+// keeps serving old code; an install directory is the same problem one layer
+// out, and worse in one respect — `update` refreshes the BINARY in place and
+// says so in its own help text ("configs, sandboxes and MCP registration are
+// untouched"), so the supported upgrade path leaves every hook exactly as it
+// was. A current binary beside year-old hooks is not an edge case here, it is
+// what following the documented instructions produces.
+//
+// Reported 2026-09-02 from a sandbox install: the Stop hook still carried the
+// BSD-first `stat` probe fixed on 2026-08-25, so `stat -f %B` fed a multiline
+// filesystem block into an integer comparison on every Linux session. The
+// operator's binary was current. `doctor` said only that no hook declared
+// `# hook-output:` — true, because that hook predated the declaration line
+// itself — which named a symptom three refactors downstream of the cause.
+//
+// A file that is ABSENT is not drift: kits install different subsets, and an
+// unreadable one is reported by the checks that try to run it rather than
+// guessed at here.
+func staleHooksIn(dir string) []string {
+	var stale []string
+	for name, asset := range hookAssetFiles() {
+		want, err := assets.ReadFile(asset)
+		if err != nil {
+			continue // not embedded in this build; nothing to compare against
+		}
+		got, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil {
+			continue // absent or unreadable — not this check's finding
+		}
+		if string(got) != string(want) {
+			stale = append(stale, name)
+		}
+	}
+	sort.Strings(stale)
+	return stale
 }
 
 // hookVerdictsIn scans one install directory and judges every injecting hook in
@@ -369,11 +433,26 @@ func hookVerdictsIn(ctx context.Context, c *cli.Command, kit agentKit, dir, proj
 	if err != nil {
 		return nil, err
 	}
-	// ⚠ THREE EMPTY STATES, NOT ONE. "nothing is installed", "the declaration
-	// changed so this command now examines nothing", and "installed but registered
-	// nowhere" are different problems with different fixes, and an earlier version
-	// reported all three as the same alarm.
+	// ⚠ FOUR EMPTY STATES, NOT ONE. "nothing is installed", "the declaration
+	// changed so this command now examines nothing", "installed but registered
+	// nowhere" and "an OLD hook is installed that predates the declaration" are
+	// different problems with different fixes, and earlier versions reported the
+	// first three as the same alarm and the fourth not at all.
+	//
+	// The fourth is the one an operator cannot diagnose from the other three,
+	// because its symptom is indistinguishable from "nothing is installed" while
+	// its fix is the opposite of investigating an empty directory. Naming the
+	// drifted files turns it into one instruction.
 	if len(scripts) == 0 {
+		if stale := staleHooksIn(dir); len(stale) > 0 {
+			return nil, fmt.Errorf("no hook in %s declares `# hook-output: %s`, and %d installed "+
+				"hook(s) differ from this binary's embedded copies: %s.\n"+
+				"  That combination means an OLDER install is on disk — old enough to predate\n"+
+				"  the declaration line this check looks for. The binary being current does not\n"+
+				"  refresh them: `update` replaces the binary and leaves configs alone.\n"+
+				"  Run `aiagentmemory install` to rewrite the hooks",
+				dir, channelStdoutInjected, len(stale), strings.Join(stale, ", "))
+		}
 		return nil, fmt.Errorf("no hook in %s declares `# hook-output: %s`.\n"+
 			"  Either nothing is installed there — run `aiagentmemory install` — or the\n"+
 			"  declaration line changed, in which case this check now examines nothing\n"+
