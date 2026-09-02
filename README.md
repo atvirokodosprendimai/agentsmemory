@@ -928,7 +928,7 @@ inferred from documentation.
 | memory protocol | `CLAUDE.md` + `@import` | inlined in `AGENTS.md` | `rules/agentsmemory.mdc`, `alwaysApply: true` | **the MCP handshake** — it can hold no file | inlined in `AGENTS.md` |
 | slash commands | `/M`, `/am`, `/load-skill` | `/prompts:M`, … | **none** — no commands dir | **none** | `/M`, … |
 | Stop checkpoint | ✅ | ✅ — native TOML in `config.toml` | ❌ hook shape not established | ❌ | in the extension |
-| `SessionStart` / `SessionEnd` | ✅ — two hooks share `SessionStart`: one verifies anchored memories, one performs a recall for the branch and injects it so a fresh context does not start blind (ADR-041) | ❌ not registered; not part of the Codex subagent audit | ❌ | ❌ | ❌ |
+| `SessionStart` / `SessionEnd` | ✅ — two hooks share `SessionStart`: one verifies anchored memories, one performs a recall for the branch and injects it so a fresh context does not start blind (ADR-041). ⚠ `SessionEnd` is **not registered on Windows**: process creation costs ~1s there, the hook needs ~3.2s, and it loses the teardown race, so every exit reported `Hook cancelled` (#150). Ask the server for the same numbers instead — `curl -fsS "${AGENTSMEMORY_MCP_URL%/mcp}/stats?hours=2"` (the hooks read `AGENTSMEMORY_MCP_URL`; `AGENTSMEMORY_URL` is the proxy origin and is unset in an ordinary install). An existing registration from an earlier install is retired on upgrade. On macOS and Linux the hook completes well inside teardown and stays registered; `AGENTSMEMORY_STATS=off` turns the end-of-session report off there without touching the other hooks (the 3,210ms → 634ms figures are from the Windows host that reported #150) | ❌ not registered; not part of the Codex subagent audit | ❌ | ❌ | ❌ |
 | `SubagentStart` / `SubagentStop` | ✅ | ❌ events exist; [payload, feedback, and retry contracts remain to measure](docs/adr/BACKLOG.md) | ❌ | ❌ | ❌ |
 | subagent definition | `agents/*.md` | `agents/*.toml` | `agents/*.md` | ❌ | ❌ no subagent system |
 | `--wing` registration scope | ✅ header | ✅ URL query | ✅ header | ✅ `mcp-stdio --wing` | ✅ bridge env |
@@ -1055,7 +1055,37 @@ docker compose exec agentsmemory agentsmemory kg-extract --wing wing_acme
 ```
 
 Use `--gen-model` (or `EVAL_GEN_MODEL`) to name a model you already have. The
-same model serves `agentsmemory eval`.
+same model serves `agentsmemory eval` and `agentsmemory longmemeval`.
+
+### `agentsmemory longmemeval` — does our writing advice actually help?
+
+Every other eval here scores ranking against questions generated from our own
+drawers. `longmemeval` scores **judged answer accuracy** over a (write-policy ×
+query-policy) grid on [LongMemEval-S](https://github.com/xiaowu0162/LongMemEval),
+a corpus written by people who have never seen this codebase — which is the
+property a self-derived corpus can never have.
+
+```bash
+# the dataset is third-party data with its own licence; fetch it yourself
+agentsmemory longmemeval --data longmemeval_s.json \
+  --write verbatim,question-first,one-fact,bounded \
+  --query verbatim,named-thing \
+  --n 20 --context-runes 6000 --out grid.cells.json
+```
+
+It needs the **same generative model** as `kg-extract` and `eval`, for the reader
+and the judge alike, and it writes into throwaway scratch scopes — one per
+(cell, question), so no question can retrieve another's history.
+
+⚠ **A pilot run decides nothing.** At small `--n` a paired interval spans zero for
+almost any real effect, so a neutral result is what the instrument says at that
+size whether the writing rules work or not. ADR-047 records this as a property
+rather than a caveat: no rule may be promoted *or retired* from a pilot.
+
+⚠ **The shared context budget is counted in RUNES, not tokens** (`--context-runes`),
+because this repository has no tokenizer. Each cell records the endpoint's own
+reported prompt-token count beside it where the endpoint supplies one, so the
+approximation is measured rather than assumed.
 
 ### Which ingest path do I want?
 

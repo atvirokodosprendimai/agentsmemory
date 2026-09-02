@@ -149,9 +149,12 @@ var writeToolSemantics = map[string]writeSemantics{
 		why: "chunks and files under a named source, on the same dedupe path as add_drawer"},
 	"create_tunnel": {idempotent: true, destructive: false,
 		why: "the same endpoints and label resolve to the same tunnel"},
-	"kg_add": {idempotent: true, destructive: false,
-		why: "kgAddOn returns the existing triple id when the fact is already current, rather " +
-			"than inserting a second row"},
+	"kg_add": {idempotent: false, destructive: false,
+		why: "the no-op covers a CURRENT fact only. CurrentTripleID matches on valid_to = '', so a " +
+			"fact filed WITH valid_to — a closed window, the historical form this tool accepts — " +
+			"is not deduped, and its id is derived from the time of writing, so a repeat inserts a " +
+			"second row saying the same thing. Retry a current fact freely; read the timeline back " +
+			"before repeating a closed one"},
 	"kg_invalidate": {idempotent: true, destructive: false,
 		why: "it REFUSES when no CURRENT fact matches (#73), so a repeat ends nothing twice. " +
 			"The fact is kept and queryable as-of an earlier time"},
@@ -188,6 +191,17 @@ var writeToolSemantics = map[string]writeSemantics{
 // given a guess. nil is honestly "not stated"; a guess is a wrong answer a client
 // would act on, and TestWriteToolSemanticsCoversEveryWriteTool fails the build
 // before it ships.
+//
+// ⚠ IT ALSO REWRITES THE DESCRIPTION, which the name does not say and this
+// comment therefore must: a write tool's retry contract is appended here, built
+// from the same writeToolSemantics entry that feeds the hints so the sentence and
+// the hint cannot drift. Generating it here is what puts it on EVERY write tool
+// rather than on the ones somebody remembered to edit.
+//
+// The append is guarded against running twice. Nothing calls this function twice
+// today, and that is a property rather than an invariant — the guard is what
+// makes a second call harmless instead of leaving a description that says the
+// same thing twice to an agent deciding what to do about a timeout.
 func classifyTool(tool mcp.Tool, write bool) mcp.Tool {
 	tool.Annotations.ReadOnlyHint = mcp.ToBoolPtr(!write)
 	tool.Annotations.OpenWorldHint = mcp.ToBoolPtr(false)
@@ -202,8 +216,45 @@ func classifyTool(tool mcp.Tool, write bool) mcp.Tool {
 	if s, ok := writeToolSemantics[strings.TrimPrefix(tool.Name, mcpprotocol.ToolPrefix)]; ok {
 		tool.Annotations.IdempotentHint = mcp.ToBoolPtr(s.idempotent)
 		tool.Annotations.DestructiveHint = mcp.ToBoolPtr(s.destructive)
+		// Guarded, not merely unrepeated: this function is called once per tool
+		// today, and "appends on every call" is a property that goes wrong the
+		// first time somebody classifies a tool twice — a second sentence, saying
+		// the same thing, in a description an agent reads before deciding.
+		if sentence := retrySentence(s); !strings.Contains(tool.Description, sentence) {
+			tool.Description += " " + sentence
+		}
 	}
 	return tool
+}
+
+// retrySentence renders a write tool's retry contract into the one place a
+// caller reads before deciding what to do about a call that did not answer.
+//
+// The contract was already declared — writeToolSemantics carries idempotent,
+// destructive and a reason for each write tool — and it was unreachable where it
+// is needed. A timed-out write is indistinguishable from a refused one: three of
+// four concurrent sessions hit this on 2026-08-31 (#152), and the sharpest case
+// was am_merge_wing reporting a timeout on a merge that had COMMITTED. One
+// session retried and was right, on the strength of a sentence in a DIFFERENT
+// tool's description; that is reasoning from documentation rather than from
+// evidence, and it does not generalise.
+//
+// GENERATED FROM THE HINTS RATHER THAN WRITTEN BESIDE THEM, which is the whole
+// point: a sentence maintained by hand next to the map is a second copy of one
+// fact, and the copy nobody maintains is the one that goes false. A tool whose
+// idempotence changes gets a new sentence on the same commit.
+//
+// It cannot help a client-side deadline reach the server, and it is not meant to:
+// what a caller cannot work out alone is not that the call timed out, it is what
+// a repeat would DO.
+func retrySentence(s writeSemantics) string {
+	if s.idempotent {
+		return "⚠IF THIS CALL DOES NOT ANSWER (a timeout, a dropped connection), RETRYING IS SAFE: " +
+			s.why + "."
+	}
+	return "⚠IF THIS CALL DOES NOT ANSWER (a timeout, a dropped connection), DO NOT RETRY BLINDLY — " +
+		"it may have committed, and a repeat is not a no-op: " + s.why + ". Read the palace back " +
+		"first and decide from what you find."
 }
 
 // writeGuard refuses a call whose role may not change stored memory, before the
@@ -560,7 +611,7 @@ func registerStatus(reg *registrar, drawers *palace.Service, skills *skill.Servi
 		return drawers.IndexDrift(ctx, teamID)
 	}, driftTTL)
 	tool := newTool("status",
-		mcp.WithDescription("Wake-up call: the workspace this MCP session is scoped to (name, slug, and whether the server is self-hosted or hosted) plus your role, the memory overview (total drawers + the wing→rooms taxonomy with counts), and remaining monthly quota. Check the workspace to confirm you are talking to the palace you think you are — an empty wing list means nothing has been written yet, NOT that you are in the wrong place. ⚠READ entry_protocol IF IT IS PRESENT: it names the one skill this team wants loaded before anything else, with the exact call to make. The key is ABSENT when the workspace has no entry protocol, so its presence is the whole signal — a key that were always there is one every session learns to skip. version names the build that answered you: a release tag like v0.0.102, or dev-<commit> for an unreleased build — the one field that tells a stale palace from a current one, which nothing else here can."),
+		mcp.WithDescription("Wake-up call: the workspace this MCP session is scoped to (name, slug, and whether the server is self-hosted or hosted) plus your role, the memory overview (total drawers + the wing→rooms taxonomy with counts), and remaining monthly quota — usage.remaining is a NUMBER on a capped plan and NULL when the cap does not limit anything, so branch on null rather than on a low number: a plan with no ceiling has no remainder to report, and reading its absence as exhaustion is what stops a session writing. Check the workspace to confirm you are talking to the palace you think you are — an empty wing list means nothing has been written yet, NOT that you are in the wrong place. ⚠READ entry_protocol IF IT IS PRESENT: it names the one skill this team wants loaded before anything else, with the exact call to make. The key is ABSENT when the workspace has no entry protocol, so its presence is the whole signal — a key that were always there is one every session learns to skip. version names the build that answered you: a release tag like v0.0.102, or dev-<commit> for an unreleased build — the one field that tells a stale palace from a current one, which nothing else here can."),
 	)
 	reg.add(tool, func(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		t, errResult, ok := admit(ctx, usageSvc)
@@ -649,7 +700,11 @@ func registerStatus(reg *registrar, drawers *palace.Service, skills *skill.Servi
 			"usage": map[string]any{
 				"used_this_month": st.Used,
 				"monthly_cap":     st.Cap,
-				"remaining":       st.Remaining(),
+				// nil marshals as `"remaining": null` — deliberately, because an
+				// unlimited plan has no remainder to report and 0 was read as
+				// exhaustion (issue #153). The key stays present: a caller that
+				// checks for it must find it in both shapes.
+				"remaining": st.RemainingReported(),
 			},
 			// Point the agent at the rest of the wake-up loop — and, when something
 			// is waiting, at that first. The hint changes with the inbox because a

@@ -4,9 +4,12 @@
 -- (hallways.json / tunnels.json); a multi-tenant server cannot — they become
 -- team-scoped tables, the relational source of truth the graph tools read and
 -- recompute_graph rebuilds. Both carry the L7 "living connection" fields
--- (strength/stability/last_activated/access_count) for wire-shape parity with the
--- frozen tools; the Hebbian/Ebbinghaus evolution of those fields is a later phase,
--- so they are stored at their defaults for now.
+-- (strength/stability/last_activated/access_count); the Hebbian/Ebbinghaus evolution
+-- of those fields is a later phase, so they are stored at their defaults for now.
+-- ⚠ They are NOT on the wire: ADR-048 removed all four from the MCP tool responses.
+-- The columns stay so a revert needs no data step, and because last_activated is read
+-- internally when a timestamp needs repairing — not for wire-shape parity, which was
+-- the reason this comment used to give and is no longer true.
 
 -- +goose Up
 -- +goose StatementBegin

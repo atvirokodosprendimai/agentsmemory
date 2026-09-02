@@ -117,8 +117,23 @@ QUERY="$(printf '%s %s' "${BRANCH:-}" "${FILES:-}" | tr -s ' ' | sed 's/^ *//;s/
 # generically popular across every wing, which is worse than silence and is exactly
 # what the length guard below exists to prevent. So the fallback has to make the
 # query SUBSTANTIAL, not merely non-empty.
+#
+# ⚠ --no-merges, BECAUSE THE BRANCH THIS FALLBACK EXISTS FOR IS THE ONE WHERE MERGE
+# SUBJECTS DOMINATE. The premise above is that commit subjects are sentence-shaped.
+# A merge subject is not: `Merge pull request #168 from org/task/some-branch-slug` is
+# boilerplate plus a slug, it is near-identical to every other merge, and on a default
+# branch fed by pull requests it is most of what `git log` returns. That is precisely
+# where this fallback fires, since the merge-base is HEAD there and the branch-work
+# diff is empty — so the case the widening was written for is the case it was worst at.
+#
+# Measured 2026-09-02 on this repository's own palace, room diary, the hook's own 0.42
+# floor. The query the hook actually built — two merge subjects and one real one,
+# truncated mid-word by the 200-char cut — returned COUNT 0. The same three commits
+# with merges skipped returned the session's own diary entry at distance 0.393. Not a
+# thin-query problem: the query was long, and every character of it was noise that no
+# memory is about.
 if [ -z "$FILES" ]; then
-  SUBJECTS="$(git log -n 3 --format=%s 2>/dev/null | tr '\n' ' ' | tr -s ' ' | cut -c1-200 || true)"
+  SUBJECTS="$(git log -n 3 --no-merges --format=%s 2>/dev/null | tr '\n' ' ' | tr -s ' ' | cut -c1-200 || true)"
   [ -n "$SUBJECTS" ] && QUERY="$SUBJECTS"
 fi
 
