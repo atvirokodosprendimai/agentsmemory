@@ -110,6 +110,12 @@ type Drawer struct {
 // and the bookkeeping for that evolution. They are stored for wire-shape parity
 // with the frozen tools; the potentiation/decay that would move them off their
 // defaults is a later phase, so for now they stay at their initialized values.
+//
+// ⚠ THEY ARE NO LONGER ON THE WIRE. ADR-048 removed all four from the MCP responses
+// (am_create_tunnel, am_list_tunnels, am_list_hallways), because publishing a constant
+// promises a reinforcement layer this server does not implement. They remain STORED
+// for two reasons only: a revert restores the previous wire shape with no data step,
+// and LastActivated is read internally when a timestamp needs repairing.
 type Dynamics struct {
 	Strength      float64 `json:"strength"`
 	Stability     float64 `json:"stability"`
