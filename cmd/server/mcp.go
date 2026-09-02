@@ -41,14 +41,16 @@ import (
 func mcpCommand(def config.Config) *cli.Command {
 	return &cli.Command{
 		Name:      "mcp",
-		Usage:     "Invoke a read-only memory tool from the CLI (run with no tool to list them)",
-		ArgsUsage: "[tool] [primary-arg]",
+		Usage:     "Invoke a memory tool from the CLI (run with no tool to list them; writes need --write)",
+		ArgsUsage: "[tool] [primary-arg|file.md]",
 		Flags: append(append(dataFlags(def), meteringFlags(def)...),
 			&cli.StringFlag{Name: "token", Usage: "API key: resolves the tenant and meters the call (HTTP parity). AGENTSMEMORY_TOKEN is used only when neither --token nor --team is set"},
 			&cli.StringFlag{Name: "team", Usage: "team id: trusted local admin read, no metering (alternative to --token)"},
 			&cli.StringSliceFlag{Name: "arg", Aliases: []string{"a"}, Usage: "tool argument as key=value (repeatable)"},
 			&cli.StringFlag{Name: "wing", Usage: "default wing for this call, like a per-project MCP registration; explicit -a wing= wins and \"*\" searches every wing"},
 			&cli.BoolFlag{Name: "raw", Usage: "print the whole MCP envelope (content blocks, isError) instead of just the result"},
+			&cli.BoolFlag{Name: "write", Usage: "allow a tool that writes to the palace (refused without this)"},
+			&cli.BoolFlag{Name: "schema", Usage: "describe the tool's arguments and print a markdown template, instead of calling it"},
 		),
 		Action: func(ctx context.Context, c *cli.Command) error {
 			return runMCP(ctx, c, def)
@@ -101,10 +103,13 @@ func runMCP(ctx context.Context, c *cli.Command, def config.Config) error {
 		},
 	}
 	return mcpcli.Run(ctx, c.Writer, endpoint, mcpcli.Invocation{
-		Tool:     c.Args().First(),
-		ArgFlags: c.StringSlice("arg"),
-		Tail:     mcpcli.TailArgs(c.Args().Slice()),
-		Raw:      c.Bool("raw"),
+		Tool:        c.Args().First(),
+		ArgFlags:    c.StringSlice("arg"),
+		Tail:        mcpcli.TailArgs(c.Args().Slice()),
+		Raw:         c.Bool("raw"),
+		AllowWrites: c.Bool("write"),
+		Schema:      c.Bool("schema"),
+		Log:         os.Stderr,
 	})
 }
 

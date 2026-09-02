@@ -32,6 +32,22 @@ type Invocation struct {
 	ArgFlags []string
 	Tail     []string
 	Raw      bool
+
+	// AllowWrites lifts the read-only refusal for this one call. It is opt-in
+	// because the default protects a shell typo from mutating team memory, which
+	// was the whole reason the CLI shipped read-only; it is not a capability the
+	// binary lacks, so a caller who means it says so.
+	AllowWrites bool
+
+	// Schema prints the selected tool's arguments and a fillable markdown
+	// template instead of calling it. It needs no write permission: describing a
+	// tool changes nothing.
+	Schema bool
+
+	// Log receives diagnostics about what a document contributed. It is separate
+	// from out because out is piped into jq — a note that lands there corrupts
+	// the result. A nil Log discards the notes.
+	Log io.Writer
 }
 
 // Run executes the one CLI contract shared by local and remote consumers:
@@ -52,14 +68,28 @@ func Run(ctx context.Context, out io.Writer, endpoint Endpoint, invocation Invoc
 	if !ok {
 		return fmt.Errorf("unknown tool %q; run the mcp command without a tool to list the available tools", name)
 	}
+	// Describing a tool is answered before any policy: a caller who cannot yet
+	// call a write tool is exactly the one who needs to read its schema.
+	if invocation.Schema {
+		return PrintSchema(out, tool)
+	}
 	if !publishesReadOnlyHints(tools) {
 		return fmt.Errorf("%q has no read-only annotation on this server; the CLI fails closed until the server publishes one (upgrade the server, or call it from an agent)", name)
 	}
-	if !IsReadOnly(tool) {
-		return fmt.Errorf("%q writes to the palace and is not available from the CLI, which is read-only; ask your agent to call it", name)
+	// ⚠ THE CATALOGUE CHECK ABOVE IS NOT WAIVED BY AllowWrites, and the order is
+	// the reason. A server that annotates nothing cannot tell a read from a write,
+	// so --write there would authorise every tool on the strength of a promise
+	// nobody made. --write says "I meant this write", never "classify for me".
+	if !IsReadOnly(tool) && !invocation.AllowWrites {
+		return fmt.Errorf("%q writes to the palace; pass --write to allow it, or run `mcp %s --schema` to see what it takes", name, name)
 	}
 
-	result, err := Call(ctx, endpoint.CallTool, tool.Name, ParseArgs(invocation.ArgFlags, invocation.Tail, tool.InputSchema.Properties, PrimaryArg(tool)))
+	args := ParseArgs(invocation.ArgFlags, invocation.Tail, tool.InputSchema.Properties, PrimaryArg(tool))
+	if err := applyDocument(tool, invocation, args); err != nil {
+		return err
+	}
+
+	result, err := Call(ctx, endpoint.CallTool, tool.Name, args)
 	if err != nil {
 		return fmt.Errorf("call %s: %w", tool.Name, err)
 	}
