@@ -92,8 +92,16 @@ func readDrawerResource(drawers *palace.Service, usageSvc *usage.Service) server
 		// room written beside it — so a stale or hand-edited address would return a
 		// memory while displaying somebody else's provenance. Answering not-found is
 		// the honest response to an address that no longer describes its target.
+		//
+		// ⚠ EXACT, NOT strings.EqualFold, AND THE FIRST VERSION HAD IT WRONG.
+		// SanitizeName preserves case, so wing_acme and wing_ACME are two wings
+		// holding two different sets of memories — measured, not assumed. A folded
+		// comparison therefore made the check one case-fold WIDER than the palace: an
+		// address naming wing_ACME resolved a drawer living in wing_acme and returned
+		// it, which is the exact failure the check exists to refuse. Every address the
+		// server itself renders preserves case, so nothing legitimate needs the fold.
 		head := chunks[0]
-		if !strings.EqualFold(head.Wing, wing) || !strings.EqualFold(head.Room, room) {
+		if head.Wing != wing || head.Room != room {
 			return nil, fmt.Errorf("no memory at %s: that id lives in %s/%s", req.Params.URI, head.Wing, head.Room)
 		}
 

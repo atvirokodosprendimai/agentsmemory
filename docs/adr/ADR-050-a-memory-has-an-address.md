@@ -116,6 +116,16 @@ tools do — current by default — and says so, rather than silently serving hi
 tools sanitize them; a URI naming a wing the caller cannot see resolves to
 nothing rather than to somebody else's memory.
 
+**The comparison is EXACT, and the first implementation got this wrong.** It used
+`strings.EqualFold`, which reads like harmless leniency. `SanitizeName` preserves
+case, so `wing_acme` and `wing_ACME` are two wings holding two different sets of
+memories — probed directly, two `Add` calls return two distinct drawer ids. A
+folded comparison is therefore one case-fold WIDER than the palace, and an
+address naming one wing resolved a record living in the other: a memory served
+under somebody else's provenance, which is the precise failure this check exists
+to refuse. Every address the server renders preserves case, so nothing legitimate
+needed the fold.
+
 ## Rollback
 
 Remove the capability declaration and the two handlers; the `uri` field is

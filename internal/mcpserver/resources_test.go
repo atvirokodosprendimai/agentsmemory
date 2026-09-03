@@ -138,18 +138,91 @@ func TestAnAddressThatNoLongerDescribesItsTargetIsRefused(t *testing.T) {
 	}
 	id := added.Drawers[0].ID
 
-	for _, tc := range []struct{ name, uri string }{
-		{"wrong wing", drawerURI("wing_beta", "decisions", id)},
-		{"wrong room", drawerURI("wing_acme", "gotchas", id)},
-		{"not a memory URI", "https://example.com/x"},
-		{"right shape, no such id", drawerURI("wing_acme", "decisions", "deadbeef")},
-		{"missing segments", "agentsmemory://wing/wing_acme/" + id},
+	// ⚠ EACH CASE NAMES THE STAGE IT MUST BE REFUSED AT, because "an error came
+	// back" is the assertion that would pass over the bug this test exists for. A
+	// parser that rejected every URI would refuse all five for one reason, and the
+	// wing and room check — the half that is actually about provenance — would
+	// never run. The `want` string is what distinguishes the stages.
+	for _, tc := range []struct{ name, uri, want string }{
+		{"wrong wing", drawerURI("wing_beta", "decisions", id), "that id lives in"},
+		{"wrong room", drawerURI("wing_acme", "gotchas", id), "that id lives in"},
+		{"wing differing only in case", drawerURI("WING_ACME", "decisions", id), "that id lives in"},
+		{"room differing only in case", drawerURI("wing_acme", "Decisions", id), "that id lives in"},
+		{"right shape, no such id", drawerURI("wing_acme", "decisions", "deadbeef"), ""},
+		// ⚠ THESE TWO ARE REFUSED BY THE TEMPLATE ROUTER, NOT BY parseDrawerURI, and
+		// the expectation says so rather than hiding it. A URI that does not match
+		// the registered template never reaches the handler at all — mcp-go answers
+		// "handler not found for resource URI". So the scheme and shape branches in
+		// parseDrawerURI are a second line of defence for callers that reach it by
+		// another route, not the layer a wire client meets first. Asserting the
+		// parser's own wording here would have been asserting a message nothing on
+		// this path emits.
+		{"not a memory URI", "https://example.com/x", "handler not found"},
+		{"missing segments", "agentsmemory://wing/wing_acme/" + id, "handler not found"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if _, err := cli.ReadResource(ctx, mcp.ReadResourceRequest{Params: mcp.ReadResourceParams{URI: tc.uri}}); err == nil {
-				t.Errorf("%s resolved; an address that does not describe its target must not return a memory", tc.uri)
+			_, err := cli.ReadResource(ctx, mcp.ReadResourceRequest{Params: mcp.ReadResourceParams{URI: tc.uri}})
+			if err == nil {
+				t.Fatalf("%s resolved; an address that does not describe its target must not return a memory", tc.uri)
+			}
+			if tc.want != "" && !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("refused at the wrong stage: want a message containing %q, got %q", tc.want, err)
 			}
 		})
+	}
+}
+
+// TestACaseVariantAddressDoesNotResolve is the one that was measured rather than
+// assumed, and it is separate because it needs two real wings.
+//
+// SanitizeName preserves case, so wing_acme and wing_ACME are two wings holding
+// two different sets of memories. The first version of the address check used
+// strings.EqualFold and was therefore one case-fold WIDER than the palace: an
+// address naming one wing resolved a drawer living in the other and returned it,
+// which is precisely the failure the check exists to refuse.
+func TestACaseVariantAddressDoesNotResolve(t *testing.T) {
+	cli, svc, team := newResourceServer(t)
+	if _, err := cli.Initialize(t.Context(), mcp.InitializeRequest{}); err != nil {
+		t.Fatalf("initialize: %v", err)
+	}
+	ctx := auth.WithTenant(context.Background(), tenant.Tenant{TeamID: team, UserID: "u1", Role: tenant.RoleAdmin})
+
+	lower, err := svc.Add(ctx, team, palace.AddInput{Wing: "wing_acme", Room: "decisions", Content: "the lower-case wing memory"})
+	if err != nil {
+		t.Fatalf("seed lower: %v", err)
+	}
+	upper, err := svc.Add(ctx, team, palace.AddInput{Wing: "WING_ACME", Room: "decisions", Content: "the upper-case wing memory"})
+	if err != nil {
+		t.Fatalf("seed upper: %v", err)
+	}
+	if lower.Drawers[0].ID == upper.Drawers[0].ID {
+		t.Skip("the palace folds wing case, so the two wings are one and this test has nothing to say")
+	}
+
+	// The upper-case wing's ADDRESS over the lower-case wing's ID. Under a folded
+	// comparison this returned the lower memory under an address naming the other
+	// wing — a memory served with somebody else's provenance.
+	crossed := drawerURI("WING_ACME", "decisions", lower.Drawers[0].ID)
+	got, err := cli.ReadResource(ctx, mcp.ReadResourceRequest{Params: mcp.ReadResourceParams{URI: crossed}})
+	if err == nil {
+		t.Fatalf("%s resolved to %q; the address names a different wing than the record", crossed,
+			got.Contents[0].(mcp.TextResourceContents).Text)
+	}
+
+	// And each wing's own address still works, so the fix refuses the crossing
+	// rather than refusing case.
+	for _, want := range []struct{ uri, text string }{
+		{drawerURI("wing_acme", "decisions", lower.Drawers[0].ID), "lower-case wing memory"},
+		{drawerURI("WING_ACME", "decisions", upper.Drawers[0].ID), "upper-case wing memory"},
+	} {
+		res, err := cli.ReadResource(ctx, mcp.ReadResourceRequest{Params: mcp.ReadResourceParams{URI: want.uri}})
+		if err != nil {
+			t.Errorf("a legitimate address was refused: %s: %v", want.uri, err)
+			continue
+		}
+		if !strings.Contains(res.Contents[0].(mcp.TextResourceContents).Text, want.text) {
+			t.Errorf("%s returned the wrong memory", want.uri)
+		}
 	}
 }
 
