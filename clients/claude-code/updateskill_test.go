@@ -137,7 +137,7 @@ func TestUpdateSkillInlinesProtocolForCodex(t *testing.T) {
 		t.Errorf("%s should inline the protocol:\n%s", codexKit.memoryFile, agentsMD)
 	}
 	// Commands land in prompts/, not commands/.
-	if _, err := os.Stat(filepath.Join(dir, "prompts", "M.md")); err != nil {
+	if _, err := os.Stat(filepath.Join(dir, "prompts", "am.md")); err != nil {
 		t.Errorf("codex command not written to prompts/: %v", err)
 	}
 }
@@ -235,7 +235,7 @@ func TestUpdateSkillResolvesSandbox(t *testing.T) {
 		skillUpdate{sandbox: "aks", ref: "v9.9.9"}); err != nil {
 		t.Fatalf("updateSkills --sandbox: %v", err)
 	}
-	if got := read(t, filepath.Join(box, "commands", "M.md")); got != "# new M.md\n" {
+	if got := read(t, filepath.Join(box, "commands", "am.md")); got != "# new am.md\n" {
 		t.Errorf("sandbox command = %q, want the fetched copy", got)
 	}
 	if got := read(t, filepath.Join(box, bootstrapFile)); got != "# new protocol\n" {
@@ -268,8 +268,8 @@ func TestUpdateSkillFetchesOnceForEveryAgent(t *testing.T) {
 	}
 	// Every agent still got the kit.
 	for _, kit := range []agentKit{claudeKit, codexKit, piKit} {
-		p := filepath.Join(kit.globalConfigDir(home), kit.commandsDir, "M.md")
-		if got := read(t, p); got != "# new M.md\n" {
+		p := filepath.Join(kit.globalConfigDir(home), kit.commandsDir, "am.md")
+		if got := read(t, p); got != "# new am.md\n" {
 			t.Errorf("%s: %s = %q", kit.name, p, got)
 		}
 	}
@@ -344,7 +344,7 @@ func TestInstalledPath(t *testing.T) {
 		asset string
 		want  string
 	}{
-		{claudeKit, "commands/M.md", filepath.Join("/cfg", "commands", "M.md")},
+		{claudeKit, "commands/am.md", filepath.Join("/cfg", "commands", "am.md")},
 		{codexKit, "commands/am.md", filepath.Join("/cfg", "prompts", "am.md")},
 		{piKit, "commands/load-skill.md", filepath.Join("/cfg", "prompts", "load-skill.md")},
 		{claudeKit, bootstrapAsset, filepath.Join("/cfg", bootstrapFile)},

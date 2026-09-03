@@ -103,7 +103,9 @@ reporting success.
 
 **Core (always):**
 
-- `commands/M.md` → the **`/M`** expanded bootstrap command (language/UI idioms,
+- ⚠ `commands/M.md` and the **`/M`** command were RETIRED — a second grounding
+  sequence beside `/am` is a second copy of one protocol, and the installer now
+  removes it from config dirs that still carry it. What it used to be (language/UI idioms,
   codebase-memory, and memory-palace grounding).
 - `commands/am.md` → the **`/am`** bootstrap command (agentsmemory-native `am_*`
   tools).
@@ -161,7 +163,7 @@ reporting success.
 - The **agentsmemory MCP** — the remote Streamable-HTTP server at
   `https://aiagentmemory.dev/mcp`, authed by your workspace token (see below).
 
-> The legacy verbose `/agentsmemory` command has been retired — only `/M` and
+> The legacy verbose `/agentsmemory` command has been retired, and `/M` with it — only
 > `/am` ship now.
 
 **Recommended (`--recommended`):**
@@ -322,7 +324,7 @@ same content in different places:
 | | Claude Code | Codex |
 |---|---|---|
 | Config dir | `~/.claude`, relocated by `CLAUDE_CONFIG_DIR` | `~/.codex`, relocated by `CODEX_HOME` |
-| Slash commands | `commands/*.md` → `/M`, `/am` | `prompts/*.md` → `/prompts:M`, `/prompts:am` |
+| Slash commands | `commands/*.md` → `/am` | `prompts/*.md` → `/prompts:am` |
 | Always-on memory | `CLAUDE.md` + a managed `@agentsmemory-bootstrap.md` import | `AGENTS.md` with the protocol **inlined** in the managed block — codex has no `@import` |
 | Stop hook | `settings.json` | native TOML in `config.toml` (same `Stop` event and `stop_hook_active` loop guard) |
 | MCP auth/scope | `--header "Authorization: Bearer <token>"` plus `X-Agentsmemory-Wing` | `--bearer-token-env-var AGENTSMEMORY_TOKEN`; `--wing` is encoded in the registered URL because Codex has no arbitrary-header flag |
@@ -375,7 +377,7 @@ built-in MCP", pi's own docs). So the kit brings its own.
 | | Codex | pi |
 |---|---|---|
 | Config dir | `~/.codex`, relocated by `CODEX_HOME` | `~/.pi/agent`, relocated by `PI_CODING_AGENT_DIR` |
-| Slash commands | `prompts/*.md` → `/prompts:M` | `prompts/*.md` → `/M` (no namespace) |
+| Slash commands | `prompts/*.md` → `/prompts:am` | `prompts/*.md` → `/am` (no namespace) |
 | Always-on memory | `AGENTS.md`, protocol inlined | `AGENTS.md`, protocol inlined (pi has no `@import` either) |
 | Stop hook | `config.toml` | **none** — pi renamed `hooks/` to extensions |
 | Our MCP | `codex mcp add --bearer-token-env-var` | **bridged** by `extensions/agentsmemory.ts` |
@@ -530,7 +532,7 @@ and Linux; an already-open session keeps running the old image.
 `update` deliberately leaves your config dir alone, which means the memory
 protocol and slash commands stay at whatever version was installed the day the
 kit went in. `update-skill` is the other half — it fetches
-`agentsmemory-bootstrap.md` and the `/M`, `/am` and `/load-skill` commands from
+`agentsmemory-bootstrap.md` and the `/am` and `/load-skill` commands from
 GitHub and writes them into a config dir:
 
 ```bash
@@ -791,7 +793,7 @@ Remove the installed pieces from the target config dir (`~/.claude` or
 `~/.sandboxes/<name>`):
 
 ```bash
-rm ~/.claude/commands/M.md ~/.claude/commands/am.md
+rm ~/.claude/commands/am.md
 rm ~/.claude/agentsmemory-stop-hook.sh
 rm ~/.claude/agentsmemory-bootstrap.md
 # then, in ~/.claude/CLAUDE.md, delete the managed block between

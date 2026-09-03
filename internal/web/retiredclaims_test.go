@@ -81,12 +81,27 @@ func retiredClaimIn(line string) string {
 // was true, and nobody asked what lay outside it. The retired one-way door went on
 // being taught by the document the server hands out, in a PR that edited that very
 // file twice. Reported by review on PR #147.
-var protocolDocs = []string{
-	"bootstrap-memory.md",
-	"claude-guide.md",
-	filepath.Join("..", "..", "clients", "claude-code", "bootstrap.md"),
-	filepath.Join("..", "..", "clients", "claude-code", "commands", "am.md"),
-	filepath.Join("..", "..", "clients", "claude-code", "commands", "M.md"),
+// ⚠ THE COMMANDS HALF IS DERIVED, NOT LISTED, AND THAT CHANGED AFTER THIS LIST
+// WENT STALE. It named commands/M.md, which was retired — the gate broke loudly,
+// which is the safe direction. The unsafe one is silent: a command ADDED to the
+// kit would simply not be covered, and this gate's own comment above is about
+// exactly that failure. Globbing the directory means a command reaches the gate
+// on the commit that adds it.
+func protocolDocPaths(t *testing.T) []string {
+	t.Helper()
+	docs := []string{
+		"bootstrap-memory.md",
+		"claude-guide.md",
+		filepath.Join("..", "..", "clients", "claude-code", "bootstrap.md"),
+	}
+	cmds, err := filepath.Glob(filepath.Join("..", "..", "clients", "claude-code", "commands", "*.md"))
+	if err != nil {
+		t.Fatalf("glob shipped commands: %v", err)
+	}
+	if len(cmds) == 0 {
+		t.Fatal("no shipped commands found; this gate would be checking only the embedded docs and would say nothing about the kit")
+	}
+	return append(docs, cmds...)
 }
 
 // TestNoShippedProtocolTeachesARetiredWriteRule is the doc-side sibling of the
@@ -144,7 +159,7 @@ func TestNoShippedProtocolTeachesARetiredWriteRule(t *testing.T) {
 	})
 
 	checked := 0
-	for _, rel := range protocolDocs {
+	for _, rel := range protocolDocPaths(t) {
 		raw, err := os.ReadFile(rel)
 		if err != nil {
 			t.Fatalf("read the shipped protocol %s: %v", rel, err)
@@ -183,7 +198,7 @@ func TestNoShippedProtocolAdvertisesAStaleChunkThreshold(t *testing.T) {
 	threshold := regexp.MustCompile(`(?i)(\d{3,4})\s*(?:\+\s*)?(?:chars?|runes?|characters?)`)
 
 	checked := 0
-	for _, rel := range protocolDocs {
+	for _, rel := range protocolDocPaths(t) {
 		raw, err := os.ReadFile(rel)
 		if err != nil {
 			t.Fatalf("read the shipped protocol %s: %v", rel, err)

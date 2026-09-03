@@ -24,7 +24,9 @@ Everything above applies. Three things are particular to this harness:
   centralised catalogue (`am_list_skills` / `am_load_skill`) is the other. This
   repo's Go idioms (`effective-go`, `cqrs`) live in the **centralised** one — a
   `Skill(effective-go)` miss means "check the catalogue", not "no such skill".
-- **Slash commands** — `/M` (full Go + UX gates), `/am` (stack-neutral
-  grounding), `/load-skill <name>` (pull one centralised skill). These run the
-  same sequence as `AGENTS.md` scoped to a task; the file above is the always-on
-  baseline that applies whether or not you type one.
+- **Slash commands** — `/am` (grounding scoped to a task) and
+  `/load-skill <name>` (pull one centralised skill). These run the same sequence
+  as `AGENTS.md` scoped to a task; the file above is the always-on baseline that
+  applies whether or not you type one. ⚠ `/M` was RETIRED: it carried a Go- and
+  UI-specific variant of the same grounding sequence, which is a second copy of a
+  protocol, and the installer now removes it from config dirs that still have it.

@@ -82,7 +82,7 @@ func newTestInstallerFor(t *testing.T, kit agentKit, recommended bool) (*Install
 
 func TestAssetsEmbedded(t *testing.T) {
 	// The shipped assets must be embedded; the retired agentsmemory.md must not be.
-	for _, name := range []string{"commands/M.md", "commands/am.md", "commands/load-skill.md", hookAsset, statsHelperAsset, bootstrapAsset, piExtensionAsset} {
+	for _, name := range []string{"commands/am.md", "commands/load-skill.md", hookAsset, statsHelperAsset, bootstrapAsset, piExtensionAsset} {
 		data, err := assets.ReadFile(name)
 		if err != nil {
 			t.Fatalf("asset %s not embedded: %v", name, err)
@@ -103,7 +103,7 @@ func TestInstallCoreWritesAssetsAndRegistersMCP(t *testing.T) {
 	}
 
 	// Commands + both hooks must be on disk.
-	for _, rel := range []string{"commands/M.md", "commands/am.md", "commands/load-skill.md", hookFile, verifyHookFile, sessionEndHookFile, statsHelperFile} {
+	for _, rel := range []string{"commands/am.md", "commands/load-skill.md", hookFile, verifyHookFile, sessionEndHookFile, statsHelperFile} {
 		if _, err := os.Stat(filepath.Join(dir, rel)); err != nil {
 			t.Errorf("expected %s written: %v", rel, err)
 		}
@@ -563,7 +563,7 @@ func TestInstallCodexCore(t *testing.T) {
 		t.Fatalf("install: %v", err)
 	}
 
-	for _, rel := range []string{"prompts/M.md", "prompts/am.md", "prompts/load-skill.md", hookFile, statsHelperFile} {
+	for _, rel := range []string{"prompts/am.md", "prompts/load-skill.md", hookFile, statsHelperFile} {
 		if _, err := os.Stat(filepath.Join(dir, rel)); err != nil {
 			t.Errorf("expected %s written: %v", rel, err)
 		}
@@ -702,7 +702,7 @@ func TestInstallPiCore(t *testing.T) {
 		t.Fatalf("install: %v", err)
 	}
 
-	for _, rel := range []string{"prompts/M.md", "prompts/am.md", "prompts/load-skill.md", piExtensionAsset} {
+	for _, rel := range []string{"prompts/am.md", "prompts/load-skill.md", piExtensionAsset} {
 		if _, err := os.Stat(filepath.Join(dir, rel)); err != nil {
 			t.Errorf("expected %s written: %v", rel, err)
 		}
@@ -1662,7 +1662,7 @@ func TestCodexGetsItsOwnDialect(t *testing.T) {
 // TestAgentWithoutACommandsDirWritesNoCommands pins that an empty capability means
 // "this agent has none", not "join the path with an empty segment".
 //
-// filepath.Join(dir, "", "M.md") is dir/M.md, so an unguarded write puts the slash
+// filepath.Join(dir, "", "am.md") is dir/am.md, so an unguarded write puts the slash
 // commands loose in the config root — files Cursor never reads, in a directory
 // the user shares with a product we did not write. The assertion is that NOTHING
 // unexpected lands, rather than that one named file is absent, because the failure
