@@ -113,7 +113,7 @@ T5 is a human-observed decision task and it is the only one that may change a ce
 - **Positive:** one generative client instead of two-going-on-three, reachable from `internal/`, reusing the env trio operators already set.
 - **Negative:** the run costs LLM inference for every cell — questions × policies × query policies × 2 calls — and the honest expectation is that several rules the skills state confidently come back neutral. Someone then has to weaken skill text that reads well.
 - **Negative:** an LLM judge introduces variance the MRR tables do not have. Mitigated by holding one model across the grid and by paired contrasts on identical questions, not eliminated.
-- **Neutral:** a scratch wing per run accumulates drawers in whatever palace the command points at. `wing delete` already exists; the command refuses a wing that is not empty.
+- **Neutral:** the grid RELEASES each scratch scope once its question is scored, so a run leaves the palace as it found it and can be repeated. This line previously said a scratch wing "accumulates drawers" and pointed at `wing delete` as the remedy; that was written when the scope was per RUN. The per-question isolation fix (review round 1) made it `<base>_<write>_<query>_<question>`, which turns a 4×3 grid at `--n 20` into **240** wings — and `wing delete` takes one exact name, so the remedy named here removed none of them and the emptiness guard then refused the second run. Corrected after #167.
 
 ## Out of Scope
 
@@ -139,9 +139,11 @@ T5 is a human-observed decision task and it is the only one that may change a ce
 
 ## Rollback
 
-The command writes ordinary drawers into a scratch wing through the public API and changes no schema, no default and no served path. Undo is `agentsmemory wing delete --wing <scratch> --confirm <scratch>` (`cmd/server/wing.go:109`) for the data, and reverting the branch for the code. The one irreversible-looking step is T3's extraction of `questionGen` into `internal/gen`; it is a pure move with both call sites in the same commit, so reverting that commit restores both files together.
+The command writes ordinary drawers into a scratch wing through the public API and changes no schema, no default and no served path. Undo is **nothing to do**: `runCell` deletes each scope through `Store.DeleteWing` as soon as its question is scored, before the reader and judge run, so an aborted cell strands nothing either. Should a run be killed between the ingest and the delete, `agentsmemory wing delete --wing <scope> --confirm <scope>` (`cmd/server/wing.go:109`) removes one scope by exact name — the scope names are `<base>_<write>_<query>_<questionID>`. Reverting the branch undoes the code. The one irreversible-looking step is T3's extraction of `questionGen` into `internal/gen`; it is a pure move with both call sites in the same commit, so reverting that commit restores both files together.
 
 ## Follow-ups
 
 - [ ] Report the judge's agreement with a hand-scored sample, so the judge itself has a measured error rate rather than an assumed one (T5)
 - [ ] Decide whether the retrieval-only column and the judged column disagree in the direction §"Standing…" predicts; if they do not, that section's premise needs amending
+
+⚠ **The retrieval columns were not comparable across policies until 2026-09-03, and any figure taken before that is void.** Each sub-query ran at the full `--search-limit` and the pages were appended, so `RetrievalRate` inflated with the number of sub-queries while `RetrievalMRR` deflated with concatenation order — the gold record found FIRST by sub-query 3 scored RR 0.024 against 0.333 for the same record found third on sub-query 1. `decomposed` was therefore measured on a different instrument from the single-query baselines, and the ordering reached the reader too, because `assemble` walks the merged list under a fixed budget. Fixed in #167: the per-query limit is divided so the candidate pool is constant however many sub-queries a policy asks — which is what `decomposedCap`'s comment already said the design wanted — and the pages are fused by reciprocal rank rather than appended. **T5 must be run after that change, not before.**
