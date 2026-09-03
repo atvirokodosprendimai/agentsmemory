@@ -8,6 +8,39 @@ An entry leaves this file in one of two ways: it becomes an ADR, or it is re-tag
 `(permanent: <why>)` in its originating ADR because we decided it should never happen.
 
 
+## `/mcp` is the only unbounded body on the server, and `am_search`'s documented cap is prose — 2026-09-03
+
+Measured against the running container. A `tools/call` for `am_search` carrying a **9.5 MB**
+query string was accepted and answered `200` after 11.7 seconds. `am_search`'s own parameter
+description says `What to recall (max 250 chars).` Nothing reads that number: a grep for a
+query-length check finds none, and the string `250` appears in `internal/mcpserver` exactly
+once — in the sentence promising it.
+
+**Every sibling endpoint is already bounded, which is what makes this an omission rather than
+a policy.** `internal/importer` (`importer.go:188`), `internal/web/skillset.go`,
+`internal/web/skills.go` and `internal/web/wing.go` each wrap the body in
+`http.MaxBytesReader`, and `cmd/server/main.go:527` bounds another POST at 1 MiB. `/mcp` — the
+one endpoint carrying all 43 tools, including every write — wraps nothing. So the server knows
+this pattern and applies it everywhere except the surface that matters most.
+
+Two separable decisions, which is why this is filed rather than fixed alongside ADR-049:
+
+- **A body limit on `/mcp`.** It is a served-path change with a real failure mode on the other
+  side: a limit below the largest legitimate `am_add_drawer` turns a working write into a
+  refusal, and nothing here knows what that size is. Wants a measurement of the largest content
+  actually filed before a number is picked.
+- **The `max 250 chars` claim.** Enforce it or delete it, but it cannot stay as it is — a
+  description is the only route by which a caller learns what the server accepts, and this
+  corpus already has `TestNoToolDescriptionClaimsALongMemoryCannotBeMoved` for exactly the case
+  of a description that has gone false. ⚠ Note the direction differs from that one: there the
+  sentence became false when behaviour changed; here it was never true.
+
+Not filed as urgent. The probe left the server responsive (`Up`, answering `tools/list` in
+milliseconds afterwards), and deeply-nested JSON is already refused cleanly in 3 ms with
+`-32700`. What it costs today is an unauthenticated caller's ability to spend 11.7 seconds of
+embedding work per request — which ADR-049 has just made much harder to reach from a browser,
+and which a token closes entirely.
+
 ## What the MCP protocol offers that this server answers "not supported" to — 2026-09-03
 
 Probed against the running container over the same `http://localhost:8080/mcp` this project's
