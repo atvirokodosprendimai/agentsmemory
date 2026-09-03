@@ -266,27 +266,43 @@ func (s *Service) DeleteWing(ctx context.Context, teamID, wing, confirm string) 
 // FiledAwayResult is the memories_filed_away summary: how much a team has filed,
 // when it last filed, and the breadth of its palace.
 type FiledAwayResult struct {
-	Count       int64  `json:"count"`
+	Count int64 `json:"count"`
+	// Drawers is the ROW count behind Count, reported beside it rather than
+	// instead of it: a memory is several rows and a caller sizing a fetch needs
+	// the rows, while a caller reading the sentence needs the memories.
+	Drawers     int64  `json:"drawers"`
 	Wings       int64  `json:"wings"`
 	Rooms       int64  `json:"rooms"`
 	LastFiledAt string `json:"last_filed_at,omitempty"`
 	Message     string `json:"message"`
 }
 
-// MemoriesFiledAway summarises what a team has stored — total drawers, distinct
-// wings and rooms, and the most recent filing. It is the SaaS reading of the
-// frozen checkpoint-acknowledge tool: rather than a local hook-state file, it
-// reports the team's actual filed memory at a glance.
+// MemoriesFiledAway summarises what a team has CURRENTLY stored — memories, the
+// rows they occupy, distinct wings and rooms, and the most recent filing.
+//
+// ⚠ IT USED TO COUNT ROWS, INCLUDING RETRACTED ONES, AND CALL THEM MEMORIES.
+// Measured 2026-09-03 against this project's own palace: it answered "3460
+// memories filed across 19 wings and 46 rooms" where the live figures were 3292
+// rows and 1142 memories — 168 ended rows reported as filed, and a 3.0x
+// overstatement against the word its own sentence uses. Both inflations came
+// from one query that filtered nothing and collapsed nothing, sitting two
+// functions away from Repo.Wings, which already did both correctly.
+//
+// The fix reports BOTH numbers rather than swapping one for the other. That is
+// the shape am_kg_stats already uses and the shape the audit that found this
+// asked for: not "hide the dead" but "say which number you are giving". A caller
+// that wants rows still has them; a caller reading the sentence gets the count
+// the word promises.
 func (s *Service) MemoriesFiledAway(ctx context.Context, teamID string) (FiledAwayResult, error) {
-	count, lastFiledAt, wings, rooms, err := s.repo.FiledAwaySummary(ctx, teamID)
+	memories, drawers, lastFiledAt, wings, rooms, err := s.repo.FiledAwaySummary(ctx, teamID)
 	if err != nil {
 		return FiledAwayResult{}, err
 	}
-	msg := fmt.Sprintf("%d memories filed across %d wings and %d rooms", count, wings, rooms)
-	if count == 0 {
+	msg := fmt.Sprintf("%d memories filed across %d wings and %d rooms (%d rows)", memories, wings, rooms, drawers)
+	if memories == 0 {
 		msg = "No memories filed yet"
 	}
-	return FiledAwayResult{Count: count, Wings: wings, Rooms: rooms, LastFiledAt: lastFiledAt, Message: msg}, nil
+	return FiledAwayResult{Count: memories, Drawers: drawers, Wings: wings, Rooms: rooms, LastFiledAt: lastFiledAt, Message: msg}, nil
 }
 
 // RelabelDrawerWing moves every drawer in any of the source wings to the target
@@ -455,9 +471,20 @@ func (r *Repo) DeleteWingTunnels(ctx context.Context, teamID, wing string) (int6
 
 // FiledAwaySummary returns a team's drawer count, most recent filing time, and the
 // number of distinct wings and rooms — the numbers behind memories_filed_away.
-func (r *Repo) FiledAwaySummary(ctx context.Context, teamID string) (count int64, lastFiledAt string, wings, rooms int64, err error) {
-	base := func() *gorm.DB { return r.db.WithContext(ctx).Model(&drawerRow{}).Where("team_id = ?", teamID) }
-	if err = base().Count(&count).Error; err != nil {
+func (r *Repo) FiledAwaySummary(ctx context.Context, teamID string) (memories, drawers int64, lastFiledAt string, wings, rooms int64, err error) {
+	// ⚠ valid_to = '' IS THE WHOLE CORRECTION ON ONE AXIS. Without it every count
+	// here included ENDED rows, so a retracted memory stayed "filed" forever and a
+	// room holding nothing but retractions still read as a place to go and read.
+	base := func() *gorm.DB {
+		return r.db.WithContext(ctx).Model(&drawerRow{}).Where("team_id = ? AND valid_to = ''", teamID)
+	}
+	// Counted with an explicit expression rather than Distinct(...).Count():
+	// GORM renders the latter as COUNT(*) over a CASE, which collapses nothing —
+	// it returned 6 for 2 memories before this line was written this way.
+	if err = base().Select("COUNT(DISTINCT " + memoryKeyExpr + ")").Scan(&memories).Error; err != nil {
+		return
+	}
+	if err = base().Count(&drawers).Error; err != nil {
 		return
 	}
 	if err = base().Select("COALESCE(MAX(filed_at), '')").Scan(&lastFiledAt).Error; err != nil {
