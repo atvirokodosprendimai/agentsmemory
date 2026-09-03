@@ -4,6 +4,8 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -130,6 +132,12 @@ func TestTheGuardAgreesWithTheExposureWarning(t *testing.T) {
 		{name: "a bare routable bind is not", cfg: config.Config{Addr: "0.0.0.0:8080"}, want: false},
 		{name: "a lan bind is not", cfg: config.Config{Addr: "192.168.1.5:8080"}, want: false},
 		{name: "a token does not make it bounded", cfg: config.Config{Addr: "0.0.0.0:8080", LocalToken: "s3cret"}, want: false},
+		// The cross-product a review found missing: a predicate that returned
+		// false only for "loopback AND a token configured" passed every other
+		// case here, and would silently unguard the most defensible deployment
+		// there is.
+		{name: "a token does not UNbind a loopback deployment", cfg: config.Config{Addr: config.LocalAddr, LocalToken: "s3cret"}, want: true},
+		{name: "a token does not UNbind a socket deployment", cfg: config.Config{Addr: "0.0.0.0:8080", SocketPath: "/tmp/am.sock", LocalToken: "s3cret"}, want: true},
 	}
 
 	for _, tc := range tests {
@@ -174,21 +182,28 @@ func TestTheRebindGuardIsNamedInOperatorDocs(t *testing.T) {
 	}
 }
 
-// TestTheSocketAuthorityIsTheOneTheProxySends pins the guard's socket exemption
-// to the URL the proxy actually mints.
+// TestTheSocketPlaceholderIsAcceptedByTheGuard drives the REAL classifier over
+// the authority the socket proxy actually mints.
 //
-// The two live in different packages and neither imports the other's constant by
-// necessity: auth cannot see cmd/server, and stdio.go had no reason to reach into
-// auth. So the coupling is a fact about two string literals, and a rename on
-// either side turns every Unix-socket client's request into a 403 — silently,
-// because no socket client runs in any test. That is the failure this file's
-// other gate exists for, one package over.
-func TestTheSocketAuthorityIsTheOneTheProxySends(t *testing.T) {
+// Its predecessor compared two string literals for equality, and a review found
+// the hole: deleting the guard's exemption while leaving the constant intact kept
+// that test green while every socket client got a 403. Equality between two
+// things you typed pins nothing. Parsing socketURL and asking the guard is the
+// only form that fails when either side moves — and it keeps working now that the
+// exemption is gone entirely, because what matters was never the spelling but
+// whether the guard accepts what the proxy sends.
+func TestTheSocketPlaceholderIsAcceptedByTheGuard(t *testing.T) {
 	u, err := url.Parse(socketURL)
 	if err != nil {
 		t.Fatalf("parse socketURL %q: %v", socketURL, err)
 	}
-	if u.Host != auth.SocketAuthority {
-		t.Errorf("the proxy dials %q so it sends Host %q, but the guard exempts %q — every --socket client gets 403", socketURL, u.Host, auth.SocketAuthority)
+	if u.Host == "" {
+		t.Fatalf("socketURL %q has no authority; the proxy would send no Host", socketURL)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, mcpPath, nil)
+	req.Host = u.Host
+	if bad := auth.OffMachineAddressing(req); bad != "" {
+		t.Errorf("the guard refuses the socket proxy's own authority %q (%s) — every --socket client would get 403", u.Host, bad)
 	}
 }

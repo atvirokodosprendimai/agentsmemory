@@ -487,13 +487,17 @@ it was extracted from, since a guard that disagreed would refuse a deployment th
 was told was fine.
 
 ⚠ **AND A COUPLING BETWEEN TWO STRING LITERALS IN DIFFERENT PACKAGES IS INVISIBLE TO BOTH.**
-That guard shipped refusing every `--socket` client: `cmd/server/stdio.go` dials
-`http://unix/mcp`, so the `Host` is the literal `unix`, which the first version of
+That guard shipped refusing every `--socket` client: `cmd/server/stdio.go` dialled
+`http://unix/mcp`, so the `Host` was the literal `unix`, which the first version of
 `addressesThisMachine` did not accept — and no socket client runs in any test, so nothing
-went red. Review caught it, not the suite.
-`TestTheSocketAuthorityIsTheOneTheProxySends` parses the proxy's own URL and compares its
-host to the constant the guard exempts, which is the only form that survives a rename on
-either side.
+went red. Review caught it, not the suite. The first repair added an exemption for that
+literal and a gate comparing the two constants for EQUALITY, which a second review holed:
+deleting the exemption while leaving the constant intact keeps such a gate green while every
+socket client gets a 403. **Equality between two things you typed pins nothing.**
+`TestTheSocketPlaceholderIsAcceptedByTheGuard` parses `socketURL` and asks the REAL
+classifier whether it would admit that authority, which fails when either side moves. The
+exemption itself is gone: the placeholder now says `localhost`, so there is no special case
+to forget. A special case you can delete beats one you have to reason about.
 
 Prose belongs where a human reads it and nowhere else. Anything that must stay
 true gets a command whose exit code says so — including this section, which

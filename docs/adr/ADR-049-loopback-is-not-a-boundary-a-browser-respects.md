@@ -186,6 +186,47 @@ Pass `false` at the single call site in `main.go` and the guard is off, with the
 behaviour tests still passing and the wiring gate failing loudly — which is the
 correct signal, not an inconvenience. Revert the commit to remove it entirely.
 
+## Amendment 2026-09-03 — two gaps found by attacking the shipped guard
+
+The guard was probed adversarially after deployment, against the running
+container and against the classifier directly over ~22 hostile authorities. Most
+of the interesting ones were already refused: `0.0.0.0`, a `nip.io`-style rebind
+name, decimal and octal integer forms of 127.0.0.1, `127.1`, an IPv6 zone id, a
+trailing-dot `localhost.`, and an `Origin` whose userinfo names this machine while
+its host does not. An absolute-form request target carrying a foreign authority is
+refused too, because Go sets `r.Host` from the request line and the guard reads
+the resolved value. Two did get through.
+
+**An absent `Host` skipped the check entirely.** The condition was
+`r.Host != "" && !addresses(...)`, so nothing to vouch for read as nothing to
+refuse. Demonstrated on the running container: a raw `POST /mcp` with an empty
+`Host:` answered **200** while the same request naming `evil.example.com` answered
+403. This is NOT the rebinding vector — HTTP/1.1 requires `Host` and Go answers
+400 without one, so no browser reaches it — but a security check whose whole job
+is to refuse what it cannot identify must not be written to fail open. Every real
+client sends a `Host`, so failing closed costs nothing that was working.
+
+**The Unix-socket exemption was unconditional, and only sound where a socket is
+served.** `listenerFor` picks one transport or the other
+(`cmd/server/listen.go:34`), so a TCP deployment has no legitimate caller sending
+the synthetic `unix` authority — while a DNS search domain or an `/etc/hosts`
+entry can make a single-label name resolve. The exemption bought nothing there and
+widened the guard, so it is now gated on the deployment actually serving a socket.
+
+That is why `machineBounded bool` became `auth.Boundary{Enforce, UnixSocket}`: the
+guard needs two facts, and the first version collapsed them into one. The wiring
+gate was tightened with it — it now fails unless the mount derives BOTH from
+config, so `auth.Boundary{Enforce: localBoundary(cfg)}` alone is caught.
+
+Three mutants, one per half, all killed: restoring the fail-open condition, making
+the socket exemption unconditional again, and dropping the socket fact at the
+mount.
+
+⚠ **The exemption is still a residual, not a proof.** A socket deployment accepts
+the literal `unix` from anything that reaches it — but reaching a Unix socket needs
+filesystem access, which is the boundary there and a tighter one than any port.
+Stated rather than left for a reader to notice.
+
 ## Follow-ups
 
 - [ ] The idle `GET /mcp` stream: mcp-go answers `200` and holds the connection

@@ -47,7 +47,16 @@ const defaultProxyURL = "http://127.0.0.1:8080" + mcpPath
 // socketURL is the URL used when dialing a Unix socket. The host is a
 // placeholder — the dialer ignores it and connects to the socket path — but
 // net/http still requires a syntactically valid absolute URL.
-const socketURL = "http://unix" + mcpPath
+//
+// ⚠ IT SAYS "localhost" AND MUST KEEP SAYING SOMETHING LOOPBACK. The placeholder
+// is not only cosmetic any more: it becomes the Host header the server sees, and
+// the ADR-049 rebind guard refuses an authority that does not name this machine.
+// This used to read "unix", which meant the guard needed a special case for it —
+// one that was forgotten once (every socket client got 403) and then had to be
+// scoped to socket deployments. Naming a loopback host here deletes that special
+// case instead of parameterising it.
+// TestTheSocketPlaceholderIsAcceptedByTheGuard pins the two together.
+const socketURL = "http://localhost" + mcpPath
 
 // jsonRPCInternalError is the JSON-RPC 2.0 "Internal error" code, returned to
 // the agent when this proxy cannot reach the server at all.

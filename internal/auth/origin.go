@@ -35,23 +35,24 @@ func OffMachineAddressing(r *http.Request) string {
 			return "Origin " + o
 		}
 	}
-	if r.Host != "" && !addressesThisMachine(r.Host) {
+	// ⚠ AN ABSENT Host IS REFUSED, AND THE FIRST VERSION LET IT THROUGH. That
+	// version read `r.Host != "" && !addresses(...)`, so a request with no Host at
+	// all skipped the check entirely — measured 2026-09-03 against the running
+	// container, where a raw `POST /mcp` with an empty Host header answered 200
+	// while the same request naming evil.example.com answered 403. Nothing
+	// browser-driven reaches that state (HTTP/1.1 requires Host and Go answers
+	// 400 without one), so this was never the rebinding vector — it is a security
+	// check whose one job is to refuse what it cannot vouch for, written to fail
+	// open. Every real client sends a Host, so failing closed costs nothing that
+	// was working.
+	if !addressesThisMachine(r.Host) {
 		return "Host " + r.Host
 	}
 	return ""
 }
 
-// SocketAuthority is the synthetic HTTP host a Unix-socket client sends.
-//
-// A socket dial has no network host, but net/http still requires a syntactically
-// valid absolute URL, so the proxy mints `http://unix/mcp` — see socketURL in
-// cmd/server/stdio.go, which TestTheSocketAuthorityIsTheOneTheProxySends pins to
-// this constant so a rename there cannot silently start answering 403 here.
-const SocketAuthority = "unix"
-
 // addressesThisMachine reports whether an HTTP authority names the local machine
-// — "localhost", any loopback literal, or the synthetic Unix-socket host — at any
-// port.
+// — "localhost" or any loopback literal — at any port.
 //
 // The port is deliberately not checked. A caller that reached a loopback address
 // reached this process through the operating system's own loopback interface, so
@@ -59,24 +60,29 @@ const SocketAuthority = "unix"
 // 127.0.0.1, which is what this rejects. Requiring a specific port would break
 // every test server on an ephemeral one, for no gain.
 //
-// ⚠ THE SOCKET CASE IS WHY THIS FUNCTION HAS A THIRD BRANCH, AND THE FIRST
-// VERSION SHIPPED WITHOUT IT. That version's comment claimed checking the port
-// "would break a --socket deployment", which named the right deployment and the
-// wrong header: the socket client's PORT is absent, and its HOST is the literal
-// "unix". Every socket client would have got a 403 — a supported path, broken by
-// a guard whose own task file made "the guard refuses a real registered client"
-// its Stop Condition. Awareness of a case is not coverage of it.
+// One trailing dot is trimmed because "localhost." is the fully-qualified
+// spelling of the same name and resolves identically; refusing it would turn a
+// correct URL into a 403 for no security gain, since the label it qualifies is
+// still compared literally.
 //
-// Accepting it costs nothing a browser can spend. Reaching a Unix socket needs
-// filesystem access no page has, and "unix" is a single-label name that resolves
-// nowhere public, so no rebind can produce this authority against a TCP listener.
+// ⚠ THERE IS DELIBERATELY NO SPECIAL CASE FOR THE UNIX-SOCKET CLIENT, AND TWO
+// EARLIER VERSIONS HAD ONE. A socket dial has no network host, so the proxy must
+// put SOMETHING in the URL; it used to be the literal "unix", which this function
+// then had to exempt. The first version forgot to, and refused every socket
+// client. The second exempted it only when a socket was being served, which was
+// sound but still carried the question of whether a resolvable single-label name
+// could reach a TCP listener. The answer was to stop minting the odd authority:
+// socketURL now says "localhost", which is true of a Unix socket in every sense
+// that matters here and needs no exemption at all. A special case you can delete
+// beats a special case you have to reason about.
 func addressesThisMachine(authority string) bool {
 	host := authority
 	if h, _, err := net.SplitHostPort(authority); err == nil {
 		host = h
 	}
 	host = strings.TrimSuffix(strings.TrimPrefix(host, "["), "]")
-	if strings.EqualFold(host, "localhost") || strings.EqualFold(host, SocketAuthority) {
+	host = strings.TrimSuffix(host, ".")
+	if strings.EqualFold(host, "localhost") {
 		return true
 	}
 	ip := net.ParseIP(host)
