@@ -26,6 +26,7 @@ func registerAnchors(reg *registrar, drawers *palace.Service, usageSvc *usage.Se
 		mcp.WithString("repo", mcp.Description("Only anchors carrying this repo label.")),
 		mcp.WithString("status", mcp.Description("Only anchors in this state.")),
 		mcp.WithNumber("limit", mcp.Description("Max anchors to return (default 500).")),
+		mcp.WithBoolean("include_ended", mcp.Description("Also return anchors on superseded or retracted drawers (default false). Off by default because those pins cannot be repaired — correcting a memory mints a new record and am_update_drawer refuses an ended one, so a drifted verdict there re-reports at every session start and nothing can clear it. Turn it on to AUDIT what the corpus pins, not to verify: an ended record legitimately keeps its anchors, because it keeps its text.")),
 	)
 	reg.add(list, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		t, errResult, ok := admit(ctx, usageSvc)
@@ -42,10 +43,11 @@ func registerAnchors(reg *registrar, drawers *palace.Service, usageSvc *usage.Se
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 		anchors, err := drawers.ListAnchors(ctx, t.TeamID, palace.AnchorFilter{
-			Wing:   wing,
-			Repo:   req.GetString("repo", ""),
-			Status: req.GetString("status", ""),
-			Limit:  req.GetInt("limit", 0),
+			Wing:         wing,
+			Repo:         req.GetString("repo", ""),
+			Status:       req.GetString("status", ""),
+			Limit:        req.GetInt("limit", 0),
+			IncludeEnded: req.GetBool("include_ended", false),
 		})
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil

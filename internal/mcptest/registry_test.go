@@ -138,7 +138,12 @@ var scenarios = []mcptest.Scenario{
 			// picked out per drawer here. Passing an unknown drawer_id argument
 			// instead would be silently ignored and the listing would return both
 			// records' anchors — a check that cannot fail.
-			all := h.MustCall(t, "am_list_anchors", map[string]any{"wing": "wing_anchor"})
+			// include_ended, because the last assertion is about a record this
+			// update ENDED, and the verifier feed deliberately excludes those: an
+			// ended record's pin cannot be repaired, so it would re-report drift at
+			// every session start with no way to clear it. Auditing what the corpus
+			// pins is the other reader, and it is opt-in.
+			all := h.MustCall(t, "am_list_anchors", map[string]any{"wing": "wing_anchor", "include_ended": true})
 			onNew := anchorSnippets(t, h, all, newID)
 			if !containsAny(onNew, "budget = 5") {
 				t.Errorf("the correcting record %s does not carry the new anchor; the anchors were "+
@@ -150,8 +155,11 @@ var scenarios = []mcptest.Scenario{
 					"REPLACE must not merge:\n%s", all)
 			}
 			// The ENDED record keeps its own, because it keeps its text — its pin is
-			// still true of it. Until T5 filters recall, a wing-scoped listing shows
-			// both, and that is the half-landed pair rather than a bug here.
+			// still true of it. That storage guarantee is unchanged; what changed on
+			// 2026-09-03 is that the VERIFIER feed no longer hands those pins out,
+			// so this observation is now made with include_ended rather than by
+			// default. The "half-landed pair" this comment used to describe is the
+			// half that landed.
 			if onOld := anchorSnippets(t, h, all, id); !containsAny(onOld, "budget = 3") {
 				t.Errorf("the superseded record lost its anchor:\n%s", all)
 			}
