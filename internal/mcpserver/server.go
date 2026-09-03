@@ -439,11 +439,16 @@ func New(deps Deps) *server.MCPServer {
 		// serves; declaring one without the other is the "advertised and backed by
 		// nothing" defect this file already carries a gate for.
 		server.WithCompletions(),
+		// ADR-050. subscribe=false and listChanged=false for the same reason the
+		// tools capability declares no listChanged: nothing here can push. What is
+		// served is a TEMPLATE, not a listing — see registerResources.
+		server.WithResourceCapabilities(false, false),
 		server.WithPromptCompletionProvider(newWingCompleter(deps.Drawers)),
 	)
 	reg := &registrar{srv: srv}
 	registerAll(reg, deps)
 	registerPrompts(srv)
+	registerResources(srv, deps.Drawers, deps.Usage)
 	return srv
 }
 
