@@ -6,7 +6,38 @@ import (
 	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
+
+	"github.com/atvirokodosprendimai/agentsmemory/internal/palace"
 )
+
+// maxBodyBytes bounds a single /mcp request, DERIVED from the largest content the
+// server will accept rather than picked.
+//
+// /mcp was the only unbounded body on the server: internal/importer,
+// internal/web/{skillset,skills,wing}.go and the webhook in cmd/server all wrap
+// theirs in http.MaxBytesReader, and the one endpoint carrying all 41 tools —
+// every write among them — wrapped nothing. Measured 2026-09-03, a 9.5 MB
+// am_search query was accepted and answered after 11.7 seconds.
+//
+// ⚠ THE NUMBER IS A MULTIPLE OF palace.MaxContentLength BECAUSE THE OUTER LIMIT
+// MUST NEVER SHADOW THE INNER ONE. Content is bounded at 100,000 RUNES by
+// sanitize; a body limit below the worst-case encoding of that would refuse a
+// payload the content validator would have accepted, and the caller would get a
+// transport error instead of the sentence explaining the real rule. A rune is up
+// to 4 bytes in UTF-8 and JSON escaping can inflate further, so 32x leaves the
+// content bound comfortably reachable — and a request may legitimately carry more
+// than one large field, such as content plus several verbatim code anchors.
+//
+// Against what is actually filed this is generous: measured over this project's
+// own palace on 2026-09-03, the largest memory ever written was 114,636 bytes
+// across 82 chunks (a mined transcript), p90 was 4,007 bytes and p50 was 2,466.
+// The limit sits ~28x above the largest real payload and still refuses the abuse
+// case that motivated it.
+//
+// It is DERIVED rather than written so the two move together: raising
+// MaxContentLength raises this on the same commit, which a second literal would
+// not.
+const maxBodyBytes = 32 * palace.MaxContentLength
 
 // conformStreamHTTP wraps the Streamable HTTP handler with the two transport
 // rules mcp-go leaves to the host.
@@ -15,6 +46,7 @@ import (
 // neither is behaviour mcp-go can decide: whether a GET should offer a stream
 // depends on whether this deployment keeps sessions, and which protocol versions
 // are acceptable depends on what the host is willing to serve.
+
 func conformStreamHTTP(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if code, msg := transportRefusal(r); code != 0 {
@@ -30,6 +62,10 @@ func conformStreamHTTP(next http.Handler) http.Handler {
 			http.Error(w, msg, code)
 			return
 		}
+		// The limit is applied to the BODY rather than checked against
+		// Content-Length: a chunked request declares no length, and trusting a
+		// header a client supplies is not a limit at all.
+		r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
 		next.ServeHTTP(w, r)
 	})
 }
