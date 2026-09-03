@@ -62,38 +62,29 @@ the kit is installed per-agent and the check must name which one it resolved and
 shadowed duplicate exists. `clients/claude-code/install.sh` defaults to `~/.local/bin`
 (`AIAGENTMEMORY_BIN_DIR`), which is evidence for the first reading but not a decision.
 
-## `/mcp` is the only unbounded body on the server, and `am_search`'s documented cap is prose — 2026-09-03
+## RESOLVED 2026-09-03 — `/mcp` is bounded, and the cap `am_search` never enforced is gone
 
-Measured against the running container. A `tools/call` for `am_search` carrying a **9.5 MB**
-query string was accepted and answered `200` after 11.7 seconds. `am_search`'s own parameter
-description says `What to recall (max 250 chars).` Nothing reads that number: a grep for a
-query-length check finds none, and the string `250` appears in `internal/mcpserver` exactly
-once — in the sentence promising it.
+Both halves are closed. The description no longer promises "max 250 chars" (that claim was
+retired with a gate against its return), and `/mcp` now carries a body limit.
 
-**Every sibling endpoint is already bounded, which is what makes this an omission rather than
-a policy.** `internal/importer` (`importer.go:188`), `internal/web/skillset.go`,
-`internal/web/skills.go` and `internal/web/wing.go` each wrap the body in
-`http.MaxBytesReader`, and `cmd/server/main.go:527` bounds another POST at 1 MiB. `/mcp` — the
-one endpoint carrying all 43 tools, including every write — wraps nothing. So the server knows
-this pattern and applies it everywhere except the surface that matters most.
+**The measurement this was waiting on, taken 2026-09-03 against this project's own palace:**
+the largest memory ever filed is 114,636 bytes across 82 chunks — a mined Claude transcript
+— with p90 at 4,007 bytes and p50 at 2,466 over 1,253 memories. The bound that actually
+governs is `palace.MaxContentLength`, 100,000 RUNES, enforced by sanitize on every drawer
+and diary write; the miner's own cap of 90,000 was "learned the honest way, by the server
+rejecting a 120k part".
 
-Two separable decisions, which is why this is filed rather than fixed alongside ADR-049:
+So the limit is DERIVED as `32 * palace.MaxContentLength` rather than picked, and the
+property it is chosen for is that **the outer limit must never shadow the inner one**: a
+body limit below the worst-case encoding of 100,000 runes would refuse a payload sanitize
+would have accepted, and the caller would get a transport error instead of the sentence
+explaining the real rule. Deriving it means raising `MaxContentLength` raises this on the
+same commit.
 
-- **A body limit on `/mcp`.** It is a served-path change with a real failure mode on the other
-  side: a limit below the largest legitimate `am_add_drawer` turns a working write into a
-  refusal, and nothing here knows what that size is. Wants a measurement of the largest content
-  actually filed before a number is picked.
-- **The `max 250 chars` claim.** Enforce it or delete it, but it cannot stay as it is — a
-  description is the only route by which a caller learns what the server accepts, and this
-  corpus already has `TestNoToolDescriptionClaimsALongMemoryCannotBeMoved` for exactly the case
-  of a description that has gone false. ⚠ Note the direction differs from that one: there the
-  sentence became false when behaviour changed; here it was never true.
-
-Not filed as urgent. The probe left the server responsive (`Up`, answering `tools/list` in
-milliseconds afterwards), and deeply-nested JSON is already refused cleanly in 3 ms with
-`-32700`. What it costs today is an unauthenticated caller's ability to spend 11.7 seconds of
-embedding work per request — which ADR-049 has just made much harder to reach from a browser,
-and which a token closes entirely.
+Verified on a live server: the 9.5 MB query that motivated the entry went from **200 after
+11.7 seconds to 400 in 2.6 milliseconds**, while a maximum-length 100,000-rune memory is
+still accepted and answered as JSON-RPC. Three mutants killed, including both directions —
+a limit that shadows the content bound, and a limit so large it is not a bound.
 
 ## What the MCP protocol offers that this server answers "not supported" to — 2026-09-03
 
