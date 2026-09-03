@@ -3218,6 +3218,20 @@ one, make its condition true and watch the exit code.
   second caller of the reassembly path, or the first entry record that reads with a duplicated
   passage.**
 
+- **`mcptest.NewLocalWithWing` is dead, and the local-mode tenant edge it proved is now covered by
+  nothing.** ADR-038 removed the local-only tools (`am_delete_wing` and the three sibling deletes),
+  which were this constructor's only consumers. The constructor survived them: at the commit before
+  this entry, grep found exactly one reference outside its own definition, and it was the Test
+  Doubles row in `docs/architecture.md` — removed in the same commit as this entry, so the only
+  mention left anywhere is this bullet. That doc row was the only thing making the constructor look
+  reachable, which is why the removal read as clean. Its comment still
+  promises it "proves the HTTP edge injects the fixed local administrator that makes their handlers
+  reachable"; no test asks that any more. `internal/auth/local_test.go` covers `auth.LocalTenant`
+  as a unit, so the middleware is not unproven — what is unproven is that the mounted local server
+  wires it. Either delete the constructor, or give it back a scenario. **Trigger: the next tool
+  registered behind `Deps.Local`, or the next time a local-mode auth change needs an end-to-end
+  test to land on.**
+
 ## From ADR-047 (measure the writing rule, not only the ranking knob)
 
 Filed with the ADR, in the same commit as the deferrals that point here — a pointer to a file that
