@@ -871,7 +871,7 @@ first one for free:
 |---|---|---|
 | `am_skillset` | Server-side wakeup playbook — which tool, in what order — returned over MCP itself | **Automatic.** Seeded on first boot, including `--local` |
 | `CLAUDE.md` / `AGENTS.md` | The always-on protocol: recall at session start, persist before stopping | `aiagentmemory install` writes `agentsmemory-bootstrap.md` and merges an import into your memory file |
-| `/am`, `/load-skill` + Claude's five hooks | Task-scoped grounding, the end-of-turn checkpoint that stops memory being lost, and the two that make a Claude SUBAGENT a session: `SubagentStart` puts the recall instruction next to its task, `SubagentStop` asks it for what it found. Codex currently installs only the proven `Stop` hook. | Same installer |
+| `/am`, `/load-skill` + Claude's six hooks | Task-scoped grounding, the end-of-turn checkpoint that stops memory being lost, a `UserPromptSubmit` recall that asks the palace about each task in the user's own words, and the two that make a Claude SUBAGENT a session: `SubagentStart` puts the recall instruction next to its task, `SubagentStop` asks it for what it found. Codex currently installs only the proven `Stop` hook. | Same installer |
 
 So after `docker compose up`, run the kit as well — `--local` wires it to your
 own server:

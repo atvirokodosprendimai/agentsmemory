@@ -48,6 +48,11 @@ const subagentHookAsset = "hooks/agentsmemory-subagent-start-hook.sh"
 // ADR-041 T2's baseline; this is the mechanism it was waiting on.
 const recallHookAsset = "hooks/agentsmemory-recall-hook.sh"
 
+// taskRecallHookAsset is the UserPromptSubmit sibling of the recall hook: it asks
+// the palace about the TASK, using the user's own words, at the moment the task
+// arrives.
+const taskRecallHookAsset = "hooks/agentsmemory-task-recall-hook.sh"
+
 const (
 	// hookFile is where the Stop hook is installed: flat in the config dir, not
 	// under hooks/. The directory name matters because a sandbox is shared — pi
@@ -70,6 +75,9 @@ const (
 
 	// recallHookFile is where the recall hook lands, beside the others.
 	recallHookFile = "agentsmemory-recall-hook.sh"
+
+	// taskRecallHookFile is where the per-prompt recall hook lands.
+	taskRecallHookFile = "agentsmemory-task-recall-hook.sh"
 
 	// statsHelperFile is the sourced /stats helper, beside the hook scripts.
 	statsHelperFile = "agentsmemory-stats.sh"
@@ -708,6 +716,15 @@ func (i *Installer) writeAssets() error {
 			return err
 		}
 		i.ok("hook %s", filepath.Base(i.recallHookPath()))
+
+		taskRecallHook, err := i.source().ReadFile(taskRecallHookAsset)
+		if err != nil {
+			return err
+		}
+		if err := i.writeFile(i.taskRecallHookPath(), taskRecallHook, 0o755); err != nil {
+			return err
+		}
+		i.ok("hook %s", filepath.Base(i.taskRecallHookPath()))
 	}
 	// Only a hook-owning kit relocates the script: it is the one that also
 	// re-registers the new path, so no agent is left pointing at a deleted file.
@@ -836,6 +853,11 @@ func (i *Installer) sessionEndHookPath() string {
 // recallHookPath is where the recall hook is installed.
 func (i *Installer) recallHookPath() string {
 	return filepath.Join(i.targetDir, recallHookFile)
+}
+
+// taskRecallHookPath is where the UserPromptSubmit recall hook is installed.
+func (i *Installer) taskRecallHookPath() string {
+	return filepath.Join(i.targetDir, taskRecallHookFile)
 }
 
 // statsHelperPath is where the sourced /stats helper lands, beside the scripts
@@ -1222,6 +1244,18 @@ func (i *Installer) hookPlansOn(goos string) []hookPlan {
 			event: "SessionStart",
 			cmd:   i.hookCommand(i.recallHookPath()),
 			note:  "registered SessionStart hook (a fresh context starts with a recall already done)",
+		},
+		// ⚠ UserPromptSubmit, WHICH IS AN INJECTING EVENT AND WAS UNUSED. The
+		// SessionStart recall above fires once per context and can only ask with
+		// the branch name and the changed filenames; this one asks with the user's
+		// own words, every prompt. Measured 2026-09-03, a real question reaches
+		// `decisions` and `gotchas` at 0.354-0.415 where a branch-plus-filenames
+		// query reached 0.404-0.409 and recalled nothing useful — the two hooks
+		// answer different questions and neither subsumes the other.
+		hookPlan{
+			event: "UserPromptSubmit",
+			cmd:   i.hookCommand(i.taskRecallHookPath()),
+			note:  "registered UserPromptSubmit hook (each task starts with a recall about that task)",
 		},
 	)
 	if goos != "windows" {
