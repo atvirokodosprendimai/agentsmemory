@@ -39,7 +39,7 @@ as the behaviour.
 
 ## Ordered Steps
 
-1. Write the failing tests first (TDD red): `TestOffMachineAddressingNamesTheHeaderThatBetraysARebind`, `TestLocalTenantRefusesARebindAndOnlyWhenBounded` and `TestARebindIsRefusedBeforeTheTokenIsRead` in `internal/auth/origin_test.go`. Run the Acceptance fence and confirm RED.
+1. Write the failing tests first (TDD red): `TestOffMachineAddressingNamesTheHeaderThatBetraysARebind`, `TestLocalTenantRefusesARebindAndOnlyWhenBounded` and `TestARebindOutranksAMissingToken` in `internal/auth/origin_test.go`. Run the Acceptance fence and confirm RED.
 2. Write `OffMachineAddressing` and `addressesThisMachine` in `internal/auth/origin.go`.
 3. Add the `machineBounded` parameter to `LocalTenant`, running the guard BEFORE the token check, and update all five call sites. `internal/mcptest/harness.go` and the three in `internal/auth/local_test.go` pass `false`, because `httptest.NewRequest` defaults `Host` to `example.com` and those tests are about the tenant and the token, not the addressing.
 4. Extract `localBoundary` in `cmd/server/main.go` and pass it at the one mount.
@@ -53,7 +53,7 @@ as the behaviour.
 ```bash
 gofmt -l cmd internal | (! grep -q .) && go vet ./... && \
 go test ./internal/auth/ ./cmd/server/ \
-  -run 'TestOffMachineAddressingNamesTheHeaderThatBetraysARebind|TestLocalTenantRefusesARebindAndOnlyWhenBounded|TestARebindIsRefusedBeforeTheTokenIsRead|TestTheLocalEndpointIsMountedBehindTheRebindGuard|TestTheGuardAgreesWithTheExposureWarning|TestTheRebindGuardIsNamedInOperatorDocs' \
+  -run 'TestOffMachineAddressingNamesTheHeaderThatBetraysARebind|TestLocalTenantRefusesARebindAndOnlyWhenBounded|TestARebindOutranksAMissingToken|TestTheLocalEndpointIsMountedBehindTheRebindGuard|TestTheGuardAgreesWithTheExposureWarning|TestTheRebindGuardIsNamedInOperatorDocs|TestTheSocketPlaceholderIsAcceptedByTheGuard' \
   -count=1 2>&1 | tee /tmp/adr049-t1.out; \
 ! grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/adr049-t1.out && go test ./... -count=1
 ```
@@ -68,7 +68,7 @@ never executed.
 |-----------|------|----------|--------|
 | `TestOffMachineAddressingNamesTheHeaderThatBetraysARebind` | `internal/auth/origin_test.go` | The classifier in both directions: every spelling of this machine passes — bare `localhost`, a bracketed IPv6 loopback, anything in `127/8`, an ephemeral port — while a rebound name, a foreign `Origin` on a local `Host`, the literal `null`, an unparseable `Origin` and a private LAN address are all refused | — |
 | `TestLocalTenantRefusesARebindAndOnlyWhenBounded` | `internal/auth/origin_test.go` | The middleware answers 403 and does not reach the handler when bounded, and stays entirely out of the way when the operator has bound a routable address | — |
-| `TestARebindIsRefusedBeforeTheTokenIsRead` | `internal/auth/origin_test.go` | With a token configured and none presented, the answer is 403 rather than 401 — the addressing is judged first, so the message names the real problem | — |
+| `TestARebindOutranksAMissingToken` | `internal/auth/origin_test.go` | With a token configured and none presented, the answer is 403 rather than 401 — the addressing is judged first, so the message names the real problem | — |
 | `TestTheLocalEndpointIsMountedBehindTheRebindGuard` | `cmd/server/originwiring_test.go` | The third argument at the real mount is `localBoundary(cfg)` and not a constant, read out of `main.go`'s AST; its subtest drives the same extractor over a fixture that hard-codes `false` | — |
 | `TestTheGuardAgreesWithTheExposureWarning` | `cmd/server/originwiring_test.go` | `localBoundary` is exactly the three conditions the boot warning treats as bounded, in both directions — a socket, a loopback bind and a loopback-published container are bounded; a bare routable bind, a LAN bind, and a routable bind carrying a token are not | — |
 | `TestTheRebindGuardIsNamedInOperatorDocs` | `cmd/server/originwiring_test.go` | `README.md` carries the refusal text an operator meets in a 403 and will paste into a search | — |
@@ -100,7 +100,7 @@ the same three, which is the fabrication hole `adr-verify --mutant` exists to cl
 was replaced rather than kept beside the receipts, because two accounts of one measurement
 is one account too many.
 
-Worth reading twice: severing the guard fails `TestARebindIsRefusedBeforeTheTokenIsRead`
+Worth reading twice: severing the guard fails `TestARebindOutranksAMissingToken`
 with `401`, not with a pass. A server missing the guard still refuses that one request —
 for the wrong reason — which is exactly the shape a weaker assertion would have scored as
 success.
@@ -108,6 +108,13 @@ success.
 - 2026-09-03 · fdc16e2* · mutant killed · exit 1 · `cmd/server/main.go` · the mount passes a constant, so the guard is compiled in and never selected — the reachability defect this repo keeps shipping · acceptance-sha256:260ea989c06cd7addfb6e387c5c7141e51b6e2464a09994c3abfe273ae74af20
 - 2026-09-03 · fdc16e2* · mutant killed · exit 1 · `cmd/server/main.go` · localBoundary forgets the container case, so a loopback-published deployment silently stops being guarded while the boot warning still calls it bounded · acceptance-sha256:260ea989c06cd7addfb6e387c5c7141e51b6e2464a09994c3abfe273ae74af20
 - 2026-09-03 · fdc16e2* · mutant killed · exit 1 · `internal/auth/auth.go` · the guard is present and inert — the shape a green suite cannot tell from a guard that works · acceptance-sha256:260ea989c06cd7addfb6e387c5c7141e51b6e2464a09994c3abfe273ae74af20
+- 2026-09-03 · ca72ffe* · mutant killed · exit 1 · `internal/auth/origin.go` · the absent-Host fail-open restored: a request with no Host skips the check, which is how it shipped and how POST /mcp answered 200 on the running container · acceptance-sha256:260ea989c06cd7addfb6e387c5c7141e51b6e2464a09994c3abfe273ae74af20
+- 2026-09-03 · ca72ffe* · mutant killed · exit 1 · `internal/auth/origin.go` · the unix authority exempted on every transport again, widening the guard for a case a TCP deployment cannot legitimately produce · acceptance-sha256:260ea989c06cd7addfb6e387c5c7141e51b6e2464a09994c3abfe273ae74af20
+- 2026-09-03 · ca72ffe* · mutant killed · exit 1 · `cmd/server/main.go` · the mount drops the socket fact, so a socket deployment silently refuses every client while the guard still looks wired · acceptance-sha256:260ea989c06cd7addfb6e387c5c7141e51b6e2464a09994c3abfe273ae74af20
+- 2026-09-03 · ca72ffe* · mutant killed · exit 1 · `cmd/server/main.go` · the mount passes a constant, so the guard is compiled in and never selected · acceptance-sha256:807f536275b51a907d891f5e746bfa8950e373e0f177835bcb09c5b48dd1380d
+- 2026-09-03 · ca72ffe* · mutant killed · exit 1 · `internal/auth/origin.go` · the absent-Host fail-open restored, which is how it shipped and how a raw POST /mcp answered 200 on the running container · acceptance-sha256:807f536275b51a907d891f5e746bfa8950e373e0f177835bcb09c5b48dd1380d
+- 2026-09-03 · ca72ffe* · mutant killed · exit 1 · `cmd/server/stdio.go` · the proxy mints an authority the guard refuses, so every --socket client gets 403 — the break that shipped once and that a literal-equality gate could not see · acceptance-sha256:807f536275b51a907d891f5e746bfa8950e373e0f177835bcb09c5b48dd1380d
+- 2026-09-03 · ca72ffe* · mutant killed · exit 1 · `internal/auth/auth.go` · the guard is present and inert — the shape a green suite cannot tell from a guard that works · acceptance-sha256:807f536275b51a907d891f5e746bfa8950e373e0f177835bcb09c5b48dd1380d
 
 ## Invariants
 
@@ -151,3 +158,11 @@ Filled by `adr-verify`.
 - 2026-09-03 · fdc16e2* · exit 0 · `gofmt -l cmd internal | (! grep -q .) && go vet ./... && \ …` · acceptance-sha256:260ea989c06cd7addfb6e387c5c7141e51b6e2464a09994c3abfe273ae74af20 · ms:40746
 - 2026-09-03 · fdc16e2* · exit 0 · `gofmt -l cmd internal | (! grep -q .) && go vet ./... && \ …` · acceptance-sha256:260ea989c06cd7addfb6e387c5c7141e51b6e2464a09994c3abfe273ae74af20 · ms:35851
 - 2026-09-03 · d24c6cb* · exit 0 · `gofmt -l cmd internal | (! grep -q .) && go vet ./... && \ …` · acceptance-sha256:260ea989c06cd7addfb6e387c5c7141e51b6e2464a09994c3abfe273ae74af20 · ms:32018
+- 2026-09-03 · ca72ffe* · exit 0 · `gofmt -l cmd internal | (! grep -q .) && go vet ./... && \ …` · acceptance-sha256:260ea989c06cd7addfb6e387c5c7141e51b6e2464a09994c3abfe273ae74af20 · ms:32432
+- 2026-09-03 · ca72ffe* · exit 0 · `gofmt -l cmd internal | (! grep -q .) && go vet ./... && \ …` · acceptance-sha256:260ea989c06cd7addfb6e387c5c7141e51b6e2464a09994c3abfe273ae74af20 · ms:30896
+- 2026-09-03 · ca72ffe* · exit 0 · `gofmt -l cmd internal | (! grep -q .) && go vet ./... && \ …` · acceptance-sha256:260ea989c06cd7addfb6e387c5c7141e51b6e2464a09994c3abfe273ae74af20 · ms:30987
+- 2026-09-03 · ca72ffe* · exit 0 · `gofmt -l cmd internal | (! grep -q .) && go vet ./... && \ …` · acceptance-sha256:807f536275b51a907d891f5e746bfa8950e373e0f177835bcb09c5b48dd1380d · ms:32453
+- 2026-09-03 · ca72ffe* · exit 0 · `gofmt -l cmd internal | (! grep -q .) && go vet ./... && \ …` · acceptance-sha256:807f536275b51a907d891f5e746bfa8950e373e0f177835bcb09c5b48dd1380d · ms:33075
+- 2026-09-03 · ca72ffe* · exit 0 · `gofmt -l cmd internal | (! grep -q .) && go vet ./... && \ …` · acceptance-sha256:807f536275b51a907d891f5e746bfa8950e373e0f177835bcb09c5b48dd1380d · ms:33912
+- 2026-09-03 · ca72ffe* · exit 0 · `gofmt -l cmd internal | (! grep -q .) && go vet ./... && \ …` · acceptance-sha256:807f536275b51a907d891f5e746bfa8950e373e0f177835bcb09c5b48dd1380d · ms:33734
+- 2026-09-03 · ca72ffe* · exit 0 · `gofmt -l cmd internal | (! grep -q .) && go vet ./... && \ …` · acceptance-sha256:807f536275b51a907d891f5e746bfa8950e373e0f177835bcb09c5b48dd1380d · ms:31267

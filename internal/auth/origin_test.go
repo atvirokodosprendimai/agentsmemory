@@ -3,6 +3,7 @@ package auth
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/atvirokodosprendimai/agentsmemory/internal/tenant"
@@ -21,6 +22,11 @@ func TestOffMachineAddressingNamesTheHeaderThatBetraysARebind(t *testing.T) {
 		host    string
 		origin  string
 		wantBad bool
+		// wantHeader is the header the refusal must NAME. Without it a mutation
+		// that blames "Origin" for a bad Host still refuses, and the operator is
+		// sent to look at the wrong header — a refusal that misidentifies its
+		// cause is most of the cost of this class of bug.
+		wantHeader string
 	}{
 		{name: "loopback ip with port", host: "127.0.0.1:8080", wantBad: false},
 		{name: "localhost with port", host: "localhost:8080", wantBad: false},
@@ -34,21 +40,31 @@ func TestOffMachineAddressingNamesTheHeaderThatBetraysARebind(t *testing.T) {
 		// A --socket client. The dial has no network host, so the proxy mints
 		// "http://unix/mcp" and the guard sees an authority that is neither
 		// localhost nor an IP. The first version of this guard refused it.
-		{name: "the unix socket authority", host: "unix", wantBad: false},
+		// The Unix-socket proxy mints this authority; it is a loopback name so it
+		// needs no exemption. TestTheSocketPlaceholderIsAcceptedByTheGuard pins it.
+		{name: "the socket proxy placeholder", host: "localhost", wantBad: false},
+		// "unix" is no longer special: the placeholder is a loopback name now, so
+		// a single-label authority is refused like any other off-machine name.
+		{name: "the retired unix authority", host: "unix", wantBad: true, wantHeader: "Host"},
+		// A trailing dot is the fully-qualified spelling of the same name.
+		{name: "fully-qualified localhost", host: "localhost.:8080", wantBad: false},
+		// An absent Host is refused rather than skipped: a check whose job is to
+		// refuse what it cannot vouch for must not treat "nothing" as "fine".
+		{name: "an absent Host", host: "", wantBad: true, wantHeader: "Host"},
 		// arrived here, but both headers still say where the browser thought it
 		// was going. Either one alone is enough to refuse.
 		{name: "rebound name in both headers", host: "evil.example.com:8080", origin: "http://evil.example.com:8080", wantBad: true},
-		{name: "rebound name in host only", host: "evil.example.com:8080", wantBad: true},
-		{name: "foreign origin on a local host", host: "127.0.0.1:8080", origin: "https://evil.example.com", wantBad: true},
+		{name: "rebound name in host only", host: "evil.example.com:8080", wantBad: true, wantHeader: "Host"},
+		{name: "foreign origin on a local host", host: "127.0.0.1:8080", origin: "https://evil.example.com", wantBad: true, wantHeader: "Origin"},
 
 		// A sandboxed iframe or a file:// page sends the literal "null". It is
 		// not this machine, and it must not read as "no Origin header".
-		{name: "null origin is not absent", host: "127.0.0.1:8080", origin: "null", wantBad: true},
-		{name: "unparseable origin", host: "127.0.0.1:8080", origin: "::::", wantBad: true},
+		{name: "null origin is not absent", host: "127.0.0.1:8080", origin: "null", wantBad: true, wantHeader: "Origin"},
+		{name: "unparseable origin", host: "127.0.0.1:8080", origin: "::::", wantBad: true, wantHeader: "Origin"},
 
 		// A LAN address is off-machine even though it is private. Local mode
 		// serves one machine, not one network.
-		{name: "private lan address", host: "192.168.1.5:8080", wantBad: true},
+		{name: "private lan address", host: "192.168.1.5:8080", wantBad: true, wantHeader: "Host"},
 	}
 
 	for _, tc := range tests {
@@ -62,8 +78,8 @@ func TestOffMachineAddressingNamesTheHeaderThatBetraysARebind(t *testing.T) {
 			if (got != "") != tc.wantBad {
 				t.Fatalf("OffMachineAddressing() = %q, want bad=%v", got, tc.wantBad)
 			}
-			if tc.wantBad && got == "" {
-				t.Fatal("a refusal must name the header it read")
+			if tc.wantBad && tc.wantHeader != "" && !strings.HasPrefix(got, tc.wantHeader+" ") {
+				t.Errorf("refusal = %q, want it to name %q", got, tc.wantHeader)
 			}
 		})
 	}
@@ -101,31 +117,40 @@ func TestLocalTenantRefusesARebindAndOnlyWhenBounded(t *testing.T) {
 				w.WriteHeader(http.StatusOK)
 			}))
 
-			req := httptest.NewRequest(http.MethodPost, "/mcp", nil)
-			req.Host = tc.host
-			rec := httptest.NewRecorder()
-			h.ServeHTTP(rec, req)
+			// BOTH METHODS, because the middleware guards three endpoints and
+			// /stats is a GET. A guard written `if r.Method == http.MethodPost`
+			// would pass a POST-only test while leaving every GET unguarded.
+			for _, method := range []string{http.MethodGet, http.MethodPost} {
+				reached = false
+				req := httptest.NewRequest(method, "/mcp", nil)
+				req.Host = tc.host
+				rec := httptest.NewRecorder()
+				h.ServeHTTP(rec, req)
 
-			if rec.Code != tc.wantCode {
-				t.Errorf("status = %d, want %d", rec.Code, tc.wantCode)
-			}
-			if reached != tc.wantReach {
-				t.Errorf("handler reached = %v, want %v", reached, tc.wantReach)
+				if rec.Code != tc.wantCode {
+					t.Errorf("%s status = %d, want %d", method, rec.Code, tc.wantCode)
+				}
+				if reached != tc.wantReach {
+					t.Errorf("%s handler reached = %v, want %v", method, reached, tc.wantReach)
+				}
 			}
 		})
 	}
 }
 
-// TestARebindIsRefusedBeforeTheTokenIsRead pins the ORDER, which is the part a
-// later edit is most likely to get wrong by moving the cheap check after the
-// expensive one.
+// TestARebindOutranksAMissingToken pins which refusal WINS when both apply.
+//
+// ⚠ It was called ...BeforeTheTokenIsRead and a review corrected the name: it
+// observes the status code, so it binds PRECEDENCE, not literal read order. An
+// implementation that read the bearer first and still answered 403 would pass,
+// correctly — the name promised something the assertion cannot see.
 //
 // The order is a diagnostic decision rather than a security one — a browser on a
 // rebound name holds no token either way, so both orders refuse. But answering
 // 401 sends the operator hunting for a credential problem that does not exist,
 // and the whole cost of this class of bug is the time between seeing the symptom
 // and understanding it.
-func TestARebindIsRefusedBeforeTheTokenIsRead(t *testing.T) {
+func TestARebindOutranksAMissingToken(t *testing.T) {
 	want := tenant.Tenant{TeamID: "team-local", UserID: "user-local", Role: tenant.RoleAdmin}
 
 	h := LocalTenant(want, "the-configured-token", true)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

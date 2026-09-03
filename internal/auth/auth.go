@@ -98,10 +98,11 @@ func WithTenant(ctx context.Context, t tenant.Tenant) context.Context {
 // caller mount the credential-free one by mistake. machineBounded joins them for
 // the same reason: the DNS-rebinding guard protects the assumption this
 // function's own comment states, so a caller must not be able to mount the
-// endpoint without it. Pass it true whenever the operator's boundary is this
-// machine — a loopback bind, a unix socket, or a container publishing to the
-// host's loopback. Pass false when they have deliberately bound a routable
-// address, because they were warned and a hard refusal would break them.
+// endpoint without deciding about it. Pass it true whenever the operator's
+// boundary is this machine — a loopback bind, a unix socket, or a container
+// publishing to the host's loopback. Pass false when they have deliberately
+// bound a routable address, because they were warned and a hard refusal would
+// break them.
 func LocalTenant(t tenant.Tenant, token string, machineBounded bool) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

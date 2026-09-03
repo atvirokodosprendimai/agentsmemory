@@ -8,6 +8,32 @@ An entry leaves this file in one of two ways: it becomes an ADR, or it is re-tag
 `(permanent: <why>)` in its originating ADR because we decided it should never happen.
 
 
+## A needle that is an identifier proves nothing, and a piped exit code hides the refusal — 2026-09-03
+
+Two mistakes made against `scripts/redeploy.sh` in one run, both mine and neither a defect in
+the script. Filed because the second is the failure this repository already warns about in a
+different tool's instructions, and the first is a trap the script's own design invites.
+
+**An identifier is not a needle.** The proof step greps the shipped binary for strings that a
+change introduces, and I passed `SocketAuthority` — a Go CONSTANT NAME. Identifiers are not in
+a compiled binary; only string literals are. `strings` on the container confirms it: one hit
+for the literal `does not address this machine`, zero for `SocketAuthority`. The script
+correctly reported `MISSING` and exited 1, over a binary that DID carry the change. The
+script's own comment already says needles "only prove a change that introduces a STRING" —
+the trap is that the caller picks the needle, and a plausible-looking identifier fails in the
+direction that looks like a broken deploy.
+
+**And I read its verdict through a pipe.** I ran `bash scripts/redeploy.sh … | tail -14`, so
+the status I saw was `tail`'s zero, not the script's one. The refusal was printed and
+discarded in the same breath. The `mrw` instructions in this repo's own tooling guidance state
+exactly this rule — "never read an exit code through a pipe" — for exactly this reason, and it
+is worth having recorded against `redeploy.sh` too, since that script's entire purpose is a
+verdict.
+
+Neither wants a code change. What would help, if anyone touches the script: reject a needle
+that matches no string literal anywhere in the SOURCE before deploying, so a bad needle is
+caught as a bad needle rather than reported as a bad deploy.
+
 ## `redeploy.sh`'s kit check reads a different binary than its own remedy writes — 2026-09-03
 
 Observed on the machine this project is developed on. Two `aiagentmemory` binaries exist:
