@@ -35,6 +35,7 @@ func (c skillCaller) CanWrite() bool { return tenant.CanWrite(c.t.Role) }
 // so an agent can see what is available before loading one.
 func registerListSkills(reg *registrar, skills *skill.Service, usageSvc *usage.Service) {
 	tool := newTool("list_skills",
+		mcp.WithOutputSchema[skillsResult](),
 		mcp.WithDescription("List the team's centralised skills (name, description, version) without their bodies. Load a body with am_load_skill."),
 	)
 	reg.add(tool, func(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -46,7 +47,7 @@ func registerListSkills(reg *registrar, skills *skill.Service, usageSvc *usage.S
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
-		return jsonResult(map[string]any{"skills": list, "count": len(list)}), nil
+		return jsonResult(skillsResult{Skills: list, Count: len(list)}), nil
 	})
 }
 

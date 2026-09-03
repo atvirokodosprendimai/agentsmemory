@@ -1237,6 +1237,7 @@ func registerCheckDuplicate(reg *registrar, drawers *palace.Service, usageSvc *u
 // registerListWings: per-wing drawer/room counts.
 func registerListWings(reg *registrar, drawers *palace.Service, usageSvc *usage.Service) {
 	tool := newTool("list_wings",
+		mcp.WithOutputSchema[wingsResult](),
 		mcp.WithDescription("List the team's wings with how many drawers and distinct rooms each holds."),
 	)
 	reg.add(tool, func(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -1248,13 +1249,14 @@ func registerListWings(reg *registrar, drawers *palace.Service, usageSvc *usage.
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
-		return jsonResult(map[string]any{"wings": wings, "count": len(wings)}), nil
+		return jsonResult(wingsResult{Wings: wings, Count: len(wings)}), nil
 	})
 }
 
 // registerListRooms: per-room drawer counts, optionally within one wing.
 func registerListRooms(reg *registrar, drawers *palace.Service, usageSvc *usage.Service, scopeSearchToWing bool) {
 	tool := newTool("list_rooms",
+		mcp.WithOutputSchema[roomsResult](),
 		mcp.WithDescription("List the team's rooms with drawer counts, optionally restricted to one wing. Omitted, scoped to this registration's default_wing only when one is configured and SEARCH_SCOPE is not workspace; otherwise omission lists every wing. Pass \"*\" to list every wing deliberately."),
 		mcp.WithString("wing", mcp.Description("Only rooms within this wing. Omitted, scoped to this registration's default_wing only when one is configured and SEARCH_SCOPE is not workspace; otherwise every wing. Pass \"*\" for every wing deliberately."), searchWingProperty()),
 	)
@@ -1276,7 +1278,7 @@ func registerListRooms(reg *registrar, drawers *palace.Service, usageSvc *usage.
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
-		return jsonResult(map[string]any{"rooms": rooms, "count": len(rooms)}), nil
+		return jsonResult(roomsResult{Rooms: rooms, Count: len(rooms)}), nil
 	})
 }
 

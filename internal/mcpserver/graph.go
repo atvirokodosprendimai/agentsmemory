@@ -142,6 +142,7 @@ func registerCreateTunnel(reg *registrar, drawers *palace.Service, usageSvc *usa
 
 func registerListTunnels(reg *registrar, drawers *palace.Service, usageSvc *usage.Service, scopeSearchToWing bool) {
 	tool := newTool("list_tunnels",
+		mcp.WithOutputSchema[tunnelsResult](),
 		mcp.WithDescription("List explicit and derived tunnels, optionally filtered to those touching a wing. Omitted, scoped to this registration's default_wing only when one is configured and SEARCH_SCOPE is not workspace; otherwise omission lists every wing. Pass \"*\" to list every wing deliberately. Each endpoint carries wing and room, plus drawer_id when that end is pinned to ONE specific memory rather than to the room as a whole — absent means the tunnel lands on the room, so follow it by recalling there."),
 		mcp.WithString("wing", mcp.Description("Only tunnels with this wing as source or target. Omitted, scoped to this registration's default_wing only when one is configured and SEARCH_SCOPE is not workspace; otherwise every wing. Pass \"*\" for every wing deliberately."), searchWingProperty()),
 	)
@@ -167,12 +168,13 @@ func registerListTunnels(reg *registrar, drawers *palace.Service, usageSvc *usag
 		for i, tn := range tunnels {
 			views[i] = toTunnelView(tn)
 		}
-		return jsonResult(map[string]any{"tunnels": views, "count": len(views)}), nil
+		return jsonResult(tunnelsResult{Tunnels: views, Count: len(views)}), nil
 	})
 }
 
 func registerFindTunnels(reg *registrar, drawers *palace.Service, usageSvc *usage.Service) {
 	tool := newTool("find_tunnels",
+		mcp.WithOutputSchema[tunnelRoomsResult](),
 		mcp.WithDescription("Find rooms that span two or more wings (passive cross-wing connectors), optionally filtered by one or two wings."),
 		mcp.WithString("wing_a", mcp.Description("Only rooms that also appear in this wing.")),
 		mcp.WithString("wing_b", mcp.Description("Only rooms that also appear in this wing.")),
@@ -186,12 +188,13 @@ func registerFindTunnels(reg *registrar, drawers *palace.Service, usageSvc *usag
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
-		return jsonResult(map[string]any{"rooms": rooms, "count": len(rooms)}), nil
+		return jsonResult(tunnelRoomsResult{Rooms: rooms, Count: len(rooms)}), nil
 	})
 }
 
 func registerFollowTunnels(reg *registrar, drawers *palace.Service, usageSvc *usage.Service) {
 	tool := newTool("follow_tunnels",
+		mcp.WithOutputSchema[connectionsResult](),
 		mcp.WithDescription("Follow the tunnels leaving or entering a wing/room, with a preview of the drawer each pinned tunnel leads to."),
 		mcp.WithString("wing", mcp.Required(), mcp.Description("The wing to follow tunnels from.")),
 		mcp.WithString("room", mcp.Required(), mcp.Description("The room to follow tunnels from.")),
@@ -213,7 +216,7 @@ func registerFollowTunnels(reg *registrar, drawers *palace.Service, usageSvc *us
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
-		return jsonResult(map[string]any{"connections": conns, "count": len(conns)}), nil
+		return jsonResult(connectionsResult{Connections: conns, Count: len(conns)}), nil
 	})
 }
 

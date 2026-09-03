@@ -12,6 +12,7 @@ import (
 
 	"github.com/atvirokodosprendimai/agentsmemory/internal/auth"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/palace"
+	"github.com/atvirokodosprendimai/agentsmemory/internal/skill"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/store/sqlitevec"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/tenant"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/usage"
@@ -85,9 +86,15 @@ func TestJSONResultCarriesBothHalves(t *testing.T) {
 func TestEveryDeclaredOutputSchemaIsSatisfiedByTheTool(t *testing.T) {
 	gdb := graphTestDB(t)
 	drawers := palace.NewService(palace.NewRepo(gdb), graphTestEmbedder{}, sqlitevec.New(gdb), graphTestDim)
+	// ⚠ FULLY WIRED, BECAUSE THIS GATE CALLS EVERY TOOL THAT DECLARES A SCHEMA.
+	// A Deps missing a service does not make the gate skip that tool — it makes
+	// the handler dereference nil and panic, which is how am_list_skills brought
+	// this down the moment it got a schema. A gate whose fixture is thinner than
+	// its universe fails for the wrong reason.
 	srv := New(Deps{
 		Version: "test",
 		Drawers: drawers,
+		Skills:  skill.NewService(skill.NewRepo(gdb)),
 		Usage:   usage.NewService(usage.NewRepo(gdb), graphTestCaps{}),
 	})
 
@@ -150,8 +157,13 @@ func TestEveryDeclaredOutputSchemaIsSatisfiedByTheTool(t *testing.T) {
 			continue
 		}
 
+		// ⚠ REQUIRED ARGUMENTS ARE SUPPLIED, READ FROM THE TOOL'S OWN SCHEMA.
+		// Calling every tool with {} looked fine until am_follow_tunnels declared
+		// a schema: it requires arguments, returned an error result, and the gate
+		// reported that instead of validating anything. A gate that silently skips
+		// the tools hardest to call is one that covers the easy half.
 		res, err := cli.CallTool(ctx, mcp.CallToolRequest{
-			Params: mcp.CallToolParams{Name: tool.Name, Arguments: map[string]any{}},
+			Params: mcp.CallToolParams{Name: tool.Name, Arguments: requiredArgsForTool(tool)},
 		})
 		if err != nil {
 			t.Errorf("%s declares a schema but the call failed: %v", tool.Name, err)
@@ -189,4 +201,47 @@ func TestEveryDeclaredOutputSchemaIsSatisfiedByTheTool(t *testing.T) {
 		t.Fatal("no tool declared a usable outputSchema — this gate validated nothing, which is indistinguishable from passing")
 	}
 	t.Logf("validated structuredContent against the advertised schema for %d tool(s)", checked)
+}
+
+// requiredArgsForTool fills every argument a tool declares as required, reading
+// the declaration rather than a hardcoded table so a new required argument is
+// supplied by existing code instead of breaking this gate.
+//
+// ⚠ IT EXISTS BECAUSE CALLING EVERYTHING WITH {} COVERED ONLY THE EASY HALF.
+// am_follow_tunnels requires arguments, so it returned an error result and the
+// gate reported that instead of validating anything — a gate that silently skips
+// the tools hardest to call is one that checks the tools that needed it least.
+//
+// The values are benign and shaped like the thing asked for: a wing name where a
+// wing is wanted, a room where a room is. They only have to get the call past
+// validation, because this gate judges the SHAPE of a successful response rather
+// than its content.
+func requiredArgsForTool(t mcp.Tool) map[string]any {
+	args := map[string]any{}
+	required := map[string]bool{}
+	for _, r := range t.InputSchema.Required {
+		required[r] = true
+	}
+	for name, raw := range t.InputSchema.Properties {
+		if !required[name] {
+			continue
+		}
+		p, _ := raw.(map[string]any)
+		switch p["type"] {
+		case "number", "integer":
+			args[name] = 1
+		case "boolean":
+			args[name] = false
+		default:
+			switch name {
+			case "wing", "source_wing", "target_wing", "wing_a", "wing_b":
+				args[name] = "wing_acme"
+			case "room", "source_room", "target_room":
+				args[name] = "decisions"
+			default:
+				args[name] = "x"
+			}
+		}
+	}
+	return args
 }
