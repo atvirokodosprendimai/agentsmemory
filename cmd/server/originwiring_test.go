@@ -4,11 +4,13 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/atvirokodosprendimai/agentsmemory/internal/auth"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/config"
 )
 
@@ -150,6 +152,12 @@ func TestTheGuardAgreesWithTheExposureWarning(t *testing.T) {
 // it. Documentation is load-bearing here in the same sense §Reachability gives
 // the word: the guard changes what a deployment accepts, so a deployment doc
 // that does not mention it describes a server that no longer exists.
+//
+// ⚠ IT MATCHES ON COLLAPSED WHITESPACE, AND THE FIRST VERSION DID NOT. Prose
+// wraps: the sentence was written across two lines and the gate failed for a
+// reason that had nothing to do with the guard. Left alone it would fail again at
+// the next reflow, and §Reachability already records what a gate that cries wolf
+// costs — it gets disabled, and then it is protecting nothing.
 func TestTheRebindGuardIsNamedInOperatorDocs(t *testing.T) {
 	const needle = "does not address this machine"
 	docs := []string{
@@ -160,8 +168,27 @@ func TestTheRebindGuardIsNamedInOperatorDocs(t *testing.T) {
 		if err != nil {
 			t.Fatalf("read %s: %v", doc, err)
 		}
-		if !strings.Contains(string(b), needle) {
+		if !strings.Contains(strings.Join(strings.Fields(string(b)), " "), needle) {
 			t.Errorf("%s does not carry the refusal text %q an operator will paste into a search", doc, needle)
 		}
+	}
+}
+
+// TestTheSocketAuthorityIsTheOneTheProxySends pins the guard's socket exemption
+// to the URL the proxy actually mints.
+//
+// The two live in different packages and neither imports the other's constant by
+// necessity: auth cannot see cmd/server, and stdio.go had no reason to reach into
+// auth. So the coupling is a fact about two string literals, and a rename on
+// either side turns every Unix-socket client's request into a 403 — silently,
+// because no socket client runs in any test. That is the failure this file's
+// other gate exists for, one package over.
+func TestTheSocketAuthorityIsTheOneTheProxySends(t *testing.T) {
+	u, err := url.Parse(socketURL)
+	if err != nil {
+		t.Fatalf("parse socketURL %q: %v", socketURL, err)
+	}
+	if u.Host != auth.SocketAuthority {
+		t.Errorf("the proxy dials %q so it sends Host %q, but the guard exempts %q — every --socket client gets 403", socketURL, u.Host, auth.SocketAuthority)
 	}
 }

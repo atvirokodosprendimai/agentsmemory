@@ -41,21 +41,42 @@ func OffMachineAddressing(r *http.Request) string {
 	return ""
 }
 
+// SocketAuthority is the synthetic HTTP host a Unix-socket client sends.
+//
+// A socket dial has no network host, but net/http still requires a syntactically
+// valid absolute URL, so the proxy mints `http://unix/mcp` — see socketURL in
+// cmd/server/stdio.go, which TestTheSocketAuthorityIsTheOneTheProxySends pins to
+// this constant so a rename there cannot silently start answering 403 here.
+const SocketAuthority = "unix"
+
 // addressesThisMachine reports whether an HTTP authority names the local machine
-// — "localhost" or any loopback literal — at any port.
+// — "localhost", any loopback literal, or the synthetic Unix-socket host — at any
+// port.
 //
 // The port is deliberately not checked. A caller that reached a loopback address
 // reached this process through the operating system's own loopback interface, so
 // the port it used adds nothing: rebinding turns on the NAME resolving to
-// 127.0.0.1, which is what this rejects. Requiring a specific port would break a
-// --socket deployment and every test server on an ephemeral one, for no gain.
+// 127.0.0.1, which is what this rejects. Requiring a specific port would break
+// every test server on an ephemeral one, for no gain.
+//
+// ⚠ THE SOCKET CASE IS WHY THIS FUNCTION HAS A THIRD BRANCH, AND THE FIRST
+// VERSION SHIPPED WITHOUT IT. That version's comment claimed checking the port
+// "would break a --socket deployment", which named the right deployment and the
+// wrong header: the socket client's PORT is absent, and its HOST is the literal
+// "unix". Every socket client would have got a 403 — a supported path, broken by
+// a guard whose own task file made "the guard refuses a real registered client"
+// its Stop Condition. Awareness of a case is not coverage of it.
+//
+// Accepting it costs nothing a browser can spend. Reaching a Unix socket needs
+// filesystem access no page has, and "unix" is a single-label name that resolves
+// nowhere public, so no rebind can produce this authority against a TCP listener.
 func addressesThisMachine(authority string) bool {
 	host := authority
 	if h, _, err := net.SplitHostPort(authority); err == nil {
 		host = h
 	}
 	host = strings.TrimSuffix(strings.TrimPrefix(host, "["), "]")
-	if strings.EqualFold(host, "localhost") {
+	if strings.EqualFold(host, "localhost") || strings.EqualFold(host, SocketAuthority) {
 		return true
 	}
 	ip := net.ParseIP(host)

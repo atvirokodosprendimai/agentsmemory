@@ -8,6 +8,34 @@ An entry leaves this file in one of two ways: it becomes an ADR, or it is re-tag
 `(permanent: <why>)` in its originating ADR because we decided it should never happen.
 
 
+## `redeploy.sh`'s kit check reads a different binary than its own remedy writes — 2026-09-03
+
+Observed on the machine this project is developed on. Two `aiagentmemory` binaries exist:
+`~/.claude/bin/aiagentmemory` reports the current revision, `~/.local/bin/aiagentmemory`
+reports `dev` and is two days older. `~/.claude/bin` comes first on `PATH`, so the older
+copy is shadowed and never runs.
+
+That alone is an operator's untidy machine, not a project defect. What makes it one is which
+of the two the script consults. `scripts/redeploy.sh` resolves the kit with
+`command -v aiagentmemory` (its `if command -v` / `bin_path="$(command -v …)"` lines), which
+is `PATH`-first — so it read the current copy and printed `binary <revision>` under
+`==> the installed client kit, against this checkout`. Its own remedy, printed a few lines
+further down, is `go build -o $HOME/.local/bin/aiagentmemory ./clients/claude-code`: the
+directory holding the STALE copy, which `command -v` will not look at while the other exists.
+So the check passes, the fix writes somewhere the check does not read, and an operator who
+followed the advice would see no change in the verdict either way.
+
+This is the defect §Reachability records, inside the script whose entire purpose is proof —
+"a build's success is a claim about the build; the only evidence that a change is live is
+reading the artifact that is serving", which the script says about the SERVER and does not
+apply to the kit beside it.
+
+Not fixed here because the answer is an install-layout decision, not a script edit: either
+`~/.local/bin` is the one install dir and `~/.claude/bin` should not hold a second copy, or
+the kit is installed per-agent and the check must name which one it resolved and warn when a
+shadowed duplicate exists. `clients/claude-code/install.sh` defaults to `~/.local/bin`
+(`AIAGENTMEMORY_BIN_DIR`), which is evidence for the first reading but not a decision.
+
 ## `/mcp` is the only unbounded body on the server, and `am_search`'s documented cap is prose — 2026-09-03
 
 Measured against the running container. A `tools/call` for `am_search` carrying a **9.5 MB**

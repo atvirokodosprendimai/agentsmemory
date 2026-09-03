@@ -5,9 +5,9 @@
 **Owner:** M
 **Spec:** None — no spec stage
 **Cross-references:** `docs/adr/ADR-012-the-agent-surface-enforces-the-role-it-reports.md`, `docs/adr/BACKLOG.md`
-**Governs:** `internal/auth/origin.go`, `internal/auth/auth.go`, `cmd/server/main.go`
+**Governs:** `internal/auth/origin.go`, `internal/auth/auth.go`, `cmd/server/main.go`, `internal/mcpserver/server.go`
 **Enforced-by:** `cmd/server/originwiring_test.go::TestTheLocalEndpointIsMountedBehindTheRebindGuard`
-**Served-path change:** the credential-free local endpoints (`/mcp`, `/import`, `/stats`) answer `403` to a request whose `Host` or `Origin` names anything other than this machine, whenever the operator's boundary IS this machine.
+**Served-path change:** the credential-free local endpoints (`/mcp`, `/import`, `/stats`) answer `403` to a request whose `Host` or `Origin` names anything other than this machine, whenever the operator's boundary IS this machine — and the `initialize` handshake stops advertising `tools.listChanged`.
 
 ## Context
 
@@ -132,6 +132,27 @@ refusal names the header so the diagnosis is one line rather than a hunt.
 The check runs per request and does two string comparisons; it is not on any
 measured hot path and no benchmark was taken, which is stated rather than
 implied.
+
+**The handshake change rides with this record rather than under its own.** The same
+probe run found `initialize` advertising `"tools":{"listChanged":true}` while nothing
+in `internal/mcpserver` calls `SendNotificationToClient` and the transport is mounted
+`WithStateLess`, so no code path could keep that promise. It is wire-visible, which is
+why `Governs` and `Served-path change` name it rather than leaving it to ride silently:
+a public contract changed, and a reader of this record has to be able to see that from
+the header. It is not its own decision because there is nothing to decide — the
+advertisement was false, and `TestNoCapabilityIsAdvertisedThatNothingCanDeliver` flips
+it back the day something can deliver.
+
+⚠ **THE SOCKET CASE WAS SHIPPED BROKEN AND CAUGHT BY REVIEW, NOT BY A TEST.** The first
+version of `addressesThisMachine` accepted `localhost` and loopback literals only, while
+`localBoundary` returns true for a `--socket` deployment — and the proxy dials
+`http://unix/mcp` (`cmd/server/stdio.go`), so every socket client sends `Host: unix` and
+would have been refused. Worse, that version's own comment cited `--socket` while
+reasoning about the PORT, which is absent there; the header that mattered was the host.
+Awareness of a case is not coverage of it, and T1's Stop Condition named this exact
+failure without any test being able to reach it. `TestTheSocketAuthorityIsTheOneTheProxySends`
+now pins the guard's exemption to the URL the proxy actually mints, across the package
+boundary where the two literals live.
 
 ## Out of Scope
 

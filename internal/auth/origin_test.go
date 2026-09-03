@@ -31,6 +31,10 @@ func TestOffMachineAddressingNamesTheHeaderThatBetraysARebind(t *testing.T) {
 		{name: "loopback host and loopback origin", host: "127.0.0.1:8080", origin: "http://localhost:8080", wantBad: false},
 
 		// The rebind itself: the name resolved to 127.0.0.1, so the packet
+		// A --socket client. The dial has no network host, so the proxy mints
+		// "http://unix/mcp" and the guard sees an authority that is neither
+		// localhost nor an IP. The first version of this guard refused it.
+		{name: "the unix socket authority", host: "unix", wantBad: false},
 		// arrived here, but both headers still say where the browser thought it
 		// was going. Either one alone is enough to refuse.
 		{name: "rebound name in both headers", host: "evil.example.com:8080", origin: "http://evil.example.com:8080", wantBad: true},

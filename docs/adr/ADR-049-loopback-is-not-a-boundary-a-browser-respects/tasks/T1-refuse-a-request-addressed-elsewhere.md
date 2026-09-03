@@ -8,6 +8,15 @@
 **Consumes:** none
 **Data dependency:** hermetic
 
+⚠ **No `Proof map:` header, deliberately and with the reason stated rather than left as a
+silent pass.** `adr-lint` advises one on a newly authored task, and this is one. It was not
+added because the corpus holds no example to copy — a search of every task file in
+`docs/adr/` finds zero `Proof map:` headers — so the format would have been guessed, and a
+guessed structure that lints clean while meaning nothing is worse here than an admitted
+absence. The evidence the header would organise exists: the Tests table names the file and
+the property for every gate, and the Mutation Log carries three tool-written receipts
+against this task's own Acceptance digest.
+
 ## Goal
 
 Close the DNS-rebinding hole the parent ADR measured: make the credential-free local
@@ -141,3 +150,4 @@ Filled by `adr-verify`.
 - 2026-09-03 · fdc16e2* · exit 0 · `gofmt -l cmd internal | (! grep -q .) && go vet ./... && \ …` · acceptance-sha256:260ea989c06cd7addfb6e387c5c7141e51b6e2464a09994c3abfe273ae74af20 · ms:44001
 - 2026-09-03 · fdc16e2* · exit 0 · `gofmt -l cmd internal | (! grep -q .) && go vet ./... && \ …` · acceptance-sha256:260ea989c06cd7addfb6e387c5c7141e51b6e2464a09994c3abfe273ae74af20 · ms:40746
 - 2026-09-03 · fdc16e2* · exit 0 · `gofmt -l cmd internal | (! grep -q .) && go vet ./... && \ …` · acceptance-sha256:260ea989c06cd7addfb6e387c5c7141e51b6e2464a09994c3abfe273ae74af20 · ms:35851
+- 2026-09-03 · d24c6cb* · exit 0 · `gofmt -l cmd internal | (! grep -q .) && go vet ./... && \ …` · acceptance-sha256:260ea989c06cd7addfb6e387c5c7141e51b6e2464a09994c3abfe273ae74af20 · ms:32018
