@@ -1066,16 +1066,65 @@ a corpus written by people who have never seen this codebase — which is the
 property a self-derived corpus can never have.
 
 ```bash
-# the dataset is third-party data with its own licence; fetch it yourself
-agentsmemory longmemeval --data longmemeval_s.json \
-  --write verbatim,question-first,one-fact,bounded \
+# the dataset is third-party data with its own licence; fetch it yourself.
+# upstream ships it as `longmemeval_s`, with no .json extension.
+agentsmemory longmemeval --data longmemeval_s \
+  --write verbatim,question-first \
   --query verbatim,named-thing \
-  --n 20 --context-runes 6000 --out grid.cells.json
+  --n 3 --out smoke.cells.json
 ```
+
+That is a **smoke test** — four cells at `--n 3`, about 50 minutes. It answers
+"is my stack wired up", not "which policy wins". Size a real run from the table
+below before you start one, because the honest ones are measured in hours.
 
 It needs the **same generative model** as `kg-extract` and `eval`, for the reader
 and the judge alike, and it writes into throwaway scratch scopes — one per
 (cell, question), so no question can retrieve another's history.
+
+#### What the corpus is
+
+Measured over the published file, not quoted from the paper:
+
+| | |
+|---|---|
+| Questions | 500, across 6 question types |
+| Largest type / smallest | `multi-session` and `temporal-reasoning` (133 each) / `single-session-preference` (30) |
+| Sessions in the haystack | 25,112 total — median **50** per question (39–66) |
+| Session length | median **10,012** characters, p90 16,792, max 78,117 |
+| Sessions holding the answer | median **2** per question (max 6) |
+
+The session length is why `--context-runes` defaults to 24,000 and why you should
+not lower it casually: a budget under the median cannot fit one whole session, so
+the verbatim baseline assembles nothing and scores 0 **by construction** — every
+other policy then looks good against a baseline that could not play.
+
+#### What a run costs, and how to pick `--n`
+
+One (cell × question) takes **≈ 4m15s**, measured 2026-09-03 against a remote
+Ollama (`bge-m3` embedding, `gpt-oss:20b` as reader and judge) with the
+cross-encoder on. **About 85% of that is ingest** — 48 `Add` calls totalling 212s
+for one question's haystack — so the cost tracks the *number of cells*, and the
+model only sets the remaining ~40s.
+
+Total ≈ `write policies × query policies × n × 4 minutes`:
+
+| grid | `--n 3` | `--n 12` | `--n 50` |
+|---|---|---|---|
+| 2 × 2 (4 cells) | 50 min | 3.4 h | 14 h |
+| 4 × 2 (8 cells) | 1.7 h | 6.8 h | 28 h |
+
+⚠ **There is no fast configuration of this, and that is a property of the
+benchmark.** Each question carries its own ~50-session haystack, which must be
+embedded before anything can be retrieved from it, and isolation is per
+(cell, question) so the same haystack is re-embedded for every cell. Concurrency
+buys roughly 2× on a saturated GPU and nothing on a busy one — measured: 16
+embed requests took 23.5s at 16 workers against ~50s sequential.
+
+**So pick `--n` from what you are asking, not from your patience.** A run meant
+to *decide* something needs the held-out split ADR-047 pre-registers, which means
+n in the low hundreds and an overnight job; anything at `--n 20` or below is a
+smoke test whatever its table says.
 
 ⚠ **A pilot run decides nothing.** At small `--n` a paired interval spans zero for
 almost any real effect, so a neutral result is what the instrument says at that
