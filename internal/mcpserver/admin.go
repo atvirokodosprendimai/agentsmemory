@@ -21,6 +21,7 @@ import (
 // checking; the server only keeps score.
 func registerAnchors(reg *registrar, drawers *palace.Service, usageSvc *usage.Service, scopeSearchToWing bool) {
 	list := newTool("list_anchors",
+		mcp.WithOutputSchema[anchorsResult](),
 		mcp.WithDescription("List code anchors — the (file, snippet) pairs memories are pinned to — so a client that can read the working tree can verify them. Filter by wing, repo label, or status (unchecked|verified|drifted|missing)."),
 		mcp.WithString("wing", mcp.Description("Only anchors on drawers in this wing. Omitted, scoped to this registration's default_wing only when one is configured and SEARCH_SCOPE is not workspace; otherwise every wing. Pass \"*\" for every wing deliberately."), searchWingProperty()),
 		mcp.WithString("repo", mcp.Description("Only anchors carrying this repo label.")),
@@ -52,14 +53,14 @@ func registerAnchors(reg *registrar, drawers *palace.Service, usageSvc *usage.Se
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
-		out := make([]map[string]any, 0, len(anchors))
+		out := make([]listedAnchor, 0, len(anchors))
 		for _, a := range anchors {
-			out = append(out, map[string]any{
-				"id": a.ID, "drawer_id": a.DrawerID, "repo": a.Repo, "path": a.Path,
-				"snippet": a.Snippet, "status": a.Status, "line": a.Line, "checked_at": a.CheckedAt,
+			out = append(out, listedAnchor{
+				ID: a.ID, DrawerID: a.DrawerID, Repo: a.Repo, Path: a.Path,
+				Snippet: a.Snippet, Status: a.Status, Line: a.Line, CheckedAt: a.CheckedAt,
 			})
 		}
-		return jsonResult(map[string]any{"anchors": out, "count": len(out)}), nil
+		return jsonResult(anchorsResult{Anchors: out, Count: len(out)}), nil
 	})
 
 	registerMarkAnchors(reg, drawers, usageSvc)
