@@ -148,6 +148,19 @@ type AnchorFilter struct {
 	Repo   string
 	Status string
 	Limit  int
+
+	// IncludeEnded brings back anchors on superseded and retracted drawers, which
+	// the default excludes.
+	//
+	// It is opt-in because the two readers want opposite things. A VERIFIER wants
+	// questions it can act on, and an ended record's pin is unfixable by
+	// construction — Service.Update refuses an ended record (ADR-038 ends rather
+	// than overwrites), so a drifted verdict there can never be cleared and
+	// re-reports at every session start forever. An AUDITOR wants the whole
+	// corpus, including the pins that ended records still legitimately carry:
+	// those rows are kept on purpose, because an ended record keeps its text and
+	// its pin is still true OF THAT TEXT.
+	IncludeEnded bool
 }
 
 // ListAnchors returns anchors to check, newest drawers first. It is what the
@@ -162,8 +175,22 @@ func (s *Service) ListAnchors(ctx context.Context, teamID string, f AnchorFilter
 	// never reach a verifier, or it reports drift on a memory that is gone. The
 	// delete path prunes anchors too, so this is the belt to that braces — cheap,
 	// and it also covers rows deleted by any path added later.
+	//
+	// ⚠ AND AN ENDED DRAWER IS GONE IN THE SENSE THAT MATTERS, WHICH THE FIRST
+	// VERSION OF THIS JOIN DID NOT COVER. A superseded record's anchors are drifted
+	// almost by construction, because a record is usually superseded precisely when
+	// the code it pinned changed — and nothing could ever clear the report:
+	// Service.Update refuses an ended record, correctly, since ADR-038 ends records
+	// instead of overwriting them. So the sweep asked forever and the answer could
+	// never be filed. Reported from another project on 2026-09-03 after two such
+	// anchors survived every attempt to fix them. The successor carries its own
+	// anchors and is the record a session should be reading.
+	join := "JOIN drawers ON drawers.id = drawer_anchors.drawer_id AND drawers.team_id = drawer_anchors.team_id"
+	if !f.IncludeEnded {
+		join += " AND drawers.valid_to = ''"
+	}
 	q := s.repo.db.WithContext(ctx).Model(&anchorRow{}).
-		Joins("JOIN drawers ON drawers.id = drawer_anchors.drawer_id AND drawers.team_id = drawer_anchors.team_id").
+		Joins(join).
 		Where("drawer_anchors.team_id = ?", teamID)
 	if f.Repo != "" {
 		q = q.Where("drawer_anchors.repo = ?", f.Repo)
