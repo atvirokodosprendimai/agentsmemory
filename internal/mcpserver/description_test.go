@@ -170,3 +170,77 @@ func TestNoLiveToolDescriptionClaimsALongMemoryCannotBeMoved(t *testing.T) {
 	}
 	t.Logf("examined %d live description(s)", len(live))
 }
+
+// TestAStatedLimitIsDerivedFromTheThingThatEnforcesIt keeps a retired claim from
+// coming back, and states the rule that separates it from a correct one.
+//
+// am_search's `query` said "max 250 chars" and nothing read that number: measured
+// 2026-09-03, a 9.5 MB query was accepted and answered after 11.7 seconds, and
+// the string appeared in this package exactly once — in the sentence promising
+// it. An agent that believes such a sentence spends turns trimming to fit a cap
+// that does not exist, which is the cost ADR-045's retired claim already recorded
+// in the other direction.
+//
+// ⚠ THE RULE IS NOT "DO NOT STATE LIMITS", AND THE FIRST VERSION OF THIS GATE GOT
+// THAT WRONG. It matched any "max N characters" and flagged am_kg_add,
+// am_kg_invalidate and am_kg_supersede — whose limit IS enforced
+// (palace.validateKGValue, kg.go:55) and whose descriptions are built with
+// fmt.Sprintf from palace.MaxKGValueLen, so the number cannot drift from the code
+// that applies it. That is the pattern to copy, not to forbid.
+//
+// So the gate is about the LITERAL: a limit written as digits inside a
+// description string is a second copy of a number, and the copy nobody maintains
+// is the one that goes false. Derive it from the constant and this passes.
+func TestAStatedLimitIsDerivedFromTheThingThatEnforcesIt(t *testing.T) {
+	// Digits only. A description built with %d carries no digits, so a derived
+	// limit is invisible here by construction — which is the whole point.
+	literal := regexp.MustCompile(`(?i)max(imum)? [0-9][0-9,]* (chars|characters|runes|bytes)`)
+
+	fset := token.NewFileSet()
+	pkgs, err := parser.ParseDir(fset, ".", func(fi os.FileInfo) bool {
+		return !strings.HasSuffix(fi.Name(), "_test.go")
+	}, 0)
+	if err != nil {
+		t.Fatalf("parse package: %v", err)
+	}
+
+	seen := 0
+	for _, pkg := range pkgs {
+		for path, file := range pkg.Files {
+			ast.Inspect(file, func(n ast.Node) bool {
+				lit, ok := n.(*ast.BasicLit)
+				if !ok || lit.Kind != token.STRING {
+					return true
+				}
+				seen++
+				if m := literal.FindString(lit.Value); m != "" {
+					t.Errorf("%s:%d states %q as a literal; derive it from the constant that enforces it (see palace.MaxKGValueLen used with fmt.Sprintf in kg.go) or drop the claim",
+						path, fset.Position(lit.Pos()).Line, m)
+				}
+				return true
+			})
+		}
+	}
+	if seen == 0 {
+		t.Fatal("no string literals inspected — this gate is looking at nothing")
+	}
+
+	// A corpus with no offender cannot exercise the branch that reports one, and
+	// the matcher must not catch the correct form either.
+	t.Run("the matcher separates a literal from a derived limit", func(t *testing.T) {
+		for _, bad := range []string{`"What to recall (max 250 chars)."`, `"Maximum 1,600 runes."`, `"max 4000 bytes"`} {
+			if !literal.MatchString(bad) {
+				t.Errorf("matcher missed %s, so it would not have caught the claim it exists for", bad)
+			}
+		}
+		for _, good := range []string{
+			`"A SHORT LABEL (max %d characters), not a sentence."`,
+			`"A short, specific query retrieves better."`,
+			`"Content over 1600 runes is chunked into several drawers sharing a parent."`,
+		} {
+			if literal.MatchString(good) {
+				t.Errorf("matcher flagged %s, which is either derived or a statement of real behaviour", good)
+			}
+		}
+	})
+}
