@@ -46,7 +46,6 @@ const maxBodyBytes = 32 * palace.MaxContentLength
 // neither is behaviour mcp-go can decide: whether a GET should offer a stream
 // depends on whether this deployment keeps sessions, and which protocol versions
 // are acceptable depends on what the host is willing to serve.
-
 func conformStreamHTTP(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if code, msg := transportRefusal(r); code != 0 {

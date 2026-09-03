@@ -81,21 +81,26 @@ func TestAPayloadTheContentLimitWouldAcceptSurvivesTheTransport(t *testing.T) {
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 
-	// It will not succeed — this server has no palace wired — but it must get far
-	// enough to be answered as JSON-RPC rather than refused as a too-large body.
-	if rec.Code == http.StatusRequestEntityTooLarge {
-		t.Errorf("a maximum-length memory was refused as too large; the body limit shadows the content limit")
+	// ⚠ THE ASSERTION IS THE ERROR MESSAGE, NOT THE STATUS, AND THE FIRST VERSION
+	// COULD NOT FAIL. It checked for 413 and for decodable JSON. mcp-go maps a
+	// MaxBytesReader failure to 400 carrying a well-formed JSON-RPC error object,
+	// so the 413 branch was dead and the decode succeeded either way — with the
+	// limit mutated below a legitimate memory this still passed, and the mutant
+	// the commit credited to this test was actually killed by the fixture guard
+	// above, which is the same arithmetic MaxBytesReader applies. Reported by
+	// review. What distinguishes the two outcomes is whether the transport said
+	// the body was too large, so that is what is asserted.
+	var resp struct {
+		Error struct {
+			Code    int    `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
 	}
-	var resp map[string]any
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-		t.Errorf("the response is not JSON-RPC (%q); the body was cut before the server could parse it: %v",
-			rec.Body.String()[:min(120, rec.Body.Len())], err)
+		t.Fatalf("the response is not JSON-RPC: %v\n%s", err, rec.Body.String())
 	}
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
+	if strings.Contains(resp.Error.Message, "request body too large") {
+		t.Errorf("a maximum-length memory was refused by the transport (%d %q); the body limit shadows the content limit",
+			rec.Code, resp.Error.Message)
 	}
-	return b
 }
