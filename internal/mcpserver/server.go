@@ -421,9 +421,29 @@ func New(deps Deps) *server.MCPServer {
 		// day something can keep the promise.
 		server.WithToolCapabilities(false),
 		server.WithInstructions(serverInstructions),
+		// Prompts say WHEN to use what, which no tool catalogue can. listChanged is
+		// false for the same reason it is false above: nothing here can push.
+		//
+		// ⚠ THIS LINE IS EXPLICIT, NOT LOAD-BEARING, AND THAT WAS MEASURED. AddPrompts
+		// calls implicitlyRegisterPromptCapabilities, so removing this still advertises
+		// prompts — a mutation that deleted it changed nothing, which is a no-op rather
+		// than a surviving mutant. It stays because a capability the handshake makes is
+		// worth reading at the place the server is built, but do not infer that deleting
+		// it turns prompts off.
+		server.WithPromptCapabilities(false),
+		// Completions are only reachable through a prompt argument or a resource
+		// template — the spec has ref/prompt and ref/resource and no ref/tool — so
+		// this capability is worth declaring exactly because the prompts above give
+		// it something to complete. The provider is a construction-time option
+		// rather than a registration, so it is wired here beside the capability it
+		// serves; declaring one without the other is the "advertised and backed by
+		// nothing" defect this file already carries a gate for.
+		server.WithCompletions(),
+		server.WithPromptCompletionProvider(newWingCompleter(deps.Drawers, deps.ScopeSearchToWing)),
 	)
 	reg := &registrar{srv: srv}
 	registerAll(reg, deps)
+	registerPrompts(srv)
 	return srv
 }
 
