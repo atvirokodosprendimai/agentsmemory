@@ -782,12 +782,39 @@ func judgeHook(ctx context.Context, c *cli.Command, dir, name string, reg hookRe
 		v.detail = "installed, and no event runs it"
 		return v
 	}
+	// ⚠ THREE ANSWERS, NOT TWO. A hook on an event this build has never heard of
+	// is not the same as one on a documented debug-log event, and saying
+	// "DISCARDED" about it is a confident verdict on something unclassified —
+	// which is how a wrong answer gets acted on. Claude Code adds events; the
+	// honest report for one we do not know is that we do not know.
+	if unknown := unknownEvents(events); len(unknown) > 0 && !anyInjecting(events) {
+		v.label, v.bad = "UNKNOWN EVENT", true
+		v.detail = "registered on " + strings.Join(unknown, ",") +
+			", which this build cannot classify — it may or may not reach the model. Check the hooks reference and update injectingEvents/debugLogEvents."
+		return v
+	}
 	if !anyInjecting(events) {
 		v.label, v.bad = "DISCARDED", true
 		v.detail = "its stdout goes to the debug log on " + strings.Join(events, ",")
 		return v
 	}
 	return runOneHook(ctx, c, dir, name, reg, projectDir)
+}
+
+// unknownEvents returns the events this build cannot classify at all — in neither
+// the injecting set nor the documented debug-log set.
+//
+// It exists so an unclassified event is REPORTED rather than silently folded into
+// "does not inject". That fold is the same shape as an unlabelled code anchor
+// checked against whatever tree was open: an unknown that reads as an answer.
+func unknownEvents(events []string) []string {
+	var out []string
+	for _, e := range events {
+		if hookEventChannel(e) == channelUnknown {
+			out = append(out, e)
+		}
+	}
+	return out
 }
 
 // anyInjecting reports whether at least one of these events puts stdout in front of
