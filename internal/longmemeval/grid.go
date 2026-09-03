@@ -3,6 +3,7 @@ package longmemeval
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/atvirokodosprendimai/agentsmemory/internal/gen"
@@ -23,6 +24,16 @@ type Store interface {
 	Add(ctx context.Context, teamID string, in palace.AddInput) (palace.AddResult, error)
 	Search(ctx context.Context, teamID string, q palace.SearchQuery) ([]palace.SearchHit, error)
 	List(ctx context.Context, teamID, wing, room string, limit, offset int) ([]palace.Drawer, error)
+	// DeleteWing releases a scratch scope once its question is scored.
+	//
+	// ⚠ WITHOUT IT A GRID IS SINGLE-USE AND LEAVES ITS SPOIL IN A REAL PALACE. The
+	// per-question isolation fix made the scope `<base>_<write>_<query>_<question>`,
+	// so a 4x3 grid at --n 20 writes 240 wings into whatever palace
+	// EnsureLocalWorkspace resolved — the operator's own — and nothing removed them.
+	// The emptiness guard then refused the SECOND run, correctly, because the first
+	// had filled every scope, and the documented rollback names ONE exact wing so it
+	// removed none of them. Reported in #167 after #148 merged.
+	DeleteWing(ctx context.Context, teamID, wing, confirm string) (palace.DeleteWingResult, error)
 }
 
 // Model is the generative endpoint the reader and the judge share.
@@ -164,15 +175,56 @@ func runCell(ctx context.Context, store Store, sel Selection, wp WritePolicy, qp
 			}
 		}
 
-		var hits []palace.SearchHit
-		for _, query := range qp.Queries(q) {
+		// ⚠ ONE CANDIDATE POOL, FUSED BY RANK — NOT A CONCATENATION OF FULL PAGES.
+		//
+		// This ran every sub-query at the FULL --search-limit and appended the
+		// pages, which broke both retrieval columns in opposite directions and made
+		// any row involving `decomposed` incomparable to the baselines:
+		//
+		//   RetrievalRate  inflated — 3 sub-queries saw 3x the candidates
+		//   RetrievalMRR   deflated — goldRank ranks by position in the
+		//                  concatenation, so the gold record as the BEST hit of
+		//                  sub-query 3 scored RR 0.024 against 0.333 for finding it
+		//                  third on sub-query 1.
+		//
+		// It also reached the reader: assemble walks the merged list in order, so at
+		// the default budget against a ~9,808-rune median session both records the
+		// reader saw came from sub-query 1 and the later searches were near-inert on
+		// the judged column too. Reported in #167 before ADR-047 T5 read the grid.
+		//
+		// Two changes, because there were two faults. The per-query limit is DIVIDED
+		// so the candidate pool is constant however many sub-queries a policy asks —
+		// which is what decomposedCap's own comment says the design wants, that a
+		// policy "could win by retrieving more rather than by asking better"; the cap
+		// bounded the number of searches and nothing bounded the pool. And the pages
+		// are fused by RECIPROCAL RANK rather than appended, so a record ranks on
+		// where each sub-query put it and agreement across sub-queries counts for
+		// something. RRF is this repository's existing fusion (palace.ArmRRF); using
+		// it here keeps the instrument speaking the vocabulary the ranking work does.
+		queries := qp.Queries(q)
+		perQuery := opts.SearchLimit / max(1, len(queries))
+		if perQuery < 1 {
+			perQuery = 1
+		}
+		pages := make([][]palace.SearchHit, 0, len(queries))
+		for _, query := range queries {
 			got, err := store.Search(ctx, opts.TeamID, palace.SearchQuery{
-				Query: query, Wing: wing, Limit: opts.SearchLimit, SkipTelemetry: true,
+				Query: query, Wing: wing, Limit: perQuery, SkipTelemetry: true,
 			})
 			if err != nil {
 				return Cell{}, fmt.Errorf("search %s: %w", wing, err)
 			}
-			hits = append(hits, got...)
+			pages = append(pages, got)
+		}
+		hits := fuseByRank(pages)
+
+		// ⚠ RELEASED HERE, NOT AFTER THE JUDGE. Everything downstream — assemble,
+		// the reader, the judge, the retrieval rank — works from `hits` and
+		// `sessionOf`, which are already in memory. Deleting now means a reader or
+		// judge failure aborts the cell without stranding the scope, which is the
+		// case that made the previous run's spoil permanent.
+		if _, err := store.DeleteWing(ctx, opts.TeamID, wing, wing); err != nil {
+			return Cell{}, fmt.Errorf("releasing scope %s: %w", wing, err)
 		}
 
 		memories, used, missed := assemble(hits, opts.ContextRunes)
@@ -264,7 +316,8 @@ func assemble(hits []palace.SearchHit, budget int) (memories []string, used, ski
 	return memories, used, skipped
 }
 
-// retrieved reports whether any returned memory came from a gold session.
+// goldRank reports the 1-based position of the first returned memory that came
+// from a gold session, or 0 when none did.
 //
 // It resolves through the ingest-time map rather than through position, because
 // one-fact and bounded change the record count and duplicate content is legal —
@@ -294,4 +347,54 @@ func goldRank(hits []palace.SearchHit, sessionOf map[string]string, gold []strin
 		}
 	}
 	return 0
+}
+
+// fuseByRank merges per-sub-query pages into one list by reciprocal rank, so a
+// record's position reflects where each sub-query put it rather than which
+// sub-query ran first.
+//
+// ⚠ THE ALTERNATIVE IS WHAT THIS REPLACED, AND IT WAS NOT NEUTRAL. Appending the
+// pages makes position depend on sub-query ORDER, so the gold record as the best
+// hit of the last sub-query ranks below every candidate the earlier ones returned
+// — measured in #167 as RR 0.024 against 0.333 for the same record found third on
+// the first sub-query. That reaches the reader too, because assemble walks this
+// list in order under a fixed budget.
+//
+// The constant is 60, the value palace's own RRF arm uses. It is a rank offset,
+// not a tuned parameter: it damps the difference between ranks 1 and 2 so a
+// record two sub-queries agree on can outrank one that a single sub-query put
+// first, which is the property fusion is for.
+//
+// A single page comes back in its own order, unchanged — verbatim and named-thing
+// each return one query, so their columns mean exactly what they meant before.
+func fuseByRank(pages [][]palace.SearchHit) []palace.SearchHit {
+	if len(pages) == 1 {
+		return pages[0]
+	}
+	const rrfK = 60.0
+	score := map[string]float64{}
+	first := map[string]palace.SearchHit{}
+	var order []string
+	for _, page := range pages {
+		for i, hit := range page {
+			id := hit.MemoryID
+			if id == "" {
+				id = hit.Drawer.ID
+			}
+			if _, seen := first[id]; !seen {
+				first[id] = hit
+				order = append(order, id)
+			}
+			score[id] += 1.0 / (rrfK + float64(i+1))
+		}
+	}
+	// Sorted by fused score, ties broken by first appearance so the result is
+	// stable: an unstable instrument reports a different number on a rerun of the
+	// same data, which is indistinguishable from the policy having changed.
+	sort.SliceStable(order, func(a, b int) bool { return score[order[a]] > score[order[b]] })
+	out := make([]palace.SearchHit, 0, len(order))
+	for _, id := range order {
+		out = append(out, first[id])
+	}
+	return out
 }

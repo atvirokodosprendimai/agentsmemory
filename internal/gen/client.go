@@ -41,8 +41,7 @@ type Client struct {
 	Model  string
 	APIKey string // sent as Authorization: Bearer when set; hosted providers need it
 
-	HTTP    *http.Client
-	Verbose io.Writer
+	HTTP *http.Client
 }
 
 // OpenAIShaped reports whether the endpoint looks like an OpenAI-compatible one.

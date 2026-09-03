@@ -3315,3 +3315,25 @@ was in front of me and will not be again.
   is a heuristic that would have caught this one and will produce false positives, so it wants a
   measurement over the real corpus before it wants an implementation. This is ADR-shaped and has
   no record yet.
+
+## From #167 (the ADR-047 review findings, closed 2026-09-03)
+
+One of the four is a gate hole rather than a defect, and it is filed here rather
+than widened under that issue because the existing exemption was measured and a
+widening has to be measured the same way.
+
+- **`TestDocCommentsMatchTheirDeclaration` cannot see a single-word lowercase
+  unexported name.** `goldRank` carried `retrieved`'s doc comment — wrong name and
+  wrong contract, `go doc` handing a reader "whether" for a function returning a
+  rank — and the gate was green over it. It escapes through `looksLikeIdentifier`,
+  which requires `capitals >= 2`: `retrieved` is an ordinary English word, the
+  `declared[...]` lookup is false because the old name no longer exists in the
+  file, and the check `continue`s as prose. **Every single-word lowercase
+  unexported name in the tree is outside this gate.** That is the same class the
+  gate's own comment says it was extended to cover in `6f17446f`, after the live
+  defect it exists for landed on an unexported method — so the widening is
+  plausible and the cost is not known. The existing exemption is justified by a
+  measurement (4 sites in 1,141 documented unexported declarations); a widening
+  needs its own count of how many ordinary prose openers it would newly flag,
+  because a gate that fires on correct comments is the gate somebody deletes.
+  **Revisit with that measurement, not before.** The comment itself is fixed.
