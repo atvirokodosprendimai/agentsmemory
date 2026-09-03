@@ -285,6 +285,7 @@ func registerTraverse(reg *registrar, drawers *palace.Service, usageSvc *usage.S
 
 func registerGraphStats(reg *registrar, drawers *palace.Service, usageSvc *usage.Service) {
 	tool := newTool("graph_stats",
+		mcp.WithOutputSchema[graphStatsView](),
 		mcp.WithDescription("Return aggregate metrics about the team's graph: room totals, cross-wing connectors, edges, rooms-per-wing, and the top connectors."),
 	)
 	reg.add(tool, func(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {

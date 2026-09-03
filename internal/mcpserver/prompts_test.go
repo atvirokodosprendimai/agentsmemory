@@ -43,6 +43,14 @@ func livePrompts(t *testing.T) (*client.Client, []mcp.Prompt) {
 	return cli, res.Prompts
 }
 
+// promptMarkers is one phrase unique to each prompt's own workflow, so a prompt
+// wired to the wrong handler is caught rather than merely counted.
+var promptMarkers = map[string]string{
+	"am_wake":      "Ground yourself",
+	"am_persist":   "am_diary_write",
+	"am_hand_over": "do not change their repository",
+}
+
 // TestEveryPromptIsListedAndFetchable is the reachability half.
 //
 // A prompt handler can be perfect while nothing registers it, or registered while
@@ -70,8 +78,11 @@ func TestEveryPromptIsListedAndFetchable(t *testing.T) {
 			t.Errorf("%s's description does not say when to use it: %q", p.Name, p.Description)
 		}
 
+		// Required arguments are supplied: am_hand_over now REFUSES a missing wing
+		// rather than rendering an empty one, so a fetch with no arguments is a
+		// legitimate error and would test the refusal instead of the prompt.
 		got, err := cli.GetPrompt(context.Background(), mcp.GetPromptRequest{
-			Params: mcp.GetPromptParams{Name: p.Name},
+			Params: mcp.GetPromptParams{Name: p.Name, Arguments: requiredArgsFor(p)},
 		})
 		if err != nil {
 			t.Errorf("%s is advertised but cannot be fetched: %v", p.Name, err)
@@ -79,6 +90,15 @@ func TestEveryPromptIsListedAndFetchable(t *testing.T) {
 		}
 		if len(got.Messages) == 0 {
 			t.Errorf("%s returned no messages; it is advertised and empty", p.Name)
+			continue
+		}
+		// ⚠ AND IT MUST BE THE RIGHT WORKFLOW. Review bound am_wake to
+		// persistPrompt and every assertion above passed: a name, a description, a
+		// successful fetch and a non-empty message say nothing about WHICH sequence
+		// came back, which is the only thing these prompts are for.
+		body := promptText(got)
+		if marker, ok := promptMarkers[p.Name]; ok && !strings.Contains(body, marker) {
+			t.Errorf("%s returned a message that does not contain %q — it is serving another prompt's workflow:\n%s", p.Name, marker, body)
 		}
 	}
 	for name, found := range want {
@@ -109,10 +129,29 @@ func TestAPromptCarriesItsArgumentsIntoTheMessage(t *testing.T) {
 			t.Errorf("the rendered prompt does not carry %q; the argument was accepted and discarded:\n%s", want, body)
 		}
 	}
+	// ⚠ WHERE each argument lands, not merely that both appear. Review swapped
+	// them and the old assertion passed while the rendered call told the caller to
+	// file into a wing named after the finding.
+	if !strings.Contains(body, `am_add_drawer(wing: "wing_acme"`) {
+		t.Errorf("the rendered call does not put the wing in the wing position:\n%s", body)
+	}
 	// The measured failure this prompt exists for must be named in it.
 	if !strings.Contains(body, "NEVER FOR THE DIRECTION OF TRAVEL") {
 		t.Error("hand_over does not warn about naming the wing for the direction of travel, which is the mistake it was written to prevent")
 	}
+}
+
+// requiredArgsFor fills every argument a prompt declares as required, reading the
+// declaration rather than a hardcoded list so a new required argument is supplied
+// by existing code instead of breaking this test.
+func requiredArgsFor(p mcp.Prompt) map[string]string {
+	args := map[string]string{}
+	for _, a := range p.Arguments {
+		if a.Required {
+			args[a.Name] = "wing_acme"
+		}
+	}
+	return args
 }
 
 func promptText(r *mcp.GetPromptResult) string {
@@ -142,7 +181,7 @@ func TestWingCompletionAnswersWithWingsThatExist(t *testing.T) {
 			t.Fatalf("seed %s: %v", w, err)
 		}
 	}
-	c := newWingCompleter(svc, false)
+	c := newWingCompleter(svc)
 	ctx := auth.WithTenant(context.Background(), tenant.Tenant{TeamID: teamID, Role: tenant.RoleAdmin})
 
 	all, err := c.CompletePromptArgument(ctx, "am_hand_over", mcp.CompleteArgument{Name: "wing"}, mcp.CompleteContext{})
@@ -151,6 +190,19 @@ func TestWingCompletionAnswersWithWingsThatExist(t *testing.T) {
 	}
 	if len(all.Values) == 0 {
 		t.Fatal("no wings returned; the completion offers nothing and the caller invents a name")
+	}
+	// ⚠ EVERY VALUE MUST BE A WING THAT EXISTS. Review appended one fabricated
+	// name to the returned slice and both completion tests passed — a completer
+	// that invents names reproduces the exact bug it was built to prevent, with a
+	// nicer interface.
+	seeded := map[string]bool{"wing_acme": true, "wing_acme_laravel": true, "wing_beta": true, "wing_billing": true}
+	for _, v := range all.Values {
+		if !seeded[v] {
+			t.Errorf("completion offered %q, which is not a wing in this palace", v)
+		}
+	}
+	if len(all.Values) != len(seeded) {
+		t.Errorf("completion returned %d wings, want the %d seeded", len(all.Values), len(seeded))
 	}
 
 	// A prefix narrows, which is what makes it usable in a picker.
@@ -206,8 +258,17 @@ func TestTheCompletionCapabilityIsBackedByAProvider(t *testing.T) {
 	if err := cli.Start(t.Context()); err != nil {
 		t.Fatalf("start: %v", err)
 	}
-	if _, err := cli.Initialize(t.Context(), mcp.InitializeRequest{}); err != nil {
+	init, err := cli.Initialize(t.Context(), mcp.InitializeRequest{})
+	if err != nil {
 		t.Fatalf("initialize: %v", err)
+	}
+	// ⚠ THE HANDSHAKE MUST ADVERTISE IT. Review removed server.WithCompletions()
+	// and this test still passed, because mcp-go answers a completion call that is
+	// issued directly — but a CONFORMING client reads the capability first and
+	// never asks. Advertised-and-backed-by-nothing has a mirror image: backed and
+	// never advertised, which is just as unreachable.
+	if init.Capabilities.Completions == nil {
+		t.Error("initialize does not advertise the completions capability; a conforming client will never issue completion/complete")
 	}
 
 	// The in-process transport carries no HTTP auth, so the tenant is put on the
