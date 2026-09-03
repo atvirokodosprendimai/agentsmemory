@@ -181,7 +181,7 @@ func TestWingCompletionAnswersWithWingsThatExist(t *testing.T) {
 			t.Fatalf("seed %s: %v", w, err)
 		}
 	}
-	c := newWingCompleter(svc, false)
+	c := newWingCompleter(svc)
 	ctx := auth.WithTenant(context.Background(), tenant.Tenant{TeamID: teamID, Role: tenant.RoleAdmin})
 
 	all, err := c.CompletePromptArgument(ctx, "am_hand_over", mcp.CompleteArgument{Name: "wing"}, mcp.CompleteContext{})

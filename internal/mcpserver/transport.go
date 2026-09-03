@@ -18,7 +18,15 @@ import (
 func conformStreamHTTP(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if code, msg := transportRefusal(r); code != 0 {
-			w.Header().Set("Allow", "POST, DELETE")
+			// ⚠ Allow BELONGS TO THE 405 AND NOTHING ELSE, AND THE REORDER MADE
+			// THAT MATTER. It used to be merely redundant on a 400; once the
+			// version check moved ahead of the method check, a POST carrying an
+			// unsupported version answered 400 WITH a method to retry with — a
+			// retry that cannot succeed, because the version is what was refused.
+			// Allow is defined as the response to a method that is not allowed.
+			if code == http.StatusMethodNotAllowed {
+				w.Header().Set("Allow", "POST, DELETE")
+			}
 			http.Error(w, msg, code)
 			return
 		}

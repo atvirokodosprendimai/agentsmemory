@@ -145,6 +145,8 @@ The finding:
 
 ⚠ THE WING IS NAMED FOR THE PROJECT, NEVER FOR THE DIRECTION OF TRAVEL. Sessions have filed into wing_to-<project> and the writes succeeded, so nobody noticed that no session will ever look there. Use the completion on this argument rather than composing the name.
 
+⚠ AND IF THE COMPLETION DID NOT OFFER IT, PASS confirm_new_wing: true. The completion lists wings that already hold memories, so a project nobody has filed for yet will not appear — and am_add_drawer REFUSES an inbox write into an empty wing without that flag, precisely because a wing named for the direction of travel looks the same from the outside. The first handoff to any project is that case. Read the refusal as "check this name", then confirm it.
+
 ⚠ You have none of that repository's context — not its branch state, not its release timing, not the conversation that decided to leave the thing as it is. A finding handed over is worth more than a fix applied blind.`, wing, finding)
 
 	return &mcp.GetPromptResult{
@@ -166,12 +168,15 @@ The finding:
 // they choose. Prose telling them to check has already been tried; it is in three
 // documents and it did not hold.
 type wingCompleter struct {
-	drawers   *palace.Service
-	wingScope bool
+	drawers *palace.Service
 }
 
-func newWingCompleter(drawers *palace.Service, scopeSearchToWing bool) *wingCompleter {
-	return &wingCompleter{drawers: drawers, wingScope: scopeSearchToWing}
+// newWingCompleter takes only what it reads. It briefly carried the
+// scopeSearchToWing flag every other registration takes, which nothing here ever
+// consulted — a completion is scoped by the tenant on the context, and narrowing
+// it further would hide exactly the wings a handoff needs to name.
+func newWingCompleter(drawers *palace.Service) *wingCompleter {
+	return &wingCompleter{drawers: drawers}
 }
 
 // CompletePromptArgument returns wing names beginning with what has been typed.

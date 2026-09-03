@@ -127,11 +127,30 @@ func TestStreamHTTPMountsTheConformanceRules(t *testing.T) {
 		t.Errorf("Allow = %q advertises GET, the method this 405 just refused", allow)
 	}
 
+	// ⚠ Allow MUST NOT RIDE ON THE 400. Review measured this through the real
+	// envelope: after the version check moved ahead of the method check, a POST
+	// with an unsupported version answered 400 carrying "Allow: POST, DELETE" —
+	// advertising a retry that cannot succeed, since the version is what was
+	// refused. Merely redundant before the reorder; misdirection after it.
+	badGet := httptest.NewRequest(http.MethodGet, "/mcp", nil)
+	badGet.Header.Set("MCP-Protocol-Version", "1999-01-01")
+	gr := httptest.NewRecorder()
+	h.ServeHTTP(gr, badGet)
+	if gr.Code != http.StatusBadRequest {
+		t.Errorf("GET with an unsupported version = %d, want %d — the version outranks the method", gr.Code, http.StatusBadRequest)
+	}
+	if allow := gr.Header().Get("Allow"); allow != "" {
+		t.Errorf("the 400 carries Allow=%q; Allow is defined for a refused METHOD, and this refused a header", allow)
+	}
+
 	bad := httptest.NewRequest(http.MethodPost, "/mcp", nil)
 	bad.Header.Set("MCP-Protocol-Version", "1999-01-01")
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, bad)
 	if rec.Code != http.StatusBadRequest {
 		t.Errorf("unsupported version through the real envelope = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+	if allow := rec.Header().Get("Allow"); allow != "" {
+		t.Errorf("the 400 carries Allow=%q, telling the client to retry with a method that will fail the same way", allow)
 	}
 }
