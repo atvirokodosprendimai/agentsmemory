@@ -502,3 +502,20 @@ func (h SearchHit) rankingContent(query string, evidence bool) string {
 	}
 	return h.MemoryContent
 }
+
+// ReassembleMemory returns a chunked memory as one string, with the overlap
+// chunking added removed again.
+//
+// It exists because a caller outside this package that JOINS the chunks itself
+// gets corrupted text and no error: ChunkText overlaps adjacent chunks by
+// ChunkOverlap runes (320, 20% of ChunkSize) for context continuity, so a naive
+// join repeats up to 320 characters at every seam. ADR-050's resources/read did
+// exactly that in its first version — the response was longer than any chunk,
+// contained the memory's words, and was not the memory. Nothing detects it
+// downstream: duplicated prose reads as prose.
+//
+// This is a thin exported wrapper on reassembleMemory rather than a second
+// implementation, because the seam handling is subtle enough to have earned its
+// own tests — the zero-overlap diary case, the word-welding space, and the
+// bounded tail that keeps the walk linear — and a copy would drift from them.
+func ReassembleMemory(chunks []Drawer) string { return reassembleMemory(chunks) }

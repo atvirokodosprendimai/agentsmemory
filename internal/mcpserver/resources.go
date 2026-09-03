@@ -76,9 +76,27 @@ func readDrawerResource(drawers *palace.Service, usageSvc *usage.Service) server
 			return nil, err
 		}
 
-		// GetMemory reassembles every chunk of the memory this id belongs to, and
-		// serves CURRENT records only — an ended one is history, and a URI that
-		// outlived its target answers not-found rather than quietly returning it.
+		// The addressed ROW, not the memory: a URI names one drawer, so the wing and
+		// room it claims are checked against that row and its currency is judged by
+		// the same call the tools use.
+		//
+		// ⚠ THE ENDED HALF OF THIS IS DEFENCE, NOT A FIX, AND SAYING SO IS THE POINT.
+		// Review argued that GetMemory alone is not enough — MemoryChunks resolves any
+		// id to its ROOT and returns the whole family, and GetMemory drops ended chunks
+		// while refusing only when EVERY one has ended, so a URI naming an ended CHILD
+		// could return its surviving siblings. Probed both routes named: invalidating
+		// one child of a five-chunk memory, and shortening it through Update. Both end
+		// the whole family (5 ended, 0 current), because a memory ends whole and
+		// TestNoMemoryEndsHalfway pins that. So the mixed family is not reachable
+		// through the public API today and GetMemory's all-ended refusal already
+		// answers. This call is selected for the wing/room check either way — a mutant
+		// removing that is killed — and the ended branch is a guard against an
+		// invariant break elsewhere, which no test here can provoke.
+		addressed, err := drawers.Get(ctx, t.TeamID, id)
+		if err != nil {
+			return nil, err
+		}
+
 		chunks, err := drawers.GetMemory(ctx, t.TeamID, id)
 		if err != nil {
 			return nil, err
@@ -100,22 +118,30 @@ func readDrawerResource(drawers *palace.Service, usageSvc *usage.Service) server
 		// address naming wing_ACME resolved a drawer living in wing_acme and returned
 		// it, which is the exact failure the check exists to refuse. Every address the
 		// server itself renders preserves case, so nothing legitimate needs the fold.
-		head := chunks[0]
-		if head.Wing != wing || head.Room != room {
-			return nil, fmt.Errorf("no memory at %s: that id lives in %s/%s", req.Params.URI, head.Wing, head.Room)
+		// ⚠ AND THE REFUSAL DOES NOT NAME WHERE THE RECORD REALLY LIVES. Saying "that
+		// id lives in X/Y" turns a wrong guess into a lookup: a caller holding an id
+		// learns its wing and room by asking with the wrong ones. Same-team, so not a
+		// tenancy breach, but a URI is exactly the artifact that travels — and an
+		// oracle that answers a question the caller could not otherwise ask is worth
+		// nothing to a legitimate reader, who already has the address. Reported by
+		// review.
+		if addressed.Wing != wing || addressed.Room != room {
+			return nil, fmt.Errorf("no memory at %s", req.Params.URI)
 		}
 
-		var b strings.Builder
-		for i, d := range chunks {
-			if i > 0 {
-				b.WriteString("\n")
-			}
-			b.WriteString(d.Content)
-		}
+		// ⚠ REASSEMBLE, DO NOT JOIN — AND THE FIRST VERSION JOINED. ChunkText overlaps
+		// adjacent chunks by ChunkOverlap runes (320) for context continuity, so
+		// concatenating them repeats up to 320 characters at every seam and a
+		// separator inserts bytes the memory never had. That corruption is invisible
+		// downstream: the result is longer than any chunk, contains the memory's
+		// words, and reads as prose. palace.ReassembleMemory is the implementation
+		// the search path already uses, including the zero-overlap diary case and the
+		// single space that stops two chunks welding into a word appearing in
+		// neither. Reported by review.
 		return []mcp.ResourceContents{mcp.TextResourceContents{
 			URI:      req.Params.URI,
 			MIMEType: "text/plain",
-			Text:     b.String(),
+			Text:     palace.ReassembleMemory(chunks),
 		}}, nil
 	}
 }

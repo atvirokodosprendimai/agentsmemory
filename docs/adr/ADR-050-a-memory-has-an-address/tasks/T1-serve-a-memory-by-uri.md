@@ -52,7 +52,7 @@ view so a caller never has to compose one.
 ```bash
 gofmt -l cmd internal | (! grep -q .) && go vet ./... && \
 go test ./internal/mcpserver/ \
-  -run 'TestTheResourceTemplateIsAdvertisedAndReadable|TestAResourceReturnsTheWholeMemory|TestAnAddressThatNoLongerDescribesItsTargetIsRefused|TestACaseVariantAddressDoesNotResolve|TestEveryDrawerViewCarriesItsAddress' \
+  -run 'TestTheResourceTemplateIsAdvertisedAndReadable|TestAResourceReturnsTheWholeMemory|TestAnAddressThatNoLongerDescribesItsTargetIsRefused|TestACaseVariantAddressDoesNotResolve|TestAnAddressForAnEndedRecordIsRefused|TestEveryDrawerViewCarriesItsAddress' \
   -count=1 2>&1 | tee /tmp/adr050-t1.out; \
 ! grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/adr050-t1.out && go test ./... -count=1
 ```
@@ -68,6 +68,7 @@ and a typo in one would otherwise let the fence pass over a test that never ran.
 | `TestAResourceReturnsTheWholeMemory` | `internal/mcpserver/resources_test.go` | A URI naming a NON-FIRST chunk of a multi-chunk memory returns more than that chunk — the property that separates a resource from `am_get_drawer`'s default | — |
 | `TestAnAddressThatNoLongerDescribesItsTargetIsRefused` | `internal/mcpserver/resources_test.go` | Five addresses that must not resolve: wrong wing, wrong room, a foreign scheme, a well-formed URI naming no drawer, and a truncated path | — |
 | `TestACaseVariantAddressDoesNotResolve` | `internal/mcpserver/resources_test.go` | Two wings differing only in case hold two different memories, and each one's own address still resolves while the crossed address is refused — the case the first implementation got wrong | — |
+| `TestAnAddressForAnEndedRecordIsRefused` | `internal/mcpserver/resources_test.go` | The address resolves while the record is current and stops resolving once it is invalidated — the promise the template's own description makes | — |
 | `TestEveryDrawerViewCarriesItsAddress` | `internal/mcpserver/resources_test.go` | `toView` populates `uri`, and the address the server renders parses back to the same three parts — including a room and an id containing the path separator | — |
 
 The capability check is inside the reachability test rather than beside it because the two
@@ -100,6 +101,33 @@ Worth reading twice: the registration mutant is the one a behaviour test cannot 
 correct, and every other test in the package still passes — the failure is that no client
 can ever ask.
 
+⚠ **AN INDEPENDENT REVIEW FOUND A CORRECTNESS BUG THAT EVERY GATE HERE PASSED OVER, AND
+THE FIXTURE WAS HALF THE REASON.** The handler joined the chunks with a newline.
+`ChunkText` overlaps adjacent chunks by 320 runes for context continuity, so the response
+repeated up to 320 characters at every seam and inserted separators the memory never had —
+longer than any chunk, containing the memory's words, and not the memory. Nothing
+downstream can detect that: duplicated prose reads as prose. `palace.ReassembleMemory`
+exports the implementation the search path already used.
+
+The wholeness assertion went through three versions before it could see any of this, and
+each failure is worth keeping because each is a different way to write a test that cannot
+fail. **v1** compared lengths — the head is 1600 runes and the addressed last chunk 929, so
+a `chunks[:1]` handler passed. **v2** required the text to CONTAIN both ends — but the
+fixture repeated ONE sentence, so the last chunk was a literal substring of the first and
+`chunks[:1]` passed again. **v3** compares byte-for-byte against what was filed, over a
+fixture whose every sentence is numbered. A fixture whose pieces are indistinguishable
+cannot witness a claim about which piece came back.
+
+⚠ **AND ONE REVIEW FINDING DID NOT HOLD, WHICH IS REPORTED RATHER THAN QUIETLY DROPPED.**
+Review argued a URI naming an ENDED CHILD could resolve to its surviving siblings, since
+`MemoryChunks` resolves any id to its root and `GetMemory` refuses only when every chunk
+has ended. Probed both routes it named — invalidating one child of a five-chunk memory, and
+shortening the memory through `Update`. Both end the whole family (5 ended, 0 current),
+because a memory ends whole and `TestNoMemoryEndsHalfway` pins it. The mixed family is not
+reachable through the public API, so the mutant severing that branch SURVIVES and is
+recorded below as a survivor. The guard stays as defence against an invariant break; its
+call site is selected by the wing/room check regardless.
+
 ⚠ **A FIFTH MUTANT WAS ADDED AFTER THE FIRST IMPLEMENTATION SHIPPED THE BUG IT CATCHES.**
 The address check was first written with `strings.EqualFold`, which reads like defensive
 leniency and is in fact a hole: `SanitizeName` preserves case, so `wing_acme` and
@@ -125,11 +153,27 @@ That is the whole reason the receipts are tool-written.
 - 2026-09-03 · ad6ef3a* · mutant killed · exit 1 · `internal/mcpserver/drawers.go` · toView renders an empty uri, so the template is advertised and no response ever hands out an address that fits it · acceptance-sha256:69cceffff08511bd63cfe018ad5d81dca5a273b3e8d1d2301d4d13ea6d6c0499
 - 2026-09-03 · ad6ef3a* · mutant killed · exit 1 · `internal/mcpserver/resources.go` · the wing and room in the address are parsed and then ignored, so a stale or hand-edited URI returns a memory while displaying somebody elses provenance · acceptance-sha256:69cceffff08511bd63cfe018ad5d81dca5a273b3e8d1d2301d4d13ea6d6c0499
 - 2026-09-03 · 84fcae8* · mutant killed · exit 1 · `internal/mcpserver/resources.go` · the folded comparison restored: SanitizeName preserves case, so wing_acme and wing_ACME hold different memories and an address naming one resolves a drawer living in the other — the exact crossing the check exists to refuse · acceptance-sha256:975745c5e13a9f3bb94dafffd70b46bddbee5d4fc53ea858296a4617d7a5a413
+- 2026-09-03 · 4a1e912* · mutant survived · exit 0 · `internal/mcpserver/resources.go` · the handler serves only the memorys FIRST chunk — the fragment bug a length comparison could not see, since the head is longer than the addressed last chunk · acceptance-sha256:975745c5e13a9f3bb94dafffd70b46bddbee5d4fc53ea858296a4617d7a5a413
+  ```
+  the fence passed with the mechanism broken; it may not materialize, compile, load, or assert on the changed path
+  ```
+- 2026-09-03 · 4a1e912* · mutant killed · exit 1 · `internal/mcpserver/resources.go` · the handler serves only the memorys FIRST chunk — the fragment bug both a length comparison and a homogeneous fixture were blind to · acceptance-sha256:975745c5e13a9f3bb94dafffd70b46bddbee5d4fc53ea858296a4617d7a5a413
+- 2026-09-03 · 4a1e912* · mutant killed · exit 1 · `internal/mcpserver/resources.go` · chunks joined raw instead of reassembled: adjacent chunks overlap by 320 runes, so every seam repeats text and the separator inserts bytes the memory never had — corruption that reads as prose · acceptance-sha256:bc3acad0ab30849d6164acf3ffb1381884095c03c0e85046f648ee00dcd7b273
+- 2026-09-03 · 4a1e912* · mutant survived · exit 0 · `internal/mcpserver/resources.go` · the addressed row is fetched WITHOUT the current-only check, so a URI naming an ended record resolves to whatever of its family survived — the false promise the template description makes · acceptance-sha256:bc3acad0ab30849d6164acf3ffb1381884095c03c0e85046f648ee00dcd7b273
+  ```
+  the fence passed with the mechanism broken; it may not materialize, compile, load, or assert on the changed path
+  ```
+- 2026-09-03 · 4a1e912* · mutant killed · exit 1 · `internal/mcpserver/resources.go` · the refusal names where the record really lives again, turning a wrong guess into a lookup for a caller holding only an id · acceptance-sha256:bc3acad0ab30849d6164acf3ffb1381884095c03c0e85046f648ee00dcd7b273
 
 ## Invariants
 
-- `resources/read` returns the whole memory. There is no `whole` parameter, because a URI
-  names a thing and half of it is not that thing.
+- `resources/read` returns the whole memory, REASSEMBLED rather than joined. There is no
+  `whole` parameter, because a URI names a thing and half of it is not that thing — and
+  adjacent chunks overlap by `ChunkOverlap` (320) runes, so concatenating them repeats
+  text at every seam. `palace.ReassembleMemory` is the implementation the search path
+  already uses.
+- A refusal does not name where the record really lives. Saying so would turn a wrong
+  guess into a lookup for a caller holding only an id.
 - The wing and room in an address are CHECKED against the record, never trusted, and the
   comparison is EXACT. `SanitizeName` preserves case, so `wing_acme` and `wing_ACME` are
   two wings holding two different sets of memories — measured, not assumed. A folded
@@ -177,3 +221,9 @@ Filled by `adr-verify`.
 - 2026-09-03 · ad6ef3a* · exit 0 · `gofmt -l cmd internal | (! grep -q .) && go vet ./... && \ …` · acceptance-sha256:69cceffff08511bd63cfe018ad5d81dca5a273b3e8d1d2301d4d13ea6d6c0499 · ms:36746
 - 2026-09-03 · 84fcae8* · exit 0 · `gofmt -l cmd internal | (! grep -q .) && go vet ./... && \ …` · acceptance-sha256:975745c5e13a9f3bb94dafffd70b46bddbee5d4fc53ea858296a4617d7a5a413 · ms:45112
 - 2026-09-03 · 84fcae8* · exit 0 · `gofmt -l cmd internal | (! grep -q .) && go vet ./... && \ …` · acceptance-sha256:975745c5e13a9f3bb94dafffd70b46bddbee5d4fc53ea858296a4617d7a5a413 · ms:33559
+- 2026-09-03 · 4a1e912* · exit 0 · `gofmt -l cmd internal | (! grep -q .) && go vet ./... && \ …` · acceptance-sha256:975745c5e13a9f3bb94dafffd70b46bddbee5d4fc53ea858296a4617d7a5a413 · ms:47280
+- 2026-09-03 · 4a1e912* · exit 0 · `gofmt -l cmd internal | (! grep -q .) && go vet ./... && \ …` · acceptance-sha256:975745c5e13a9f3bb94dafffd70b46bddbee5d4fc53ea858296a4617d7a5a413 · ms:34105
+- 2026-09-03 · 4a1e912* · exit 0 · `gofmt -l cmd internal | (! grep -q .) && go vet ./... && \ …` · acceptance-sha256:bc3acad0ab30849d6164acf3ffb1381884095c03c0e85046f648ee00dcd7b273 · ms:45413
+- 2026-09-03 · 4a1e912* · exit 0 · `gofmt -l cmd internal | (! grep -q .) && go vet ./... && \ …` · acceptance-sha256:bc3acad0ab30849d6164acf3ffb1381884095c03c0e85046f648ee00dcd7b273 · ms:34942
+- 2026-09-03 · 4a1e912* · exit 0 · `gofmt -l cmd internal | (! grep -q .) && go vet ./... && \ …` · acceptance-sha256:bc3acad0ab30849d6164acf3ffb1381884095c03c0e85046f648ee00dcd7b273 · ms:35293
+- 2026-09-03 · 4a1e912* · exit 0 · `gofmt -l cmd internal | (! grep -q .) && go vet ./... && \ …` · acceptance-sha256:bc3acad0ab30849d6164acf3ffb1381884095c03c0e85046f648ee00dcd7b273 · ms:33645

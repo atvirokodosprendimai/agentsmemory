@@ -62,9 +62,14 @@ than instead of it.**
    protocol whose listing has no relevance ordering. A template lets a client
    construct the URI for a memory it already has a reason to want.
 
-3. **`resources/read` returns the WHOLE memory**, via the existing `whole=true`
-   path. A resource that returned one chunk would reintroduce the exact defect
-   ADR-044 was written against, one protocol layer over.
+3. **`resources/read` returns the WHOLE memory**, REASSEMBLED rather than joined.
+   A resource that returned one chunk would reintroduce the exact defect ADR-044
+   was written against, one protocol layer over — and one that CONCATENATED the
+   chunks is a quieter version of the same thing: adjacent chunks overlap by
+   `ChunkOverlap` (320) runes for context continuity, so a join repeats text at
+   every seam and produces something longer than any chunk, containing the
+   memory's words, that is not the memory. `palace.ReassembleMemory` exports the
+   implementation the search path already used.
 
 4. **Search hits and drawer fetches carry `uri`.** This is the half that makes the
    address reachable: a caller that has a hit can fetch the whole memory without
@@ -136,6 +141,10 @@ additive and can stay. Nothing else depends on it.
 - [ ] Measure whether returning `ResourceLink` blocks from `am_search` reduces
       what a page costs without costing recall — the deferred alternative, and the
       one that would actually spend less. (deferred: `docs/adr/BACKLOG.md`)
-- [ ] Whether `resources/read` should accept a chunk id and resolve it to its
-      parent, rather than requiring the memory's own id. (deferred:
-      `docs/adr/BACKLOG.md`)
+- [x] **Answered while implementing, and the deferral was already false when
+      written.** `resources/read` accepts a chunk id and resolves it to its
+      memory: `MemoryChunks` maps any id to its root, so a URI naming a non-first
+      chunk returns the whole memory, and `TestAResourceReturnsTheWholeMemory`
+      addresses by exactly that. The follow-up deferred a capability the record
+      shipped with. Left as a corrected entry rather than deleted, because a
+      record that quietly loses a line it got wrong teaches nothing.

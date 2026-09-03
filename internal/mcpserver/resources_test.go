@@ -2,6 +2,7 @@ package mcpserver
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -92,7 +93,23 @@ func TestAResourceReturnsTheWholeMemory(t *testing.T) {
 	}
 	ctx := auth.WithTenant(context.Background(), tenant.Tenant{TeamID: team, UserID: "u1", Role: tenant.RoleAdmin})
 
-	long := strings.Repeat("a memory long enough to be stored as several chunks. ", 90)
+	// ⚠ EVERY SENTENCE IS DISTINCT, AND THAT IS THE POINT OF THE FIXTURE. The first
+	// version repeated ONE sentence, which made the last chunk a literal substring of
+	// the first — so a `strings.Contains` assertion for the last chunk's text passed
+	// over a handler returning only the head. Measured: the head-only mutant survived
+	// against a homogeneous fixture and is killed against this one. A fixture whose
+	// pieces are indistinguishable cannot witness a claim about which piece came back.
+	// ⚠ NO TRAILING WHITESPACE, and that is a fact about chunking rather than a
+	// tidiness preference. ChunkText trims each chunk, so a memory filed with a
+	// trailing space comes back one byte shorter — the round trip through Add is
+	// lossy at the edges. The first version of this fixture ended in a space and the
+	// equality assertion failed by exactly one character, which is the assertion
+	// working: it found a real property, just not the one under test here.
+	sentences := make([]string, 90)
+	for i := range sentences {
+		sentences[i] = fmt.Sprintf("sentence %03d of a memory long enough to be stored as several chunks.", i)
+	}
+	long := strings.Join(sentences, " ")
 	added, err := svc.Add(ctx, team, palace.AddInput{Wing: "wing_acme", Room: "decisions", Content: long})
 	if err != nil {
 		t.Fatalf("seed: %v", err)
@@ -110,11 +127,43 @@ func TestAResourceReturnsTheWholeMemory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}
+	// ⚠ BYTE-FOR-BYTE AGAINST WHAT WAS FILED, AND TWO WEAKER VERSIONS CAME FIRST.
+	//
+	// v1 required only len(text) > len(last.Content). On this fixture the head is
+	// 1600 characters and the addressed last chunk is 929, so a handler returning
+	// chunks[:1] passed comfortably — measured, not reasoned about.
+	//
+	// v2 required the text to CONTAIN both the first chunk and the addressed one.
+	// That still passed a head-only handler, because the fixture repeated one
+	// sentence and the last chunk was therefore a literal substring of the first. A
+	// fixture whose pieces are indistinguishable cannot witness a claim about which
+	// piece came back, which is why every sentence above is numbered.
+	//
+	// Neither version could see the bug that was actually shipped: chunks OVERLAP by
+	// 320 runes, so joining them repeats text at every seam. The result was longer
+	// than any chunk, contained both ends, and was not the memory. Only equality
+	// with the filed text refuses all three at once.
 	text := got.Contents[0].(mcp.TextResourceContents).Text
-	if len(text) <= len(last.Content) {
-		t.Errorf("the resource returned %d chars for a chunk of %d; it served the fragment rather than the memory",
-			len(text), len(last.Content))
+	if text != long {
+		t.Errorf("the resource did not return the memory as filed: got %d chars, filed %d\n first difference at %d",
+			len(text), len(long), firstDifference(text, long))
 	}
+}
+
+// firstDifference reports where two strings diverge, because a diff of two 4kB
+// near-identical blobs is unreadable and the offset alone says which failure it
+// is: near a chunk boundary means a seam bug, at the very end means truncation.
+func firstDifference(a, b string) int {
+	n := min(len(a), len(b))
+	for i := range n {
+		if a[i] != b[i] {
+			return i
+		}
+	}
+	if len(a) != len(b) {
+		return n
+	}
+	return -1
 }
 
 // TestAnAddressThatNoLongerDescribesItsTargetIsRefused covers the half a URI
@@ -144,11 +193,15 @@ func TestAnAddressThatNoLongerDescribesItsTargetIsRefused(t *testing.T) {
 	// wing and room check — the half that is actually about provenance — would
 	// never run. The `want` string is what distinguishes the stages.
 	for _, tc := range []struct{ name, uri, want string }{
-		{"wrong wing", drawerURI("wing_beta", "decisions", id), "that id lives in"},
-		{"wrong room", drawerURI("wing_acme", "gotchas", id), "that id lives in"},
-		{"wing differing only in case", drawerURI("WING_ACME", "decisions", id), "that id lives in"},
-		{"room differing only in case", drawerURI("wing_acme", "Decisions", id), "that id lives in"},
-		{"right shape, no such id", drawerURI("wing_acme", "decisions", "deadbeef"), ""},
+		// "no memory at <uri>" and nothing more: the refusal must not name where the
+		// record really lives, or a caller holding an id learns its wing and room by
+		// guessing wrong. It still identifies the stage, because a bad id is refused
+		// by the palace in its own words and a bad shape by the router in its.
+		{"wrong wing", drawerURI("wing_beta", "decisions", id), "no memory at"},
+		{"wrong room", drawerURI("wing_acme", "gotchas", id), "no memory at"},
+		{"wing differing only in case", drawerURI("WING_ACME", "decisions", id), "no memory at"},
+		{"room differing only in case", drawerURI("wing_acme", "Decisions", id), "no memory at"},
+		{"right shape, no such id", drawerURI("wing_acme", "decisions", "deadbeef"), "not found"},
 		// ⚠ THESE TWO ARE REFUSED BY THE TEMPLATE ROUTER, NOT BY parseDrawerURI, and
 		// the expectation says so rather than hiding it. A URI that does not match
 		// the registered template never reaches the handler at all — mcp-go answers
@@ -167,6 +220,10 @@ func TestAnAddressThatNoLongerDescribesItsTargetIsRefused(t *testing.T) {
 			}
 			if tc.want != "" && !strings.Contains(err.Error(), tc.want) {
 				t.Errorf("refused at the wrong stage: want a message containing %q, got %q", tc.want, err)
+			}
+			// The refusal must not answer the question the caller got wrong.
+			if strings.Contains(err.Error(), "wing_acme/decisions") || strings.Contains(err.Error(), "lives in") {
+				t.Errorf("the refusal names where the record really lives, so a wrong guess is a lookup: %q", err)
 			}
 		})
 	}
@@ -223,6 +280,49 @@ func TestACaseVariantAddressDoesNotResolve(t *testing.T) {
 		if !strings.Contains(res.Contents[0].(mcp.TextResourceContents).Text, want.text) {
 			t.Errorf("%s returned the wrong memory", want.uri)
 		}
+	}
+}
+
+// TestAnAddressForAnEndedRecordIsRefused covers the promise the template's own
+// description makes, which nothing else here tested.
+//
+// The template says a retracted or superseded memory is not served. GetMemory
+// alone does not deliver that: MemoryChunks resolves ANY id to its root and
+// returns the whole family, and GetMemory then drops the ended chunks — refusing
+// only when every one of them has ended. So a URI naming an ended record could
+// resolve to whatever of its family survived: content the address did not name,
+// handed back under an address for a record that is history. That is a false
+// description, which this repository treats as unshipping the capability rather
+// than as a cosmetic defect. Reported by review.
+func TestAnAddressForAnEndedRecordIsRefused(t *testing.T) {
+	cli, svc, team := newResourceServer(t)
+	if _, err := cli.Initialize(t.Context(), mcp.InitializeRequest{}); err != nil {
+		t.Fatalf("initialize: %v", err)
+	}
+	ctx := auth.WithTenant(context.Background(), tenant.Tenant{TeamID: team, UserID: "u1", Role: tenant.RoleAdmin})
+
+	added, err := svc.Add(ctx, team, palace.AddInput{
+		Wing: "wing_acme", Room: "decisions", Content: "the claim that was later withdrawn",
+	})
+	if err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	uri := drawerURI("wing_acme", "decisions", added.Drawers[0].ID)
+
+	// It resolves while the record is current — otherwise the assertion below
+	// would pass over a URI that never worked at all.
+	if _, err := cli.ReadResource(ctx, mcp.ReadResourceRequest{Params: mcp.ReadResourceParams{URI: uri}}); err != nil {
+		t.Fatalf("the address did not resolve before the record was ended: %v", err)
+	}
+
+	if err := svc.InvalidateDrawer(ctx, team, added.Drawers[0].ID, "withdrawn by the author"); err != nil {
+		t.Fatalf("invalidate: %v", err)
+	}
+
+	got, err := cli.ReadResource(ctx, mcp.ReadResourceRequest{Params: mcp.ReadResourceParams{URI: uri}})
+	if err == nil {
+		t.Fatalf("the address still resolves after the record ended, returning %q; a stored URI outlives its target and must answer not-found",
+			got.Contents[0].(mcp.TextResourceContents).Text)
 	}
 }
 
