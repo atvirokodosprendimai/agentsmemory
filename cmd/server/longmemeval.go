@@ -104,11 +104,10 @@ func runLongmemeval(ctx context.Context, def config.Config, c *cli.Command) erro
 	// ONE model for the reader and the judge, held fixed across the whole grid:
 	// the cell delta is then the policy. ADR-047 property 3.
 	model := &gen.Client{
-		URL:     c.String("gen-url"),
-		Model:   c.String("gen-model"),
-		APIKey:  c.String("gen-api-key"),
-		HTTP:    &http.Client{Timeout: 5 * time.Minute},
-		Verbose: os.Stdout,
+		URL:    c.String("gen-url"),
+		Model:  c.String("gen-model"),
+		APIKey: c.String("gen-api-key"),
+		HTTP:   &http.Client{Timeout: 5 * time.Minute},
 	}
 	endpointKind := "ollama"
 	if model.OpenAIShaped() {

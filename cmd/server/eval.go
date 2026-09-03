@@ -824,7 +824,7 @@ type questionGen struct {
 // site here constructs a questionGen by field, and a cached client would go
 // stale against a field somebody set afterwards.
 func (g *questionGen) client() *gen.Client {
-	return &gen.Client{URL: g.url, Model: g.model, APIKey: g.apiKey, HTTP: g.http, Verbose: g.verbose}
+	return &gen.Client{URL: g.url, Model: g.model, APIKey: g.apiKey, HTTP: g.http}
 }
 
 // openAIShaped reports whether the endpoint should be called as an
