@@ -22,7 +22,7 @@ across tasks, any one of them could merge alone and look finished.
 
 | ID | Title | Status | Covers | Acceptance |
 |----|-------|--------|--------|------------|
-| T1 | Serve one memory by URI, advertise the template, and hand the address out with every hit | pending | — | `go test ./internal/mcpserver/ -run '…Resource…'` then `go test ./...` |
+| T1 | Serve one memory by URI, advertise the template, and hand the address out with every hit | done | — | `go test ./internal/mcpserver/ -run '…Resource…'` then `go test ./...` |
 
 Status: `pending` | `partial` | `blocked` | `done`.
 

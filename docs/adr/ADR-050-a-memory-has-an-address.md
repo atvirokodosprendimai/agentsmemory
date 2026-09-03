@@ -58,7 +58,7 @@ than instead of it.**
    provenance — a bare id would be an opaque token that says nothing.
 
 2. **`resources/templates/list` advertises it.** Not `resources/list`: this palace
-   holds 3,400 drawers and enumerating them would be a page nobody asked for, in a
+   holds thousands of drawers and enumerating them would be a page nobody asked for, in a
    protocol whose listing has no relevance ordering. A template lets a client
    construct the URI for a memory it already has a reason to want.
 
@@ -78,9 +78,9 @@ than instead of it.**
 ## Alternatives Considered
 
 - **Return `ResourceLink` content blocks from `am_search` instead of text.** Rejected for now, and this is the one worth revisiting. It is the shape that would actually reduce what a page costs — links instead of snippets — but it changes what every existing caller receives, and this project has no measurement of whether an agent handed links will fetch what it needs or simply act on less. The `uri` field is the additive 80%: the address is available, nothing is taken away, and the measurement can be taken against real traffic before anything is removed. Deferred, not dismissed.
-- **`resources/list` enumerating every drawer.** Rejected: 3,400 entries with no relevance order is a worse answer than the search that exists, and it would make the capability's most obvious call its least useful one.
+- **`resources/list` enumerating every drawer.** Rejected: thousands of entries with no relevance order is a worse answer than the search that exists, and it would make the capability's most obvious call its least useful one.
 - **A bare `agentsmemory://{id}` URI.** Rejected because provenance is the thing a reader most needs and most often lacks — the protocol's own rule is that a memory is evidence from a context you do not have, and an address that hides the project it belongs to argues against that.
-- **Serving a chunk per URI.** Rejected for the reason ADR-044 records: a fragment that reads as a whole is the defect, and a URI per chunk would mint 3,400 addresses that are individually misleading.
+- **Serving a chunk per URI.** Rejected for the reason ADR-044 records: a fragment that reads as a whole is the defect, and a URI per chunk would mint an address per fragment, each individually misleading.
 
 ## Component / Boundary Impact
 
