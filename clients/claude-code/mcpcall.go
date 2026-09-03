@@ -47,15 +47,22 @@ import (
 func mcpCommand() *cli.Command {
 	return &cli.Command{
 		Name:      "mcp",
-		Usage:     "call a read-only memory tool on the remote MCP (run with no tool to list them)",
-		ArgsUsage: "[tool] [primary-arg]",
+		Usage:     "call a memory tool on the remote MCP (run with no tool to list them; writes need --write)",
+		ArgsUsage: "[tool] [primary-arg|file.md]",
 		Description: "List the tools:     aiagentmemory mcp\n" +
 			"Call one:           aiagentmemory mcp status\n" +
 			"With an argument:   aiagentmemory mcp search \"auth bug\"\n" +
 			"With more:          aiagentmemory mcp search \"auth bug\" -a limit=3 -a wing=wing_x\n" +
-			"Pipe it:            aiagentmemory mcp search \"auth bug\" | jq '.hits[].room'\n\n" +
+			"Pipe it:            aiagentmemory mcp search \"auth bug\" | jq '.hits[].room'\n" +
+			"Learn a tool:       aiagentmemory mcp update_skill --schema\n" +
+			"Write from a file:  aiagentmemory mcp update_skill start-here.md --write\n\n" +
 			"The bare positional fills the tool's first required argument, so `mcp search \"x\"`\n" +
-			"means `-a query=x`. Writes are refused: this is a read-only window on the palace.\n\n" +
+			"means `-a query=x`. A positional ending in .md is read as a DOCUMENT instead:\n" +
+			"its YAML frontmatter becomes named arguments and its body becomes the tool's\n" +
+			"content, so a long memory never has to pass through an agent's context to be\n" +
+			"written. Its rune count is reported on stderr against the 1600-rune chunk size.\n\n" +
+			"Tools that write are refused unless you pass --write. `--schema` prints any\n" +
+			"tool's arguments and a fillable template, and never calls it.\n\n" +
 			"The workspace token is taken from --token/$AGENTSMEMORY_TOKEN, else from an\n" +
 			"install already on this machine (--sandbox <name> selects one).",
 		Flags: []cli.Flag{
@@ -87,6 +94,14 @@ func mcpCommand() *cli.Command {
 			&cli.BoolFlag{
 				Name:  "raw",
 				Usage: "print the whole MCP envelope (content blocks, isError) instead of just the result",
+			},
+			&cli.BoolFlag{
+				Name:  "write",
+				Usage: "allow a tool that writes to the palace (refused without this)",
+			},
+			&cli.BoolFlag{
+				Name:  "schema",
+				Usage: "describe the tool's arguments and print a markdown template, instead of calling it",
 			},
 			&cli.DurationFlag{
 				Name:  "timeout",
@@ -134,10 +149,13 @@ func runRemoteMCP(ctx context.Context, c *cli.Command, out io.Writer) error {
 		},
 	}
 	return mcpcli.Run(ctx, out, endpoint, mcpcli.Invocation{
-		Tool:     c.Args().First(),
-		ArgFlags: c.StringSlice("arg"),
-		Tail:     mcpcli.TailArgs(c.Args().Slice()),
-		Raw:      c.Bool("raw"),
+		Tool:        c.Args().First(),
+		ArgFlags:    c.StringSlice("arg"),
+		Tail:        mcpcli.TailArgs(c.Args().Slice()),
+		Raw:         c.Bool("raw"),
+		AllowWrites: c.Bool("write"),
+		Schema:      c.Bool("schema"),
+		Log:         os.Stderr,
 	})
 }
 
