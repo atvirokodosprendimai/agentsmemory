@@ -22,9 +22,11 @@ import "embed"
 // of replacing install.sh with a single downloadable binary — the installer
 // needs nothing on disk beside it.
 //
-// Note the deliberate omission of the legacy commands/agentsmemory.md: it was
-// retired in favour of the thin /am command, so only M.md, am.md, and
-// load-skill.md ship. load-skill.md is the /load-skill nicety over the
+// Note the deliberate omission of the legacy commands/agentsmemory.md and of
+// commands/M.md: both were retired in favour of the thin /am command, so only
+// am.md and load-skill.md ship. M.md carried a Go- and UI-specific variant of
+// the same grounding sequence, which is a second copy of a protocol maintained
+// in one place — and the copy nobody maintains is the one that goes false. load-skill.md is the /load-skill nicety over the
 // am_load_skill MCP tool — it fetches a team-shared skill and installs it locally.
 //
 // The SessionStart hook (hooks/agentsmemory-verify-hook.sh) is the other half of
@@ -45,13 +47,24 @@ import "embed"
 // system, so that one extension both re-registers the remote agentsmemory tools
 // natively and fires the end-of-turn memory checkpoint.
 //
-//go:embed commands/M.md commands/am.md commands/load-skill.md hooks/agentsmemory-stop-hook.sh hooks/agentsmemory-verify-hook.sh hooks/agentsmemory-session-end-hook.sh hooks/agentsmemory-stats.sh hooks/agentsmemory-subagent-start-hook.sh hooks/agentsmemory-recall-hook.sh hooks/agentsmemory-task-recall-hook.sh agents/*.md agents/*.toml bootstrap.md extensions/agentsmemory.ts
+//go:embed commands/am.md commands/load-skill.md hooks/agentsmemory-stop-hook.sh hooks/agentsmemory-verify-hook.sh hooks/agentsmemory-session-end-hook.sh hooks/agentsmemory-stats.sh hooks/agentsmemory-subagent-start-hook.sh hooks/agentsmemory-recall-hook.sh hooks/agentsmemory-task-recall-hook.sh agents/*.md agents/*.toml bootstrap.md extensions/agentsmemory.ts
 var assets embed.FS
 
 // commandAssets are the slash-command files the kit installs, in the order they
 // are written and reported. Both the installer and `update-skill` iterate this
 // one list so a command added here reaches every install path at once.
-var commandAssets = []string{"M.md", "am.md", "load-skill.md"}
+var commandAssets = []string{"am.md", "load-skill.md"}
+
+// retiredCommands are command files earlier versions shipped and this one does
+// not. They are REMOVED from a config dir on install, not merely left unshipped.
+//
+// ⚠ UNSHIPPING IS NOT REMOVING, AND THIS REPOSITORY HAS THE RECEIPT. ADR-041's
+// SessionEnd work found that an install which merely stops PLANNING an asset
+// leaves every upgraded machine carrying it while the installer's own output
+// says otherwise. A stale /M keeps offering a second, diverging grounding
+// sequence next to /am — which is exactly the "second copy of a protocol" this
+// project keeps recording as the thing that goes wrong.
+var retiredCommands = []string{"M.md"}
 
 // agentAssets are the subagent definitions the kit installs, as BASE NAMES: the
 // extension comes from the kit, because Claude reads markdown with a `tools:`
