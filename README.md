@@ -937,7 +937,7 @@ inferred from documentation.
 | config dir | `~/.claude` | `~/.codex` | `~/.cursor` | `~/Library/Application Support/Claude` | `~/.pi/agent` |
 | MCP registration | `claude mcp add` | `codex mcp add` | **writes `mcp.json`** — Cursor ships no `mcp add` | **writes `claude_desktop_config.json`**, spawning `mcp-stdio` | bridge extension |
 | memory protocol | `CLAUDE.md` + `@import` | inlined in `AGENTS.md` | `rules/agentsmemory.mdc`, `alwaysApply: true` | **the MCP handshake** — it can hold no file | inlined in `AGENTS.md` |
-| slash commands | `/M`, `/am`, `/load-skill` | `/prompts:M`, … | **none** — no commands dir | **none** | `/M`, … |
+| slash commands | `/am`, `/load-skill` | `/prompts:am`, … | **none** — no commands dir | **none** | `/am`, … |
 | Stop checkpoint | ✅ | ✅ — native TOML in `config.toml` | ❌ hook shape not established | ❌ | in the extension |
 | `SessionStart` / `SessionEnd` | ✅ — two hooks share `SessionStart`: one verifies anchored memories, one performs a recall for the branch and injects it so a fresh context does not start blind (ADR-041). ⚠ `SessionEnd` is **not registered on Windows**: process creation costs ~1s there, the hook needs ~3.2s, and it loses the teardown race, so every exit reported `Hook cancelled` (#150). Ask the server for the same numbers instead — `curl -fsS "${AGENTSMEMORY_MCP_URL%/mcp}/stats?hours=2"` (the hooks read `AGENTSMEMORY_MCP_URL`; `AGENTSMEMORY_URL` is the proxy origin and is unset in an ordinary install). An existing registration from an earlier install is retired on upgrade. On macOS and Linux the hook completes well inside teardown and stays registered; `AGENTSMEMORY_STATS=off` turns the end-of-session report off there without touching the other hooks (the 3,210ms → 634ms figures are from the Windows host that reported #150) | ❌ not registered; not part of the Codex subagent audit | ❌ | ❌ | ❌ |
 | `SubagentStart` / `SubagentStop` | ✅ | ❌ events exist; [payload, feedback, and retry contracts remain to measure](docs/adr/BACKLOG.md) | ❌ | ❌ | ❌ |
@@ -1237,7 +1237,7 @@ aiagentmemory run --agent codex acme                 # launch codex with CODEX_H
 | | Claude Code | Codex |
 |---|---|---|
 | Config dir | `~/.claude` (`CLAUDE_CONFIG_DIR`) | `~/.codex` (`CODEX_HOME`) |
-| Slash commands | `commands/*.md` → `/M`, `/am` | `prompts/*.md` → `/prompts:M`, `/prompts:am` |
+| Slash commands | `commands/*.md` → `/am` | `prompts/*.md` → `/prompts:am` |
 | Always-on memory | `CLAUDE.md` + managed `@import` | `AGENTS.md` with the protocol inlined — codex has no `@import` |
 | Stop hook | `settings.json` | native TOML in `config.toml`; an install retires its old `hooks.json` entry |
 | MCP auth | `Authorization: Bearer <token>` header | `bearer_token_env_var = "AGENTSMEMORY_TOKEN"` |
@@ -1302,7 +1302,7 @@ aiagentmemory run --agent pi acme                  # launch pi with PI_CODING_AG
 | | Codex | pi |
 |---|---|---|
 | Config dir | `~/.codex` (`CODEX_HOME`) | `~/.pi/agent` (`PI_CODING_AGENT_DIR`) |
-| Slash commands | `prompts/*.md` → `/prompts:M` | `prompts/*.md` → `/M` |
+| Slash commands | `prompts/*.md` → `/prompts:am` | `prompts/*.md` → `/am` |
 | Stop hook | `config.toml` | none — the checkpoint ships in the extension |
 | MCP | native, `--bearer-token-env-var` | bridged by the extension |
 

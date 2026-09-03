@@ -729,6 +729,7 @@ func (i *Installer) writeAssets() error {
 	// Only a hook-owning kit relocates the script: it is the one that also
 	// re-registers the new path, so no agent is left pointing at a deleted file.
 	i.clearLegacyHook()
+	i.clearRetiredCommands()
 	return nil
 }
 
@@ -868,6 +869,35 @@ func (i *Installer) statsHelperPath() string {
 
 // legacyHookPath is where earlier installs wrote the hook, under hooks/.
 func (i *Installer) legacyHookPath() string { return filepath.Join(i.targetDir, legacyHookRel) }
+
+// clearRetiredCommands deletes command files this kit no longer ships from the
+// config dir it is installing into.
+//
+// It exists because stopping shipping an asset does not remove it: an upgraded
+// machine keeps the old file and keeps offering the command, while the
+// installer's output lists only what it wrote. ADR-041 recorded that shape for a
+// hook registration; a slash command has the same one, and a retired /M sitting
+// beside /am is a second grounding protocol nobody maintains.
+func (i *Installer) clearRetiredCommands() {
+	if i.kit.commandsDir == "" {
+		return // an agent with no commands directory has nothing to retire
+	}
+	for _, name := range retiredCommands {
+		path := filepath.Join(i.targetDir, i.kit.commandsDir, name)
+		if _, err := os.Stat(path); err != nil {
+			continue // never installed here, or already gone
+		}
+		if i.dryRun {
+			fmt.Fprintf(i.out, "  would remove the retired command %s\n", path)
+			continue
+		}
+		if err := os.Remove(path); err != nil {
+			i.warn("could not remove the retired command %s: %v", path, err)
+			continue
+		}
+		i.ok("removed the retired command %s", i.commandLabel(name))
+	}
+}
 
 // clearLegacyHook removes the pre-relocation hook script and, if it leaves the
 // directory empty, the hooks/ directory itself — which is the whole point: pi
@@ -2342,7 +2372,7 @@ func (i *Installer) summary() {
 	}
 	if i.kit.commandsDir != "" {
 		fmt.Fprintf(i.out, "  - run %s or %s with a task to run the full grounding sequence on demand\n",
-			i.commandLabel("M.md"), i.commandLabel("am.md"))
+			i.commandLabel("am.md"), i.commandLabel("load-skill.md"))
 	}
 
 	if i.wing != "" {
