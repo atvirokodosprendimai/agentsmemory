@@ -629,7 +629,7 @@ func serveLocal(ctx context.Context, cfg config.Config, svc *services, r chi.Rou
 	// belongs to the only workspace there is. With --token it also gates entry, so
 	// both agent surfaces are covered by construction — /healthz stays open, since
 	// a liveness probe reveals nothing and a container health check has no token.
-	local := auth.LocalTenant(t, cfg.LocalToken)
+	local := auth.LocalTenant(t, cfg.LocalToken, localBoundary(cfg))
 	r.Handle("/mcp", local(mcpHandler))
 	r.Handle("/import", local(importer.Handler(svc.drawers, svc.usage)))
 	// A plain-text recall report, for things that are not MCP clients — the Stop
@@ -1528,6 +1528,22 @@ func publishedLoopback() bool {
 		return true
 	}
 	return false
+}
+
+// localBoundary reports whether the operator's boundary is this machine, which
+// is the condition under which the credential-free local endpoint must refuse a
+// request addressed elsewhere (auth.OffMachineAddressing, ADR-049).
+//
+// It is deliberately the same three conditions the exposure-warning switch in
+// serveLocal treats as bounded — a unix socket, a loopback bind, or a container
+// whose compose file publishes to the host's loopback. They are one predicate
+// here rather than two copies because a guard that disagreed with the warning
+// would either refuse a deployment the operator was told was fine, or trust one
+// they were warned about. TestTheGuardAgreesWithTheExposureWarning holds them
+// together; the switch keeps its own cases because it must tell those three
+// apart to say the right thing, while the guard only asks whether any holds.
+func localBoundary(cfg config.Config) bool {
+	return cfg.SocketPath != "" || config.IsLoopback(cfg.Addr) || publishedLoopback()
 }
 
 // reconcileChromem fills an empty chromem index from the SQLite source of truth,

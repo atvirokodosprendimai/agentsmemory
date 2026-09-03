@@ -364,7 +364,17 @@ func New(deps Deps) *server.MCPServer {
 	srv := server.NewMCPServer(
 		"agentsmemory",
 		deps.Version,
-		server.WithToolCapabilities(true), // advertise the tools/list capability
+		// ⚠ THE BOOL IS listChanged, NOT "advertise tools". mcp-go creates the
+		// tools capability object either way (server.go:541), so passing false
+		// still advertises tools/list — what it stops advertising is a promise to
+		// PUSH notifications/tools/list_changed. This said true, and measured
+		// 2026-09-03 the handshake carried `"tools":{"listChanged":true}` while
+		// nothing here calls SendNotificationToClient and the transport is mounted
+		// WithStateLess, which keeps no session to push down. A client that
+		// believed it waited for a message no code path emits.
+		// TestNoCapabilityIsAdvertisedThatNothingCanDeliver flips this back the
+		// day something can keep the promise.
+		server.WithToolCapabilities(false),
 		server.WithInstructions(serverInstructions),
 	)
 	reg := &registrar{srv: srv}

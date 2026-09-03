@@ -393,6 +393,17 @@ Two guardrails worth knowing:
   the port, and
   [`--socket`](#unix-socket-and-stdio-mcp---socket--mcp-stdio) goes further than
   loopback can.
+- **A browser cannot reach it by renaming your machine.** Because reachability is
+  authorization, the endpoint refuses any request whose `Host` or `Origin` names
+  something other than this machine, answering
+  `403 forbidden: Host <name> does not address this machine`. That is not
+  theoretical tidiness: a page you visit
+  can point its own domain at `127.0.0.1`, at which point your browser treats it
+  as same-origin, skips the preflight, and CORS never runs — so without this
+  check any site you open could read and rewrite every memory in the file. The
+  check is on wherever the boundary is this machine (loopback, `--socket`, or a
+  container publishing to the host loopback) and off when you have deliberately
+  bound a routable address, where `--token` is the boundary instead.
 - **It refuses to start** if the database already holds a workspace that is not
   `local` — including the `demo` workspace the multi-tenant path seeds on first
   boot. Use a fresh `--db` file, or drop `--local`.

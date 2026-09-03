@@ -463,6 +463,38 @@ The same principle covers the gates already in the tree: `internal/doclint`
 (an eval arm that no code path registers appears in no table, silently), and
 `TestCatalogSizeIsWhatTheReadmeClaims` (the README's tool count must be the real one).
 
+**AND THE ARROW RUNS BOTH WAYS: A CAPABILITY CAN BE SELECTED AND BACKED BY NOTHING.**
+Every gate above asks whether something that works is reachable. Measured 2026-09-03, the
+`initialize` handshake answered `"tools":{"listChanged":true}` while nothing in
+`internal/mcpserver` calls `SendNotificationToClient` and the transport is mounted
+`WithStateLess`, which keeps no session to push down — so a client that believed the
+advertisement waited for a message no code path emits. Nothing could have caught it: there
+is no component to test, which is what makes this direction harder than the usual one, and
+the call site's own comment read the flag as "advertise the tools/list capability" when
+mcp-go creates that capability either way and the bool is `listChanged` alone.
+`TestNoCapabilityIsAdvertisedThatNothingCanDeliver` reads the argument out of this
+package's AST and requires a sender to exist before the promise may be made.
+
+**A GUARD IS UNREACHABLE WHEN ITS ONE ARGUMENT IS A CONSTANT.** ADR-049 gave
+`auth.LocalTenant` a `machineBounded` parameter, and a caller passing a literal `false`
+compiles, serves, and passes every behaviour test in `internal/auth` — the green suite over
+an inert mechanism this section keeps recording, reached this time through a parameter
+rather than a missing registration. `TestTheLocalEndpointIsMountedBehindTheRebindGuard`
+reads the third argument out of `cmd/server/main.go`'s AST and fails on a constant, with a
+subtest driving the same extractor over a fixture that hard-codes one.
+`TestTheGuardAgreesWithTheExposureWarning` holds the derived predicate to the boot warning
+it was extracted from, since a guard that disagreed would refuse a deployment the operator
+was told was fine.
+
+⚠ **AND A COUPLING BETWEEN TWO STRING LITERALS IN DIFFERENT PACKAGES IS INVISIBLE TO BOTH.**
+That guard shipped refusing every `--socket` client: `cmd/server/stdio.go` dials
+`http://unix/mcp`, so the `Host` is the literal `unix`, which the first version of
+`addressesThisMachine` did not accept — and no socket client runs in any test, so nothing
+went red. Review caught it, not the suite.
+`TestTheSocketAuthorityIsTheOneTheProxySends` parses the proxy's own URL and compares its
+host to the constant the guard exempts, which is the only form that survives a rename on
+either side.
+
 Prose belongs where a human reads it and nowhere else. Anything that must stay
 true gets a command whose exit code says so — including this section, which
 `TestAgentsMdNamesGatesThatExist` pins so the list cannot rot into a claim about

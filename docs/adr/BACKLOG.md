@@ -8,6 +8,115 @@ An entry leaves this file in one of two ways: it becomes an ADR, or it is re-tag
 `(permanent: <why>)` in its originating ADR because we decided it should never happen.
 
 
+## `redeploy.sh`'s kit check reads a different binary than its own remedy writes — 2026-09-03
+
+Observed on the machine this project is developed on. Two `aiagentmemory` binaries exist:
+`~/.claude/bin/aiagentmemory` reports the current revision, `~/.local/bin/aiagentmemory`
+reports `dev` and is two days older. `~/.claude/bin` comes first on `PATH`, so the older
+copy is shadowed and never runs.
+
+That alone is an operator's untidy machine, not a project defect. What makes it one is which
+of the two the script consults. `scripts/redeploy.sh` resolves the kit with
+`command -v aiagentmemory` (its `if command -v` / `bin_path="$(command -v …)"` lines), which
+is `PATH`-first — so it read the current copy and printed `binary <revision>` under
+`==> the installed client kit, against this checkout`. Its own remedy, printed a few lines
+further down, is `go build -o $HOME/.local/bin/aiagentmemory ./clients/claude-code`: the
+directory holding the STALE copy, which `command -v` will not look at while the other exists.
+So the check passes, the fix writes somewhere the check does not read, and an operator who
+followed the advice would see no change in the verdict either way.
+
+This is the defect §Reachability records, inside the script whose entire purpose is proof —
+"a build's success is a claim about the build; the only evidence that a change is live is
+reading the artifact that is serving", which the script says about the SERVER and does not
+apply to the kit beside it.
+
+Not fixed here because the answer is an install-layout decision, not a script edit: either
+`~/.local/bin` is the one install dir and `~/.claude/bin` should not hold a second copy, or
+the kit is installed per-agent and the check must name which one it resolved and warn when a
+shadowed duplicate exists. `clients/claude-code/install.sh` defaults to `~/.local/bin`
+(`AIAGENTMEMORY_BIN_DIR`), which is evidence for the first reading but not a decision.
+
+## `/mcp` is the only unbounded body on the server, and `am_search`'s documented cap is prose — 2026-09-03
+
+Measured against the running container. A `tools/call` for `am_search` carrying a **9.5 MB**
+query string was accepted and answered `200` after 11.7 seconds. `am_search`'s own parameter
+description says `What to recall (max 250 chars).` Nothing reads that number: a grep for a
+query-length check finds none, and the string `250` appears in `internal/mcpserver` exactly
+once — in the sentence promising it.
+
+**Every sibling endpoint is already bounded, which is what makes this an omission rather than
+a policy.** `internal/importer` (`importer.go:188`), `internal/web/skillset.go`,
+`internal/web/skills.go` and `internal/web/wing.go` each wrap the body in
+`http.MaxBytesReader`, and `cmd/server/main.go:527` bounds another POST at 1 MiB. `/mcp` — the
+one endpoint carrying all 43 tools, including every write — wraps nothing. So the server knows
+this pattern and applies it everywhere except the surface that matters most.
+
+Two separable decisions, which is why this is filed rather than fixed alongside ADR-049:
+
+- **A body limit on `/mcp`.** It is a served-path change with a real failure mode on the other
+  side: a limit below the largest legitimate `am_add_drawer` turns a working write into a
+  refusal, and nothing here knows what that size is. Wants a measurement of the largest content
+  actually filed before a number is picked.
+- **The `max 250 chars` claim.** Enforce it or delete it, but it cannot stay as it is — a
+  description is the only route by which a caller learns what the server accepts, and this
+  corpus already has `TestNoToolDescriptionClaimsALongMemoryCannotBeMoved` for exactly the case
+  of a description that has gone false. ⚠ Note the direction differs from that one: there the
+  sentence became false when behaviour changed; here it was never true.
+
+Not filed as urgent. The probe left the server responsive (`Up`, answering `tools/list` in
+milliseconds afterwards), and deeply-nested JSON is already refused cleanly in 3 ms with
+`-32700`. What it costs today is an unauthenticated caller's ability to spend 11.7 seconds of
+embedding work per request — which ADR-049 has just made much harder to reach from a browser,
+and which a token closes entirely.
+
+## What the MCP protocol offers that this server answers "not supported" to — 2026-09-03
+
+Probed against the running container over the same `http://localhost:8080/mcp` this project's
+agents are registered against. Four method families answer `-32601`: `resources/list`
+("resources not supported"), `prompts/list`, `completion/complete`, and there is no
+`outputSchema` on any tool. Tool ANNOTATIONS are already published (`server.go`), so this list
+is what remains, not the whole surface.
+
+Two of the absences are consequences of `WithStateLess(true)` rather than gaps to fill, and
+saying so is the point — a gap that is a consequence of a transport choice is not an edge, and
+proposing it wastes the next session's time. Server-initiated requests (sampling, elicitation)
+and anything subscription-shaped (logging levels, `listChanged`) need a session to route back
+through, and stateless mode keeps none. Ranked by the measured failure each would attack:
+
+- **Resources, and `ResourceLink` in tool results.** The strongest candidate. A drawer is
+  addressable content with a natural URI, and today the only route to a memory's text is a tool
+  call that spends the whole thing in the response. This is the cost ADR-013, ADR-019, ADR-024
+  and ADR-044 are all about, and which `content_truncated`, `withheld` and `snippet_chars` are
+  all workarounds for — `am_search`'s own description admits "there is no cursor". A page of ten
+  links costs almost nothing and lets the client fetch only what it needs.
+- **Prompts.** `serverInstructions`' own doc comment names the client this is for: Claude Desktop
+  takes no protocol file, got the whole tool catalogue with no guidance, and invented wrong
+  scoping semantics from the schemas. The installer ships slash commands for the agents that DO
+  take a file; prompts are the protocol-native channel to the ones that do not, and they cost one
+  registration each.
+- **`outputSchema` / `structuredContent`.** Every `am_*` tool returns JSON inside a text block, so
+  a caller learns the shape by receiving one. That is the cause behind
+  `TestEveryOmitemptyWireKeyInThisPackageIsDescribed`: a field absent by construction cannot be
+  discovered. A declared schema names the field whether or not this call emitted it, which
+  attacks the cause rather than the symptom.
+- **Completions.** Argument autocomplete for `wing` and `room`. This corpus's own record of agent
+  error is largely wing names that resolve to nothing — `wing_to-<project>` filed into wings no
+  session will look in, `unknown_term` from a bare-name/prefix confusion. Completion fixes that
+  where it happens, in the client, before the call.
+
+## The idle `GET /mcp` stream is held open forever and can never carry anything — 2026-09-03
+
+`GET /mcp` answers `200` and holds the connection. Measured: a single stream held 12s and
+delivered zero bytes; 25 concurrent streams were held with the server still answering POSTs
+normally. Under `WithStateLess(true)` there is no session, so nothing can ever be pushed down
+one — the stream is dead by construction, not merely idle. The transport's own guidance for a
+server that offers no stream is `405`, which also tells a client not to keep retrying.
+
+Not filed as urgent: Go holds idle connections cheaply and the server stayed responsive
+throughout, so this is slow resource accumulation rather than a denial of service. It is filed
+because it was found beside ADR-049 and shares its cause — the endpoint accepting shapes of
+request nobody meant it to serve.
+
 ## A pointer in prose is checked by nothing, and most of this corpus's pointers are prose — 2026-08-28
 
 Surveyed after four review rounds in which a majority of findings were claims nothing in the tree

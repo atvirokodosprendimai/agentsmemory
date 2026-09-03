@@ -474,7 +474,7 @@ func newLocalServer(t *testing.T, gdb *gorm.DB) (*httptest.Server, *palace.Servi
 	stream, drawers := newStream(gdb)
 	local := auth.LocalTenant(tenant.Tenant{
 		TeamID: TeamID, UserID: "user-mcptest-local", Role: tenant.RoleAdmin,
-	}, "")(stream)
+	}, "", false)(stream)
 	srv := httptest.NewServer(local)
 	t.Cleanup(srv.Close)
 	return srv, drawers
