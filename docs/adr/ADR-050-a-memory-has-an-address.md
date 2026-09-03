@@ -6,7 +6,7 @@
 **Spec:** None — no spec stage
 **Cross-references:** `docs/adr/ADR-013-a-page-of-memories-not-chunks.md`, `docs/adr/ADR-019-the-agent-sees-a-quarter-of-the-memory.md`, `docs/adr/ADR-044-make-a-small-read-trustworthy.md`, `docs/adr/BACKLOG.md`
 **Governs:** `internal/mcpserver/resources.go`, `internal/mcpserver/server.go`
-**Enforced-by:** `internal/mcpserver/resources_test.go::TestTheResourceTemplateIsAdvertisedAndReadable`
+**Enforced-by:** `internal/mcpserver/resources_test.go::TestTheResourceTemplateIsAdvertisedAndReadable`, `internal/mcpserver/resources_test.go::TestAResourceReturnsTheWholeMemory`
 **Served-path change:** the server advertises the `resources` capability, serves a `agentsmemory://wing/{wing}/room/{room}/drawer/{id}` template, answers `resources/read` for that URI with the whole memory, and every `am_search` hit and `am_get_drawer` response carries a `uri` naming itself.
 
 ## Context
