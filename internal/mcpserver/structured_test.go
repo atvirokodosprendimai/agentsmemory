@@ -3,6 +3,7 @@ package mcpserver
 import (
 	"context"
 	"encoding/json"
+	"reflect"
 	"testing"
 
 	"github.com/google/jsonschema-go/jsonschema"
@@ -24,13 +25,33 @@ import (
 // working and every test here passing, because a test reads whichever half it
 // was written against.
 func TestJSONResultCarriesBothHalves(t *testing.T) {
-	t.Run("an object gets both", func(t *testing.T) {
-		res := jsonResult(map[string]any{"count": 2, "wing": "wing_acme"})
+	t.Run("an object gets both, and they agree", func(t *testing.T) {
+		payload := map[string]any{"count": 2, "wing": "wing_acme"}
+		res := jsonResult(payload)
 		if res.StructuredContent == nil {
-			t.Error("no structuredContent; a caller still has to parse a string to reach a field")
+			t.Fatal("no structuredContent; a caller still has to parse a string to reach a field")
 		}
 		if len(res.Content) == 0 {
-			t.Error("no text block; a client written before structuredContent gets nothing")
+			t.Fatal("no text block; a client written before structuredContent gets nothing")
+		}
+		// ⚠ THE TWO HALVES MUST BE THE SAME DOCUMENT. Review substituted corrupted
+		// structured data for map payloads only, and a presence check passed. Two
+		// halves that disagree are worse than one: a client picks whichever it
+		// understands and two clients then see different answers to one call.
+		text, ok := res.Content[0].(mcp.TextContent)
+		if !ok {
+			t.Fatalf("first content block is %T, not text", res.Content[0])
+		}
+		var fromText, fromStructured any
+		if err := json.Unmarshal([]byte(text.Text), &fromText); err != nil {
+			t.Fatalf("text block is not JSON: %v", err)
+		}
+		b, _ := json.Marshal(res.StructuredContent)
+		if err := json.Unmarshal(b, &fromStructured); err != nil {
+			t.Fatalf("structuredContent does not round-trip: %v", err)
+		}
+		if !reflect.DeepEqual(fromText, fromStructured) {
+			t.Errorf("the two halves disagree:\n  text:       %s\n  structured: %s", text.Text, b)
 		}
 	})
 
@@ -88,6 +109,18 @@ func TestEveryDeclaredOutputSchemaIsSatisfiedByTheTool(t *testing.T) {
 	}
 
 	ctx := auth.WithTenant(context.Background(), tenant.Tenant{TeamID: "team-structured", UserID: "u1", Role: tenant.RoleAdmin})
+
+	// ⚠ SEEDED, BECAUSE AN EMPTY PALACE VALIDATES TOO EASILY. Review pointed out
+	// that a handler returning a schema-invalid value only when Count > 0 would
+	// pass against the empty fixture this started with: zero-valued responses
+	// exercise none of the fields the schema describes.
+	for _, w := range []string{"wing_acme", "wing_beta"} {
+		if _, err := drawers.Add(ctx, "team-structured", palace.AddInput{
+			Wing: w, Room: "decisions", Content: "a memory in " + w,
+		}); err != nil {
+			t.Fatalf("seed %s: %v", w, err)
+		}
+	}
 	checked := 0
 	for _, tool := range listed.Tools {
 		// ⚠ THE EMPTINESS TEST IS Type == "", WHICH IS WHAT mcp-go ITSELF USES

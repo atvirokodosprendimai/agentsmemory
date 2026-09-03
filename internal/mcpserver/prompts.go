@@ -119,7 +119,16 @@ The test for what belongs: could the next session recover this from the code? If
 // writes succeeded, so nobody noticed. Naming the wing is the whole difficulty,
 // which is why it is the argument the completer answers.
 func handOverPrompt(_ context.Context, req mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
-	wing := req.Params.Arguments["wing"]
+	wing := strings.TrimSpace(req.Params.Arguments["wing"])
+	// ⚠ DECLARED REQUIRED MEANS REFUSED WHEN ABSENT. Without this the prompt
+	// rendered am_add_drawer(wing: "") and told the caller to run it — a filing
+	// into no wing, which is precisely the class of silent misfile this prompt
+	// exists to prevent. An argument advertised as required and then defaulted is
+	// worse than an optional one, because the schema promises validation that
+	// does not happen.
+	if wing == "" {
+		return nil, fmt.Errorf("wing is required: name the RECEIVING project's wing, the way that project's own sessions name it")
+	}
 	finding := req.Params.Arguments["finding"]
 	if finding == "" {
 		finding = "<what you observed, where, and what you are unsure of>"
@@ -170,24 +179,36 @@ func newWingCompleter(drawers *palace.Service, scopeSearchToWing bool) *wingComp
 // It answers only for the argument named "wing": a completer that guessed at
 // other arguments would be inventing values for fields it knows nothing about,
 // and an empty completion is the honest answer for those.
-func (c *wingCompleter) CompletePromptArgument(ctx context.Context, _ string, arg mcp.CompleteArgument, _ mcp.CompleteContext) (*mcp.Completion, error) {
-	if arg.Name != "wing" || c.drawers == nil {
-		return &mcp.Completion{}, nil
+func (c *wingCompleter) CompletePromptArgument(ctx context.Context, promptName string, arg mcp.CompleteArgument, _ mcp.CompleteContext) (*mcp.Completion, error) {
+	// ⚠ EVERY EMPTY RETURN IS AN EMPTY ARRAY, NEVER A NIL SLICE. mcp.Completion's
+	// Values field has no omitempty, so a nil slice serialises as "values": null
+	// where the spec requires an array — a client decoding into []string gets a
+	// null and may reject the response outright. Review caught this on five paths
+	// at once (no tenant, wrong argument, service error, empty palace, unmatched
+	// prefix), which is what a nil zero value does: it is correct-looking in Go
+	// and wrong on the wire.
+	empty := func() *mcp.Completion { return &mcp.Completion{Values: []string{}} }
+
+	// The prompt name is validated rather than discarded. Without this a reference
+	// to a prompt that does not exist still returned real wing names, which is a
+	// server answering a question about something it does not have.
+	if !c.completes(promptName) || arg.Name != "wing" || c.drawers == nil {
+		return empty(), nil
 	}
 	t, ok := auth.TenantFrom(ctx)
 	if !ok {
-		return &mcp.Completion{}, nil
+		return empty(), nil
 	}
 
 	stats, err := c.drawers.Wings(ctx, t.TeamID)
 	if err != nil {
 		// A completion is a convenience: failing it must never fail the call the
 		// caller is actually making, so this reports nothing rather than an error.
-		return &mcp.Completion{}, nil
+		return empty(), nil
 	}
 
 	prefix := strings.ToLower(strings.TrimSpace(arg.Value))
-	var names []string
+	names := []string{}
 	for _, s := range stats {
 		if prefix == "" || strings.HasPrefix(strings.ToLower(s.Wing), prefix) {
 			names = append(names, s.Wing)
@@ -204,4 +225,18 @@ func (c *wingCompleter) CompletePromptArgument(ctx context.Context, _ string, ar
 		hasMore = true
 	}
 	return &mcp.Completion{Values: names, Total: total, HasMore: hasMore}, nil
+}
+
+// promptsWithWing is the set of prompts that actually declare a wing argument.
+// It is derived from the same names registerPrompts uses, so a prompt added
+// without one cannot silently start receiving wing completions.
+var promptsWithWing = map[string]bool{
+	mcpprotocol.ToolPrefix + "wake":      true,
+	mcpprotocol.ToolPrefix + "persist":   true,
+	mcpprotocol.ToolPrefix + "hand_over": true,
+}
+
+// completes reports whether this completer answers for the named prompt.
+func (c *wingCompleter) completes(promptName string) bool {
+	return promptsWithWing[promptName]
 }

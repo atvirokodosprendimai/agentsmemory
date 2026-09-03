@@ -1,6 +1,18 @@
 package mcpserver
 
-import "testing"
+import (
+	"strings"
+	"testing"
+
+	"github.com/atvirokodosprendimai/agentsmemory/internal/mcpprotocol"
+)
+
+// declaredTitleOverrides are the tools whose title is set explicitly because the
+// derivation reads badly. Listing them here is the deliberate step: a new
+// override has to be admitted rather than silently diverging from titleFor.
+var declaredTitleOverrides = map[string]bool{
+	"am_kg_add": true,
+}
 
 // TestEveryToolCarriesADisplayTitle pins the derivation at the catalogue, not at
 // titleFor.
@@ -25,6 +37,16 @@ func TestEveryToolCarriesADisplayTitle(t *testing.T) {
 		// presence check and buys nothing.
 		if tool.Title == tool.Name {
 			t.Errorf("%s: title equals the wire name, which is what having no title already does", tool.Name)
+		}
+		// ⚠ AND IT MUST BE THE DERIVATION OR A DELIBERATE OVERRIDE. Review found
+		// that assigning every tool the same constant string passed every
+		// assertion above: presence and difference-from-name are both satisfied by
+		// "Agent memory tool" on all 41. Comparing against titleFor binds the
+		// mechanism rather than the fact that some string is present.
+		bare := strings.TrimPrefix(tool.Name, mcpprotocol.ToolPrefix)
+		if tool.Title != titleFor(bare) && !declaredTitleOverrides[tool.Name] {
+			t.Errorf("%s: title %q is neither titleFor(%q)=%q nor a declared override; a constant applied to every tool would pass a weaker check",
+				tool.Name, tool.Title, bare, titleFor(bare))
 		}
 	}
 }

@@ -40,6 +40,10 @@ func registerKG(reg *registrar, drawers *palace.Service, usageSvc *usage.Service
 
 func registerKGAdd(reg *registrar, drawers *palace.Service, usageSvc *usage.Service) {
 	tool := newTool("kg_add",
+		// The derivation renders this "Knowledge-graph add", which names the noun and
+		// not the act. An explicit title wins over the derived one, which is what the
+		// override in newTool exists for.
+		mcp.WithToolTitle("Add knowledge-graph fact"),
 		mcp.WithDescription("Add a fact (subject → predicate → object) to the temporal knowledge graph, optionally with a validity window. THIS IS A REQUIRED PART OF PERSISTING A SESSION, not an optional extra: a drawer with no edge is an orphan — reachable by search, invisible to traversal, and it still surfaces in the AUTHOR's own search, which is why authors believe it is reachable. The graph is also what still answers in a dormant wing, where search is weak because you cannot retrieve what you do not know to ask for. When a session established no durable fact, say so rather than skipping silently. Re-adding an identical current fact is a no-op; to replace a fact, invalidate the old one first. SCOPE: graph facts are WORKSPACE-wide, not scoped to a wing — unlike drawers, anchors and search, a fact filed from one project is returned to every project in this workspace. File a fact here when it is true of the workspace; put project-specific detail in a drawer, which is wing-scoped."),
 		mcp.WithString("subject", mcp.Required(), mcp.Description(fmt.Sprintf("The fact's subject entity. A SHORT LABEL (max %d characters), not a sentence — the entity is a node the graph is queried by, so put explanation in a drawer and point at it with source_drawer_id.", palace.MaxKGValueLen))),
 		mcp.WithString("predicate", mcp.Required(), mcp.Description(fmt.Sprintf("The relationship (e.g. \"works_at\"). A safe name: max %d characters, and no \"/\", \"\\\\\" or \"..\" — it is validated like a name, not stored like a value, so \"uses/abuses\" is rejected.", palace.MaxNameLength))),

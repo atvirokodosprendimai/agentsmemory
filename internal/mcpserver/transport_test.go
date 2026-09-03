@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -34,6 +35,15 @@ func TestTheTransportRefusesWhatItCannotServe(t *testing.T) {
 		{name: "a version this library knows", method: http.MethodPost, version: mcp.ValidProtocolVersions[len(mcp.ValidProtocolVersions)-1], want: 0},
 
 		{name: "a version nobody speaks", method: http.MethodPost, version: "1999-01-01", want: http.StatusBadRequest},
+		// A FUTURE version, which is the direction that matters: review mutated the
+		// predicate to also accept "2099-01-01" and every other case still passed,
+		// so nothing bound the set to the library rather than to a wider list.
+		{name: "a version from the future", method: http.MethodPost, version: "2099-01-01", want: http.StatusBadRequest},
+
+		// ⚠ THE VERSION OUTRANKS THE METHOD. The spec's 400 is unconditional, so a
+		// GET carrying an unsupported version answers 400 rather than 405 — the
+		// order was the other way round until review pointed at it.
+		{name: "an unsupported version on a GET is still a version problem", method: http.MethodGet, version: "1999-01-01", want: http.StatusBadRequest},
 		{name: "not a version at all", method: http.MethodPost, version: "banana", want: http.StatusBadRequest},
 	}
 
@@ -47,8 +57,21 @@ func TestTheTransportRefusesWhatItCannotServe(t *testing.T) {
 			if got != tc.want {
 				t.Fatalf("transportRefusal() = %d (%q), want %d", got, msg, tc.want)
 			}
-			if got != 0 && msg == "" {
-				t.Error("a refusal must say why; the client has nothing else to go on")
+			// ⚠ NON-EMPTINESS IS NOT A DIAGNOSTIC. Review mutated the message to
+			// "bad" and this assertion passed. A refusal has to name the thing it
+			// refused or the client is told only that it lost.
+			switch got {
+			case http.StatusMethodNotAllowed:
+				if !strings.Contains(msg, "POST") {
+					t.Errorf("the 405 does not tell the client what to use instead: %q", msg)
+				}
+			case http.StatusBadRequest:
+				if !strings.Contains(msg, tc.version) {
+					t.Errorf("the 400 does not name the version it refused (%q): %q", tc.version, msg)
+				}
+				if !strings.Contains(msg, mcp.LATEST_PROTOCOL_VERSION) {
+					t.Errorf("the 400 does not name a version the client could use instead: %q", msg)
+				}
 			}
 		})
 	}
@@ -93,8 +116,15 @@ func TestStreamHTTPMountsTheConformanceRules(t *testing.T) {
 	if get.Code != http.StatusMethodNotAllowed {
 		t.Errorf("GET through the real envelope = %d, want %d — the wrapper is not mounted", get.Code, http.StatusMethodNotAllowed)
 	}
-	if allow := get.Header().Get("Allow"); allow == "" {
-		t.Error("a 405 must name the methods that are allowed")
+	// ⚠ THE EXACT SET, NOT MERELY A HEADER. Review mutated this to "Allow: GET" —
+	// advertising the one method that is refused — and the old assertion passed
+	// because it only checked the header was non-empty.
+	allow := get.Header().Get("Allow")
+	if !strings.Contains(allow, "POST") {
+		t.Errorf("Allow = %q, which does not offer POST — the only method that works", allow)
+	}
+	if strings.Contains(allow, "GET") {
+		t.Errorf("Allow = %q advertises GET, the method this 405 just refused", allow)
 	}
 
 	bad := httptest.NewRequest(http.MethodPost, "/mcp", nil)
