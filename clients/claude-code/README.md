@@ -109,7 +109,9 @@ reporting success.
   tools).
 - `agentsmemory-stop-hook.sh` → registered in `settings.json` for **two** events
   (idempotent, with a timestamped backup; no `jq` needed). On `Stop` it is the
-  end-of-turn checkpoint; on `SubagentStop` it asks a finishing subagent for what
+  end-of-turn checkpoint; on `UserPromptSubmit` a second recall hook asks the
+  palace about the task the user just described, in their own words, and injects
+  what it finds before the turn starts; on `SubagentStop` it asks a finishing subagent for what
   it FOUND — a drawer and a fact, not a session summary. One script, branching on
   the event, because the two nudges differ in text and not in machinery. It sits
   flat in the config dir, not under `hooks/`: a sandbox can be shared with pi,
