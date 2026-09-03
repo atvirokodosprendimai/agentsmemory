@@ -110,7 +110,12 @@ func headWithin(content string, head, remaining int) (string, bool) {
 // caller already knows its own scope) and gives every field an explicit snake_case
 // tag so the wire format is stable regardless of Go field names.
 type drawerView struct {
-	ID          string   `json:"id"`
+	ID string `json:"id"`
+	// URI is this memory's address (ADR-050). It is deliberately NOT omitempty:
+	// a field absent by construction cannot be discovered, which is the reason
+	// TestEveryOmitemptyWireKeyInThisPackageIsDescribed exists — and the whole
+	// point of an address is that a caller can find it without being told.
+	URI         string   `json:"uri"`
 	Wing        string   `json:"wing"`
 	Room        string   `json:"room"`
 	SourceFile  string   `json:"source_file"`
@@ -147,6 +152,7 @@ type drawerView struct {
 func toView(d palace.Drawer) drawerView {
 	return drawerView{
 		ID:               d.ID,
+		URI:              drawerURI(d.Wing, d.Room, d.ID),
 		Wing:             d.Wing,
 		Room:             d.Room,
 		SourceFile:       d.SourceFile,
