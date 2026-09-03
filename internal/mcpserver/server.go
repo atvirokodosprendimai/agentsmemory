@@ -27,6 +27,8 @@ import (
 	"github.com/atvirokodosprendimai/agentsmemory/internal/tenant"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/usage"
 
+	"net/http"
+
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 	"go.opentelemetry.io/otel/attribute"
@@ -35,8 +37,51 @@ import (
 // newTool builds a tool with the agentsmemory prefix applied to its name: callers
 // pass the bare name and the wire name becomes am_<name>. This is the single
 // chokepoint that guarantees every registered tool is prefixed.
+//
+// It also gives every tool a TITLE, derived rather than declared. MCP separates
+// the programmatic `name` from a human-readable `title` and tells clients to
+// prefer the title for display; all 41 tools shipped without one, so every picker
+// and permission prompt showed `am_kg_supersede`. Deriving it here means a tool
+// added tomorrow gets one from existing code — the alternative is 41 literals
+// that a new registration silently forgets, which is this repository's
+// §Reachability defect in miniature.
+//
+// A caller that wants a better title than the derivation still passes
+// mcp.WithToolTitle explicitly; a later option overrides this one.
 func newTool(name string, opts ...mcp.ToolOption) mcp.Tool {
-	return mcp.NewTool(mcpprotocol.ToolPrefix+name, opts...)
+	withTitle := append([]mcp.ToolOption{mcp.WithToolTitle(titleFor(name))}, opts...)
+	return mcp.NewTool(mcpprotocol.ToolPrefix+name, withTitle...)
+}
+
+// titleWords maps the name fragments whose plain capitalisation would be wrong or
+// unreadable. Everything else is capitalised as-is, so the map stays small and a
+// new tool needs an entry only when its name contains one of these.
+var titleWords = map[string]string{
+	"kg":   "knowledge-graph",
+	"aaak": "AAAK",
+	"mcp":  "MCP",
+	"id":   "id",
+}
+
+// titleFor turns a registered tool name into a display title: "kg_supersede"
+// becomes "Knowledge-graph supersede".
+//
+// It reads the name rather than a table because the name is already the source of
+// truth for what a tool does, and a second table is a second thing to get wrong.
+func titleFor(name string) string {
+	parts := strings.Split(name, "_")
+	for i, p := range parts {
+		if w, ok := titleWords[p]; ok {
+			parts[i] = w
+			continue
+		}
+		parts[i] = p
+	}
+	joined := strings.Join(parts, " ")
+	if joined == "" {
+		return ""
+	}
+	return strings.ToUpper(joined[:1]) + joined[1:]
 }
 
 // searchWingProperty marks the wing argument consumed by searchWingFor.
@@ -391,15 +436,20 @@ func Compose(deps Deps) *server.MCPServer {
 }
 
 // StreamHTTP is the one Streamable HTTP envelope. Production and the contract
-// harness both call it, so the auth bridge and the stateless transport cannot
-// be wired on one path and omitted on the other. Compose owns the catalogue;
-// this owns the HTTP options around it.
-func StreamHTTP(srv *server.MCPServer) *server.StreamableHTTPServer {
-	return server.NewStreamableHTTPServer(
+// harness both call it, so the auth bridge, the stateless transport and the
+// transport conformance rules cannot be wired on one path and omitted on the
+// other. Compose owns the catalogue; this owns the HTTP around it.
+//
+// It returns an http.Handler rather than *StreamableHTTPServer because the
+// conformance wrapper is part of the envelope: handing back the bare mcp-go
+// server would let a caller mount the unconformed one by mistake, which is the
+// argument auth.LocalTenant already makes about folding its guard in.
+func StreamHTTP(srv *server.MCPServer) http.Handler {
+	return conformStreamHTTP(server.NewStreamableHTTPServer(
 		srv,
 		server.WithHTTPContextFunc(auth.Bridge),
 		server.WithStateLess(true),
-	)
+	))
 }
 
 // serverInstructions is returned to every client in the MCP initialize response.
