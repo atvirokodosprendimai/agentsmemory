@@ -164,14 +164,55 @@ func toView(d palace.Drawer) drawerView {
 	}
 }
 
-// jsonResult marshals v into a text tool result. A marshal failure is an internal
+// jsonResult marshals v into a tool result carrying BOTH the serialized JSON as
+// text and the same value as structuredContent. A marshal failure is an internal
 // bug, not an agent error, so it is surfaced as a tool error rather than panicking.
+//
+// Every one of this server's tools returns through here, which is why the
+// structured half is one change rather than 41. Until now a caller received a
+// JSON document stuffed inside a text block and had to parse a string to reach
+// any field — the shape MCP added structuredContent to retire.
+//
+// ⚠ BOTH, NOT EITHER. The transport keeps the text block for backwards
+// compatibility: a client written before structuredContent existed still reads
+// the same document it always did, and one that understands the field skips the
+// parse. Dropping the text would silently break every older caller while every
+// test here kept passing, since the tests read whichever half they were written
+// against.
+//
+// ⚠ AND ONLY WHEN THE VALUE IS AN OBJECT. structuredContent is specified as an
+// object, so an array or a scalar payload is served as text alone rather than
+// smuggled into a field that may not hold it. Deciding this from the MARSHALLED
+// bytes rather than from Go's type means a payload shape added tomorrow is
+// classified by what it actually serialises to, with no call site to remember to
+// audit.
 func jsonResult(v any) *mcp.CallToolResult {
 	out, err := json.Marshal(v)
 	if err != nil {
 		return mcp.NewToolResultError("internal: failed to encode result")
 	}
-	return mcp.NewToolResultText(string(out))
+	res := mcp.NewToolResultText(string(out))
+	if isJSONObject(out) {
+		res.StructuredContent = v
+	}
+	return res
+}
+
+// isJSONObject reports whether marshalled JSON is an object, skipping leading
+// whitespace. json.Marshal emits none, but reading the first meaningful byte
+// keeps this true of any bytes it is handed.
+func isJSONObject(b []byte) bool {
+	for _, c := range b {
+		switch c {
+		case ' ', '\t', '\r', '\n':
+			continue
+		case '{':
+			return true
+		default:
+			return false
+		}
+	}
+	return false
 }
 
 // registerAddDrawer: file a verbatim memory. Oversized content is chunked, each

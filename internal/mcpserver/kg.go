@@ -231,6 +231,7 @@ func registerKGQuery(reg *registrar, drawers *palace.Service, usageSvc *usage.Se
 
 func registerKGStats(reg *registrar, drawers *palace.Service, usageSvc *usage.Service) {
 	tool := newTool("kg_stats",
+		mcp.WithOutputSchema[palace.KGStatsResult](),
 		mcp.WithDescription("Knowledge-graph overview: entity and fact totals, current vs expired facts, and the relationship types in use."),
 	)
 	reg.add(tool, func(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {

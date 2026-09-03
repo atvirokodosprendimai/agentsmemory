@@ -288,6 +288,12 @@ func mergeWingHandler(drawers wingMerger, usageSvc *usage.Service) server.ToolHa
 // registerMemoriesFiledAway: a quick summary of what the team has filed.
 func registerMemoriesFiledAway(reg *registrar, drawers *palace.Service, usageSvc *usage.Service) {
 	tool := newTool("memories_filed_away",
+		// The schema is GENERATED from the very type the handler returns, so the
+		// two cannot disagree. That is the whole reason these three tools got one
+		// first: their payload is already a named struct, where a hand-written
+		// schema would be a second copy of a shape — and the copy nobody maintains
+		// is the one that goes false.
+		mcp.WithOutputSchema[palace.FiledAwayResult](),
 		mcp.WithDescription("Summarise what the team CURRENTLY holds: memories, the rows they occupy, distinct wings and rooms, and the most recent filing. `count` is memories — a memory over the chunk threshold is several rows sharing a parent, and `drawers` is that row count, reported beside it rather than instead of it. Retracted records are excluded from every figure: they are history, not what is filed. ⚠ Both were wrong until 2026-09-03, when this counted every row ever written and called the total memories — 3460 against 1142 on the palace that found it."),
 	)
 	reg.add(tool, func(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
