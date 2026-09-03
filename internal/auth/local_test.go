@@ -19,7 +19,7 @@ func TestLocalTenantAdmitsWithoutCredential(t *testing.T) {
 
 	var got tenant.Tenant
 	var ok bool
-	h := LocalTenant(want, "")(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+	h := LocalTenant(want, "", false)(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		got, ok = TenantFrom(r.Context())
 	}))
 
@@ -41,7 +41,7 @@ func TestLocalTenantIgnoresInboundCredential(t *testing.T) {
 	want := tenant.Tenant{TeamID: "team-local", UserID: "user-local", Role: tenant.RoleAdmin}
 
 	var got tenant.Tenant
-	h := LocalTenant(want, "")(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+	h := LocalTenant(want, "", false)(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		got, _ = TenantFrom(r.Context())
 	}))
 
@@ -84,7 +84,7 @@ func TestLocalTenantToken(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			var reached bool
-			h := LocalTenant(want, secret)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			h := LocalTenant(want, secret, false)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				reached = true
 				if got, ok := TenantFrom(r.Context()); !ok || got != want {
 					t.Errorf("tenant = %+v (ok=%v), want %+v", got, ok, want)

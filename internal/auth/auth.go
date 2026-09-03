@@ -95,10 +95,26 @@ func WithTenant(ctx context.Context, t tenant.Tenant) context.Context {
 //
 // The two behaviours are one function rather than two middlewares because they
 // are the same seam under different exposure, and splitting them would let a
-// caller mount the credential-free one by mistake.
-func LocalTenant(t tenant.Tenant, token string) func(http.Handler) http.Handler {
+// caller mount the credential-free one by mistake. machineBounded joins them for
+// the same reason: the DNS-rebinding guard protects the assumption this
+// function's own comment states, so a caller must not be able to mount the
+// endpoint without it. Pass it true whenever the operator's boundary is this
+// machine — a loopback bind, a unix socket, or a container publishing to the
+// host's loopback. Pass false when they have deliberately bound a routable
+// address, because they were warned and a hard refusal would break them.
+func LocalTenant(t tenant.Tenant, token string, machineBounded bool) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// The rebinding guard runs BEFORE the token check so a refusal names
+			// the addressing rather than the credential: a browser reaching a
+			// rebound name has no token to present either, and "unauthorized"
+			// would send an operator hunting for the wrong problem.
+			if machineBounded {
+				if bad := OffMachineAddressing(r); bad != "" {
+					http.Error(w, "forbidden: "+bad+" does not address this machine", http.StatusForbidden)
+					return
+				}
+			}
 			// Only reject when a token is configured. Without one, a stray bearer
 			// left in an agent config is ignored rather than rejected, so pointing
 			// a previously-hosted agent at a local server keeps working.
