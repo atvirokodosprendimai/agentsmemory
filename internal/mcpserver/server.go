@@ -439,7 +439,7 @@ func New(deps Deps) *server.MCPServer {
 		// serves; declaring one without the other is the "advertised and backed by
 		// nothing" defect this file already carries a gate for.
 		server.WithCompletions(),
-		server.WithPromptCompletionProvider(newWingCompleter(deps.Drawers, deps.ScopeSearchToWing)),
+		server.WithPromptCompletionProvider(newWingCompleter(deps.Drawers)),
 	)
 	reg := &registrar{srv: srv}
 	registerAll(reg, deps)

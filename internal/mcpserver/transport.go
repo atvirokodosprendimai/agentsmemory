@@ -18,7 +18,15 @@ import (
 func conformStreamHTTP(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if code, msg := transportRefusal(r); code != 0 {
-			w.Header().Set("Allow", "POST, DELETE")
+			// ⚠ Allow BELONGS TO THE 405 AND NOTHING ELSE, AND THE REORDER MADE
+			// THAT MATTER. It used to be merely redundant on a 400; once the
+			// version check moved ahead of the method check, a POST carrying an
+			// unsupported version answered 400 WITH a method to retry with — a
+			// retry that cannot succeed, because the version is what was refused.
+			// Allow is defined as the response to a method that is not allowed.
+			if code == http.StatusMethodNotAllowed {
+				w.Header().Set("Allow", "POST, DELETE")
+			}
 			http.Error(w, msg, code)
 			return
 		}
@@ -33,17 +41,12 @@ func conformStreamHTTP(next http.Handler) http.Handler {
 // HTTP server, and so the two rules below are one place rather than two branches
 // in a handler.
 func transportRefusal(r *http.Request) (int, string) {
-	// A GET asks to open the server-to-client SSE stream. This server is mounted
-	// WithStateLess, which keeps no session to push down, and nothing here calls
-	// SendNotificationToClient — so the stream is dead by construction rather
-	// than merely idle. mcp-go answers 200 and holds the connection anyway:
-	// measured, a single GET held 12s and delivered zero bytes, and 25 concurrent
-	// GETs were held open. The transport's own answer for a server that offers no
-	// stream is 405, which also stops a client retrying forever.
-	if r.Method == http.MethodGet {
-		return http.StatusMethodNotAllowed, "this server keeps no session, so it offers no server-to-client stream: use POST"
-	}
-
+	// ⚠ THE VERSION IS JUDGED BEFORE THE METHOD, AND THE ORDER WAS WRONG FIRST.
+	// The spec's 400 for an unsupported version is unconditional, so a GET carrying
+	// one must answer 400 rather than 405: the client learns it is speaking a
+	// dialect this server does not, which is the more useful of the two refusals
+	// and the one that does not depend on which method it happened to try.
+	//
 	// After initialization a client must state the protocol version it settled
 	// on, and a server that cannot serve it must say so rather than answering in
 	// a dialect the client did not agree to. Today nothing here behaves
@@ -60,6 +63,17 @@ func transportRefusal(r *http.Request) (int, string) {
 		if !slices.Contains(mcp.ValidProtocolVersions, v) {
 			return http.StatusBadRequest, "unsupported MCP-Protocol-Version " + v + "; this server speaks " + strings.Join(mcp.ValidProtocolVersions, ", ")
 		}
+	}
+
+	// A GET asks to open the server-to-client SSE stream. This server is mounted
+	// WithStateLess, which keeps no session to push down, and nothing here calls
+	// SendNotificationToClient — so the stream is dead by construction rather
+	// than merely idle. mcp-go answers 200 and holds the connection anyway:
+	// measured, a single GET held 12s and delivered zero bytes, and 25 concurrent
+	// GETs were held open. The transport's own answer for a server that offers no
+	// stream is 405, which also stops a client retrying forever.
+	if r.Method == http.MethodGet {
+		return http.StatusMethodNotAllowed, "this server keeps no session, so it offers no server-to-client stream: use POST"
 	}
 
 	return 0, ""
