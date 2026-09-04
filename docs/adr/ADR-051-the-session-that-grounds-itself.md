@@ -122,9 +122,17 @@ table.
 | Make it reachable | T5, T6, T7, T8 | Capabilities we already built that nothing can find |
 | Close the loop | T9 | What runs alone, and what still gates |
 
-1. **Correct before extending (T1).** `UserPromptExpansion` moves to the injecting set,
-   `PreModelSwitch` joins the known-but-silent set, and the ⚠ paragraph teaching a maintainer
-   the opposite of the truth is replaced rather than deleted.
+1. **Correct before extending (T1).** `UserPromptExpansion` moves to the injecting set, and the
+   ⚠ paragraph teaching a maintainer the opposite of the truth is replaced rather than deleted.
+
+   ⚠ **Amended 2026-09-04 while executing T1: this record twice claimed `PreModelSwitch` was in
+   NEITHER map and would therefore answer `channelUnknown`. It was already in `debugLogEvents`,
+   and adding it produced a duplicate-key build failure.** The claim came from arithmetic —
+   3 injecting + 30 debug-log read as 33 against a documented set believed to be 34 — and the
+   missing event was inferred rather than looked up. The real membership, counted from source
+   after T1: **4 injecting, 29 debug-log, 33 named, no overlap.** The correction is left visible
+   because the mistake is the one this record is about: a number derived from a table, trusted
+   over the table itself.
 
 2. **Open the channels that need no compliance (T2, T3, T4).** A `PreToolUse` anchor cue keyed
    on the path (T2); a `PostToolUse` recorder of touched paths (T3); a `UserPromptExpansion`

@@ -36,7 +36,7 @@ nine would be worse, so within a wave these still land one at a time.
 
 | ID | Title | Status | Covers | Acceptance |
 |----|-------|--------|--------|------------|
-| T1 | Correct the hook channel table it currently forbids a working event | pending | — | `go test ./clients/claude-code/ -run '…Channel…'` |
+| T1 | Correct the hook channel table it currently forbids a working event | done | — | `go test ./clients/claude-code/ -run '…Channel…'` |
 | T2 | Cue the memory that pins THIS file, by path, at PreToolUse | pending | — | `go test ./clients/claude-code/ ./internal/palace/ -run '…Anchor…'` |
 | T3 | Record what the session touched, at PostToolUse | pending | — | `go test ./clients/claude-code/ -run '…Touched…'` |
 | T4 | Inject on UserPromptExpansion, the channel T1 unblocks | pending | — | `go test ./clients/claude-code/ -run '…Expansion…'` |

@@ -89,18 +89,75 @@ func TestDoctorSaysUnknownRatherThanDiscarded(t *testing.T) {
 	}
 }
 
-// TestUserPromptExpansionIsNotTreatedAsInjecting records a correction with a date
-// on it, because this is the entry that went stale.
+// TestPostModelSwitchInjects is what remains of a test that pinned a FALSE claim.
 //
-// It read as injecting from 2026-08-28 until 2026-09-03, quoting the hooks
-// reference. That page now lists it on the debug-log side. Nothing here noticed,
-// because a set of three strings cannot tell "correct" from "was correct" — so
-// the fact is pinned where a future edit has to argue with it.
-func TestUserPromptExpansionIsNotTreatedAsInjecting(t *testing.T) {
-	if hookEventChannel("UserPromptExpansion") == channelInjected {
-		t.Error("UserPromptExpansion is classified as injecting; the hooks reference lists it under debug-log-only as of 2026-09-03 — if that changed back, update the date on injectingEvents rather than only this line")
-	}
+// ⚠ ITS PREDECESSOR WAS NAMED TestUserPromptExpansionIsNotTreatedAsInjecting AND
+// IT ASSERTED THE OPPOSITE OF THE DOCUMENTATION. Written 2026-09-03, it required
+// hookEventChannel("UserPromptExpansion") != channelInjected, on the stated
+// ground that "the hooks reference lists it under debug-log-only as of
+// 2026-09-03". Re-read on 2026-09-04, the reference names it among the four
+// exceptions whose plain stdout reaches the model, and there is no evidence it
+// ever said otherwise.
+//
+// So a wrong belief was GATED, which is why it survived: the table said three,
+// this test held the table to three, and the suite was green over a channel the
+// kit was refusing to use. That is worse than an unchecked convention — a test
+// does not merely record a claim, it defends it, and defending the wrong one
+// turns every future correction into a failing build that looks like a
+// regression.
+//
+// The half that was correct is kept. PostModelSwitch does inject, and nothing
+// here asserts what UserPromptExpansion is NOT: that membership belongs to
+// TestTheInjectingSetIsTheDocumentedFour, which reads the documented set as a
+// set rather than one event at a time.
+func TestPostModelSwitchInjects(t *testing.T) {
 	if hookEventChannel("PostModelSwitch") != channelInjected {
-		t.Error("PostModelSwitch is not classified as injecting; the hooks reference lists it with UserPromptSubmit and SessionStart as of 2026-09-03")
+		t.Error("PostModelSwitch is not classified as injecting; the hooks reference names it among the four exceptions")
+	}
+}
+
+// TestTheInjectingSetIsTheDocumentedFour pins the membership that this file got
+// wrong, in the field it got wrong.
+//
+// The hooks reference names FOUR events whose plain stdout Claude Code adds to
+// the model's context, in one exhaustive sentence: "The exceptions are
+// UserPromptSubmit, UserPromptExpansion, SessionStart, and PostModelSwitch,
+// where Claude Code adds plain-text stdout as context that Claude can see and
+// act on."
+//
+// ⚠ THIS FILE PREVIOUSLY NAMED THREE AND FILED UserPromptExpansion UNDER THE
+// DEBUG LOG, carrying a comment asserting the documentation had moved it there.
+// It had not. The cost was not a missing feature but a FORBIDDEN one: `doctor`
+// labels a hook registered there DISCARDED and exits non-zero, and
+// TestEveryInjectingHookIsOnAnInjectingEvent rejects an install plan that
+// registers one. A wrong table does not merely fail to describe a capability —
+// it refuses it.
+//
+// The assertion is membership rather than behaviour because the behaviour is
+// Claude Code's, not ours. No test here fetches the documentation: a gate that
+// makes a network call fails when the network does, and turns an upstream edit
+// into a red build on an unrelated branch. The retrieval date in the comment
+// above injectingEvents is the honesty mechanism; `doctor` is where an operator
+// learns it is old.
+func TestTheInjectingSetIsTheDocumentedFour(t *testing.T) {
+	documented := []string{"UserPromptSubmit", "UserPromptExpansion", "SessionStart", "PostModelSwitch"}
+	for _, e := range documented {
+		if !injectingEvents[e] {
+			t.Errorf("%s injects plain stdout per the hooks reference, but is not in injectingEvents", e)
+		}
+		if debugLogEvents[e] {
+			t.Errorf("%s is filed under debugLogEvents, which forbids registering an injecting hook on it", e)
+		}
+	}
+	if len(injectingEvents) != len(documented) {
+		t.Errorf("injectingEvents has %d entries, the reference names %d (%v) — a set wider than the docs promises a channel that does not exist",
+			len(injectingEvents), len(documented), documented)
+	}
+	// PreModelSwitch is documented (it appears in the exit-code-2 blocking table)
+	// and does NOT inject. Absent from both maps it answers channelUnknown, which
+	// is the honest answer for an event nobody has classified and the wrong one
+	// for an event the reference describes.
+	if hookEventChannel("PreModelSwitch") != channelDebugLog {
+		t.Error("PreModelSwitch is documented and does not inject; it belongs in debugLogEvents, not unclassified")
 	}
 }

@@ -23,18 +23,38 @@ const (
 // model's context as text the model can read and act on.
 //
 // Source: Claude Code hooks reference, https://code.claude.com/docs/en/hooks,
-// read 2026-09-03. The three named there are UserPromptSubmit, SessionStart and
-// PostModelSwitch.
+// read 2026-09-04. The page names four, in one exhaustive sentence: "For most
+// events, Claude Code writes stdout to the debug log and doesn't show it in the
+// transcript. The exceptions are UserPromptSubmit, UserPromptExpansion,
+// SessionStart, and PostModelSwitch, where Claude Code adds plain-text stdout as
+// context that Claude can see and act on."
 //
-// ⚠ THIS LIST HAS ALREADY GONE STALE ONCE, IN A WEEK. It previously read
-// SessionStart, UserPromptSubmit and UserPromptExpansion, quoting the same
-// reference on 2026-08-28 — and by 2026-09-03 that page moved UserPromptExpansion
-// to the debug-log side and added PostModelSwitch. Nothing here noticed, because
-// a set of three strings cannot tell "correct" from "was correct". Two things
-// follow, and both are in the code rather than in this comment: the retrieval
-// date is recorded above so a reader knows how old the claim is, and every other
-// documented event is listed below so an event MISSING from both sets is reported
-// as unknown rather than assumed harmless.
+// ⚠ THIS LIST HAS GONE STALE TWICE, AND THE SECOND TIME IT WAS THIS COMMENT THAT
+// WAS WRONG. It first read SessionStart, UserPromptSubmit and UserPromptExpansion
+// (2026-08-28). It was then changed to drop UserPromptExpansion and add
+// PostModelSwitch, carrying a paragraph asserting the reference had MOVED
+// UserPromptExpansion to the debug-log side. It had not. Re-read 2026-09-04 the
+// page names all four, and the intervening version was a set of three that
+// forbade a channel that works.
+//
+// The direction of that failure is what makes it expensive, and it is the reason
+// this correction is recorded rather than quietly applied. A missing entry does
+// not merely fail to describe a capability — `doctor` labels a hook registered on
+// the absent event DISCARDED and exits non-zero, and
+// TestEveryInjectingHookIsOnAnInjectingEvent rejects an install plan carrying one.
+// The table REFUSES the channel. That is this repository's reachability defect
+// inverted: not a feature nothing selects, but a gate refusing a feature that does.
+//
+// Two things follow, and both are in the code rather than in this comment: the
+// retrieval date is recorded above so a reader knows how old the claim is, and
+// every other documented event is listed below so an event MISSING from both sets
+// is reported as unknown rather than assumed harmless.
+//
+// ⚠ NO TEST FETCHES THIS PAGE, deliberately. A gate that makes a network call
+// fails when the network does and turns an upstream edit into a red build on an
+// unrelated branch. TestTheInjectingSetIsTheDocumentedFour pins the membership;
+// the date above is the honesty mechanism; `doctor` is where an operator learns
+// the claim is old.
 //
 // ⚠ IT LIVES IN PRODUCTION CODE BECAUSE TWO THINGS READ IT. It began in
 // hookchannel_test.go, where TestEveryInjectingHookIsOnAnInjectingEvent checks the
@@ -43,9 +63,10 @@ const (
 // needed a second copy, and two copies of "which events inject" is exactly the
 // drift this repository keeps gating against.
 var injectingEvents = map[string]bool{
-	"UserPromptSubmit": true,
-	"SessionStart":     true,
-	"PostModelSwitch":  true,
+	"UserPromptSubmit":    true,
+	"UserPromptExpansion": true,
+	"SessionStart":        true,
+	"PostModelSwitch":     true,
 }
 
 // debugLogEvents are the documented events whose plain stdout does NOT reach the
@@ -62,7 +83,7 @@ var injectingEvents = map[string]bool{
 //
 // Same source and date as injectingEvents above.
 var debugLogEvents = map[string]bool{
-	"Setup": true, "UserPromptExpansion": true, "PreToolUse": true,
+	"Setup": true, "PreToolUse": true,
 	"PermissionRequest": true, "PermissionDenied": true, "PostToolUse": true,
 	"PostToolUseFailure": true, "PostToolBatch": true, "Notification": true,
 	"MessageDisplay": true, "SubagentStart": true, "SubagentStop": true,
