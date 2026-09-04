@@ -210,6 +210,14 @@ type Config struct {
 	// wire cannot carry would only ever mislead.
 	RerankPool int
 
+	// DBReaderPool caps the read-only database handle's connection pool. 0 or
+	// less derives max(4, NumCPU()) at open time, the way RerankPool's zero
+	// takes its default. There is deliberately no DBWriterPool: ADR-052 made
+	// the writer ONE connection because a deferred transaction's lock upgrade
+	// fails instantly under a second writer, and a knob that could raise it
+	// would reintroduce that failure with every test green.
+	DBReaderPool int
+
 	// BM25Weight is how much the lexical half of hybrid fusion counts: "auto"
 	// (the default) scales it per query by how much lexical signal the query
 	// actually has against the candidates, or a fixed number 0..1.
@@ -440,6 +448,7 @@ func Default() Config {
 		EmbedTimeout:     5 * time.Minute,
 		BM25Weight:       "auto",
 		RerankPool:       10,  // palace.DefaultRerankPool; duplicated to keep config dependency-free
+		DBReaderPool:     0,   // derive max(4, NumCPU()) at open; see openReaderDB in cmd/server
 		RerankWeight:     0.5, // palace.DefaultRerankWeight, chosen by the eval's weight sweep
 		// palace.DefaultRerankNorm. Not min-max: that sweep ran at pools of 128 and
 		// 10, where min-max's degeneracy does not appear, while 17.6% of real
