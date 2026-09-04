@@ -28,8 +28,24 @@ OUT="🧠 ${AM_WING:-no wing}"
 # Age, in whole minutes, from the cache's own mtime. Nothing is stored about when
 # it was written: a stored timestamp is one more thing that can disagree with the
 # file it describes.
+#
+# ⚠ `-c %Y` FIRST, AND THE RESULT IS CHECKED FOR BEING A NUMBER. This is a real
+# portability bug that macOS testing cannot see, found by the Linux suite:
+# GNU/busybox `stat -c %Y` gives the mtime, while `-f` means FILESYSTEM there and
+# prints a block containing "File:". Trying `-f %m` first therefore SUCCEEDED on
+# Alpine with prose, which then reached $(( )) — and arithmetic expansion resolves
+# a bare word as a variable name, so under `set -u` the status line died with
+# "File: unbound variable" and exited 1 on every render. BSD/macOS is the opposite
+# spelling, hence both, hence the numeric guard: a status line must never fail,
+# and "it printed something non-numeric" is not a state worth reasoning about.
 NOW=$(date +%s 2>/dev/null || echo 0)
-MTIME=$(stat -f %m "$CACHE" 2>/dev/null || stat -c %Y "$CACHE" 2>/dev/null || echo "$NOW")
+MTIME=$(stat -c %Y "$CACHE" 2>/dev/null || stat -f %m "$CACHE" 2>/dev/null || echo "")
+case "$MTIME" in
+  ''|*[!0-9]*) MTIME="$NOW" ;;
+esac
+case "$NOW" in
+  ''|*[!0-9]*) NOW=0; MTIME=0 ;;
+esac
 AGE=$(( (NOW - MTIME) / 60 ))
 [ "$AGE" -gt 0 ] 2>/dev/null && OUT="$OUT · ${AGE}m ago"
 

@@ -308,3 +308,58 @@ func TestEveryRegisteredHookIsAlsoWritten(t *testing.T) {
 		}
 	}
 }
+
+// TestNoShippedHookTriesBSDStatFirst is a portability gate earned by a bug that
+// macOS testing structurally cannot find.
+//
+// ⚠ MEASURED 2026-09-04 in the Linux suite. The status line ran `stat -f %m`
+// first. On BSD/macOS that is the mtime; on GNU/busybox `-f` means FILESYSTEM and
+// SUCCEEDS, printing a block containing "File:". That string then reached
+// arithmetic expansion, which resolves a bare word as a variable name, so under
+// `set -u` the hook died with "File: unbound variable" and exited 1 on EVERY
+// render — on the platform most installs run.
+//
+// The lesson generalises past this one call: a portability bug whose wrong branch
+// SUCCEEDS is invisible to the developer's machine, and only the container suite
+// sees it. So the order is pinned rather than left to whoever edits next.
+func TestNoShippedHookTriesBSDStatFirst(t *testing.T) {
+	entries, err := os.ReadDir("hooks")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// ⚠ PER LINE, AND COMMENTS STRIPPED. The first version compared the file-wide
+	// index of "stat -c" against "stat -f" and immediately reported a false
+	// positive on agentsmemory-stats.sh — whose code is correct, and which carries
+	// a COMMENT explaining this exact hazard above it. A gate that matches prose is
+	// not checking code, and a gate whose first run is a false alarm is one nobody
+	// trusts afterwards.
+	var checked int
+	for _, e := range entries {
+		if !strings.HasSuffix(e.Name(), ".sh") {
+			continue
+		}
+		b, err := os.ReadFile(filepath.Join("hooks", e.Name()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for n, line := range strings.Split(string(b), "\n") {
+			code := line
+			if i := strings.Index(code, "#"); i >= 0 {
+				code = code[:i]
+			}
+			if !strings.Contains(code, "stat -") {
+				continue
+			}
+			checked++
+			gnu := strings.Index(code, "stat -c")
+			bsd := strings.Index(code, "stat -f")
+			if bsd >= 0 && (gnu < 0 || bsd < gnu) {
+				t.Errorf("%s:%d tries `stat -f` before `stat -c`: on GNU/busybox `-f` means filesystem, SUCCEEDS, and prints prose where a number is expected\n    %s",
+					e.Name(), n+1, strings.TrimSpace(line))
+			}
+		}
+	}
+	if checked == 0 {
+		t.Skip("no shipped hook calls stat; nothing to order")
+	}
+}
