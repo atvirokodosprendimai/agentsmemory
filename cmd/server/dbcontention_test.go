@@ -68,7 +68,9 @@ func bumpThroughAHelper(tx *gorm.DB, id uint) error {
 func TestAReadThenWriteTransactionSurvivesConcurrentWriters(t *testing.T) {
 	t.Parallel()
 
-	// Opened through openDB rather than a hand-assembled DSN, so this measures
+	// Opened through openWriterDB rather than a hand-assembled DSN, so this
+	// measures whatever the shipped constant says rather than a copy of it that
+	// can drift.
 	// whatever the shipped constant says rather than a copy of it that can drift.
 	path := filepath.Join(t.TempDir(), "contention.db")
 	db, err := openWriterDB(path, false)

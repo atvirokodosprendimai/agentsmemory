@@ -1685,12 +1685,18 @@ func openWriterDB(path string, debug bool) (*gorm.DB, error) {
 	// ⚠ THIS CAP IS THE WRITE SERIALISATION. There is no lock, no mutex, no
 	// retry and no _txlock pragma standing behind it — ADR-052 decided one
 	// writer so that no wall is needed, and measured that a wall in front of a
-	// single-file door changes nothing (0 of 320 either way). Delete this line
-	// and read-then-write transactions start failing again: measured 280, 292
-	// and 293 of 320 on three runs, all "database is locked", because a
+	// single-file door changes nothing (0 of 320 either way). RAISE this cap and
+	// read-then-write transactions start failing again: measured 280, 292 and 293
+	// of 320 on three runs, all "database is locked", because a
 	// deferred transaction that reads first must UPGRADE its lock and SQLite
 	// returns SQLITE_BUSY immediately on an upgrade conflict rather than
 	// invoking the busy handler. busy_timeout cannot cover that however large.
+	//
+	// ⚠ RAISE it, do not DELETE it, if you are falsifying this: deleting the call
+	// leaves sqlDB declared and unused, so the package does not build — and a
+	// build failure is an INCONCLUSIVE mutant wearing a kill's exit code, not the
+	// 280 failures this comment promises. Reported by review, who tried the
+	// instruction as first written.
 	//
 	// It is deliberately NOT a flag. The reader pool is one (--db-reader-pool),
 	// because the right number there is a property of the host; one writer is
