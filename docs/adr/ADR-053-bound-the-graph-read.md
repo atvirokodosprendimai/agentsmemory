@@ -1,6 +1,6 @@
 # ADR-053: Bound the graph read, and stop the containment edges crowding it out
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-09-04
 **Owner:** M
 **Spec:** None — no spec stage
