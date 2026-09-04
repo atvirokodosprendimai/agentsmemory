@@ -102,26 +102,38 @@ func listRecentMemories(drawers *palace.Service, usageSvc *usage.Service, scopeS
 		// TestMCPContractStarScopeAssertion, and correctly: it would claim a
 		// widening this call can never offer.
 		//
-		// ⚠ AND WHEN SCOPING IS ON WITH NO DEFAULT WING, THIS LISTS NOTHING. An
-		// earlier version fell through to wing="" and listed every wing the TEAM can
-		// see, on the reasoning that the tenant boundary is the team and
-		// am_list_drawers does the same for an omitted wing. Review was right that
-		// this is different: a TOOL call with an omitted argument is a caller asking
-		// broadly, while resources/list has no argument to omit — the client did not
-		// choose, so the server must not choose the widest answer on its behalf. T5's
-		// own Invariant says serve nothing here, and the first implementation
-		// contradicted the task file it was written from.
+		// ⚠ A DEFAULT WING NARROWS THIS; ITS ABSENCE DOES NOT SILENCE IT — AND THAT
+		// SPLIT WAS SETTLED BY MEASUREMENT AFTER TWO WRONG ANSWERS.
+		//
+		// v1 fell through to wing="" whenever no default wing was configured. Review
+		// called that a leak: resources/list takes no arguments, so the client never
+		// asked for "everything", and a server choosing the widest answer on its
+		// behalf is not the same as a caller omitting a tool argument. That is right
+		// where a default wing EXISTS, and the scoping below honours it.
+		//
+		// v2 therefore served NOTHING without a default wing. Measured against the
+		// running stack on 2026-09-04, for one anonymous caller on a registration
+		// with no wing:
+		//
+		//   am_search       -> wing_agentmemories, wing_craft
+		//   am_list_drawers -> wing_craft and another project's wing
+		//   resources/list  -> nothing
+		//
+		// So the listing had become STRICTER than every other route the same caller
+		// already has, which isolates nothing — the data is one tool call away — and
+		// only makes the capability dead on the deployment this project runs. A
+		// registration with no wing HAS no project to be scoped to; its scope is
+		// already every wing it can see, and matching that is describing the caller's
+		// situation rather than choosing for them.
 		wing := ""
 		if scopeSearchToWing {
-			def := strings.TrimSpace(auth.DefaultWingFrom(ctx))
-			if def == "" || def == "*" {
-				return
+			if def := strings.TrimSpace(auth.DefaultWingFrom(ctx)); def != "" && def != "*" {
+				w, err := palace.SanitizeName(def, "wing")
+				if err != nil {
+					return
+				}
+				wing = w
 			}
-			w, err := palace.SanitizeName(def, "wing")
-			if err != nil {
-				return
-			}
-			wing = w
 		}
 		rows, err := drawers.ListCurrent(ctx, t.TeamID, wing, "", listedResourceLimit, 0)
 		if err != nil {

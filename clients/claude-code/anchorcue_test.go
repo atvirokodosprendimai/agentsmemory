@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -435,7 +436,11 @@ func TestTheStatusLineIsSilentWithoutACache(t *testing.T) {
 func TestTheStatusLineShowsWhatTheCacheHolds(t *testing.T) {
 	dir := t.TempDir()
 	write := func(body string) string {
-		if err := os.WriteFile(filepath.Join(dir, "agentsmemory-status.txt"), []byte(body), 0o644); err != nil {
+		// Per-user filename, matching the writer. The cache used to be a single
+		// predictable path under TMPDIR, which another local user could pre-create
+		// as a symlink; the writer now uses mktemp+rename into a per-uid name.
+		name := fmt.Sprintf("agentsmemory-status-%d.txt", os.Getuid())
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o600); err != nil {
 			t.Fatal(err)
 		}
 		cmd := exec.Command("bash", filepath.Join("hooks", "agentsmemory-statusline.sh"))

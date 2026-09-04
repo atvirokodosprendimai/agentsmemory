@@ -38,6 +38,14 @@ SESSION="$(printf '%s' "$INPUT" | tr '\n' ' ' | sed -n 's/.*"session_id"[[:space
 # A record with no session id would be shared by every concurrent session, and one
 # session would then report another's work at its own end of turn.
 [ -z "$SESSION" ] && { trace "no session_id; refusing to write an unscoped record"; exit 0; }
+# ⚠ IT BECOMES A PATH COMPONENT, so it is constrained to what a session id can be.
+# The extraction is a greedy match over a flattened payload, so the LAST match wins
+# and nested tool_input/tool_response fields appear after the real one. Not
+# exploitable today — JSON escaping defeats the pattern — but it is one unescaped
+# producer away from an arbitrary-append primitive. Reported by review.
+case "$SESSION" in
+  *[!A-Za-z0-9_-]*) trace "session_id is not a safe path component; refusing"; exit 0 ;;
+esac
 
 ROOT="${CLAUDE_PROJECT_DIR:-$PWD}"
 REL="${FILE#"$ROOT"/}"

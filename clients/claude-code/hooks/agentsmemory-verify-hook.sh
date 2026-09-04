@@ -67,7 +67,7 @@ esac
 # number in the report are one figure rather than two that can disagree.
 STATUS_DIR="${AGENTSMEMORY_STATE_DIR:-${TMPDIR:-/tmp}}"
 DRIFTED="$(printf '%s' "$OUT" | sed -n 's/.*, \([0-9][0-9]*\) drifted.*/\1/p' | head -n1)"
-: "${DRIFTED:=0}"
+case "$DRIFTED" in ''|*[!0-9]*) DRIFTED=0 ;; esac
 WING="${AGENTSMEMORY_WING:-}"
 if [ -z "$WING" ]; then
   d="${CLAUDE_PROJECT_DIR:-$PWD}"
@@ -79,11 +79,29 @@ if [ -z "$WING" ]; then
     d="$(dirname "$d")"
   done
 fi
-{
-  printf 'AM_WING=%s\n' "${WING:-}"
-  printf 'AM_DRIFTED=%s\n' "$DRIFTED"
-  printf 'AM_INBOX=%s\n' "0"
-} > "$STATUS_DIR/agentsmemory-status.txt" 2>/dev/null || true
+# ⚠ VALIDATE AT THE WRITER TOO, not only at the reader. The wing comes from a
+# repository's own .aiagentmemory, and the reader's whitelist was added after that
+# value was found to be executable there. Leaving the writer permissive means the
+# NEXT reader of this cache inherits the old bug; a value that cannot be a wing is
+# not written at all. Reported by review.
+case "$WING" in
+  *[!A-Za-z0-9_-]*) WING="" ;;
+esac
+
+# ⚠ WRITTEN VIA mktemp AND RENAMED, NOT STRAIGHT TO A PREDICTABLE PATH. This runs
+# on SessionStart for every user, and the old code truncated
+# $TMPDIR/agentsmemory-status.txt by name — so on a shared host another local user
+# could pre-create that path as a symlink and have this overwrite whatever it
+# points at. The status cache is also per-user now, because one shared file across
+# accounts is the same problem wearing a different hat. Reported by review.
+STATUS_FILE="$STATUS_DIR/agentsmemory-status-$(id -u 2>/dev/null || echo 0).txt"
+if TMP="$(mktemp "$STATUS_DIR/.agentsmemory-status.XXXXXX" 2>/dev/null)"; then
+  {
+    printf 'AM_WING=%s\n' "$WING"
+    printf 'AM_DRIFTED=%s\n' "$DRIFTED"
+    printf 'AM_INBOX=%s\n' "0"
+  } > "$TMP" 2>/dev/null && chmod 600 "$TMP" 2>/dev/null && mv -f "$TMP" "$STATUS_FILE" 2>/dev/null || rm -f "$TMP" 2>/dev/null
+fi
 
 # Always succeed. A SessionStart hook that exits non-zero blocks the session, and
 # nothing here is worth that.

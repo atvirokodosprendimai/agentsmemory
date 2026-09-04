@@ -483,22 +483,25 @@ func TestTheListingAndTheTemplateBothResolve(t *testing.T) {
 	}
 }
 
-// TestTheListingRefusesToChooseAWingForTheCaller is T5's isolation invariant,
-// which the first implementation contradicted.
+// TestTheListingNarrowsToADefaultWingWhenThereIsOne is the isolation half, and
+// what remains of a finding that was half right.
 //
-// ⚠ Reported by review 2026-09-04. That version fell through to wing="" when
-// scoping was on with no default wing, and listed every wing the TEAM can see —
-// reasoning that the tenant boundary is the team and am_list_drawers does the same
-// for an omitted wing. The difference is who omitted it: a TOOL call with no wing
-// argument is a caller asking broadly, while resources/list has no argument to
-// omit at all. The client did not choose, so the server must not choose the widest
-// answer on its behalf, and T5's Invariant said so before the code was written.
-func TestTheListingRefusesToChooseAWingForTheCaller(t *testing.T) {
+// ⚠ Review objected that resources/list takes no arguments, so a server listing
+// every wing is choosing the widest answer rather than honouring an omission. That
+// holds where a default wing EXISTS — a registration that names a project must not
+// hand out another one's memories — and this test pins it.
+//
+// It does NOT hold where the registration names no wing at all. Measured against
+// the running stack: for one anonymous caller, am_search returned two wings and
+// am_list_drawers returned two others (one of them a different project entirely), while a listing that served nothing was
+// stricter than every route the same caller already had. That isolates nothing and
+// only makes the capability dead, so the no-default case falls through — see the
+// comment in listRecentMemories.
+func TestTheListingNarrowsToADefaultWingWhenThereIsOne(t *testing.T) {
 	gdb := graphTestDB(t)
 	svc := palace.NewService(palace.NewRepo(gdb), graphTestEmbedder{}, sqlitevec.New(gdb), graphTestDim)
 	srv := New(Deps{
-		Version:           "test",
-		Drawers:           svc,
+		Version: "test", Drawers: svc,
 		Usage:             usage.NewService(usage.NewRepo(gdb), graphTestCaps{}),
 		ScopeSearchToWing: true,
 	})
@@ -515,25 +518,25 @@ func TestTheListingRefusesToChooseAWingForTheCaller(t *testing.T) {
 	}
 
 	const team = "team-scoped"
-	ctx := auth.WithTenant(context.Background(), tenant.Tenant{TeamID: team, UserID: "u1", Role: tenant.RoleAdmin})
+	base := auth.WithTenant(context.Background(), tenant.Tenant{TeamID: team, UserID: "u1", Role: tenant.RoleAdmin})
 	for _, w := range []string{"wing_acme", "wing_beta"} {
-		if _, err := svc.Add(ctx, team, palace.AddInput{Wing: w, Room: "decisions", Content: "a memory in " + w}); err != nil {
+		if _, err := svc.Add(base, team, palace.AddInput{Wing: w, Room: "decisions", Content: "a memory in " + w}); err != nil {
 			t.Fatalf("seed %s: %v", w, err)
 		}
 	}
 
-	// Scoping ON and no default wing: the registration names no project, so there
-	// is no wing this listing may speak for.
-	got, err := cli.ListResources(ctx, mcp.ListResourcesRequest{})
+	// A registration that NAMES a wing must list only that wing.
+	scoped := auth.WithDefaultWing(base, "wing_acme")
+	got, err := cli.ListResources(scoped, mcp.ListResourcesRequest{})
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
-	if len(got.Resources) != 0 {
-		var wings []string
-		for _, r := range got.Resources {
-			wings = append(wings, r.Name)
+	if len(got.Resources) == 0 {
+		t.Fatal("a registration with a default wing listed nothing; the door is shut for the project it names")
+	}
+	for _, r := range got.Resources {
+		if !strings.HasPrefix(r.Name, "wing_acme/") {
+			t.Errorf("the listing handed out %q from outside the registration's wing", r.Name)
 		}
-		t.Errorf("with wing scoping on and no default wing the listing returned %d entries (%v); it must serve nothing rather than pick the widest answer",
-			len(got.Resources), wings)
 	}
 }

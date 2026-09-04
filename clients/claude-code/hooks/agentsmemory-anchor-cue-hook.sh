@@ -55,7 +55,12 @@ ERRFILE="$(mktemp 2>/dev/null || echo /tmp/agentsmemory-anchor-cue.err)"
 # directory made the cue permanently silent on files that ARE pinned, and silence
 # is indistinguishable from "nothing pins this" — the failure a live run catches
 # and no unit test with a stubbed binary can.
-REPO="$(basename -s .git "$(git -C "$ROOT" remote get-url origin 2>/dev/null)" 2>/dev/null)"
+# ⚠ NOT `basename -s`: it is not POSIX and busybox lacks it, so on Alpine REPO
+# came back empty and fell through to the directory name — which this file's own
+# comment says makes the cue permanently silent. A silent wrong answer on the one
+# platform this kit otherwise took trouble to support. Reported by review.
+REPO="$(basename "$(git -C "$ROOT" remote get-url origin 2>/dev/null)" 2>/dev/null)"
+REPO="${REPO%.git}"
 [ -z "$REPO" ] && REPO="$(basename "$(git -C "$ROOT" rev-parse --show-toplevel 2>/dev/null || echo "$ROOT")")"
 set -- mcp list_anchors -a "path=$REL" -a "repo=$REPO" -a limit=5
 TOKEN="${AGENTSMEMORY_LOCAL_TOKEN:-${AGENTSMEMORY_TOKEN:-}}"

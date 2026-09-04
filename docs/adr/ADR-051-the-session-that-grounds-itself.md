@@ -5,7 +5,7 @@
 **Owner:** M
 **Spec:** None — no spec stage. ⚠ Stated rather than left blank: ADR-041, the record this one completes, HAS a spec, and its facts (F-1…F-17) are what make its measurements comparable across sessions. This record ships no new measurement of recall RATE — it opens channels and corrects a false table, and every task's claim is settled by an exit code rather than by a rate. The one task that would need a rate (T3) is deliberately scoped to observation only, and the spec that would govern a rate is named as the prerequisite for any future task that tries to move one.
 **Cross-references:** `docs/adr/ADR-041-the-recall-that-does-not-depend-on-remembering.md` (the prior art this completes — its T3/T4/T5 are STOPPED and this record does not restart them), `docs/adr/ADR-017-a-subagent-is-a-session.md` (measured that added prose is the weakest intervention), `docs/adr/ADR-050-a-memory-has-an-address.md` (the capability T5 makes discoverable), `docs/adr/ADR-021-the-handshake-carries-the-protocol.md`, `docs/adr/ADR-038-refer-by-the-id-and-end-instead-of-overwrite.md` (anchors and opaque ids, which T2 reads)
-**Enforced-by:** None — every task is `pending` and this record ships no code, so any test named here today would be a pointer to nothing, which is the rot this header exists to prevent. The intended enforcer is `TestTheInjectingSetIsTheDocumentedFour`, the gate T1 ADDS; T1's commit fills this header in. Named now rather than left blank, because an enforcer chosen after the fact is one chosen to fit whatever shipped.
+**Enforced-by:** `clients/claude-code/hookchannelknown_test.go::TestTheInjectingSetIsTheDocumentedFour`, `clients/claude-code/plugin_test.go::TestClaudeCodeActuallyLoadsThePlugin`, `clients/claude-code/plugin_test.go::TestEveryRegisteredPluginHookIsExecutable`, `clients/claude-code/plugin_test.go::TestADeniedActionIsActuallyRefused`
 **Governs:** `clients/claude-code/hookchannel.go`, `clients/claude-code/hooks/**`, `clients/claude-code/installer.go`, `clients/claude-code/assets.go`, `clients/claude-code/agentkit.go`, `internal/mcpserver/resources.go`, `internal/palace/anchors.go`
 
 **Numbering:** ADR-051. Verified 2026-09-03: the tree holds up to ADR-050 (merged as `799769d`) and the repository has **zero open pull requests**, so no branch can be claiming 051. ⚠ Allocate at merge — a per-branch check is blind to cross-branch collisions, which is the rule this repo recorded after its own ADR-number collision.
@@ -13,6 +13,17 @@
 **Served-path change:** the installed Claude Code kit gains a corrected hook-channel table, a `PreToolUse` anchor cue, a `PostToolUse` touched-path recorder, a `UserPromptExpansion` injector, a status line, a native skill and a plugin manifest; the MCP server gains a bounded `resources/list`.
 
 ## Context
+
+⚠ **This record's own `Enforced-by` header was false for a day, in both clauses.**
+It read `None — every task is pending and this record ships no code` and promised
+that T1's commit would fill it in. All nine tasks landed, 2,713 lines shipped, and
+the header still said the record enforced nothing — while the gate it named,
+`TestTheInjectingSetIsTheDocumentedFour`, existed the whole time. Caught by review
+on 2026-09-04, which is exactly the rot this header exists to prevent, happening to
+the header itself. The four gates above are named because each one FAILS when a
+different half of this record is deleted; that is the only property that makes the
+line worth reading.
+
 
 An audit of Claude Code's extension surface against what this project actually installs, taken 2026-09-03 against the documentation and against the running local stack, found that **we use six of thirty-four hook events and two of twelve settings keys**, and that one of the six is registered on a table that is wrong.
 

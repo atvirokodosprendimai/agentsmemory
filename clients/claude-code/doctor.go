@@ -804,8 +804,16 @@ func judgeHook(ctx context.Context, c *cli.Command, dir, name string, reg hookRe
 	// registration has been told the reassuring half.
 	if len(reg.duplicated) > 0 {
 		v.label, v.bad = "DUPLICATED", true
+		// ⚠ THE MESSAGE NAMES ONLY WHAT THIS COMMAND CAN SEE. It used to say "usually
+		// a half-finished migration: the installer wrote one and a plugin declared
+		// another" — and that is precisely the state doctor is BLIND to, because
+		// registeredHookEvents reads settings.json alone and never opens a plugin's
+		// hooks.json. A verdict whose explanation describes a case it cannot reach
+		// reads as enforcement over ground it does not cover. Reported by review.
 		v.detail = "registered more than once on " + strings.Join(reg.duplicated, ", ") +
-			" — it runs once per registration, so it injects twice. Usually a half-finished migration: the installer wrote one and a plugin declared another."
+			" — it runs once per registration, so it injects twice. This is duplication WITHIN " +
+			"settings.json; doctor does not read plugin manifests, so a hook declared by both a " +
+			"plugin and this installer is a separate case it cannot see."
 		return v
 	}
 	if len(events) == 0 {

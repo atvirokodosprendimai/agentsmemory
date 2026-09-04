@@ -481,3 +481,80 @@ func TestADeniedActionIsActuallyRefused(t *testing.T) {
 		t.Errorf("an ALLOWED command did not run, so the deny arm above proves nothing. result=%q", got)
 	}
 }
+
+// TestEveryRegisteredPluginHookIsExecutable is a blocker found in review, and it
+// is invisible to every other check here.
+//
+// ⚠ MEASURED: agentsmemory-verify-hook.sh and agentsmemory-session-end-hook.sh
+// were committed 100644. The INSTALLER path never noticed, because writeFile
+// chmods to 0755 on the way out — but the PLUGIN path executes them in place from
+// the plugin directory, where what ships is the mode in git's index. Both returned
+// exit 126, "Permission denied". The manifest registered them, `claude plugin
+// details` counted them, and every JSON-reading test passed.
+//
+// ⚠ AND `statSync` ON THE WORKING TREE IS NOT THE ANSWER. A Git-for-Windows
+// checkout has no POSIX permission bits and reports 0644 for everything, so a test
+// that reads the filesystem is a false alarm on Windows and a false pass wherever
+// someone has chmod'ed locally without staging it. What SHIPS is the index mode,
+// so that is what this asks git for.
+func TestEveryRegisteredPluginHookIsExecutable(t *testing.T) {
+	manifest := pluginHookEvents(t)
+	if len(manifest) == 0 {
+		t.Fatal("the manifest declares no hooks — this check would pass vacuously")
+	}
+	out, err := exec.Command("git", "ls-files", "-s", "hooks/").Output()
+	if err != nil {
+		t.Skipf("git unavailable: %v", err)
+	}
+	mode := map[string]string{}
+	for _, line := range strings.Split(string(out), "\n") {
+		f := strings.Fields(line)
+		if len(f) < 4 {
+			continue
+		}
+		mode[filepath.Base(f[3])] = f[0]
+	}
+	var checked int
+	for ev, scripts := range manifest {
+		for _, s := range scripts {
+			m, ok := mode[s]
+			if !ok {
+				t.Errorf("%s registers %s and git does not track it", ev, s)
+				continue
+			}
+			checked++
+			if m != "100755" {
+				t.Errorf("%s registers %s, which ships as %s — a plugin runs it in place and gets exit 126, Permission denied", ev, s, m)
+			}
+		}
+	}
+	if checked == 0 {
+		t.Fatal("no registered script was checked")
+	}
+}
+
+// TestDoctorPrintsTheDuplicatedVerdict drives the branch, which the sibling test
+// does not.
+//
+// ⚠ `TestDoctorFailsOnADuplicateRegistration` asserts `reg.duplicated` out of
+// `registeredHookEvents` — so deleting the verdict block in `judgeHook` leaves the
+// suite green and the verdict simply never printed. Reported by review. This
+// drives `judgeHook` itself and asserts both the label and that it is a finding.
+func TestDoctorPrintsTheDuplicatedVerdict(t *testing.T) {
+	reg := hookRegistration{
+		path:       "/cfg/agentsmemory-recall-hook.sh",
+		events:     []string{"SessionStart"},
+		duplicated: []string{"SessionStart"},
+	}
+	v := judgeHook(t.Context(), nil, "/cfg", "agentsmemory-recall-hook.sh", reg, "/repo")
+	if v.label != "DUPLICATED" {
+		t.Errorf("judgeHook returned %q for a doubled registration, want DUPLICATED", v.label)
+	}
+	if !v.bad {
+		t.Error("DUPLICATED is not marked as a finding, so doctor would exit 0 over a hook that injects twice")
+	}
+	// The message must not claim a cause this command cannot observe.
+	if strings.Contains(v.detail, "a plugin declared another") {
+		t.Errorf("the verdict explains itself with a case doctor cannot see:\n%s", v.detail)
+	}
+}

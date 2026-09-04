@@ -12,7 +12,9 @@
 # staleness is invisible is worse than no number, because it reads as current.
 set -uo pipefail
 
-CACHE="${AGENTSMEMORY_STATE_DIR:-${TMPDIR:-/tmp}}/agentsmemory-status.txt"
+# Per-user, matching the writer: one shared file across accounts is a
+# predictable-path problem wearing a different hat.
+CACHE="${AGENTSMEMORY_STATE_DIR:-${TMPDIR:-/tmp}}/agentsmemory-status-$(id -u 2>/dev/null || echo 0).txt"
 
 # No cache is the ordinary state before the first session-start hook has run. Say
 # NOTHING: an error string in a status line is permanent noise, and a status line

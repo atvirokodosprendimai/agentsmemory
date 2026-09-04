@@ -787,20 +787,31 @@ func (i *Installer) writeAssets() error {
 		for _, w := range []struct {
 			asset string
 			path  string
+			// kind is what the operator is told this file IS. The
+			// unattended-settings file is not a hook and saying "hook" about it is a
+			// small lie in the one place a person reads to learn what was installed.
+			kind string
 		}{
-			{anchorCueHookAsset, i.anchorCueHookPath()},
-			{touchedHookAsset, i.touchedHookPath()},
-			{statusLineAsset, i.statusLinePath()},
-			{unattendedSettingsAsset, filepath.Join(i.targetDir, "agentsmemory-unattended-settings.json")},
+			{anchorCueHookAsset, i.anchorCueHookPath(), "hook"},
+			{touchedHookAsset, i.touchedHookPath(), "hook"},
+			{statusLineAsset, i.statusLinePath(), "status line"},
+			{unattendedSettingsAsset, filepath.Join(i.targetDir, "agentsmemory-unattended-settings.json"), "unattended permissions (pass with --settings)"},
 		} {
+			// ⚠ MODE BY KIND. Everything else in this loop is a script and needs the
+			// executable bit; the settings file is JSON and shipping it 0755 says it
+			// is a program. Reported by review.
+			mode := os.FileMode(0o755)
+			if strings.HasSuffix(w.path, ".json") {
+				mode = 0o644
+			}
 			body, err := i.source().ReadFile(w.asset)
 			if err != nil {
 				return err
 			}
-			if err := i.writeFile(w.path, body, 0o755); err != nil {
+			if err := i.writeFile(w.path, body, mode); err != nil {
 				return err
 			}
-			i.ok("hook %s", filepath.Base(w.path))
+			i.ok("%s %s", w.kind, filepath.Base(w.path))
 		}
 	}
 	// Only a hook-owning kit relocates the script: it is the one that also
