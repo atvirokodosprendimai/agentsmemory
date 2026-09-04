@@ -28,7 +28,13 @@ comment. ⚠ The first draft's pattern (`DISTINCT room|GROUP BY.*room|Group("win
 the member that matters: `GraphRoomWings` selects `room` with no GROUP BY and filters on `room != ''`.
 The pattern that finds every query touching the room column of the drawers table is:
 `grep -rn 'room != \x27\x27\|DISTINCT room\|Group("wing, room")\|COUNT(DISTINCT room)\|Select("room' --include='*.go' internal cmd | grep -v _test`.
-Measured 2026-09-04 at 8c8945f: `Repo.Wings` and `Repo.Rooms` (`internal/palace/repo.go`, both filtered on `valid_to = ''`) and `Repo.GraphRoomWings` (`internal/palace/graph.go`, unfiltered — the source of `GraphStats`' count). A member the command finds and this table does not name is a finding to add to both; a reviewer found this one by reading the call path rather than by the grep, which is why the pattern is recorded beside its miss.
+Measured 2026-09-04 at 8c8945f: `Repo.Wings` and `Repo.Rooms` (`internal/palace/repo.go`, both filtered on `valid_to = ''`) and `Repo.GraphRoomWings` (`internal/palace/graph.go`, unfiltered — the source of `GraphStats`' count). A member the command finds and this table does not name is a finding to add to both; a reviewer found `GraphRoomWings` by reading the call path rather than by the grep, which is why the pattern is recorded beside its miss.
+The widened pattern returns a FIFTH hit, and its disposition belongs here rather than in silence:
+`Repo.DrawersForHallways` (`internal/palace/graph.go`) reads `(room, entities)` with no `valid_to`
+predicate, so an ended drawer keeps its entity pairs and puts its room's name on a live hallway
+(measured hermetically 2026-09-04: `co_occurrence: 2` and `rooms: [decisions typo-room]` after
+retracting one of the two). It is NOT edited by this task — it neither lists nor counts rooms — and
+the open question it raises is deferred in the ADR's Out of Scope with a receipt in `BACKLOG.md`.
 
 ## Ordered Steps
 

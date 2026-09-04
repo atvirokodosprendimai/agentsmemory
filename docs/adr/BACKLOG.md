@@ -3585,3 +3585,22 @@ project"* is a real question a shape rule keeps, while a run of three commit sub
 Revisit only if, after two default windows past ADR-054's deploy, `suggestions` still carries
 machine-shaped entries with `hook_searches` non-zero — and only with a measured false-negative rate
 over the real corpus, not a rule that looks right.
+
+## A recompute rebuilds the hallway graph from every row, including ended ones — 2026-09-04
+
+Deferred from `docs/adr/ADR-055-a-room-is-its-live-memories.md` (Out of Scope). Found by the
+enumeration pattern that record's T1 records, on its first run, by a reviewer.
+
+`Repo.DrawersForHallways` (`internal/palace/graph.go`) loads `(room, entities)` filtered on
+`team_id` and `wing` only, and `computeHallwaysForWing` counts every returned row. Measured
+2026-09-04 in a hermetic test: two drawers in one wing share an entity pair, one is retracted with
+`InvalidateDrawer`, and the recomputed hallway still reads `co_occurrence: 2` with the retracted
+drawer's room in its `rooms` list. So a retracted memory keeps pushing a pair over the hallway
+threshold, and a room with no live memory can keep its name on a live hallway — which `am_list_rooms`
+says does not exist.
+
+The question is not "is this a bug" but "what is a hallway ABOUT". If it is what a wing currently
+holds, this is the same defect ADR-055 fixes one surface over and the query wants `valid_to = ''`.
+If it is what a wing has ever talked about, history belongs in it and the rule should be written down
+rather than left as an unfiltered query nobody chose. ADR-055 declined to settle it because it
+neither lists nor counts rooms, which is that record's whole subject.

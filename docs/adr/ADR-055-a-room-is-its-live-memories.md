@@ -109,8 +109,17 @@ See `tasks/README.md`. One task: enumerate the class, bring it to the rule, pin 
 
 - A room-delete verb (permanent: boundary: ADR-038 ends and never erases, and ADR-015 kept one
   relabelling verb on purpose; this record adds none)
-- Closets, hallways and tunnels that name a room as a label (permanent: boundary: they are derived
-  and rebuilt by `am_recompute_graph`; membership is the drawers table's fact)
+- Closets, hallways and tunnels that NAME a room as a label (permanent: boundary: they are derived,
+  and which rooms exist is the drawers table's fact rather than theirs)
+- The hallway graph counting ENDED drawers (deferred: `docs/adr/BACKLOG.md` — "A recompute rebuilds
+  the hallway graph from every row, including ended ones"). Measured 2026-09-04 in a hermetic test
+  after the reviewer's widened pattern found it: `Repo.DrawersForHallways`
+  (`internal/palace/graph.go`) filters `team_id` and `wing` only, so retracting one of two drawers
+  sharing an entity pair leaves the recomputed hallway at `co_occurrence: 2` with the retracted
+  drawer's room still in its `rooms` list. It neither lists nor counts rooms, so it is outside this
+  decision — but whether a retracted memory should keep shaping a derived edge is a real question
+  this record is not the place to settle, and "rebuilt by `am_recompute_graph`" does not answer it:
+  the rebuild reads history too.
 - Renaming a room in place (permanent: fact: a drawer's room is changed only by `am_update_drawer`, which relocates one memory at a time; citation: file `internal/palace/service.go:1`)
 
 ## Risks
