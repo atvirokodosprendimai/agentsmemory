@@ -4,6 +4,12 @@
 **Repo:** `github.com/atvirokodosprendimai/agentsmemory`
 **Tier:** service (single repo, one deployable binary plus an agent-side kit)
 **Gate command:** `go test ./internal/archguard/ ./internal/mcpserver/ ./cmd/server/ ./internal/doclint/ ./internal/repohygiene/ -count=1`
+⚠ **This command cannot pass on a Windows host, and the reason is not architectural.** Two test
+helpers never close their SQLite handle; POSIX allows unlinking an open file and Windows does not, so
+`t.TempDir` cleanup fails around forty tests (issue #162). A Windows checkout is also CRLF
+(`core.autocrlf=true`, and this repository ships no `.gitattributes`) while the source-reading gates
+hard-code `\n`, so one of them false-alarms on a property that holds (issue #163). Run the gate on
+Linux or macOS until both are closed — see [TROUBLESHOOTING.md](../TROUBLESHOOTING.md).
 **Last full audit:** 2026-08-21 — module map and edges derived from `go list -json ./...`, interfaces from an AST sweep, not from memory.
 
 This doc is the current-state integral; ADRs are deltas against it. Every rule row binds to a check

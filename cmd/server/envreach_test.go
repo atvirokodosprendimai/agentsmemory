@@ -410,7 +410,17 @@ func TestReadEnvVarsAreDocumented(t *testing.T) {
 	// Where an operator would look. A variable named in any of these is
 	// documented; it does not have to be in all of them.
 	var docs []string
-	for _, rel := range []string{".env.example", ".env.docker.example", "README.md", "AGENTS.md"} {
+	// INSTALL.md, UPDATE.md and TROUBLESHOOTING.md joined this list when the
+	// install/update prose moved out of the README. The corpus is a FIXED FILE
+	// LIST, so a knob documented only in a file the gate does not read is
+	// documented nowhere as far as this check can tell — and the check would
+	// then demand it be re-documented somewhere it already is. That is the
+	// §Reachability shape one level up: the gate stays green while the thing it
+	// guards has moved out from under it.
+	for _, rel := range []string{
+		".env.example", ".env.docker.example", "README.md", "AGENTS.md",
+		"INSTALL.md", "UPDATE.md", "TROUBLESHOOTING.md",
+	} {
 		docs = append(docs, filepath.Join(root, rel))
 	}
 	composeFiles, _ := filepath.Glob(filepath.Join(root, "docker-compose*.yml"))
