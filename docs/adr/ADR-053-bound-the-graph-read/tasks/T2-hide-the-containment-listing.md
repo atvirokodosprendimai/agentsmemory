@@ -8,7 +8,7 @@
 **Consumes:** `withheld` keyed by cause (T1)
 **Data dependency:** hermetic for the unit; the wing-root assertion is written against the shipped mint (`attachWingRootEdge`) rather than against a corpus, so it holds on a fresh install
 **Proof map:** v1
-**Rests-on:** `the exit code`, `every wing root still resolving with containment hidden`, `the flag restoring the hidden edges exactly`
+**Rests-on:** `the exit code`, `every wing root still resolving with containment hidden`, `the flag restoring the hidden edges exactly`, `absent staying distinguishable from present-and-empty`
 
 ## Goal
 
@@ -66,6 +66,7 @@ skills and hooks that walk it live outside `internal/palace`.
 ## Mutation Log
 
 - 2026-09-04 · 8683557* · mutant killed · exit 1 · `internal/palace/kg.go` · the carve-out deleted: the rule then hides listings from a caller who NAMED the room, which is what EntryPoint and Bootstrap do — the wake-up path reports its entry point present and empty rather than absent · acceptance-sha256:de79b55a8a8a271af87e0b684765b68a405741bc02617f3d2e010473e35e928b
+- 2026-09-04 · 48f34c4 · mutant killed · exit 1 · `internal/palace/kg.go` · the entity arm of resolveKGTerms severed, which is the mechanism assertion TWO rests on: a wing with NO entry point then resolves known_term_no_facts instead of unknown_term, so "absent" becomes "present and empty". ⚠ Raised in review of #219: the carve-out mutant above proves assertion ONE (edges still returned) and its --why described this failure mode, which nothing bound. One entry per mechanism; this is the second mechanism · acceptance-sha256:de79b55a8a8a271af87e0b684765b68a405741bc02617f3d2e010473e35e928b
 
 ## Invariants
 
@@ -133,3 +134,4 @@ budget.
 
 ## Verification Log
 - 2026-09-04 · 8683557* · exit 0 · `set -o pipefail …` · acceptance-sha256:de79b55a8a8a271af87e0b684765b68a405741bc02617f3d2e010473e35e928b · ms:47043
+- 2026-09-04 · 48f34c4 · exit 0 · `set -o pipefail …` · acceptance-sha256:de79b55a8a8a271af87e0b684765b68a405741bc02617f3d2e010473e35e928b · ms:45626
