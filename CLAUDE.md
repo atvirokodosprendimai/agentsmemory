@@ -56,7 +56,16 @@ Everything above applies. Three things are particular to this harness:
   `gh release delete`, `docker compose down -v`, `goose down`, `goose reset`,
   `am_merge_wing`, `am_invalidate_drawer` and `am_kg_invalidate`. What is still
   denied is `git push --force:*`, `git push -f:*` and `rm -rf /*`, and that is
-  the whole list. ⚠ The first draft of this file allowed `gh:*`, `git:*`,
+  the whole list — **of this file, which governs interactive sessions in this
+  checkout and nothing else.** ⚠ THERE IS A SECOND PERMISSIONS FILE AND IT DID
+  NOT MOVE: `clients/claude-code/unattended-settings.json`, the asset the plugin
+  ships, still carries all twelve original deny entries — the nine above plus
+  the three that stayed. That is deliberate, not drift: the widening was
+  approved for a checkout with a human in front of it, and an UNATTENDED run has
+  nobody to be the decision point the prompt was. `plugin_test.go`'s
+  `unattendedRules` gates that list, so it cannot quietly empty. Reconcile the
+  two by reading which one you are under, never by assuming one is stale.
+  ⚠ The first draft of this file allowed `gh:*`, `git:*`,
   `python3:*` and `curl:*` with no deny list, in the same PR that told a session
   never to stop for permission; review caught that the two together remove the
   prompt and the boundary at once. This allow list is the deliberate version of

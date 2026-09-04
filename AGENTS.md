@@ -103,7 +103,11 @@ owner's instruction, that list SHRANK to three entries: `git push --force:*`,
 `docker compose down -v`, `goose down`, `goose reset`, `am_merge_wing`,
 `am_invalidate_drawer` and `am_kg_invalidate` — so a merge, a release, a
 volume-destroying teardown, a schema rollback and an irreversible palace write
-no longer stop and ask. Review of this rule's FIRST draft caught it shipping
+no longer stop and ask. ⚠ That is true of `.claude/settings.json`, which governs
+interactive sessions in this checkout. `clients/claude-code/unattended-settings.json`,
+the asset the plugin ships, still carries all twelve on purpose — an unattended
+run has no human to be the decision point the prompt was. Read which file you
+are under before concluding either is stale. Review of this rule's FIRST draft caught it shipping
 beside an allow list that would have removed those prompts too; this one is the
 deliberate version, approved rather than slipped past a review, and the
 instruction is the whole difference. ⚠ What gates a merge is now `main`'s branch
