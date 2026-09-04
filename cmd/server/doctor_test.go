@@ -173,7 +173,7 @@ func TestBuildServicesStillPreparesThePalace(t *testing.T) {
 	cfg.DBPath = doctorDriftedDB(t)
 	cfg.VectorBackend = config.VectorBackendChromem
 
-	gdb, err := openDB(cfg.DBPath, false)
+	gdb, err := openWriterDB(cfg.DBPath, false)
 	if err != nil {
 		t.Fatalf("open drifted database: %v", err)
 	}
