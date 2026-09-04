@@ -298,6 +298,15 @@ type kgTripleFilter struct {
 	value     string
 	status    string
 	predicate string
+	// limit and afterID page one entry point's fan-out (ADR-053).
+	//
+	// ⚠ afterID is the id of the previous page's last row, never an OFFSET. An
+	// offset re-scans and shifts under a concurrent write, so a caller paging a
+	// fan-out would silently skip or repeat an edge — and a graph answer whose
+	// omissions are invisible is the failure this bound exists to remove, not a
+	// smaller version of it.
+	limit   int
+	afterID string
 }
 
 // kgTripleQuery builds the statement every triple lookup issues. It is a builder
@@ -318,10 +327,24 @@ func (r *Repo) kgTripleQuery(ctx context.Context, teamID string, f kgTripleFilte
 	return kgStatusScope(q, f.status)
 }
 
-// kgTriples loads a team's triples matching a filter.
+// kgTriples loads a team's triples matching a filter, oldest id first.
+//
+// The ordering and the paging live HERE rather than in kgTripleQuery, which
+// kgTriplesCount also builds on: a LIMIT applied to a COUNT would report the
+// page size instead of the total, and the withheld tally would then agree with
+// itself while being wrong.
 func (r *Repo) kgTriples(ctx context.Context, teamID string, f kgTripleFilter) ([]kgTripleRow, error) {
 	var rows []kgTripleRow
-	err := r.kgTripleQuery(ctx, teamID, f).Find(&rows).Error
+	q := r.kgTripleQuery(ctx, teamID, f).Order("id ASC")
+	if f.afterID != "" {
+		q = q.Where("id > ?", f.afterID)
+	}
+	if f.limit > 0 {
+		// One more than asked for, so the caller can tell "this is the last page"
+		// from "there is more" without a second count.
+		q = q.Limit(f.limit + 1)
+	}
+	err := q.Find(&rows).Error
 	return rows, err
 }
 
@@ -344,16 +367,25 @@ func (r *Repo) kgTriplesCount(ctx context.Context, teamID string, f kgTripleFilt
 // migration, and it makes selectable the one dimension the graph is built from —
 // "show me every retracts edge" is how you audit what the team changed its mind
 // about, and it was a scan by eye.
-func (r *Repo) KGTriplesBySubject(ctx context.Context, teamID, subject, status, predicate string) ([]kgTripleRow, error) {
-	return r.kgTriples(ctx, teamID, kgTripleFilter{column: "subject", value: subject, status: status, predicate: predicate})
+func (r *Repo) KGTriplesBySubject(ctx context.Context, teamID, subject, status, predicate string, page kgPage) ([]kgTripleRow, error) {
+	return r.kgTriples(ctx, teamID, kgTripleFilter{column: "subject", value: subject, status: status, predicate: predicate, limit: page.limit, afterID: page.afterID})
 }
 
-func (r *Repo) KGTriplesByObject(ctx context.Context, teamID, object, status, predicate string) ([]kgTripleRow, error) {
-	return r.kgTriples(ctx, teamID, kgTripleFilter{column: "object", value: object, status: status, predicate: predicate})
+func (r *Repo) KGTriplesByObject(ctx context.Context, teamID, object, status, predicate string, page kgPage) ([]kgTripleRow, error) {
+	return r.kgTriples(ctx, teamID, kgTripleFilter{column: "object", value: object, status: status, predicate: predicate, limit: page.limit, afterID: page.afterID})
 }
 
-func (r *Repo) KGTriplesByPredicate(ctx context.Context, teamID, predicate, status string) ([]kgTripleRow, error) {
-	return r.kgTriples(ctx, teamID, kgTripleFilter{column: "predicate", value: predicate, status: status})
+func (r *Repo) KGTriplesByPredicate(ctx context.Context, teamID, predicate, status string, page kgPage) ([]kgTripleRow, error) {
+	return r.kgTriples(ctx, teamID, kgTripleFilter{column: "predicate", value: predicate, status: status, limit: page.limit, afterID: page.afterID})
+}
+
+// kgPage is one entry point's slice of a fan-out: how many rows to take and
+// which row to resume after. The zero value asks for everything, which is what
+// every caller outside KGQuery wants — resolveKGTerms only needs to know whether
+// ANY row exists.
+type kgPage struct {
+	limit   int
+	afterID string
 }
 
 // KGTriplesBySubjectCount / KGTriplesByObjectCount / KGTriplesByPredicateCount
@@ -467,7 +499,28 @@ type KGQueryInput struct {
 	AsOf      string
 	Direction string
 	Status    string
+	// Limit is how many facts one page carries; zero takes DefaultKGQueryLimit.
+	// Cursor is an opaque NextCursor from a previous page — never an offset, and
+	// never assembled by a caller (ADR-053).
+	Limit  int
+	Cursor string
 }
+
+// DefaultKGQueryLimit is how many facts a graph page carries when the caller
+// names no limit.
+//
+// ⚠ IT IS A PAGE SIZE, NOT A CEILING ON THE ANSWER. A caller who wants the whole
+// fan-out follows NextCursor; what this number decides is how much arrives per
+// call. 100 because the response budget is spent first in practice — measured
+// 2026-09-04 on the live corpus, a 184-edge entity rendered ~106,000 runes, so
+// the budget cuts well before this does, and its job is to stop a pathological
+// node loading 100,000 rows into memory before the budget ever sees them.
+const DefaultKGQueryLimit = 100
+
+// MaxKGQueryLimit bounds what a caller may ask for. A limit above it is clamped
+// rather than refused: the budget cuts the page anyway, so refusing would trade
+// a working answer for an error about a number that changes nothing.
+const MaxKGQueryLimit = 1000
 
 // KGResolution says which of three things a successful lookup found. The three
 // are exhaustive and mutually exclusive BY STAGE, which "absence versus failure"
@@ -505,12 +558,24 @@ const (
 // rows are, so the surface reporting them does not have to re-derive the
 // complement and risk disagreeing with the count beside it.
 type KGQueryResult struct {
-	Entity         string
-	Predicate      string
-	Facts          []KGFact
-	Status         string
-	Withheld       int64
-	WithheldStatus string
+	Entity    string
+	Predicate string
+	Facts     []KGFact
+	Status    string
+	// Withheld counts what was removed, keyed by WHAT removed it — "status" for
+	// the history filter, and since ADR-053 "budget" for a page the response
+	// budget cut. It was a bare int64 with a WithheldStatus beside it, which
+	// could name one cause; two causes then meant one silently overwriting the
+	// other, and a caller cannot act on a number whose reason is ambiguous.
+	Withheld map[string]int64
+	// NextCursor continues a cut page. Present only when something was cut, so
+	// its presence is the signal rather than an empty string every caller has to
+	// compare against — the same shape the rest of this surface uses.
+	//
+	// ⚠ It is opaque and one-way. It encodes which entry point produced the last
+	// fact as well as that fact's id, because a "both" query concatenates two
+	// index scans and a bare row id could not say which of them to resume.
+	NextCursor string
 	// Resolution distinguishes a real empty answer from a term the graph has
 	// never heard of. Without it a caller cannot tell "nothing is filed about
 	// this" from "you asked about something that does not exist here", and a
@@ -536,6 +601,10 @@ type KGQueryResult struct {
 // unable to say so, because the column was written on every fact and returned by
 // nothing.
 type KGFact struct {
+	// ID is the fact's own row id. It is what a cursor is built from, and it
+	// gives a caller the same by-id handle on a fact that a drawer has had since
+	// ADR-038 — a fact you can point at is one a correction can name.
+	ID             string  `json:"id,omitempty"`
 	Direction      string  `json:"direction,omitempty"`
 	Subject        string  `json:"subject"`
 	Predicate      string  `json:"predicate"`
@@ -831,7 +900,7 @@ func kgComplementStatus(status string) string {
 func (s *Service) KGQuery(ctx context.Context, teamID string, in KGQueryInput) (out KGQueryResult, err error) {
 	_, sp := telemetry.Start(ctx, telemetry.StageKGQuery)
 	defer func() {
-		endStage(sp, err, attribute.Int("am.count", len(out.Facts)), attribute.Int("am.withheld", int(out.Withheld)))
+		endStage(sp, err, attribute.Int("am.count", len(out.Facts)), attribute.Int("am.withheld", int(kgWithheldTotal(out.Withheld))))
 	}()
 	// Exactly one of the two entry points is required, not both, because either
 	// alone finds rows through an index. Neither would mean "every fact this team
@@ -874,17 +943,43 @@ func (s *Service) KGQuery(ctx context.Context, teamID string, in KGQueryInput) (
 	}
 	asOfKey := temporalStartKey(ao)
 	dropped := kgComplementStatus(status)
-	out = KGQueryResult{Entity: ent, Predicate: pred, Status: status, WithheldStatus: dropped}
+	out = KGQueryResult{Entity: ent, Predicate: pred, Status: status}
+
+	limit := in.Limit
+	if limit <= 0 {
+		limit = DefaultKGQueryLimit
+	}
+	if limit > MaxKGQueryLimit {
+		limit = MaxKGQueryLimit
+	}
+	branch, afterID, err := parseKGCursor(in.Cursor)
+	if err != nil {
+		return KGQueryResult{}, err
+	}
+
+	// withhold records what a filter removed, keyed by the filter. Nil until
+	// something is actually withheld, so an untouched page carries no key at all
+	// and the key's presence stays the signal.
+	withhold := func(cause string, n int64) {
+		if n <= 0 {
+			return
+		}
+		if out.Withheld == nil {
+			out.Withheld = map[string]int64{}
+		}
+		out.Withheld[cause] += n
+	}
 
 	// With no entity, the predicate IS the entry point and direction has nothing to
 	// be relative to — there is no queried endpoint for a fact to be incoming or
 	// outgoing OF — so both endpoints are resolved and the facts carry no direction,
 	// the same shape KGTimeline returns.
 	if ent == "" {
-		rows, err := s.repo.KGTriplesByPredicate(ctx, teamID, pred, status)
+		rows, err := s.repo.KGTriplesByPredicate(ctx, teamID, pred, status, kgPage{limit: limit, afterID: afterID})
 		if err != nil {
 			return KGQueryResult{}, err
 		}
+		rows, more := kgTrimToLimit(rows, limit)
 		names, err := s.repo.KGEntityNames(ctx, teamID, append(otherIDs(rows, true), otherIDs(rows, false)...))
 		if err != nil {
 			return KGQueryResult{}, err
@@ -895,12 +990,15 @@ func (s *Service) KGQuery(ctx context.Context, teamID string, in KGQueryInput) (
 			}
 			out.Facts = append(out.Facts, kgFact("", names[row.Subject], row.Predicate, names[row.Object], row))
 		}
+		if more {
+			out.NextCursor = kgCursor(kgBranchPredicate, rows[len(rows)-1].ID)
+		}
 		if dropped != "" {
 			n, err := s.repo.KGTriplesByPredicateCount(ctx, teamID, pred, dropped)
 			if err != nil {
 				return KGQueryResult{}, err
 			}
-			out.Withheld += n
+			withhold(dropped, n)
 		}
 		if out.Resolution, out.Unresolved, err = s.classifyKGResult(ctx, teamID, out, "", "", pred); err != nil {
 			return KGQueryResult{}, err
@@ -909,11 +1007,22 @@ func (s *Service) KGQuery(ctx context.Context, teamID string, in KGQueryInput) (
 	}
 
 	eid := normalizeEntityID(ent)
-	if direction == "outgoing" || direction == "both" {
-		rows, err := s.repo.KGTriplesBySubject(ctx, teamID, eid, status, pred)
+	// ⚠ A "both" query is TWO index scans concatenated, so one page may end
+	// inside either. The cursor names the branch as well as the row, and a
+	// cursor pointing INTO the incoming half means the outgoing half is already
+	// exhausted — resuming it would repeat every outgoing fact.
+	wantOutgoing := (direction == "outgoing" || direction == "both") && branch != kgBranchIncoming
+	wantIncoming := direction == "incoming" || direction == "both"
+	if wantOutgoing {
+		from := ""
+		if branch == kgBranchOutgoing {
+			from = afterID
+		}
+		rows, err := s.repo.KGTriplesBySubject(ctx, teamID, eid, status, pred, kgPage{limit: limit, afterID: from})
 		if err != nil {
 			return KGQueryResult{}, err
 		}
+		rows, more := kgTrimToLimit(rows, limit)
 		names, err := s.repo.KGEntityNames(ctx, teamID, otherIDs(rows, true))
 		if err != nil {
 			return KGQueryResult{}, err
@@ -929,14 +1038,33 @@ func (s *Service) KGQuery(ctx context.Context, teamID string, in KGQueryInput) (
 			if err != nil {
 				return KGQueryResult{}, err
 			}
-			out.Withheld += n
+			withhold(dropped, n)
+		}
+		if more {
+			// Stop here rather than starting the incoming half: a page that
+			// carried the tail of one branch and the head of another could not be
+			// resumed from a single cursor.
+			out.NextCursor = kgCursor(kgBranchOutgoing, rows[len(rows)-1].ID)
+			if out.Resolution, out.Unresolved, err = s.classifyKGResult(ctx, teamID, out, eid, ent, pred); err != nil {
+				return KGQueryResult{}, err
+			}
+			return out, nil
 		}
 	}
-	if direction == "incoming" || direction == "both" {
-		rows, err := s.repo.KGTriplesByObject(ctx, teamID, eid, status, pred)
+	if wantIncoming {
+		from := ""
+		if branch == kgBranchIncoming {
+			from = afterID
+		}
+		remaining := limit - len(out.Facts)
+		if remaining <= 0 {
+			remaining = 1
+		}
+		rows, err := s.repo.KGTriplesByObject(ctx, teamID, eid, status, pred, kgPage{limit: remaining, afterID: from})
 		if err != nil {
 			return KGQueryResult{}, err
 		}
+		rows, more := kgTrimToLimit(rows, remaining)
 		names, err := s.repo.KGEntityNames(ctx, teamID, otherIDs(rows, false))
 		if err != nil {
 			return KGQueryResult{}, err
@@ -947,18 +1075,89 @@ func (s *Service) KGQuery(ctx context.Context, teamID string, in KGQueryInput) (
 			}
 			out.Facts = append(out.Facts, kgFact("incoming", names[row.Subject], row.Predicate, ent, row))
 		}
+		if more {
+			out.NextCursor = kgCursor(kgBranchIncoming, rows[len(rows)-1].ID)
+		}
 		if dropped != "" {
 			n, err := s.repo.KGTriplesByObjectCount(ctx, teamID, eid, dropped, pred)
 			if err != nil {
 				return KGQueryResult{}, err
 			}
-			out.Withheld += n
+			withhold(dropped, n)
 		}
 	}
 	if out.Resolution, out.Unresolved, err = s.classifyKGResult(ctx, teamID, out, eid, ent, pred); err != nil {
 		return KGQueryResult{}, err
 	}
 	return out, nil
+}
+
+// KGWithheldBudget is the Withheld key for facts the response budget could not
+// carry. The other keys are STATUS NAMES — "ended" or "current" — because a
+// caller acting on the number needs to know what the missing rows ARE, not that
+// a filter of some kind ran; that half of the contract predates ADR-053 and the
+// reshape keeps it rather than flattening it to a generic "status".
+const KGWithheldBudget = "budget"
+
+// The three entry points a cursor can point into. A bare row id could not say
+// which, and resuming the wrong one repeats or skips a whole branch.
+const (
+	kgBranchPredicate = "p"
+	kgBranchOutgoing  = "o"
+	kgBranchIncoming  = "i"
+)
+
+// kgCursor and parseKGCursor are the only two places that know a cursor's shape.
+// It is opaque to callers by contract, so keeping the encoding in one pair of
+// functions is what lets the shape change without a caller noticing.
+func kgCursor(branch, id string) string { return branch + ":" + id }
+
+func parseKGCursor(cursor string) (branch, afterID string, err error) {
+	if strings.TrimSpace(cursor) == "" {
+		return "", "", nil
+	}
+	b, id, ok := strings.Cut(cursor, ":")
+	if !ok || id == "" || (b != kgBranchPredicate && b != kgBranchOutgoing && b != kgBranchIncoming) {
+		return "", "", fmt.Errorf("%w: cursor is not one this server issued — pass back a next_cursor verbatim rather than assembling one", ErrInvalidInput)
+	}
+	return b, id, nil
+}
+
+// kgWithheldTotal sums every cause, for the one span attribute that wants a
+// single number. It is a sum rather than one key because a span reporting only
+// the budget cut would under-report a page that also hid history.
+func kgWithheldTotal(w map[string]int64) int64 {
+	var n int64
+	for _, v := range w {
+		n += v
+	}
+	return n
+}
+
+// KGCursorFor builds the cursor that resumes AFTER a fact, for a caller that had
+// to stop mid-page for a reason the store could not see — the response budget is
+// the one that exists. It is here rather than at that caller because the cursor's
+// encoding is this package's, and a second place that assembles one is a second
+// place to get the format wrong.
+func KGCursorFor(f KGFact) string {
+	branch := kgBranchPredicate
+	switch f.Direction {
+	case "outgoing":
+		branch = kgBranchOutgoing
+	case "incoming":
+		branch = kgBranchIncoming
+	}
+	return kgCursor(branch, f.ID)
+}
+
+// kgTrimToLimit drops the sentinel row kgTriples fetches beyond the limit and
+// reports whether it was there. Fetching limit+1 is how "there is more" is known
+// without a second count, and this is where that extra row stops being visible.
+func kgTrimToLimit(rows []kgTripleRow, limit int) ([]kgTripleRow, bool) {
+	if limit > 0 && len(rows) > limit {
+		return rows[:limit], true
+	}
+	return rows, false
 }
 
 // classifyKGResult sets the resolution state for a completed lookup.
@@ -989,7 +1188,7 @@ func (s *Service) resolveKGTerms(ctx context.Context, teamID, eid, ent, pred str
 		// A predicate is known when ANY triple uses it, in any status. Asking
 		// under the caller's own status filter would report a predicate whose
 		// every fact has ended as unknown, which is a different thing entirely.
-		rows, err := s.repo.KGTriplesByPredicate(ctx, teamID, pred, KGStatusAll)
+		rows, err := s.repo.KGTriplesByPredicate(ctx, teamID, pred, KGStatusAll, kgPage{limit: 1})
 		if err != nil {
 			return "", "", err
 		}
@@ -1058,6 +1257,7 @@ func (s *Service) KGTimeline(ctx context.Context, teamID, entity string) ([]KGFa
 // kgFact builds a KGFact from a row with the names already resolved.
 func kgFact(direction, subject, predicate, object string, row kgTripleRow) KGFact {
 	return KGFact{
+		ID:        row.ID,
 		Direction: direction, Subject: subject, Predicate: predicate, Object: object,
 		ValidFrom: row.ValidFrom, ValidTo: row.ValidTo, Confidence: row.Confidence,
 		SourceCloset: row.SourceCloset, SourceFile: row.SourceFile,
@@ -1139,7 +1339,7 @@ const (
 // object, nothing is derived: the writer has said where it belongs, and a server
 // guess must not sit beside a human decision as though the two were equivalent.
 func (s *Service) attachDerivedEdge(ctx context.Context, teamID string, d Drawer) (EdgeAttachment, error) {
-	existing, err := s.repo.KGTriplesByObject(ctx, teamID, normalizeEntityID(d.ID), KGStatusAll, "")
+	existing, err := s.repo.KGTriplesByObject(ctx, teamID, normalizeEntityID(d.ID), KGStatusAll, "", kgPage{})
 	if err != nil {
 		return EdgeAuthored, err
 	}
@@ -1507,7 +1707,7 @@ func (s *Service) CorrectionsFor(ctx context.Context, teamID string, recordIDs [
 	}
 
 	for _, pred := range CorrectionPredicates {
-		rows, err := s.repo.KGTriplesByPredicate(ctx, teamID, normalizePredicate(pred), KGStatusCurrent)
+		rows, err := s.repo.KGTriplesByPredicate(ctx, teamID, normalizePredicate(pred), KGStatusCurrent, kgPage{})
 		if err != nil {
 			return nil, err
 		}

@@ -460,7 +460,7 @@ func TestF7APageReportsWhatItWithheld(t *testing.T) {
 		}
 		t.Fatalf("no hit came back empty, so this fixture never exhausted the %d-rune budget "+
 			"and the assertions below cannot fail: %d hit(s), per-hit runes %v",
-			responseBudget, page.Count, sizes)
+			ResponseBudget, page.Count, sizes)
 	}
 	if trimmed == 0 {
 		t.Fatalf("no hit was trimmed-but-nonempty, so this page cannot distinguish the two " +

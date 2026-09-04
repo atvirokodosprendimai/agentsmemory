@@ -19,7 +19,7 @@ file, the task file wins and the README must be regenerated.
 
 | ID | Title | Status | Covers | Acceptance |
 |----|-------|--------|--------|------------|
-| T1 | A graph answer that is bounded and says what it cut | pending | — | `go test ./internal/palace/... ./internal/mcpserver/... -count=1` |
+| T1 | A graph answer that is bounded and says what it cut | done | — | `go test ./internal/palace/... ./internal/mcpserver/... -count=1` |
 | T2 | Containment edges are a listing, not a fact | pending | — | `go test ./... -count=1` |
 | T3 | Tell the writer when a node has outgrown its tier | pending | — | `go test ./internal/palace/... ./internal/mcpserver/... -count=1` |
 | T4 | A fetch carries the facts about what it returns | pending | — | `go test ./internal/mcpserver/... -count=1` |

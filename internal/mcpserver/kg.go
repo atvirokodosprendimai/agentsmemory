@@ -2,7 +2,9 @@ package mcpserver
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/atvirokodosprendimai/agentsmemory/internal/palace"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/usage"
@@ -171,6 +173,8 @@ func registerKGQuery(reg *registrar, drawers *palace.Service, usageSvc *usage.Se
 		mcp.WithString("as_of", mcp.Description("Only facts in effect at this instant (YYYY-MM-DD or datetime). ⚠It is DATE-GRANULAR on the retraction end, so it can lag status:\"current\" by up to a day: a fact whose valid_to is a bare date is in effect through the END of that day, while status:\"current\" excludes it the moment it is retracted. Retractions made through this server now stamp an instant, so the lag is confined to a date-only end that a caller passed explicitly or that predates that change — ask with a datetime when the exact boundary matters. ⚠Even then the end is INCLUSIVE: a fact whose valid_to equals your as_of is still in effect here while status:\"current\" excludes it, so the disagreement narrows to that single instant rather than vanishing.")),
 		mcp.WithString("direction", mcp.Description("\"outgoing\", \"incoming\", or \"both\" (default). Ignored without an entity: with predicate alone there is no queried endpoint for a fact to be incoming or outgoing of.")),
 		mcp.WithString("status", mcp.Description(kgStatusParamDescription)),
+		mcp.WithNumber("limit", mcp.Description("How many facts this page carries (default 100, max 1000). A page is ALSO cut when it would exceed the response budget, whatever limit you ask for — so a large limit does not buy a larger answer, it only stops the budget being the thing that decides.")),
+		mcp.WithString("cursor", mcp.Description("Continue a cut page: pass back the `next_cursor` a previous call returned, VERBATIM. It is opaque and one-way — it names the entry point as well as the position, because a both-directions query is two index scans and a bare row id cannot say which to resume. Assembling one yourself is refused rather than silently mis-paged.")),
 	)
 	reg.add(tool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		t, errResult, ok := admit(ctx, usageSvc)
@@ -184,12 +188,18 @@ func registerKGQuery(reg *registrar, drawers *palace.Service, usageSvc *usage.Se
 			AsOf:      asOf,
 			Direction: req.GetString("direction", "both"),
 			Status:    req.GetString("status", kgQueryDefaultStatus),
+			Limit:     req.GetInt("limit", 0),
+			Cursor:    req.GetString("cursor", ""),
 		})
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
+		// ⚠ THE BUDGET IS SPENT BEFORE THE COUNT IS TAKEN. A page cut here and a
+		// count taken before it would disagree, and the count is what a caller
+		// reads to decide whether the answer was complete.
+		facts, cut, cursor := boundGraphPage(res.Facts, res.NextCursor)
 		out := map[string]any{
-			"facts": res.Facts, "count": len(res.Facts), "status": res.Status,
+			"facts": facts, "count": len(facts), "status": res.Status,
 			// resolution is what separates "nothing is filed about this" from
 			// "you asked about something this graph has never heard of". Both
 			// used to arrive as count:0 with no error, so a caller could not act
@@ -223,11 +233,35 @@ func registerKGQuery(reg *registrar, drawers *palace.Service, usageSvc *usage.Se
 		// — that is precisely what it does not know. So the keys appear only when
 		// something was actually removed, which makes their presence informative,
 		// and the hint names the parameter that brings it back.
-		if res.Withheld > 0 {
-			out["withheld"] = map[string]int64{res.WithheldStatus: res.Withheld}
-			out["hint"] = fmt.Sprintf(
-				"%d %s fact(s) not shown — pass status:%q to see them, or status:%q for both.",
-				res.Withheld, res.WithheldStatus, res.WithheldStatus, palace.KGStatusAll)
+		withheld := map[string]int64{}
+		for cause, n := range res.Withheld {
+			if n > 0 {
+				withheld[cause] = n
+			}
+		}
+		if cut > 0 {
+			withheld[palace.KGWithheldBudget] = int64(cut)
+		}
+		if len(withheld) > 0 {
+			out["withheld"] = withheld
+			var hints []string
+			for _, st := range []string{palace.KGStatusEnded, palace.KGStatusCurrent} {
+				if n := withheld[st]; n > 0 {
+					hints = append(hints, fmt.Sprintf(
+						"%d %s fact(s) not shown — pass status:%q to see them, or status:%q for both.",
+						n, st, st, palace.KGStatusAll))
+				}
+			}
+			if n := withheld[palace.KGWithheldBudget]; n > 0 {
+				hints = append(hints, fmt.Sprintf(
+					"%d fact(s) did not fit this response — pass cursor:%q to continue, or descend to a "+
+						"narrower entity instead: a node this wide is usually one that wants splitting by topic.",
+					n, cursor))
+			}
+			out["hint"] = strings.Join(hints, " ")
+		}
+		if cursor != "" {
+			out["next_cursor"] = cursor
 		}
 		return jsonResult(out), nil
 	})
@@ -301,4 +335,70 @@ func registerEntryPoint(reg *registrar, drawers *palace.Service, usageSvc *usage
 		}
 		return jsonResult(out), nil
 	})
+}
+
+// boundGraphPage fills a graph answer until the response budget is spent, and
+// reports how many facts it could not carry plus the cursor that continues them.
+//
+// ⚠ THE GRAPH WAS THE ONE AGENT-FACING READ WITH NO BOUND (ADR-053). am_search
+// and am_list_drawers have spent ResponseBudget since the page-size work; this
+// query spent nothing, and measured on the live corpus 2026-09-04 a single
+// entity rendered ~106,000 runes against a 40,000-rune budget. A tool result
+// that large does not arrive smaller — it does not arrive at all, and an agent
+// reads the empty result as "the graph holds nothing about this".
+//
+// The budget is checked BEFORE each fact is appended as well as after the last
+// one, because a budget consulted only up front is not a bound — the same defect
+// headWithin was written to fix on the drawer side.
+//
+// It is a BACKSTOP behind the caller's limit rather than the primary mechanism.
+// A fan-out has no ranking, so a page cut with no way to continue is an
+// arbitrary subset the caller cannot complete: the cursor is what makes the cut
+// honest, and it is why this returns one for a page the budget shortened even
+// when the store had no more rows to give.
+func boundGraphPage(facts []palace.KGFact, storeCursor string) (kept []palace.KGFact, cut int, cursor string) {
+	spent := graphEnvelopeReserve
+	for i, f := range facts {
+		b, err := json.Marshal(f)
+		if err != nil {
+			// A fact that cannot be rendered is not one to silently drop: keep it
+			// and let the encoder report, rather than reporting it as withheld by
+			// a budget that never saw it.
+			kept = append(kept, f)
+			continue
+		}
+		n := len([]rune(string(b)))
+		if spent+n > ResponseBudget && i > 0 {
+			// i > 0 so a single oversized fact is still returned rather than an
+			// empty page: one fact past the budget is a page a client may still
+			// truncate, while zero facts with a cursor is an answer that says
+			// nothing and asks the caller to try again for the same result.
+			return kept, len(facts) - i, kgPageCursor(facts[i-1])
+		}
+		spent += n
+		kept = append(kept, f)
+	}
+	return kept, 0, storeCursor
+}
+
+// graphEnvelopeReserve is what a graph response costs BEFORE its facts: the
+// entity, predicate, status, resolution, withheld map, hint and next_cursor,
+// plus the JSON escaping the MCP layer applies when it puts this payload inside
+// a text content — every quote in every fact becomes two runes there.
+//
+// ⚠ IT EXISTS BECAUSE A BUDGET SPENT ONLY ON CONTENT IS NOT A BUDGET ON THE
+// RESPONSE. Measured 2026-09-04 with no reserve: a page filled exactly to
+// ResponseBudget rendered 40,324 runes, so the bound was 324 runes short of the
+// thing it claims to bound. The reserve is deliberately larger than that
+// measurement rather than fitted to it — the overshoot scales with how many
+// quotes the facts carry, and a constant tuned to one corpus is one that goes
+// wrong on the next.
+const graphEnvelopeReserve = 2_000
+
+// kgPageCursor rebuilds the store's cursor for a fact the budget stopped at. The
+// encoding lives in internal/palace; this reads the two fields it is made of
+// rather than duplicating the format, so a change there cannot leave this half
+// minting cursors the store refuses.
+func kgPageCursor(last palace.KGFact) string {
+	return palace.KGCursorFor(last)
 }
