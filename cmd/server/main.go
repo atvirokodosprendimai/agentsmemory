@@ -1670,11 +1670,11 @@ func sortedReportNamespaces(m map[string]int) []string {
 // pipeable even with APP_DEBUG=true; serve is unaffected (its stdout is not a
 // data channel).
 //
-// The DSN carries the pragmas described on dbPragmas, because more than one
+// The DSN carries the pragmas described on db.WriterPragmas, because more than one
 // process legitimately opens this file: serve holds it open for its lifetime
 // while inspect, mcp, plan, share and an export all read it.
 func openWriterDB(path string, debug bool) (*gorm.DB, error) {
-	gdb, err := openDBWithPragmas(path, debug, dbPragmas)
+	gdb, err := openDBWithPragmas(path, debug, db.WriterPragmas)
 	if err != nil {
 		return nil, err
 	}
@@ -1726,28 +1726,6 @@ func openDBWithPragmas(path string, debug bool, pragmas string) (*gorm.DB, error
 	return gorm.Open(sqlite.Open(path+pragmas), &gorm.Config{Logger: gormLog})
 }
 
-// dbPragmas are the connection pragmas appended to the SQLite DSN.
-//
-// journal_mode(WAL): readers no longer block the writer, so `inspect` or a data
-// export can run against a live server instead of colliding with it. WAL is a
-// persistent property of the database file, so the first connection converts it
-// and every later one simply observes it.
-//
-// busy_timeout(5000): SQLite's default is 0 — a contended write fails
-// *instantly* with "database is locked" rather than waiting. Five seconds turns
-// the normal case (a reader and the writer overlapping for microseconds) into a
-// brief wait instead of an error.
-//
-// Deliberately NOT applied to the data-export archive (internal/dataexport):
-// that file is handed to the user as a single download, and WAL would leave
-// committed rows in a -wal sidecar that does not travel with it.
-//
-// This is a concurrency *performance* setting and nothing more. It is not a
-// substitute for the single-instance lock in lock.go — if anything it raises the
-// stakes, because with WAL two servers on one database write happily and
-// silently instead of announcing themselves with lock errors.
-const dbPragmas = "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)"
-
 // readerDBPragmas are the writer's pragmas plus query_only, for handles that
 // serve the read model.
 //
@@ -1760,7 +1738,7 @@ const dbPragmas = "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma
 // ⚠ It never carries _txlock=immediate. A serialisation pragma on a handle that
 // cannot write is meaningless, and on the WRITER it would mean the writer count
 // had stopped being one — which is the defect to fix rather than to paper over.
-const readerDBPragmas = dbPragmas + "&_pragma=query_only(1)"
+const readerDBPragmas = db.WriterPragmas + "&_pragma=query_only(1)"
 
 // inspectionDBPragmas enforce doctor's no-write boundary at SQLite itself.
 // busy_timeout remains useful when doctor reads a live palace; journal_mode is

@@ -28,7 +28,7 @@ T1 ── T2 ─┬─ T3
 |----|-------|--------|--------|------------|
 | T1 | Reproduce the lock upgrade failure as a red test | done | — | `go test ./cmd/server/ -run 'TestAReadThenWriteTransactionSurvivesConcurrentWriters$'` |
 | T2 | One DSN per role, and a writer that takes its lock at BEGIN | done | — | `go test ./cmd/server/... -count=1` |
-| T3 | The test harness opens the database we ship | pending | — | `go test ./internal/mcptest/... ./cmd/server/ -count=1` |
+| T3 | The test harness opens the database we ship | done | — | `go test ./internal/mcptest/... ./cmd/server/ -count=1` |
 | T4 | A read handle the read path cannot write through | pending | — | `go test ./cmd/server/ -count=1` |
 | T5 | Route internal/palace reads onto the read handle | pending | — | `go test ./internal/palace/... ./cmd/server/... -count=1` |
 | T6 | A gate that fails when the wiring is deleted | pending | — | `go test ./cmd/server/ -run 'TestTheReadHandleCannotWrite$|TestEveryServingHandleDeclaresItsRole$' -count=1` |
