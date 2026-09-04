@@ -28,8 +28,11 @@ installer stops hand-writing registrations that a plugin format states.
 1. Write the failing tests first (TDD red).
 2. Write `plugin.json` and `hooks.json` declaring exactly what the installer registers today.
    The set must match, and the test that says so is the point of the task.
-3. Add the plugin install path. **Keep the existing path** until the acceptance below proves
-   the two produce the same set.
+3. ⚠ **The plugin path is DECLARED, not yet wired as an install route.** The manifest ships and
+   the equality gate holds it to the installer's plan, so the two cannot diverge. Actually
+   installing *through* `/plugin install` is a distribution change that needs a marketplace
+   entry and a release, and is deliberately left to the follow-up rather than half-done here.
+   The existing installer path is untouched.
 4. Teach `doctor` to fail on a duplicated registration — a hook registered by both paths is
    silent and doubles every injection.
 5. Run the fence, the mutants, the full suite.
@@ -39,7 +42,7 @@ installer stops hand-writing registrations that a plugin format states.
 ```bash
 gofmt -l clients internal | (! grep -q .) && go vet ./... && \
 go test ./clients/claude-code/ \
-  -run 'TestThePluginDeclaresEveryHookTheInstallerRegisters|TestThePluginManifestIsValid|TestDoctorFailsOnADuplicateRegistration' \
+  -run 'TestThePluginDeclaresEveryHookTheInstallerRegisters|TestThePluginManifestIsValid|TestThePluginManifestHardcodesNoHomePath|TestDoctorFailsOnADuplicateRegistration' \
   -count=1 2>&1 | tee /tmp/adr051-t6.out; \
 ! grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/adr051-t6.out && go test ./... -count=1
 ```
@@ -50,7 +53,8 @@ go test ./clients/claude-code/ \
 |-----------|------|----------|--------|
 | `TestThePluginDeclaresEveryHookTheInstallerRegisters` | `clients/claude-code/plugin_test.go` | The manifest's event set equals the installer's plan, derived from both sources rather than from a hand-kept list — so a hook added tomorrow joins the check on the same commit | — |
 | `TestThePluginManifestIsValid` | `clients/claude-code/plugin_test.go` | The manifest parses and carries name, version and description | — |
-| `TestDoctorFailsOnADuplicateRegistration` | `clients/claude-code/doctor_test.go` | Two registrations of one script on one event is a finding, not a shrug | — |
+| `TestThePluginManifestHardcodesNoHomePath` | `clients/claude-code/plugin_test.go` | Every command resolves through `${CLAUDE_PLUGIN_ROOT}`. A path a plugin hardcodes is a path it depends on, and an absolute home path in a shipped file is a personal path published to whoever installs it | — |
+| `TestDoctorFailsOnADuplicateRegistration` | `clients/claude-code/plugin_test.go` | Two registrations of one script on one event is a finding, not a shrug — and it is the check no test of the install PLAN can make, because the plan has one writer and a duplicate needs two | — |
 
 ## Reachability
 
@@ -61,6 +65,8 @@ a hand-maintained copy goes stale and this one cannot.
 ## Mutation Log
 
 Filled by `adr-verify --mutant`. At minimum: one event dropped from the manifest.
+- 2026-09-04 · 87aff31* · mutant killed · exit 1 · `clients/claude-code/.claude-plugin/hooks.json` · one event dropped from the manifest: a user installing the plugin silently loses that hook while the installer path keeps it · acceptance-sha256:ee58aac14c210f2f6222dbcd7e112901b5adfaae1a8b33484dc7bbc7cf9abed1
+- 2026-09-04 · 87aff31* · mutant killed · exit 1 · `clients/claude-code/doctor.go` · doctor stops recording duplicates: a half-finished migration leaves a hook injecting twice and the command reports it as healthy · acceptance-sha256:ee58aac14c210f2f6222dbcd7e112901b5adfaae1a8b33484dc7bbc7cf9abed1
 
 ## Invariants
 
@@ -86,3 +92,6 @@ migration that silently drops a registration is worse than no migration.
 ## Verification Log
 
 Filled by `adr-verify`.
+- 2026-09-04 · 87aff31* · exit 0 · `gofmt -l clients internal | (! grep -q .) && go vet ./... && \ …` · acceptance-sha256:ee58aac14c210f2f6222dbcd7e112901b5adfaae1a8b33484dc7bbc7cf9abed1 · ms:34914
+- 2026-09-04 · 87aff31* · exit 0 · `gofmt -l clients internal | (! grep -q .) && go vet ./... && \ …` · acceptance-sha256:ee58aac14c210f2f6222dbcd7e112901b5adfaae1a8b33484dc7bbc7cf9abed1 · ms:34470
+- 2026-09-04 · 87aff31* · exit 0 · `gofmt -l clients internal | (! grep -q .) && go vet ./... && \ …` · acceptance-sha256:ee58aac14c210f2f6222dbcd7e112901b5adfaae1a8b33484dc7bbc7cf9abed1 · ms:33755
