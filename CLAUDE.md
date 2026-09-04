@@ -50,14 +50,27 @@ Everything above applies. Three things are particular to this harness:
   both `git push --force:*` and `git push -f:*`, as `--force-with-lease` and a
   `+refspec` do. Letting every push prompt costs one keypress and removes the
   whole class; review found this on the first narrowing, in the artifact that
-  had just been narrowed. The `deny` list is ADR-051 T9's, copied verbatim so that
-  `gh pr merge`, a force-push, `gh release create` and a data-destroying compose
-  or goose command still PROMPT whatever the allow list says — deny wins. ⚠ The
-  first draft of this file allowed `gh:*`, `git:*`, `python3:*` and `curl:*` with
-  no deny list, in the same PR that told a session never to stop for permission;
-  review caught that the two together remove the prompt and the boundary at
-  once. Add a command here when you approve it twice — narrowly, and check the
-  deny list still covers what it should.
+  had just been narrowed. The rest of the `deny` list is ADR-051 T9's, copied
+  verbatim so that a force-push, `gh release create` and a data-destroying
+  compose or goose command still PROMPT whatever the allow list says — deny
+  wins. ⚠ The first draft of this file allowed `gh:*`, `git:*`, `python3:*` and
+  `curl:*` with no deny list, in the same PR that told a session never to stop
+  for permission; review caught that the two together remove the prompt and the
+  boundary at once. Add a command here when you approve it twice — narrowly, and
+  check the deny list still covers what it should.
+- **`gh pr merge` MOVED from deny to allow on 2026-09-04, at the owner's
+  instruction, and this paragraph is what that costs.** It was denied precisely
+  so a merge would stop and ask. The entry is `gh pr merge:*`, so it also covers
+  `--admin`, which bypasses branch protection, and `--squash` and `--rebase`,
+  which would break this repository's merge-commit convention; narrow it to the
+  flags actually used if an unattended session ever merges something nobody
+  reviewed. ⚠ AND THIS REPOSITORY DOES HAVE BRANCH PROTECTION, contrary to what
+  a palace record said until today: the first merge attempt after the change was
+  refused with `3 of 3 required status checks are expected` and
+  `mergeStateStatus: BEHIND`, on a PR whose own checks were all green — the base
+  had moved, so the required contexts had not reported against the new base.
+  `gh pr update-branch` is what clears it. So the gates before `main` are the
+  review, the required checks, and being up to date; the keypress is what went.
 - **`scripts/redeploy.sh` is pre-approved, and that is a deploy, not a gate.** It
   is on the allow list because AGENTS.md §The working loop item 3 requires it
   after every merge that changes served code, and a redeploy that prompts is one
