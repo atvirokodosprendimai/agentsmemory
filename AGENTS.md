@@ -617,6 +617,26 @@ classifier whether it would admit that authority, which fails when either side m
 exemption itself is gone: the placeholder now says `localhost`, so there is no special case
 to forget. A special case you can delete beats one you have to reason about.
 
+**A HANDLE'S ROLE IS DECIDED AT THE COMPOSITION ROOT, AND ONLY AN AST READ OF THAT ROOT CAN
+SEE IT.** ADR-052 made the writer ONE connection and gave the read model a `query_only` handle,
+and both are one-line facts in `cmd/server` that every behavioural test survives the loss of —
+raise `SetMaxOpenConns(1)` and the lock-upgrade failure returns with the suite green, open a
+fourth handle beside the three named openers and nothing objects.
+`TestEveryServingHandleDeclaresItsRole` parses `cmd/server` and requires every
+`openDBWithPragmas` call to sit inside `openWriterDB`, `openReaderDB` or `openInspectionDB`,
+requires the writer's cap to be the literal `1`, and walks every `Transaction(` in
+`internal/palace` to require that it opens on the writer or on the `tx` it was handed; its
+falsifiability cases are subtests over fixtures that ARE offenders, inside the fence, and the
+fence greps for a subtest's name so a skipped negative case cannot report success.
+`TestNoServingOpenerAddsAWriteSerialisationPragma` evaluates each opener's DSN ARGUMENT from
+the AST — constants, the cross-package `db.WriterPragmas`, and concatenations — and refuses
+`_txlock`, because a serialisation pragma on the writer means the writer count stopped being one
+and somebody papered over the second writer instead of removing it. ⚠ WHAT NEITHER CAN SEE: a
+read method that routes ITSELF onto the writer, or a new read that writes. No AST check can
+decide which statements a method should run on; that stays review's job, and what makes the
+second fail loudly is `internal/palace`'s strict test fixture — a `query_only` reader over the
+same file — rather than any gate here.
+
 Prose belongs where a human reads it and nowhere else. Anything that must stay
 true gets a command whose exit code says so — including this section, which
 `TestAgentsMdNamesGatesThatExist` pins so the list cannot rot into a claim about
