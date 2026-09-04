@@ -50,20 +50,30 @@ Everything above applies. Three things are particular to this harness:
   both `git push --force:*` and `git push -f:*`, as `--force-with-lease` and a
   `+refspec` do. Letting every push prompt costs one keypress and removes the
   whole class; review found this on the first narrowing, in the artifact that
-  had just been narrowed. The rest of the `deny` list is ADR-051 T9's, copied
-  verbatim so that a force-push, `gh release create` and a data-destroying
-  compose or goose command still PROMPT whatever the allow list says — deny
-  wins. ⚠ The first draft of this file allowed `gh:*`, `git:*`, `python3:*` and
-  `curl:*` with no deny list, in the same PR that told a session never to stop
-  for permission; review caught that the two together remove the prompt and the
-  boundary at once. Add a command here when you approve it twice — narrowly, and
-  check the deny list still covers what it should.
-- **`gh pr merge` MOVED from deny to allow on 2026-09-04, at the owner's
-  instruction, and this paragraph is what that costs.** It was denied precisely
-  so a merge would stop and ask. The entry is `gh pr merge:*`, so it also covers
-  `--squash` and `--rebase`, which would break this repository's merge-commit
-  convention; narrow it to the flags actually used if an unattended session ever
-  merges something nobody reviewed.
+  had just been narrowed. ⚠ THE `deny` LIST NO LONGER HOLDS WHAT THIS FILE USED
+  TO SAY IT DID. On 2026-09-04, at the owner's instruction, NINE entries moved
+  from `deny` to `allow` in one change: `gh pr merge`, `gh release create`,
+  `gh release delete`, `docker compose down -v`, `goose down`, `goose reset`,
+  `am_merge_wing`, `am_invalidate_drawer` and `am_kg_invalidate`. What is still
+  denied is `git push --force:*`, `git push -f:*` and `rm -rf /*`, and that is
+  the whole list. ⚠ The first draft of this file allowed `gh:*`, `git:*`,
+  `python3:*` and `curl:*` with no deny list, in the same PR that told a session
+  never to stop for permission; review caught that the two together remove the
+  prompt and the boundary at once. This allow list is the deliberate version of
+  that — approved by the owner rather than slipped past a review — and the
+  instruction is the whole difference. Add a command when you approve it twice.
+- **What the widening costs, written down once so no session rediscovers it.**
+  Each of those entries was denied because the prompt WAS the owner's decision
+  point; a session that runs one now has nothing between it and the effect.
+  `gh pr merge:*` also covers `--squash` and `--rebase`, which would break this
+  repository's merge-commit convention. `gh release create` publishes to the
+  world. `docker compose down -v` destroys the palace volume and `goose reset`
+  its schema. `am_invalidate_drawer` and `am_kg_invalidate` end records that
+  ADR-038 says are ended rather than overwritten — and an ended record cannot be
+  relocated, so that one is a one-way door. Narrow any of them the day an
+  unattended session fires one nobody asked for. Note what still stands where:
+  `main`'s branch protection gates a merge, and NOTHING gates a release or a
+  destructive local command except the session's own judgement.
 - **⚠ THIS REPOSITORY DOES HAVE BRANCH PROTECTION ON `main`, and a palace record
   said otherwise until 2026-09-04.** Read from the API that day rather than
   inferred from a refusal message: required status checks `check`, `test` and
