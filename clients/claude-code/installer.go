@@ -673,6 +673,9 @@ func (i *Installer) writeAssets() error {
 	// not by a test; TestAgentWithoutACommandsDirWritesNoCommands ALLOWED the
 	// agents directory without requiring it, which is a check on what must not
 	// happen with nothing asserting what must.
+	if err := i.writeSkills(); err != nil {
+		return err
+	}
 	if err := i.writeAgentDefinitions(); err != nil {
 		return err
 	}
@@ -823,6 +826,35 @@ func (i *Installer) writeAgentDefinitions() error {
 		i.ok("agent %s", filepath.Base(i.agentDefinitionPath(name)))
 	}
 	return nil
+}
+
+// writeSkills installs the native Agent Skills (ADR-051 T8).
+//
+// Claude Code only, because SKILL.md is its mechanism: codex and pi have no skill
+// discovery, and writing one into their config would be a file the agent never
+// reads. Each skill lands at skills/<name>/SKILL.md, which is where Claude Code
+// looks.
+func (i *Installer) writeSkills() error {
+	if i.kit.name != agentClaude {
+		return nil
+	}
+	for _, name := range nativeSkillAssets {
+		data, err := i.source().ReadFile("skills/" + name + "/SKILL.md")
+		if err != nil {
+			return err
+		}
+		if err := i.writeFile(i.skillPath(name), data, 0o644); err != nil {
+			return err
+		}
+		i.ok("skill %s", name)
+	}
+	return nil
+}
+
+// skillPath is where a native skill lands: skills/<name>/SKILL.md under the
+// config dir, the layout Claude Code discovers.
+func (i *Installer) skillPath(name string) string {
+	return filepath.Join(i.targetDir, "skills", name, "SKILL.md")
 }
 
 // writeCommands writes the slash-command markdown into the kit's commands dir.

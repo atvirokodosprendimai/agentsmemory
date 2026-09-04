@@ -469,3 +469,57 @@ func TestTheStatusLineIsRegistered(t *testing.T) {
 		t.Fatal("the installer never passes the status-line command to ensureHooks; it ships and is never registered")
 	}
 }
+
+// TestTheSkillIsInstalled covers the placement rung.
+//
+// A SKILL.md in the wrong directory is invisible and errors NOWHERE — Claude Code
+// simply never discovers it, and every test that reads the file still passes. Only
+// the install plan can see the difference.
+func TestTheSkillIsInstalled(t *testing.T) {
+	i := &Installer{targetDir: "/cfg", kit: agentKit{name: agentClaude}}
+	got := i.skillPath("recall")
+	want := filepath.Join("/cfg", "skills", "recall", "SKILL.md")
+	if got != want {
+		t.Errorf("skill lands at %s, want %s — Claude Code discovers skills/<name>/SKILL.md", got, want)
+	}
+	if len(nativeSkillAssets) == 0 {
+		t.Fatal("no native skills declared; writeSkills would install nothing")
+	}
+	b, err := os.ReadFile("installer.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), "i.writeSkills()") {
+		t.Error("writeSkills is never called; the skill ships embedded and is never written")
+	}
+}
+
+// TestTheSkillPointsAtTheCatalogueRatherThanCopyingIt is the drift gate.
+//
+// The team's conventions live on the server and change there. A skill that
+// restated one would be a second copy of a convention — a second thing to get
+// wrong, and the copy nobody maintains is the one that stays wrong. This
+// repository has recorded that against its own protocol documents more than once,
+// which is why it is asserted here rather than trusted.
+func TestTheSkillPointsAtTheCatalogueRatherThanCopyingIt(t *testing.T) {
+	b, err := os.ReadFile(filepath.Join("skills", "recall", "SKILL.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(b)
+	for _, want := range []string{"am_list_skills", "am_load_skill", "am_search"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the skill never names %s, so it cannot reach the centralised catalogue", want)
+		}
+	}
+	// Front matter must declare a description and READ tools only. A skill that
+	// can write is a second write path with none of the protocol's gates.
+	if !strings.Contains(body, "description:") || !strings.Contains(body, "allowed-tools:") {
+		t.Error("the skill lacks description or allowed-tools front matter")
+	}
+	for _, forbidden := range []string{"am_add_drawer", "am_kg_add", "am_diary_write", "am_update_drawer"} {
+		if strings.Contains(body, "allowed-tools:") && strings.Contains(strings.SplitN(body, "---", 3)[1], forbidden) {
+			t.Errorf("allowed-tools grants %s; a recall skill that can write is a write path with none of the protocol's gates", forbidden)
+		}
+	}
+}
