@@ -502,9 +502,13 @@ func TestEveryRegisteredPluginHookIsExecutable(t *testing.T) {
 	if len(manifest) == 0 {
 		t.Fatal("the manifest declares no hooks — this check would pass vacuously")
 	}
+	// ⚠ FATAL, NOT SKIP. A skip reads as a pass in a CI summary, so in a container
+	// without git this gate would go silently inert — which is the shape of failure
+	// it exists to catch, applied to itself. Every other check here already assumes
+	// a git checkout. Reported by review.
 	out, err := exec.Command("git", "ls-files", "-s", "hooks/").Output()
 	if err != nil {
-		t.Skipf("git unavailable: %v", err)
+		t.Fatalf("git ls-files failed (%v); this gate reads the INDEX mode and cannot fall back to the working tree, which reports 0644 for everything on a Git-for-Windows checkout", err)
 	}
 	mode := map[string]string{}
 	for _, line := range strings.Split(string(out), "\n") {
