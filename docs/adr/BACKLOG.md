@@ -2831,9 +2831,13 @@ because nothing re-checks an anchor it will not attribute.
 ⚠ **Checking them one by one is what makes this worth recording, because the assumption "unlabelled
 ⇒ the verdict is bogus" was wrong in both directions.** Two of the three repairs were real drift the
 frozen verdict happened to state correctly, and one was the opposite — an anchor recorded
-**`verified`** pinning `shutdown, err := telemetry.Setup(...)` in `cmd/server/eval.go`, which has
-**zero non-test call sites in the tree**: the code moved to the `withTelemetry` chokepoint when that
-seam was introduced, and the pin has been reading `verified` over absent code ever since. That is
+**`verified`** pinning `shutdown, err := telemetry.Setup(...)` in `cmd/server/eval.go`, where **that
+snippet no longer appears at all**. The code did not vanish, it MOVED: `telemetry.Setup` is now
+reached from a single package-level seam, `var telemetrySetup = telemetry.Setup` in
+`cmd/server/telemetry.go`, which `withTelemetry` calls — the arrangement
+`TestTelemetrySetupHasOneChokepoint` requires and counts as exactly one. Moving rather than
+deleting is precisely why a stale pin could go on reading `verified`: the package still compiles,
+the feature still works, and only the pinned lines are gone. That is
 the "permanently silent" half of the defect, and it is the more dangerous one — a false `missing`
 argues loudly for deleting a good memory, while a false `verified` quietly certifies a memory as
 current against code that is gone. Nothing in the corpus would ever have surfaced it, because the
