@@ -212,7 +212,7 @@ func (s *Service) KGReplaceSource(ctx context.Context, teamID, wing, source stri
 			return KGReplaceResult{}, fmt.Errorf("file triple from %q: %w", src, err)
 		}
 	}
-	filed, err := s.repo.CountKGTriplesBySource(ctx, teamID, origin, src)
+	filed, err := s.writer.CountKGTriplesBySource(ctx, teamID, origin, src)
 	if err != nil {
 		return KGReplaceResult{}, fmt.Errorf("count filed triples of %q: %w", src, err)
 	}

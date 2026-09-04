@@ -307,7 +307,7 @@ func (s *Service) RecomputeGraph(ctx context.Context, teamID, wing string, prune
 	defer unlock()
 
 	now := time.Now().UTC().Format(time.RFC3339)
-	present, err := s.repo.WingsWithDrawers(ctx, teamID)
+	present, err := s.writer.WingsWithDrawers(ctx, teamID)
 	if err != nil {
 		return RecomputeResult{}, err
 	}
@@ -348,7 +348,7 @@ func (s *Service) RecomputeGraph(ctx context.Context, teamID, wing string, prune
 
 	// Prune hallways for wings that no longer have drawers (full recompute only).
 	if prune && full {
-		all, err := s.repo.ListHallways(ctx, teamID, "")
+		all, err := s.writer.ListHallways(ctx, teamID, "")
 		if err != nil {
 			return RecomputeResult{}, err
 		}
@@ -375,7 +375,7 @@ func (s *Service) RecomputeGraph(ctx context.Context, teamID, wing string, prune
 	if err := s.repo.DeleteTunnelsByKind(ctx, teamID, TunnelEntity); err != nil {
 		return RecomputeResult{}, err
 	}
-	allHalls, err := s.repo.ListHallways(ctx, teamID, "")
+	allHalls, err := s.writer.ListHallways(ctx, teamID, "")
 	if err != nil {
 		return RecomputeResult{}, err
 	}

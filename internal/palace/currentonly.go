@@ -149,7 +149,14 @@ func (s *Service) attachSupersedes(ctx context.Context, teamID string, ds []Draw
 // ended row, and reading through the current-only Get would turn each of those
 // precise refusals into a bare "not found" for a row that plainly exists.
 func (s *Service) GetAnyVersion(ctx context.Context, teamID, id string) (Drawer, error) {
-	d, err := s.repo.Get(ctx, teamID, id)
+	return s.getAnyVersionOn(ctx, s.repo, teamID, id)
+}
+
+// getAnyVersionOn is GetAnyVersion through an explicit view — s.writer on the
+// write path (EndDrawer, Update), where the record a refusal is decided against
+// must be the writer's own read rather than the read model's (ADR-052).
+func (s *Service) getAnyVersionOn(ctx context.Context, r *Repo, teamID, id string) (Drawer, error) {
+	d, err := r.Get(ctx, teamID, id)
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return Drawer{}, ErrNotFound
 	}

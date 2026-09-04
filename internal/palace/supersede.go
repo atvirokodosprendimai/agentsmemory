@@ -46,7 +46,7 @@ type SupersedeResult struct {
 // are scarce (41 of 2,029 drawers carry one, measured 2026-08-27); clearing them
 // on every correction would spend what the palace barely has.
 func (s *Service) Supersede(ctx context.Context, teamID, id, content, reason string) (SupersedeResult, error) {
-	chunks, err := s.repo.MemoryChunks(ctx, teamID, id)
+	chunks, err := s.writer.MemoryChunks(ctx, teamID, id)
 	if err != nil {
 		return SupersedeResult{}, fmt.Errorf("look up the memory this drawer belongs to: %w", err)
 	}
@@ -72,7 +72,7 @@ func (s *Service) supersedeInto(ctx context.Context, teamID, id, content, reason
 			"nothing replaces, use invalidate", ErrInvalidInput)
 	}
 
-	chunks, err := s.repo.MemoryChunks(ctx, teamID, id)
+	chunks, err := s.writer.MemoryChunks(ctx, teamID, id)
 	if err != nil {
 		return SupersedeResult{}, fmt.Errorf("look up the memory this drawer belongs to: %w", err)
 	}
@@ -263,7 +263,7 @@ func (s *Service) supersedeInto(ctx context.Context, teamID, id, content, reason
 // memory is the unit, and ending one chunk leaves the others current and still
 // answering with the claim that was just retracted.
 func (s *Service) InvalidateDrawer(ctx context.Context, teamID, id, reason string) error {
-	chunks, err := s.repo.MemoryChunks(ctx, teamID, id)
+	chunks, err := s.writer.MemoryChunks(ctx, teamID, id)
 	if err != nil {
 		return fmt.Errorf("look up the memory this drawer belongs to: %w", err)
 	}

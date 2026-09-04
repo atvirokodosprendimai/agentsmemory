@@ -191,7 +191,7 @@ func (s *Service) DeleteWing(ctx context.Context, teamID, wing, confirm string) 
 
 	// Count first so a refusal can name the blast radius. An operator who mistyped
 	// learns what they nearly deleted, which is the whole value of the guard.
-	contents, err := s.repo.CountWing(ctx, teamID, name)
+	contents, err := s.writer.CountWing(ctx, teamID, name)
 	if err != nil {
 		return DeleteWingResult{}, fmt.Errorf("count wing: %w", err)
 	}
@@ -209,7 +209,7 @@ func (s *Service) DeleteWing(ctx context.Context, teamID, wing, confirm string) 
 	// Take the head of the wing repeatedly rather than paging by offset: the set
 	// shrinks as we delete, so a moving offset would step over rows and leave them.
 	for {
-		ids, err := s.repo.DrawerIDsByWing(ctx, teamID, name, deleteBatch)
+		ids, err := s.writer.DrawerIDsByWing(ctx, teamID, name, deleteBatch)
 		if err != nil {
 			return res, fmt.Errorf("list wing drawers: %w", err)
 		}
@@ -234,7 +234,7 @@ func (s *Service) DeleteWing(ctx context.Context, teamID, wing, confirm string) 
 	}
 
 	for {
-		ids, err := s.repo.ClosetIDsByWing(ctx, teamID, name, deleteBatch)
+		ids, err := s.writer.ClosetIDsByWing(ctx, teamID, name, deleteBatch)
 		if err != nil {
 			return res, fmt.Errorf("list wing closets: %w", err)
 		}

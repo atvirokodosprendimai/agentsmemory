@@ -723,7 +723,7 @@ func (s *Service) KGAdd(ctx context.Context, teamID, subject, predicate, object,
 	// count on one subject, and the write is already serialised behind a single
 	// connection (ADR-052), so it costs a query rather than a round trip that
 	// competes with anything.
-	n, err := s.repo.KGTriplesBySubjectCount(ctx, teamID, normalizeEntityID(subj), KGStatusCurrent, "")
+	n, err := s.writer.KGTriplesBySubjectCount(ctx, teamID, normalizeEntityID(subj), KGStatusCurrent, "")
 	if err != nil {
 		// A failed count must not fail a landed write. The fact is in; losing the
 		// advisory is the right trade and the opposite one would be a refusal
@@ -880,7 +880,7 @@ func (s *Service) KGInvalidate(ctx context.Context, teamID, subject, predicate, 
 	subID, objID, p := normalizeEntityID(subj), normalizeEntityID(obj), normalizePredicate(pred)
 
 	// Reject an end before any matching fact's start (the inverted-interval guard).
-	current, err := s.repo.CurrentTriples(ctx, teamID, subID, p, objID)
+	current, err := s.writer.CurrentTriples(ctx, teamID, subID, p, objID)
 	if err != nil {
 		return 0, "", "", err
 	}
@@ -1442,7 +1442,7 @@ const (
 // object, nothing is derived: the writer has said where it belongs, and a server
 // guess must not sit beside a human decision as though the two were equivalent.
 func (s *Service) attachDerivedEdge(ctx context.Context, teamID string, d Drawer) (EdgeAttachment, error) {
-	existing, err := s.repo.KGTriplesByObject(ctx, teamID, normalizeEntityID(d.ID), KGStatusAll, "", kgPage{})
+	existing, err := s.writer.KGTriplesByObject(ctx, teamID, normalizeEntityID(d.ID), KGStatusAll, "", kgPage{})
 	if err != nil {
 		return EdgeAuthored, err
 	}
@@ -1462,7 +1462,7 @@ func (s *Service) attachDerivedEdge(ctx context.Context, teamID string, d Drawer
 	if err := s.repo.UpsertKGEntity(ctx, teamID, objID, d.ID, now); err != nil {
 		return EdgeAuthored, err
 	}
-	if id, err := s.repo.CurrentTripleID(ctx, teamID, subID, p, objID); err != nil {
+	if id, err := s.writer.CurrentTripleID(ctx, teamID, subID, p, objID); err != nil {
 		return EdgeAuthored, err
 	} else if id != "" {
 		return EdgeAlreadyDerived, nil
@@ -1511,7 +1511,7 @@ func WingRootSubject(wing string) string {
 // you cannot notice you needed it until after you have broken something. This
 // mints the skeleton; curating what hangs off it stays a human or agent act.
 func (s *Service) attachWingRootEdge(ctx context.Context, teamID, wing string) error {
-	return s.repo.EnsureWingRoot(ctx, teamID, wing)
+	return s.writer.EnsureWingRoot(ctx, teamID, wing)
 }
 
 // EnsureWingRoot mints `<wing>.root --holds--> room:<wing>/llm_init` unless that

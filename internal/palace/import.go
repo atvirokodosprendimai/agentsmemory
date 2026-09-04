@@ -63,7 +63,7 @@ func (s *Service) AbsorbDrawers(ctx context.Context, teamID string, in []ImportD
 	// import.go:21's contract — "re-running an import upserts rather than
 	// duplicates" — now rests on the content key rather than on a derived id, so
 	// the ids must be reused for the same reason Add reuses them.
-	existing, err := s.repo.IDsByContentKeys(ctx, teamID, keys)
+	existing, err := s.writer.IDsByContentKeys(ctx, teamID, keys)
 	if err != nil {
 		return 0, fmt.Errorf("look up rows already holding these content keys: %w", err)
 	}

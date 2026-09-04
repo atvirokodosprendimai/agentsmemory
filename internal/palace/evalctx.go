@@ -163,7 +163,7 @@ func (s *Service) DropContextualIndex(ctx context.Context, teamID string, limit 
 	if limit <= 0 {
 		limit = DefaultContextualLimit
 	}
-	drawers, err := s.repo.List(ctx, teamID, "", "", limit, 0)
+	drawers, err := s.writer.List(ctx, teamID, "", "", limit, 0)
 	if err != nil {
 		return 0, err
 	}

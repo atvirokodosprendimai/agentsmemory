@@ -81,7 +81,7 @@ func (s *Service) DropEntityLabel(ctx context.Context, teamID, entityID string) 
 // duplicate. It is a method rather than a migration because embedding needs a
 // live embedder, which a SQL migration does not have.
 func (s *Service) BackfillEntityLabels(ctx context.Context, teamID string) (int, error) {
-	rows, err := s.repo.AllKGEntities(ctx, teamID)
+	rows, err := s.writer.AllKGEntities(ctx, teamID)
 	if err != nil {
 		return 0, err
 	}
