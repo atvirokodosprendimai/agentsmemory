@@ -93,6 +93,28 @@ holds is the one question containment edges answer, and it is the question
 gain a sibling asserting `am_bootstrap` still resolves, or the gate proves the
 narrower half only.
 
+⚠ **AND IT LANDS ONE NOTCH WORSE THAN AN EMPTY ANSWER — the entry point would
+report itself as PRESENT AND EMPTY.** Raised in review of #217 and confirmed in
+source. `EntryPoint` branches on `KGResolutionUnknownTerm` to keep three states
+apart, and its own comment says so: no entry point, an error, and an entry point
+that is merely empty. `resolveKGTerms` decides `unknown_term` on whether the
+ENTITY NAME exists (`KGEntityNames`), not on whether rows came back — and
+`attachDerivedEdge` upserts a `kg_entities` row for the `room:*` subject, so the
+node exists whatever is filtered off it. Under a naive hiding the resolution
+would therefore be `known_term_no_facts`, `EntryPoint` would fall through to
+`out.Node = node`, and a session would read *"this wing's entry point is empty"*.
+
+That is the WORST of the three, not the neutral one. "No entry point" is
+recoverable — a session reads it and walks the fallback chain. "Empty entry
+point" reads as an answer, and a session acts on it. It is this team's own
+`start-here` rule — **an empty-looking room is not evidence of an empty room** —
+arriving in the mechanism rather than in a reader's inference.
+
+So the gate asserts BOTH: that a wing WITH an entry point still returns its
+edges, and that a wing WITHOUT one still resolves `unknown_term` rather than
+`known_term_no_facts`. The two failures are identical from a count, which is
+exactly why the second assertion cannot be left to the first.
+
 ## Stop Condition
 
 Stop and ask if anything in the tree reads containment edges through
