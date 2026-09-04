@@ -21,7 +21,6 @@
       "Bash(git add:*)",
       "Bash(git commit:*)",
       "Bash(git rebase:*)",
-      "Bash(git push origin:*)",
       "Bash(gh pr view:*)",
       "Bash(gh pr list:*)",
       "Bash(gh pr checks:*)",

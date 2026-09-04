@@ -43,8 +43,14 @@ Everything above applies. Three things are particular to this harness:
   session died with it.
 - **Project permissions are in `.claude/settings.json`, and it ships with the
   clone.** The `allow` list names the repository's own gates and the read-only
-  or reversible half of `git` and `gh` — `gh pr view`, `git push origin`, never
-  `gh:*` or `git:*`. The `deny` list is ADR-051 T9's, copied verbatim so that
+  or reversible half of `git` and `gh` — `gh pr view`, `git commit`, never
+  `gh:*` or `git:*`. ⚠ `git push` is NOT on it, deliberately: a push is an
+  outward action, and an enumerated deny list cannot cover its spellings —
+  `git push origin --force main` puts the flag AFTER the remote and slips past
+  both `git push --force:*` and `git push -f:*`, as `--force-with-lease` and a
+  `+refspec` do. Letting every push prompt costs one keypress and removes the
+  whole class; review found this on the first narrowing, in the artifact that
+  had just been narrowed. The `deny` list is ADR-051 T9's, copied verbatim so that
   `gh pr merge`, a force-push, `gh release create` and a data-destroying compose
   or goose command still PROMPT whatever the allow list says — deny wins. ⚠ The
   first draft of this file allowed `gh:*`, `git:*`, `python3:*` and `curl:*` with
