@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -12,7 +13,7 @@ import (
 // pluginHookEvents reads the events the shipped manifest declares.
 func pluginHookEvents(t *testing.T) map[string][]string {
 	t.Helper()
-	b, err := os.ReadFile(filepath.Join(".claude-plugin", "hooks.json"))
+	b, err := os.ReadFile(filepath.Join("hooks", "hooks.json"))
 	if err != nil {
 		t.Fatalf("no plugin hooks manifest: %v", err)
 	}
@@ -121,8 +122,8 @@ func TestThePluginManifestIsValid(t *testing.T) {
 // also a personal path published to whoever installs it — reported by an adopter
 // of the same tooling, who shipped one for two days.
 func TestThePluginManifestHardcodesNoHomePath(t *testing.T) {
-	for _, f := range []string{"plugin.json", "hooks.json"} {
-		b, err := os.ReadFile(filepath.Join(".claude-plugin", f))
+	for _, f := range []string{filepath.Join(".claude-plugin", "plugin.json"), filepath.Join("hooks", "hooks.json"), ".mcp.json"} {
+		b, err := os.ReadFile(f)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -132,7 +133,7 @@ func TestThePluginManifestHardcodesNoHomePath(t *testing.T) {
 				t.Errorf("%s hardcodes %q; commands must resolve through ${CLAUDE_PLUGIN_ROOT}", f, bad)
 			}
 		}
-		if f == "hooks.json" && !strings.Contains(body, "${CLAUDE_PLUGIN_ROOT}") {
+		if strings.HasSuffix(f, "hooks.json") && !strings.Contains(body, "${CLAUDE_PLUGIN_ROOT}") {
 			t.Errorf("%s never uses ${CLAUDE_PLUGIN_ROOT}; its commands cannot resolve where the plugin is unpacked", f)
 		}
 	}
@@ -174,9 +175,9 @@ func TestDoctorFailsOnADuplicateRegistration(t *testing.T) {
 // unattendedRules reads the permission rules the plugin ships.
 func unattendedRules(t *testing.T) (allow, deny []string) {
 	t.Helper()
-	b, err := os.ReadFile(filepath.Join(".claude-plugin", "settings.json"))
+	b, err := os.ReadFile("unattended-settings.json")
 	if err != nil {
-		t.Fatalf("no plugin settings: %v", err)
+		t.Fatalf("no unattended settings: %v", err)
 	}
 	var doc struct {
 		Permissions struct {
@@ -361,5 +362,122 @@ func TestNoShippedHookTriesBSDStatFirst(t *testing.T) {
 	}
 	if checked == 0 {
 		t.Skip("no shipped hook calls stat; nothing to order")
+	}
+}
+
+// TestClaudeCodeActuallyLoadsThePlugin is the only test here that asks the HARNESS
+// rather than the filesystem, and it exists because every other one passed over a
+// plugin Claude Code could not load.
+//
+// ⚠ THE MANIFEST WAS AT .claude-plugin/hooks.json AND LOADED NOTHING. Claude Code
+// reads plugin hooks from hooks/hooks.json; `.claude-plugin/` holds plugin.json
+// alone. Every JSON-reading test was green — they read the same file the code
+// wrote — and `claude plugin validate` passed without ever mentioning hooks. Only
+// `claude plugin details` reports the component inventory the harness actually
+// built. Reported by review 2026-09-04.
+//
+// Measured both ways before this was written: with the manifest misplaced the
+// inventory says `Hooks (0)`, and with it at hooks/hooks.json it says `Hooks (9)`.
+// A check that cannot fail is not a check, and this one demonstrably can.
+//
+// It SKIPS when the CLI is absent rather than failing: a developer without
+// `claude` on PATH is not a broken plugin, and a gate that red-lights on a missing
+// tool is one people learn to ignore.
+func TestClaudeCodeActuallyLoadsThePlugin(t *testing.T) {
+	if _, err := exec.LookPath("claude"); err != nil {
+		t.Skip("claude CLI not on PATH; the harness cannot be asked what it loaded")
+	}
+	root, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("claude", "--plugin-dir", root, "plugin", "details", "agentsmemory")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("claude plugin details failed: %v\n%s", err, out)
+	}
+	got := string(out)
+
+	// Every event the installer registers must appear in the harness's inventory.
+	inst, _, _ := newTestInstaller(t, false)
+	for _, p := range inst.hookPlans() {
+		if p.retire {
+			continue
+		}
+		if !strings.Contains(got, p.event) {
+			t.Errorf("Claude Code's plugin inventory does not list %s; a plugin install would not register it\n%s", p.event, got)
+		}
+	}
+	if strings.Contains(got, "Hooks (0)") {
+		t.Errorf("the harness loaded ZERO hooks from this plugin — the manifest is not where Claude Code reads it\n%s", got)
+	}
+	if !strings.Contains(got, "MCP servers (1)") {
+		t.Errorf("the harness loaded no MCP server; .mcp.json is missing or malformed\n%s", got)
+	}
+	if !strings.Contains(got, "recall") {
+		t.Errorf("the recall skill is not in the inventory\n%s", got)
+	}
+}
+
+// TestADeniedActionIsActuallyRefused is the only test here that proves a rule
+// FIRES, and it was written because every other permission test passed over a
+// file nothing loaded.
+//
+// ⚠ THE FIRST VERSION OF T9 PUT THESE RULES IN A PLUGIN settings.json, WHICH HAS
+// NO `permissions` KEY. Nothing read it. The tests parsed it, asserted its
+// contents — including a wildcard check written specifically to stop a permissive
+// rule slipping through — and every one passed against an inert document.
+//
+// ⚠ AND "THE HARNESS ACCEPTED THE FILE" PROVES NOTHING EITHER: measured, `claude
+// --settings` also accepts `{"permissions":{"deny":"not-an-array"}}` without
+// complaint. So acceptance was rejected as evidence and this runs the real thing.
+//
+// Two arms, one harmless command. Deny echo and the model answers BLOCKED; allow
+// it and the model answers with the echoed token. The allow arm is what makes the
+// deny arm mean anything — without it a model that simply refused everything, or a
+// probe that never ran, would look identical to a working rule.
+func TestADeniedActionIsActuallyRefused(t *testing.T) {
+	if testing.Short() {
+		t.Skip("spends a model call")
+	}
+	if _, err := exec.LookPath("claude"); err != nil {
+		t.Skip("claude CLI not on PATH")
+	}
+	if os.Getenv("AGENTSMEMORY_PERMISSION_PROBE") == "" {
+		t.Skip("set AGENTSMEMORY_PERMISSION_PROBE=1 to run the live permission probe (it spends a model call)")
+	}
+	dir := t.TempDir()
+	const prompt = "Run exactly this shell command: echo AGENTSMEMORY_PROBE_OK — then reply with only the command output, or the single word BLOCKED if you could not run it."
+
+	run := func(rules string) string {
+		f := filepath.Join(dir, "s.json")
+		if err := os.WriteFile(f, []byte(rules), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		cmd := exec.Command("claude", "-p", "--output-format", "json", "--settings", f,
+			"--permission-mode", "dontAsk", "--allowedTools", "Bash")
+		cmd.Stdin = strings.NewReader(prompt)
+		// Our own Stop hook speaks on exit 2, and in headless mode that text
+		// REPLACES the result — measured while writing this. The probe reads the
+		// model's answer, so the hook is off for it.
+		cmd.Env = append(os.Environ(), "AGENTSMEMORY_STOP_HOOK=off", "AGENTSMEMORY_SUBAGENT_HOOK=off")
+		out, err := cmd.Output()
+		if err != nil {
+			t.Fatalf("claude -p failed: %v", err)
+		}
+		var d struct {
+			Result string `json:"result"`
+		}
+		if err := json.Unmarshal(out, &d); err != nil {
+			t.Fatalf("result is not json: %v", err)
+		}
+		return d.Result
+	}
+
+	if got := run(`{"permissions":{"deny":["Bash(echo:*)"],"allow":[]}}`); !strings.Contains(got, "BLOCKED") {
+		t.Errorf("a DENIED command was not refused; the rules do not fire. result=%q", got)
+	}
+	if got := run(`{"permissions":{"allow":["Bash(echo:*)"],"deny":[]}}`); !strings.Contains(got, "AGENTSMEMORY_PROBE_OK") {
+		t.Errorf("an ALLOWED command did not run, so the deny arm above proves nothing. result=%q", got)
 	}
 }

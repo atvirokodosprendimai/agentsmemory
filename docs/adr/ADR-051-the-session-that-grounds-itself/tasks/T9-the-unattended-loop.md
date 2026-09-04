@@ -111,7 +111,7 @@ most likely to produce.
 - MCP elicitation for the irreversible set. (deferred: `docs/adr/ADR-051-the-session-that-grounds-itself.md` §Follow-ups — ⚠ amended 2026-09-04 on the owner's correction that "human elicitation sometimes is needed, but not the most of the turns": the deny rules above make those turns STOP, and elicitation is what would let the server ASK instead of merely refusing. That is a strictly better answer for the minority of turns where a human genuinely must decide, and it is a real follow-up rather than a rejected alternative)
 - Filing memories without an agent deciding what is worth filing. (permanent: boundary: the persist gate reports what went unrecorded; choosing what deserves a memory is a judgement this record does not automate)
 
-## ⚠ Status: PARTIAL — the permission rules are inert (review, 2026-09-04)
+## ⚠ Status: DONE — but the rules were INERT first, and the reason is worth keeping (review, 2026-09-04)
 
 Plugin `settings.json` supports `agent` and `subagentStatusLine`; `permissions` is
 not among them, and nothing in this repository reads the file except the tests
@@ -124,9 +124,16 @@ rule passing. Every one of them passes over a file that is never loaded, because
 none asks whether Claude Code consumes it. **A test that reads what the code wrote
 is not a reachability test**, and that is the defect this corpus exists to catch.
 
-The remaining work is a supported route — `--settings`, or the CLI's own
-permission arguments — plus a test that asserts a DENIED action is actually
-refused, rather than that a string appears in JSON.
+**Closed with a two-arm probe.** The rules moved to a `--settings` file, the route
+Claude Code loads, and `TestADeniedActionIsActuallyRefused` runs one harmless
+command both ways: deny `echo` and the model answers `BLOCKED`; allow it and the
+command runs. The allow arm is what makes the deny arm mean anything — without it,
+a model that refused everything and a probe that never ran look identical.
+
+⚠ **"The harness accepted the file" was rejected as evidence before that was
+written.** Measured: `claude --settings` also accepts
+`{"permissions":{"deny":"not-an-array"}}` without complaint. Acceptance proves the
+flag parses, not that a rule fires.
 
 ## Verification Log
 
@@ -134,3 +141,4 @@ Filled by `adr-verify`.
 - 2026-09-04 · d5b0faa* · exit 0 · `gofmt -l clients internal | (! grep -q .) && go vet ./... && \ …` · acceptance-sha256:fc0e1e92415b47d4ea3b4a159b7e860b83bde6d9c82851cdabdafbb37175e1a1 · ms:42368
 - 2026-09-04 · d5b0faa* · exit 0 · `gofmt -l clients internal | (! grep -q .) && go vet ./... && \ …` · acceptance-sha256:fc0e1e92415b47d4ea3b4a159b7e860b83bde6d9c82851cdabdafbb37175e1a1 · ms:56876
 - 2026-09-04 · d5b0faa* · exit 0 · `gofmt -l clients internal | (! grep -q .) && go vet ./... && \ …` · acceptance-sha256:fc0e1e92415b47d4ea3b4a159b7e860b83bde6d9c82851cdabdafbb37175e1a1 · ms:43281
+- 2026-09-04 · 9e1a05e* · exit 0 · `gofmt -l clients internal | (! grep -q .) && go vet ./... && \ …` · acceptance-sha256:fc0e1e92415b47d4ea3b4a159b7e860b83bde6d9c82851cdabdafbb37175e1a1 · ms:59224

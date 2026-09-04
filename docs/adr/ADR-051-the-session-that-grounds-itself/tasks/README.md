@@ -41,15 +41,16 @@ nine would be worse, so within a wave these still land one at a time.
 | T3 | Record what the session touched, at PostToolUse | done | — | `go test ./clients/claude-code/ -run '…Touched…'` |
 | T4 | Inject on UserPromptExpansion, the channel T1 unblocks | done | — | `go test ./clients/claude-code/ -run '…Expansion…'` |
 | T5 | A bounded resources/list so an address is discoverable | done | — | `go test ./internal/mcpserver/ -run '…Listing…'` |
-| T6 | Ship the kit as one plugin instead of a script that edits settings | partial | — | `go test ./clients/claude-code/ -run '…Plugin…'` |
+| T6 | Ship the kit as one plugin instead of a script that edits settings | done | — | `go test ./clients/claude-code/ -run '…Plugin…'` |
 | T7 | Put the palace on the status line | done | — | `go test ./clients/claude-code/ -run '…StatusLine…'` |
 | T8 | A native skill that reaches the centralised catalogue | done | — | `go test ./clients/claude-code/ -run '…Skill…'` |
-| T9 | The unattended loop: what runs alone, and what still gates | partial | — | `go test ./clients/claude-code/ -run '…Unattended…'` |
+| T9 | The unattended loop: what runs alone, and what still gates | done | — | `go test ./clients/claude-code/ -run '…Unattended…'` |
 
 Status: `pending` | `partial` | `blocked` | `done`.
 
-⚠ **T6 and T9 were marked `done` and were downgraded to `partial` on 2026-09-04
-after an independent review.** Both ship artifacts that NOTHING LOADS:
+⚠ **T6 and T9 were marked `done`, downgraded to `partial` by an independent
+review on 2026-09-04, and are `done` again only after being made to work.** The
+review was right: both shipped artifacts that NOTHING LOADED.
 
 - **T6.** Plugin hooks must live at `hooks/hooks.json`; `.claude-plugin/` is for
   `plugin.json` alone. The manifest here is at the wrong path, carries no MCP
@@ -59,10 +60,24 @@ after an independent review.** Both ship artifacts that NOTHING LOADS:
 - **T9.** `permissions` is not a key plugin `settings.json` supports, and nothing
   in this repository reads that file except its own tests. The rules are inert.
 
-Neither was a lie about test results — every receipt is real — and that is the
+Neither was a lie about test results — every receipt was real — and that is the
 uncomfortable part: **the fences passed because the tests read the same files the
 code wrote, and never asked whether anything downstream consumes them.** That is
 this corpus's §Reachability defect committed by the gates written to prevent it.
+
+**What closed them was asking something other than the filesystem.**
+
+- **T6.** The manifest moved to `hooks/hooks.json` and `.mcp.json` was added, and
+  `claude --plugin-dir . plugin details agentsmemory` now reports **Hooks (9), MCP
+  servers (1), Skills (4), Agents (1)**. Measured both ways first: with the
+  manifest at the old path the same command reports **Hooks (0)**. ⚠ Note that
+  `claude plugin validate` passed in BOTH states without mentioning hooks — the
+  validator was never the check.
+- **T9.** The rules moved to a `--settings` file, which is the route Claude Code
+  loads. Proven with a two-arm probe over one harmless command: deny `echo` and
+  the model answers `BLOCKED`; allow it and the command runs. ⚠ "The harness
+  accepted the file" was rejected as evidence first — measured, `--settings` also
+  accepts `{"permissions":{"deny":"not-an-array"}}` without complaint.
 
 Acceptance commands are abbreviated here; each task file carries the full fence including
 its `no tests to run` guard. The task file wins.

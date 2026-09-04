@@ -67,6 +67,7 @@ a hand-maintained copy goes stale and this one cannot.
 Filled by `adr-verify --mutant`. At minimum: one event dropped from the manifest.
 - 2026-09-04 · 87aff31* · mutant killed · exit 1 · `clients/claude-code/.claude-plugin/hooks.json` · one event dropped from the manifest: a user installing the plugin silently loses that hook while the installer path keeps it · acceptance-sha256:ee58aac14c210f2f6222dbcd7e112901b5adfaae1a8b33484dc7bbc7cf9abed1
 - 2026-09-04 · 87aff31* · mutant killed · exit 1 · `clients/claude-code/doctor.go` · doctor stops recording duplicates: a half-finished migration leaves a hook injecting twice and the command reports it as healthy · acceptance-sha256:ee58aac14c210f2f6222dbcd7e112901b5adfaae1a8b33484dc7bbc7cf9abed1
+- 2026-09-04 · 9e1a05e* · mutant killed · exit 1 · `clients/claude-code/hooks/hooks.json` · an event renamed in the manifest: the harness loads a hook on an event that does not exist, and claude plugin details no longer lists PreToolUse · acceptance-sha256:ee58aac14c210f2f6222dbcd7e112901b5adfaae1a8b33484dc7bbc7cf9abed1
 
 ## Invariants
 
@@ -89,7 +90,7 @@ migration that silently drops a registration is worse than no migration.
 - The non-Claude-Code kits. (permanent: boundary: codex, pi and cursor have different extension models and no plugin format)
 - Publishing to a public marketplace. (deferred: `docs/adr/BACKLOG.md`)
 
-## ⚠ Status: PARTIAL — the manifest is not loadable (review, 2026-09-04)
+## ⚠ Status: DONE — but it was PARTIAL first, and the reason is worth keeping (review, 2026-09-04)
 
 Claude Code loads plugin hooks from `hooks/hooks.json`; `.claude-plugin/` holds
 `plugin.json` and nothing else. This task wrote `.claude-plugin/hooks.json`, added
@@ -98,10 +99,13 @@ would register no hooks and no MCP server.
 
 What stands: `doctor`'s `DUPLICATED` verdict, and the equality gate deriving both
 sides from source. What does not: the claim that the kit is installable as a
-plugin. Moving the manifest and adding the MCP declaration is the remaining work,
-and it needs a live `claude plugin` check rather than another JSON-reading test —
-the reviewer ran `claude plugin validate` and it did not look at the misplaced
-files at all, which is why nothing here caught it.
+plugin. **Closed by asking the harness.** The manifest moved to `hooks/hooks.json`,
+`.mcp.json` was added, and `claude --plugin-dir . plugin details agentsmemory` now
+reports Hooks (9), MCP servers (1), Skills (4), Agents (1). With the manifest back
+at the old path the same command reports **Hooks (0)** — measured, so the check can
+fail. ⚠ `claude plugin validate` passed in BOTH states without ever mentioning
+hooks: the validator was never the check, which is exactly why nothing here caught
+it for a whole task.
 
 ## Verification Log
 
@@ -109,3 +113,5 @@ Filled by `adr-verify`.
 - 2026-09-04 · 87aff31* · exit 0 · `gofmt -l clients internal | (! grep -q .) && go vet ./... && \ …` · acceptance-sha256:ee58aac14c210f2f6222dbcd7e112901b5adfaae1a8b33484dc7bbc7cf9abed1 · ms:34914
 - 2026-09-04 · 87aff31* · exit 0 · `gofmt -l clients internal | (! grep -q .) && go vet ./... && \ …` · acceptance-sha256:ee58aac14c210f2f6222dbcd7e112901b5adfaae1a8b33484dc7bbc7cf9abed1 · ms:34470
 - 2026-09-04 · 87aff31* · exit 0 · `gofmt -l clients internal | (! grep -q .) && go vet ./... && \ …` · acceptance-sha256:ee58aac14c210f2f6222dbcd7e112901b5adfaae1a8b33484dc7bbc7cf9abed1 · ms:33755
+- 2026-09-04 · 9e1a05e* · exit 0 · `gofmt -l clients internal | (! grep -q .) && go vet ./... && \ …` · acceptance-sha256:ee58aac14c210f2f6222dbcd7e112901b5adfaae1a8b33484dc7bbc7cf9abed1 · ms:66762
+- 2026-09-04 · 9e1a05e* · exit 0 · `gofmt -l clients internal | (! grep -q .) && go vet ./... && \ …` · acceptance-sha256:ee58aac14c210f2f6222dbcd7e112901b5adfaae1a8b33484dc7bbc7cf9abed1 · ms:58842

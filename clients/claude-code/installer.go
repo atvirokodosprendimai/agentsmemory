@@ -74,6 +74,20 @@ const touchedHookAsset = "hooks/agentsmemory-touched-hook.sh"
 // writes outside `hooks`.
 const statusLineAsset = "hooks/agentsmemory-statusline.sh"
 
+// unattendedSettingsAsset is the permission ruleset for an unattended run
+// (ADR-051 T9).
+//
+// ⚠ IT IS A --settings FILE, NOT A PLUGIN KEY. The first version put these rules
+// in a plugin settings.json, which has no `permissions` key: nothing read it, and
+// every test that parsed it passed against an inert document. `--settings` is the
+// route Claude Code actually loads, proven by a two-arm probe — deny echo and the
+// model answers BLOCKED, allow it and the command runs.
+//
+// Installed rather than merged into the user's own settings.json, deliberately.
+// Overwriting somebody's permissions is the most invasive thing this kit could do,
+// and an unattended run is opt-in by nature: the operator points --settings at it.
+const unattendedSettingsAsset = "unattended-settings.json"
+
 // taskRecallHookAsset is the UserPromptSubmit sibling of the recall hook: it asks
 // the palace about the TASK, using the user's own words, at the moment the task
 // arrives.
@@ -777,6 +791,7 @@ func (i *Installer) writeAssets() error {
 			{anchorCueHookAsset, i.anchorCueHookPath()},
 			{touchedHookAsset, i.touchedHookPath()},
 			{statusLineAsset, i.statusLinePath()},
+			{unattendedSettingsAsset, filepath.Join(i.targetDir, "agentsmemory-unattended-settings.json")},
 		} {
 			body, err := i.source().ReadFile(w.asset)
 			if err != nil {
