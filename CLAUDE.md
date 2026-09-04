@@ -61,16 +61,24 @@ Everything above applies. Three things are particular to this harness:
 - **`gh pr merge` MOVED from deny to allow on 2026-09-04, at the owner's
   instruction, and this paragraph is what that costs.** It was denied precisely
   so a merge would stop and ask. The entry is `gh pr merge:*`, so it also covers
-  `--admin`, which bypasses branch protection, and `--squash` and `--rebase`,
-  which would break this repository's merge-commit convention; narrow it to the
-  flags actually used if an unattended session ever merges something nobody
-  reviewed. ⚠ AND THIS REPOSITORY DOES HAVE BRANCH PROTECTION, contrary to what
-  a palace record said until today: the first merge attempt after the change was
-  refused with `3 of 3 required status checks are expected` and
-  `mergeStateStatus: BEHIND`, on a PR whose own checks were all green — the base
-  had moved, so the required contexts had not reported against the new base.
-  `gh pr update-branch` is what clears it. So the gates before `main` are the
-  review, the required checks, and being up to date; the keypress is what went.
+  `--squash` and `--rebase`, which would break this repository's merge-commit
+  convention; narrow it to the flags actually used if an unattended session ever
+  merges something nobody reviewed.
+- **⚠ THIS REPOSITORY DOES HAVE BRANCH PROTECTION ON `main`, and a palace record
+  said otherwise until 2026-09-04.** Read from the API that day rather than
+  inferred from a refusal message: required status checks `check`, `test` and
+  `race` with `strict: true` (the branch must be up to date), `enforce_admins:
+  true`, `allow_force_pushes: false`, `allow_deletions: false`,
+  `required_conversation_resolution: true`, and
+  `required_approving_review_count: 0` — so no approval is demanded, which is
+  what makes the whole thing read like an absence until something is refused.
+  Two consequences worth having in advance: `--admin` does NOT get past it,
+  because admin enforcement is on; and a PR whose own checks are green is still
+  refused `3 of 3 required status checks are expected` with
+  `mergeStateStatus: BEHIND` the moment the base moves under it, which
+  `gh pr update-branch` clears. Measured on #228 and #229 immediately after #226
+  landed. So the gates before `main` are the review, the three contexts against
+  the CURRENT base, and resolved conversations; the keypress is what went.
 - **`scripts/redeploy.sh` is pre-approved, and that is a deploy, not a gate.** It
   is on the allow list because AGENTS.md §The working loop item 3 requires it
   after every merge that changes served code, and a redeploy that prompts is one

@@ -101,11 +101,12 @@ release and a data-destroying command still prompt, and that prompt IS the
 owner's decision point. Review of this rule's first draft caught it shipping
 beside an allow list that would have removed those prompts too. ⚠ A MERGE NO
 LONGER PROMPTS — `gh pr merge` moved to the allow list on 2026-09-04 at the
-owner's instruction. What still gates a merge is not a keypress but the branch
-protection this repository turns out to have: required status checks that must
-report against the CURRENT base, so a PR whose own checks are green is refused
-`3 of 3 required status checks are expected` while it sits BEHIND, and
-`gh pr update-branch` is the fix. Nothing else moved off the deny list.
+owner's instruction. What gates a merge is not the keypress but `main`'s branch
+protection, which this repository has and a palace record denied until that day:
+`check`, `test` and `race` required with `strict: true`, plus `enforce_admins`,
+so `--admin` buys nothing and a green PR is refused `3 of 3 required status
+checks are expected` while it sits BEHIND — `gh pr update-branch` clears it.
+Nothing else moved off the deny list.
 
 **2. Arm the watch at session start, before anything else.** One persistent
 Monitor over this repository's new issues, issue comments, PR comments, reviews
