@@ -129,10 +129,14 @@ docker compose pull && docker compose up -d
 stack up with fewer overlays than you started it with does not fail; it starts a
 valid *different* stack, and the difference is silent.
 
-⚠ **`scripts/redeploy.sh` hardcodes a two-file chain** (`docker-compose.yml` plus
-`docker-compose.full.yml`) and `COMPOSE_FILE` cannot steer it, so on the
-documented four-file local setup it silently reverts `RERANK_URL` (issue #209).
-Use it on the two-file stack, or bring the stack up yourself.
+⚠ **`scripts/redeploy.sh` reads its compose chain from the running project** —
+the container's `config_files` label, by basename, resolved in your checkout —
+or from `COMPOSE_FILE` when that is set, and falls back to the two-file chain only
+when nothing is running. It used to hardcode two files, which on the documented
+four-file local setup silently reverted `RERANK_URL` (issue #209). It also refuses
+to build without `AGENTSMEMORY_VERSION` and fails when the served version is not
+the stamp (issue #210), and its kit check judges the Claude Desktop bridge binary
+alongside the CLI.
 
 What `redeploy.sh` is for is worth keeping even so: it refuses to build over a red
 suite, and then **reads the running artifact** to prove the change is live. That

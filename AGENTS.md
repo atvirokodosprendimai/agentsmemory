@@ -118,17 +118,25 @@ full, because three of its steps failed silently today:
     git clone -q --no-local --branch <tag-or-sha> . "$DIR"   # a CLONE, never a worktree
     cp .env.docker "$DIR/"                                    # a clone has no untracked files
     cd "$DIR" && AGENTSMEMORY_VERSION=<tag> scripts/redeploy.sh
-    # then the kit, from the same tree:
+    # then the kit, from the same tree — THREE binaries, not two: the Claude Desktop
+    # bridge is a copy of `aiagentmemory-server` the installer takes from PATH
     CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=<tag>" -o ~/.local/bin/aiagentmemory ./clients/claude-code
     CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=<tag>" -o ~/.local/bin/agentsmemory ./cmd/server
-    aiagentmemory install --agent claude --local --yes
-    # then VERIFY FROM THE SERVED SURFACE: am_status must report the version you stamped
+    cp ~/.local/bin/agentsmemory ~/.local/bin/aiagentmemory-server
+    aiagentmemory install --agent claude --local --wing wing_agentmemories --scope local --yes   # --dry-run first
+    aiagentmemory install --agent claude-desktop --local --yes   # QUIT Desktop first (#208); while it runs, copy the binary over the Desktop path atomically instead
+    # then VERIFY FROM THE SERVED SURFACE: am_status must report the version you
+    # stamped, and `aiagentmemory doctor --agent claude-desktop` must say ok
 
 ⚠ A git worktree's `.git` is a pointer file the container does not mount, so
 every test that shells out to git goes red — four did, at a tag whose suite was
 green. ⚠ `AGENTSMEMORY_VERSION` is per-build, not sticky: a rebuild without it
-resets the served version to `dev`. ⚠ `~/.claude/bin/aiagentmemory` shadows
-`~/.local/bin` on PATH and was a stale copy; it is a symlink now, keep it one.
+resets the served version to `dev`; `redeploy.sh` refuses to build without it.
+⚠ `~/.claude/bin/aiagentmemory` AND `~/.claude/bin/aiagentmemory-server` shadow
+`~/.local/bin` on PATH and were both stale copies; both are symlinks now, keep
+them so. The Desktop installer copies the FIRST `aiagentmemory-server` on PATH,
+and on 2026-09-04 that shadow was a build from before the release while the
+server it fronted was current — `doctor --agent claude-desktop` is what sees it.
 ⚠ `redeploy.sh | tail` returns tail's exit status — the script REFUSED a red
 suite today and the pipeline reported 0. Never read an exit code through a pipe.
 

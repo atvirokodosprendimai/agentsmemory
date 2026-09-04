@@ -101,9 +101,9 @@ resets to `dev`.
 
 **Check which binary actually runs.** Two copies on `PATH` is common: `~/.claude/bin`
 (the quality-harness tools directory) can shadow `~/.local/bin`, and the shadow
-wins. `redeploy.sh` detects the staleness and then prints a remedy that writes to
-the *shadowed* path, so following the instructions cannot clear the warning
-(issue #204).
+wins. `redeploy.sh` names the path it read and warns when the remedy targets a
+directory the shadow hides (issue #204); make the shadow a symlink into
+`~/.local/bin` rather than a copy, and the same for `aiagentmemory-server`.
 
 ```bash
 command -v aiagentmemory       # the one that runs
@@ -256,10 +256,11 @@ networking is Linux-only; Docker Desktop runs containers in a VM.
 - **Check every `-f` flag is present.** An overlay alone is not a complete stack,
   and leaving one off starts a valid *different* stack rather than failing. Fix it
   once with `COMPOSE_FILE`, ideally in a `.env` beside the compose files.
-- **Check `scripts/redeploy.sh` is not reverting it.** It hardcodes
-  `docker-compose.yml` plus `docker-compose.full.yml` and `COMPOSE_FILE` cannot
-  steer it, so on the documented four-file local setup it silently reverts
-  `RERANK_URL` (issue #209).
+- **Check `scripts/redeploy.sh` deploys the same chain.** It reads the chain from
+  the running container's `config_files` label, or from `COMPOSE_FILE`, so it
+  follows the overlay set that is up and prints the chain it resolved first.
+  Releases before that hardcoded two files and silently reverted `RERANK_URL` on a
+  four-file setup (issue #209).
 - **Check the variable is actually read.** A variable documented and read by
   nothing is the failure `TestDocumentedEnvVarsAreRead` exists to catch — it found
   a shipped compose file advertising a rerank pool the server never read. If you
