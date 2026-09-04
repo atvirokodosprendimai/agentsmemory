@@ -249,7 +249,7 @@ func TestCorrectingADrawerLeavesAuthoredEdgesAlone(t *testing.T) {
 		t.Fatalf("correct: %v", err)
 	}
 
-	q, err := svc.KGQuery(ctx, team, KGQueryInput{Entity: id, Direction: "incoming", Status: KGStatusCurrent})
+	q, err := svc.KGQuery(ctx, team, KGQueryInput{Entity: id, Direction: "incoming", Status: KGStatusCurrent, IncludeContainment: true})
 	if err != nil {
 		t.Fatalf("read incoming edges: %v", err)
 	}
@@ -279,7 +279,7 @@ func TestEveryDoorThatEndsARowEndsItsDerivedEdge(t *testing.T) {
 
 	edgesFor := func(t *testing.T, svc *Service, team, id string) bool {
 		t.Helper()
-		q, err := svc.KGQuery(ctx, team, KGQueryInput{Entity: id, Direction: "incoming", Status: KGStatusCurrent})
+		q, err := svc.KGQuery(ctx, team, KGQueryInput{Entity: id, Direction: "incoming", Status: KGStatusCurrent, IncludeContainment: true})
 		if err != nil {
 			t.Fatalf("read incoming: %v", err)
 		}

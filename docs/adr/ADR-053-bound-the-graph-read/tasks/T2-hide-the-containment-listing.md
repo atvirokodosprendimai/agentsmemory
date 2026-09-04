@@ -8,7 +8,7 @@
 **Consumes:** `withheld` keyed by cause (T1)
 **Data dependency:** hermetic for the unit; the wing-root assertion is written against the shipped mint (`attachWingRootEdge`) rather than against a corpus, so it holds on a fresh install
 **Proof map:** v1
-**Rests-on:** `the exit code`, `every wing root still resolving with containment hidden`, `the flag restoring the hidden edges exactly`
+**Rests-on:** `the exit code`, `every wing root still resolving with containment hidden`, `the flag restoring the hidden edges exactly`, `absent staying distinguishable from present-and-empty`
 
 ## Goal
 
@@ -36,7 +36,7 @@ emptying the address every session is told to walk first.
 
 ```bash
 set -o pipefail
-go test ./internal/palace/ -run 'TestEveryWingRootStillResolvesWithContainmentHidden$|TestContainmentIsHiddenAndCounted$' -count=1 2>&1 | tee /tmp/adr053-t2a.out \
+go test ./internal/palace/ -run 'TestEveryWingRootStillResolvesWithContainmentHidden$|TestAnAbsentEntryPointStillResolvesUnknown$|TestContainmentIsHiddenAndCounted$' -count=1 2>&1 | tee /tmp/adr053-t2a.out \
   && ! grep -qE "no tests to run|^FAIL|^--- FAIL|\[build failed\]" /tmp/adr053-t2a.out \
   && go test ./... -count=1 2>&1 | tee /tmp/adr053-t2b.out \
   && ! grep -qE "^FAIL|^--- FAIL|\[build failed\]" /tmp/adr053-t2b.out
@@ -51,6 +51,7 @@ skills and hooks that walk it live outside `internal/palace`.
 | Test name | File | Verifies | Covers | Steps |
 |-----------|------|----------|--------|-------|
 | `TestEveryWingRootStillResolvesWithContainmentHidden` | `internal/palace/kg_test.go` | a wing root minted by the shipped path still returns its edge when containment is hidden | — | S1, S2 |
+| `TestAnAbsentEntryPointStillResolvesUnknown` | `internal/palace/kg_test.go` | a wing with no entry point still resolves `unknown_term` rather than `known_term_no_facts` — the two are identical from a count, and only one of them makes a session fall back | — | S2, S3 |
 | `TestContainmentIsHiddenAndCounted` | `internal/palace/kg_test.go` | a `room:*`-subject edge is absent by default, counted under the `containment` key, and returned in full with `include_containment` | — | S3, S4, S5 |
 
 ## Reachability
@@ -63,6 +64,9 @@ skills and hooks that walk it live outside `internal/palace`.
 | 4 — it is used | every `am_kg_query` call filters through it, and 580 live edges are subject to it today |
 
 ## Mutation Log
+
+- 2026-09-04 · 8683557* · mutant killed · exit 1 · `internal/palace/kg.go` · the carve-out deleted: the rule then hides listings from a caller who NAMED the room, which is what EntryPoint and Bootstrap do — the wake-up path reports its entry point present and empty rather than absent · acceptance-sha256:de79b55a8a8a271af87e0b684765b68a405741bc02617f3d2e010473e35e928b
+- 2026-09-04 · 48f34c4 · mutant killed · exit 1 · `internal/palace/kg.go` · the entity arm of resolveKGTerms severed, which is the mechanism assertion TWO rests on: a wing with NO entry point then resolves known_term_no_facts instead of unknown_term, so "absent" becomes "present and empty". ⚠ Raised in review of #219: the carve-out mutant above proves assertion ONE (edges still returned) and its --why described this failure mode, which nothing bound. One entry per mechanism; this is the second mechanism · acceptance-sha256:de79b55a8a8a271af87e0b684765b68a405741bc02617f3d2e010473e35e928b
 
 ## Invariants
 
@@ -129,3 +133,5 @@ budget.
 - Changing what `am_list_drawers` returns (permanent: boundary: it already answers room membership with a budget and paging, which is the reason this task can hide the edges rather than replace them)
 
 ## Verification Log
+- 2026-09-04 · 8683557* · exit 0 · `set -o pipefail …` · acceptance-sha256:de79b55a8a8a271af87e0b684765b68a405741bc02617f3d2e010473e35e928b · ms:47043
+- 2026-09-04 · 48f34c4 · exit 0 · `set -o pipefail …` · acceptance-sha256:de79b55a8a8a271af87e0b684765b68a405741bc02617f3d2e010473e35e928b · ms:45626
