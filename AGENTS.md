@@ -95,11 +95,28 @@ choice inside a record that the record does not settle, a scope change, an
 irreversible action outside the repository. Do not ask for PERMISSION to
 continue, and do not end a turn with "want me to take the next one?". Measured:
 three such stops in one session, each answered "proceed", the third answered
-*"am I asked anywhere to stop, ever?"* ⚠ "Never stop" is bounded by the
-`deny` list in `.claude/settings.json`, not by judgement: a merge, a force-push,
-a release and a data-destroying command still prompt, and that prompt IS the
-owner's decision point. Review of this rule's first draft caught it shipping
-beside an allow list that would have removed those prompts too.
+*"am I asked anywhere to stop, ever?"* ⚠ "Never stop" is bounded by the `deny`
+list in `.claude/settings.json`, not by judgement — and on 2026-09-04, at the
+owner's instruction, that list SHRANK to three entries: `git push --force:*`,
+`git push -f:*` and `rm -rf /*`. Nine commands moved to `allow` the same day:
+`gh pr merge`, `gh release create`, `gh release delete`,
+`docker compose down -v`, `goose down`, `goose reset`, `am_merge_wing`,
+`am_invalidate_drawer` and `am_kg_invalidate` — so a merge, a release, a
+volume-destroying teardown, a schema rollback and an irreversible palace write
+no longer stop and ask. ⚠ That is true of `.claude/settings.json`, which governs
+interactive sessions in this checkout. `clients/claude-code/unattended-settings.json`,
+the asset the plugin ships, still carries all twelve on purpose — an unattended
+run has no human to be the decision point the prompt was. Read which file you
+are under before concluding either is stale. Review of this rule's FIRST draft caught it shipping
+beside an allow list that would have removed those prompts too; this one is the
+deliberate version, approved rather than slipped past a review, and the
+instruction is the whole difference. ⚠ What gates a merge is now `main`'s branch
+protection, which this repository has and a palace record denied until that day:
+`check`, `test` and `race` required with `strict: true`, plus `enforce_admins`,
+so `--admin` buys nothing and a green PR is refused `3 of 3 required status
+checks are expected` while it sits BEHIND — `gh pr update-branch` clears it.
+Nothing equivalent gates a release or a destructive local command; there the
+session's own judgement is the last thing standing.
 
 **2. Arm the watch at session start, before anything else.** One persistent
 Monitor over this repository's new issues, issue comments, PR comments, reviews

@@ -50,14 +50,54 @@ Everything above applies. Three things are particular to this harness:
   both `git push --force:*` and `git push -f:*`, as `--force-with-lease` and a
   `+refspec` do. Letting every push prompt costs one keypress and removes the
   whole class; review found this on the first narrowing, in the artifact that
-  had just been narrowed. The `deny` list is ADR-051 T9's, copied verbatim so that
-  `gh pr merge`, a force-push, `gh release create` and a data-destroying compose
-  or goose command still PROMPT whatever the allow list says — deny wins. ⚠ The
-  first draft of this file allowed `gh:*`, `git:*`, `python3:*` and `curl:*` with
-  no deny list, in the same PR that told a session never to stop for permission;
-  review caught that the two together remove the prompt and the boundary at
-  once. Add a command here when you approve it twice — narrowly, and check the
-  deny list still covers what it should.
+  had just been narrowed. ⚠ THE `deny` LIST NO LONGER HOLDS WHAT THIS FILE USED
+  TO SAY IT DID. On 2026-09-04, at the owner's instruction, NINE entries moved
+  from `deny` to `allow` in one change: `gh pr merge`, `gh release create`,
+  `gh release delete`, `docker compose down -v`, `goose down`, `goose reset`,
+  `am_merge_wing`, `am_invalidate_drawer` and `am_kg_invalidate`. What is still
+  denied is `git push --force:*`, `git push -f:*` and `rm -rf /*`, and that is
+  the whole list — **of this file, which governs interactive sessions in this
+  checkout and nothing else.** ⚠ THERE IS A SECOND PERMISSIONS FILE AND IT DID
+  NOT MOVE: `clients/claude-code/unattended-settings.json`, the asset the plugin
+  ships, still carries all twelve original deny entries — the nine above plus
+  the three that stayed. That is deliberate, not drift: the widening was
+  approved for a checkout with a human in front of it, and an UNATTENDED run has
+  nobody to be the decision point the prompt was. `plugin_test.go`'s
+  `unattendedRules` gates that list, so it cannot quietly empty. Reconcile the
+  two by reading which one you are under, never by assuming one is stale.
+  ⚠ The first draft of this file allowed `gh:*`, `git:*`,
+  `python3:*` and `curl:*` with no deny list, in the same PR that told a session
+  never to stop for permission; review caught that the two together remove the
+  prompt and the boundary at once. This allow list is the deliberate version of
+  that — approved by the owner rather than slipped past a review — and the
+  instruction is the whole difference. Add a command when you approve it twice.
+- **What the widening costs, written down once so no session rediscovers it.**
+  Each of those entries was denied because the prompt WAS the owner's decision
+  point; a session that runs one now has nothing between it and the effect.
+  `gh pr merge:*` also covers `--squash` and `--rebase`, which would break this
+  repository's merge-commit convention. `gh release create` publishes to the
+  world. `docker compose down -v` destroys the palace volume and `goose reset`
+  its schema. `am_invalidate_drawer` and `am_kg_invalidate` end records that
+  ADR-038 says are ended rather than overwritten — and an ended record cannot be
+  relocated, so that one is a one-way door. Narrow any of them the day an
+  unattended session fires one nobody asked for. Note what still stands where:
+  `main`'s branch protection gates a merge, and NOTHING gates a release or a
+  destructive local command except the session's own judgement.
+- **⚠ THIS REPOSITORY DOES HAVE BRANCH PROTECTION ON `main`, and a palace record
+  said otherwise until 2026-09-04.** Read from the API that day rather than
+  inferred from a refusal message: required status checks `check`, `test` and
+  `race` with `strict: true` (the branch must be up to date), `enforce_admins:
+  true`, `allow_force_pushes: false`, `allow_deletions: false`,
+  `required_conversation_resolution: true`, and
+  `required_approving_review_count: 0` — so no approval is demanded, which is
+  what makes the whole thing read like an absence until something is refused.
+  Two consequences worth having in advance: `--admin` does NOT get past it,
+  because admin enforcement is on; and a PR whose own checks are green is still
+  refused `3 of 3 required status checks are expected` with
+  `mergeStateStatus: BEHIND` the moment the base moves under it, which
+  `gh pr update-branch` clears. Measured on #228 and #229 immediately after #226
+  landed. So the gates before `main` are the review, the three contexts against
+  the CURRENT base, and resolved conversations; the keypress is what went.
 - **`scripts/redeploy.sh` is pre-approved, and that is a deploy, not a gate.** It
   is on the allow list because AGENTS.md §The working loop item 3 requires it
   after every merge that changes served code, and a redeploy that prompts is one
