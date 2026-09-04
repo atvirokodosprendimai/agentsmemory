@@ -41,3 +41,11 @@ graphify-out/
 # manifests instead; these patterns keep the real ones from ever being staged.
 internal/palace/testdata/factcases-real*.jsonl
 internal/palace/testdata/bootstrap-baseline-real*.json
+
+# claude-mem writes an empty <claude-mem-context> CLAUDE.md into any directory it
+# touches. Inside the plugin that is not inert: the loader treats every .md in
+# commands/ as a slash command, so one shipped as /CLAUDE with generated activity
+# notes as its body, and counted against the always-on token budget.
+clients/claude-code/CLAUDE.md
+clients/claude-code/**/CLAUDE.md
+clients/claude-code/clients/

@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"testing"
@@ -560,5 +561,75 @@ func TestDoctorPrintsTheDuplicatedVerdict(t *testing.T) {
 	// The message must not claim a cause this command cannot observe.
 	if strings.Contains(v.detail, "a plugin declared another") {
 		t.Errorf("the verdict explains itself with a case doctor cannot see:\n%s", v.detail)
+	}
+}
+
+// TestThePluginShipsNoStrayCommand is the second instance in two PRs of one class:
+// a second distribution path that ENUMERATES DIFFERENTLY.
+//
+// ⚠ The installer ships an allowlist — `commandAssets` names am.md and
+// load-skill.md. The plugin loader reads the DIRECTORY, so every .md in commands/
+// becomes a slash command. claude-mem writes an empty <claude-mem-context>
+// CLAUDE.md into directories it touches, one landed in commands/, and an installed
+// user got a slash command named /CLAUDE whose body was generated activity notes —
+// counted against the always-on token budget of every session.
+//
+// The executable-bit finding on the previous PR was the same shape: the installer
+// chmods on the way out, the plugin path uses the file as committed. Whenever two
+// paths ship the same directory, the one that enumerates rather than allowlists is
+// the one that ships the surprise.
+func TestThePluginShipsNoStrayCommand(t *testing.T) {
+	entries, err := os.ReadDir("commands")
+	if err != nil {
+		t.Fatal(err)
+	}
+	allowed := map[string]bool{}
+	for _, a := range commandAssets {
+		allowed[a] = true
+	}
+	if len(allowed) == 0 {
+		t.Fatal("commandAssets is empty — this check would pass vacuously")
+	}
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
+			continue
+		}
+		if !allowed[e.Name()] {
+			t.Errorf("commands/%s is not in commandAssets: the installer will not ship it and the plugin WILL, as a slash command", e.Name())
+		}
+	}
+}
+
+// TestThePluginVersionMatchesTheNewestChangelogHeading stops a tag containing a
+// manifest that names the release before it.
+//
+// The release procedure puts the tag on the changelog PR's merge commit, so the
+// manifest and the newest heading have to move together or the shipped plugin
+// advertises the previous version. Nothing read that version against anything
+// before this; `claude plugin details` prints it, so a user sees it.
+func TestThePluginVersionMatchesTheNewestChangelogHeading(t *testing.T) {
+	ch, err := os.ReadFile(filepath.Join("..", "..", "CHANGELOG.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	headings := regexp.MustCompile(`(?m)^## v([0-9]+\.[0-9]+\.[0-9]+) —`).FindAllStringSubmatch(string(ch), -1)
+	if len(headings) == 0 {
+		t.Fatal("no version heading found in CHANGELOG.md — this check would pass vacuously")
+	}
+	newest := headings[len(headings)-1][1]
+
+	b, err := os.ReadFile(filepath.Join(".claude-plugin", "plugin.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m struct {
+		Version string `json:"version"`
+	}
+	if err := json.Unmarshal(b, &m); err != nil {
+		t.Fatal(err)
+	}
+	if m.Version != newest {
+		t.Errorf("plugin.json says %q and the newest CHANGELOG heading is v%s — the tag would ship a manifest naming the release before it",
+			m.Version, newest)
 	}
 }
