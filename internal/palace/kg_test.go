@@ -2,6 +2,7 @@ package palace
 
 import (
 	"context"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -381,5 +382,65 @@ func TestKGValidation(t *testing.T) {
 	// query back to every fact, which is the failure the default flip exists to end.
 	if _, err := svc.KGQuery(ctx, team, KGQueryInput{Entity: "A", Status: "expired"}); err == nil {
 		t.Fatal("invalid status should be rejected")
+	}
+}
+
+// TestAnOversizedNodeWarnsAndStillWrites is ADR-053 T3's gate.
+//
+// The ~35-leaf guidance the skills teach is a convention nothing enforced, and a
+// convention nothing enforces goes stale silently. This makes it visible at the
+// moment it is broken, to the only party who can act on it.
+//
+// ⚠ IT ASSERTS BOTH HALVES ON PURPOSE. A warning that accompanied a REFUSAL
+// would satisfy a warning-only check, and refusing is exactly what the owner
+// rejected on 2026-09-04: the write is the moment an agent holds the knowledge,
+// and refusing there loses a fact to save a shape.
+func TestAnOversizedNodeWarnsAndStillWrites(t *testing.T) {
+	t.Parallel()
+	svc := newTestService(t)
+	teamID := "team-fanout"
+	ctx := context.Background()
+
+	var last KGAddResult
+	for i := range KGFanOutLimit + 1 {
+		var err error
+		last, err = svc.KGAdd(ctx, teamID, "wide", fmt.Sprintf("leaf-%03d", i), "target", "", "", "", "", "")
+		if err != nil {
+			t.Fatalf("add %d: %v", i, err)
+		}
+	}
+
+	if last.FanOut <= KGFanOutLimit {
+		t.Errorf("FanOut = %d after %d edges; the warning reports the node the caller has just "+
+			"created, so it must count AFTER the write", last.FanOut, KGFanOutLimit+1)
+	}
+	if last.FanOutAdvice == "" {
+		t.Errorf("no advice on a node past the limit — a count with no remedy beside it is a number " +
+			"the reader has to look up what to do about")
+	}
+
+	// The write landed. This is the half a warning-only assertion would miss.
+	res, err := svc.KGQuery(ctx, teamID, KGQueryInput{Entity: "wide", Limit: MaxKGQueryLimit})
+	if err != nil {
+		t.Fatalf("query: %v", err)
+	}
+	if len(res.Facts) != KGFanOutLimit+1 {
+		t.Errorf("the node holds %d facts; want %d — a warning that dropped the write would be a "+
+			"refusal wearing a warning's clothes", len(res.Facts), KGFanOutLimit+1)
+	}
+}
+
+// TestANodeUnderTheLimitWarnsAboutNothing keeps the field's PRESENCE as the
+// signal. A warning that arrives on every write is one every caller learns to
+// skip, and then it warns about nothing.
+func TestANodeUnderTheLimitWarnsAboutNothing(t *testing.T) {
+	t.Parallel()
+	svc := newTestService(t)
+	res, err := svc.KGAdd(context.Background(), "team-narrow", "narrow", "one", "target", "", "", "", "", "")
+	if err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	if res.FanOutAdvice != "" {
+		t.Errorf("advice on a one-edge node: %q", res.FanOutAdvice)
 	}
 }

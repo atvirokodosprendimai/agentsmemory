@@ -255,7 +255,7 @@ func repoRoot(t *testing.T) string {
 // project is not, and the failure message says so rather than leaving it to
 // judgement.
 var exampleWings = map[string]bool{
-	"wing_a": true, "wing_abc": true, "wing_delta": true, "wing_epsilon": true, "wing_acme": true, "wing_acme-billing": true,
+	"wing_a": true, "wing_abc": true, "wing_delta": true, "wing_epsilon": true, "wing_zeta": true, "wing_acme": true, "wing_acme-billing": true,
 	// ADR-036 T7: a wing that deliberately does not exist, so a test can assert
 	// that having no entry point is reported as a fact rather than an error.
 	"wing_no_such_place": true,

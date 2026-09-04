@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/atvirokodosprendimai/agentsmemory/internal/mcpserver"
+	"github.com/atvirokodosprendimai/agentsmemory/internal/palace"
 
 	"github.com/atvirokodosprendimai/agentsmemory/internal/mcptest"
 )
@@ -206,5 +207,36 @@ func TestWithheldNamesEveryCauseThatRemovedSomething(t *testing.T) {
 			t.Errorf("withheld[%s] = %v; both causes removed facts here, and a shape that can carry "+
 				"only one is the shape this reshape replaced", cause, withheld[cause])
 		}
+	}
+}
+
+// TestAnOversizedNodeWarnsThroughTheToolSurface is rung 3 for the fan-out
+// warning, and it exists because its absence was MEASURED rather than guessed.
+//
+// ⚠ ADR-053 T3 first put both its tests in internal/palace, driving the service
+// directly. adr-verify then reported the mutant SURVIVED: deleting the render at
+// the tool boundary left every one of them green, because none of them called
+// the tool. That is this repository's characteristic defect — a capability that
+// is finished, tested and unreachable — arriving inside the task written to add
+// it. A service-level test cannot see a surface-level drop by construction: it
+// is already past the layer that drops it.
+func TestAnOversizedNodeWarnsThroughTheToolSurface(t *testing.T) {
+	h := mcptest.NewWithWing(t, "wing_zeta")
+	var last string
+	for i := range palace.KGFanOutLimit + 1 {
+		last = h.MustCall(t, "am_kg_add", map[string]any{
+			"subject": "wide", "predicate": fmt.Sprintf("leaf-%03d", i), "object": "target",
+		})
+	}
+	res := h.JSON(t, last)
+	if advice, _ := res["fan_out_advice"].(string); advice == "" {
+		t.Errorf("no fan_out_advice on the write that passed the limit: %#v", res)
+	}
+	if n, _ := res["fan_out"].(float64); int(n) <= palace.KGFanOutLimit {
+		t.Errorf("fan_out = %v; want more than %d", res["fan_out"], palace.KGFanOutLimit)
+	}
+	// The write landed: a warning is not a refusal.
+	if ok, _ := res["success"].(bool); !ok {
+		t.Errorf("success = %v; the fact must be filed whatever the node's shape", res["success"])
 	}
 }

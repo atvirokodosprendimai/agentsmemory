@@ -46,7 +46,7 @@ func registerKGAdd(reg *registrar, drawers *palace.Service, usageSvc *usage.Serv
 		// not the act. An explicit title wins over the derived one, which is what the
 		// override in newTool exists for.
 		mcp.WithToolTitle("Add knowledge-graph fact"),
-		mcp.WithDescription("Add a fact (subject → predicate → object) to the temporal knowledge graph, optionally with a validity window. THIS IS A REQUIRED PART OF PERSISTING A SESSION, not an optional extra: a drawer with no edge is an orphan — reachable by search, invisible to traversal, and it still surfaces in the AUTHOR's own search, which is why authors believe it is reachable. The graph is also what still answers in a dormant wing, where search is weak because you cannot retrieve what you do not know to ask for. When a session established no durable fact, say so rather than skipping silently. Re-adding an identical current fact is a no-op; to replace a fact, invalidate the old one first. SCOPE: graph facts are WORKSPACE-wide, not scoped to a wing — unlike drawers, anchors and search, a fact filed from one project is returned to every project in this workspace. File a fact here when it is true of the workspace; put project-specific detail in a drawer, which is wing-scoped."),
+		mcp.WithDescription("Add a fact (subject → predicate → object) to the temporal knowledge graph, optionally with a validity window. THIS IS A REQUIRED PART OF PERSISTING A SESSION, not an optional extra: a drawer with no edge is an orphan — reachable by search, invisible to traversal, and it still surfaces in the AUTHOR's own search, which is why authors believe it is reachable. The graph is also what still answers in a dormant wing, where search is weak because you cannot retrieve what you do not know to ask for. When a session established no durable fact, say so rather than skipping silently. Re-adding an identical current fact is a no-op; to replace a fact, invalidate the old one first. SCOPE: graph facts are WORKSPACE-wide, not scoped to a wing — unlike drawers, anchors and search, a fact filed from one project is returned to every project in this workspace. File a fact here when it is true of the workspace; put project-specific detail in a drawer, which is wing-scoped. ⚠A WRITE THAT PUSHES ONE SUBJECT PAST ITS FAN-OUT LIMIT ANSWERS WITH `fan_out` AND `fan_out_advice`, and the fact is filed anyway — the write is never refused for a node's shape. The fields are absent below the limit, so their presence is the whole signal: a node that wide spends a reader's entire response budget on one entity and am_kg_query has to page it, which is your cue to split it by topic."),
 		mcp.WithString("subject", mcp.Required(), mcp.Description(fmt.Sprintf("The fact's subject entity. A SHORT LABEL (max %d characters), not a sentence — the entity is a node the graph is queried by, so put explanation in a drawer and point at it with source_drawer_id.", palace.MaxKGValueLen))),
 		mcp.WithString("predicate", mcp.Required(), mcp.Description(fmt.Sprintf("The relationship (e.g. \"works_at\"). A safe name: max %d characters, and no \"/\", \"\\\\\" or \"..\" — it is validated like a name, not stored like a value, so \"uses/abuses\" is rejected.", palace.MaxNameLength))),
 		mcp.WithString("object", mcp.Required(), mcp.Description(fmt.Sprintf("The fact's object entity. A SHORT LABEL (max %d characters), not a sentence — evidence, commit ids and repro steps belong in a drawer referenced by source_drawer_id, never smuggled in here.", palace.MaxKGValueLen))),
@@ -79,7 +79,16 @@ func registerKGAdd(reg *registrar, drawers *palace.Service, usageSvc *usage.Serv
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
-		return jsonResult(map[string]any{"success": true, "triple_id": res.TripleID, "fact": res.Fact}), nil
+		out := map[string]any{"success": true, "triple_id": res.TripleID, "fact": res.Fact}
+		// Rendered only when the node has just passed the limit, so the field's
+		// presence is the signal. ⚠ It must be rendered at all: a count computed
+		// in the service and dropped here is the inert-mechanism shape — the
+		// server does the work and the caller never learns it happened.
+		if res.FanOutAdvice != "" {
+			out["fan_out"] = res.FanOut
+			out["fan_out_advice"] = res.FanOutAdvice
+		}
+		return jsonResult(out), nil
 	})
 }
 

@@ -647,7 +647,27 @@ var kgRowFieldsExcluded = map[string]string{
 type KGAddResult struct {
 	TripleID string `json:"triple_id"`
 	Fact     string `json:"fact"`
+	// FanOut and FanOutAdvice appear only when the subject has just passed
+	// KGFanOutLimit. Their PRESENCE is the signal: a warning that arrives on
+	// every write is one every caller learns to skip, and then it warns about
+	// nothing (ADR-053 T3).
+	FanOut       int    `json:"fan_out,omitempty"`
+	FanOutAdvice string `json:"fan_out_advice,omitempty"`
 }
+
+// KGFanOutLimit is how many edges one subject may carry before a write says so.
+//
+// ⚠ IT IS A WARNING, NEVER A REFUSAL. The owner decided this on 2026-09-04
+// against the alternative: the write is the moment an agent holds the knowledge,
+// and refusing there loses a fact to save a shape. The cost is the known one —
+// a warning nobody reads changes nothing — and it is the cost that was chosen.
+//
+// 35 because that is the guidance the skills already teach, and a node past it
+// spends a reader's whole response budget on one entity. Measured 2026-09-04 on
+// the live corpus, every authored node sat at 10 or below while the widest
+// derived one reached 184, so the number separates the shape agents actually
+// write from the shape that has to be paged.
+const KGFanOutLimit = 35
 
 type KGStatsResult struct {
 	Entities          int64    `json:"entities"`
@@ -693,6 +713,27 @@ func (s *Service) KGAdd(ctx context.Context, teamID, subject, predicate, object,
 		return KGAddResult{}, err
 	}
 	s.indexFactLabels(ctx, teamID, subj, obj)
+
+	// Counted AFTER the write, so the warning describes the node the caller has
+	// just created rather than the one they started from. It is one indexed
+	// count on one subject, and the write is already serialised behind a single
+	// connection (ADR-052), so it costs a query rather than a round trip that
+	// competes with anything.
+	n, err := s.repo.KGTriplesBySubjectCount(ctx, teamID, normalizeEntityID(subj), KGStatusCurrent, "")
+	if err != nil {
+		// A failed count must not fail a landed write. The fact is in; losing the
+		// advisory is the right trade and the opposite one would be a refusal
+		// arriving after success.
+		return res, nil
+	}
+	if n > KGFanOutLimit {
+		res.FanOut = int(n)
+		res.FanOutAdvice = fmt.Sprintf(
+			"%q now carries %d current edges, past the %d this palace reads comfortably. Split it by "+
+				"topic: a node this wide spends a reader's whole response budget on one entity, and "+
+				"am_kg_query has to page it. Nothing was refused — the fact is filed.",
+			subj, n, KGFanOutLimit)
+	}
 	return res, nil
 }
 
