@@ -39,7 +39,7 @@ func authorTier(t *testing.T, svc *Service, team, wing, tier, ns string, leaves 
 // them would be the 99KB protocol it replaced.
 func TestBootstrapServesTheTierAuthoredOnTheWingRoot(t *testing.T) {
 	ctx := context.Background()
-	const team, wing = "t-tier", "wing_tier"
+	const team, wing = "t-tier", "wing_delta"
 	svc := newTestService(t)
 
 	if _, err := svc.Add(ctx, team, AddInput{Wing: wing, Room: EntryRoom,
@@ -97,11 +97,11 @@ func TestBootstrapServesTheTierAuthoredOnTheWingRoot(t *testing.T) {
 	}
 
 	t.Run("a wing with a root and no tier serves none, and says nothing was cut", func(t *testing.T) {
-		if _, err := svc.Add(ctx, team, AddInput{Wing: "wing_bare", Room: EntryRoom,
+		if _, err := svc.Add(ctx, team, AddInput{Wing: "wing_epsilon", Room: EntryRoom,
 			Content: "WHAT MUST I LOAD AT THE START OF A SESSION? Nothing yet."}); err != nil {
 			t.Fatal(err)
 		}
-		bare, err := svc.Bootstrap(ctx, team, "wing_bare")
+		bare, err := svc.Bootstrap(ctx, team, "wing_epsilon")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -120,7 +120,7 @@ func TestATierLeafInAnotherWingIsRefusedAndCounted(t *testing.T) {
 	const team = "t-tier-foreign"
 	svc := newTestService(t)
 
-	if _, err := svc.Add(ctx, team, AddInput{Wing: "wing_home", Room: EntryRoom,
+	if _, err := svc.Add(ctx, team, AddInput{Wing: "wing_alpha", Room: EntryRoom,
 		Content: "WHAT MUST I LOAD AT THE START OF A SESSION? Home."}); err != nil {
 		t.Fatal(err)
 	}
@@ -128,15 +128,15 @@ func TestATierLeafInAnotherWingIsRefusedAndCounted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	local, err := svc.Add(ctx, team, AddInput{Wing: "wing_home", Room: "decisions", Content: "this project's decision"})
+	local, err := svc.Add(ctx, team, AddInput{Wing: "wing_alpha", Room: "decisions", Content: "this project's decision"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	authorTier(t, svc, team, "wing_home", "must", "state", map[string]string{
+	authorTier(t, svc, team, "wing_alpha", "must", "state", map[string]string{
 		"foreign": foreign.Drawers[0].ID, "local": local.Drawers[0].ID,
 	})
 
-	res, err := svc.Bootstrap(ctx, team, "wing_home")
+	res, err := svc.Bootstrap(ctx, team, "wing_alpha")
 	if err != nil {
 		t.Fatal(err)
 	}
