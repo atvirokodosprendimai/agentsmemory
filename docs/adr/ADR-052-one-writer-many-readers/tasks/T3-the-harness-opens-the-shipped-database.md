@@ -5,7 +5,7 @@
 **Estimated scope:** M (multi-file)
 **Owner:** unassigned
 **Produces:** `mcptest.DBPragmas`
-**Consumes:** `writerDBPragmas` (T2)
+**Consumes:** `openWriterDB` (T2)
 **Data dependency:** hermetic
 **Proof map:** v1
 **Rests-on:** `the exit code`, `the harness DSN being the shipped one rather than a copy`

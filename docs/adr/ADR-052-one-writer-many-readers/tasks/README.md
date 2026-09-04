@@ -45,7 +45,7 @@ Status: `pending` | `partial` | `blocked` | `done`.
 | Producer | Contract | Consumer(s) | Ordering note |
 |----------|----------|-------------|---------------|
 | T1 | `TestAReadThenWriteTransactionSurvivesConcurrentWriters` | T2 | T1 before T2 — T2's acceptance is this test going green |
-| T2 | `writerDBPragmas` | T3, T4 | T2 before both — neither can name a constant that does not exist |
+| T2 | `openWriterDB` | T3, T4 | T2 before both — neither can name an opener that does not exist |
 | T4 | `openReaderDB` | T5, T6 | T4 before T5 |
 | T5 | `palace.NewRepo` | T6 | T5 before T6 — the gate asserts on the wired shape |
 

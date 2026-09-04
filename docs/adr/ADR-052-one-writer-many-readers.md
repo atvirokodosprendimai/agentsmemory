@@ -112,74 +112,78 @@ that follow-up over the workflow and proposed adding what already exists.
 
 ## Decision
 
-Split the one shared `*gorm.DB` into a **writer handle** and a **reader
-handle**, and make the writer count explicit at both ends.
+**One writer. Not one writer behind a lock — one writer, so that no lock is
+needed.**
 
-The writer handle opens with `_txlock=immediate` and `SetMaxOpenConns(1)`.
+The serving path opens exactly two handles onto the same file:
 
-**The DSN knob is what fixes correctness** — measured 0 of 320 — by making every
-transaction take its write lock at `BEGIN`, so there is no upgrade to deadlock on
-and `busy_timeout(5000)` covers the wait that replaces it.
+- **The writer**, `SetMaxOpenConns(1)`. It owns every write, **and every read
+  that a write depends on**, both inside its own transaction on its own single
+  connection.
+- **The readers**, `query_only(1)` with a pool of `max(4, runtime.NumCPU())`.
+  They serve the read model and nothing else.
 
-⚠**The pool cap is NOT what serialises writing, and an earlier draft implied it
-was.** `SetMaxOpenConns` binds one `*sql.DB`, and `serve`, `mcp` and `sync` each
-open their own writer-capable handle; only `serve` takes the file lock. Measured
-2026-09-04, eight independent handles on one file each capped at 1: **284 of 320
-failed without `_txlock`, 0 of 320 with it.** So the cap does not serialise
-across handles — SQLite and `_txlock` do. What the cap buys is that the writer
-count becomes a stated decision rather than an unbounded default, and it costs
-nothing measurable (30ms against 61ms on plain inserts). "One writer per
-aggregate" describes the intent, not what this one line enforces.
+Both carry `foreign_keys(1)`.
 
-The reader handle opens with `query_only(1)` and a pool of
-`max(4, runtime.NumCPU())`. `query_only` turns the read/write split into
-something SQLite enforces rather than something prose asks for — the `cqrs`
-skill's "a read model is only ever handed a read-only port", with the compiler's
-job done by the driver. ⚠It does not "finally spend WAL": the existing unbounded
-pool and the separate `inspect` and export connections already use WAL
-concurrency (`cmd/server/main.go:1689`). What is new is the enforcement, not the
-concurrency.
+★**THE RULE THAT MATTERS IS THE SECOND HALF OF THE FIRST BULLET, AND IT IS THE
+ONE A FUTURE CHANGE WILL GET WRONG: the write path validates against its own
+reads, never against the read model.** A read taken on the reader pool is a
+different connection and therefore a different snapshot; by the time the write
+lands, the fact it was checked against may no longer be true. Routing a
+validation read through the reader pool does not merely lose atomicity, it
+produces a check that was never binding — and it will look correct in review,
+because both halves are individually right. The read model exists to answer
+queries. It is not a source of truth for a decision the writer is about to make.
 
-Both handles get `foreign_keys(1)`, which is orthogonal to contention (268 of
-320 still failed with it alone) and closes a separate silent defect. It is the
-finding to lead with in any summary of this record: it needs no concurrency to
-bite, and it is silently already true of every row in every deployment.
+**Why there is no `_txlock=immediate` here, and no retry, and no mutex.** With
+one writer connection there is nothing to contend with: a read-then-write
+transaction cannot deadlock against itself. Measured 2026-09-04 on the pinned
+driver, 8 goroutines × 40 read-then-write transactions through ONE handle:
 
-⚠**T2 and T4/T5 are not two halves of one fix, and the record should not read as
-though they were.** `_txlock=immediate` alone takes the failure from 273–281 to
-0 of 320, so **T2 fixes the bug**. T4 and T5 buy something else: connection-level
-enforcement that a read path *cannot* write, which makes a class of future defect
-unrepresentable rather than fixing a present one. If the owner wants the smaller
-record, T1–T3 stand alone and T4–T6 can be split out; they are sequenced together
-here because the reader handle is what keeps `MaxOpenConns(1)` on the writer from
-serialising recall, and that coupling is real.
+| One writer handle | Failed of 320 |
+|-------------------|---------------|
+| unbounded pool (today) | 280 |
+| `SetMaxOpenConns(1)`, no `_txlock` | **0** |
+| `SetMaxOpenConns(1)`, with `_txlock` | 0 |
 
-**What would make this fail, and the data exists today.** The criterion is T1's
-test: eight INDEPENDENT writer handles on one file, 40 read-then-write
-transactions each, must reach 0 failures. ⚠**The handle count is the whole
-design and an earlier draft got it wrong.** A single handle capped at 1 scores
-0 of 320 *whether or not* the DSN carries `_txlock`, so a one-handle test cannot
-tell the knob from its absence and would go green with the fix deleted. Measured
-2026-09-04: one handle capped at 1 gives 0/320 both ways; eight independent
-handles capped at 1 give 284/320 without `_txlock` and 0/320 with it. The
-criterion is valid for `glebarez/sqlite@v1.11.0` on this module graph and for
-SQLite's deferred-transaction semantics; it is not a claim about a different
-driver, and T2 pins the driver version in the test's own comment for that reason.
+The flag changes nothing behind the cap. It is a wall in front of a door that
+is already single-file, and the best wall is no wall at all: a mechanism that
+cannot be exercised is one a later reader has to reason about anyway, and one
+that quietly stops being load-bearing without anything going red.
 
-Routing reads onto the reader handle is staged: `internal/palace` in T5, every
-other SQL-owning package deferred with a receipt, because threading a second
-handle through eleven packages in one change is a rewrite wearing a refactor's
-clothes.
+⚠**This is a change of position from an earlier draft of this record, which made
+`_txlock=immediate` the headline fix and treated the pool cap as bookkeeping.**
+That draft was measuring the wrong thing: it varied the flag across EIGHT
+independent handles, where the flag does matter (284 of 320 without it, 0 with
+it) — but eight independent writer handles is the shape this decision REMOVES,
+not the shape it ships. Fixing the count makes the flag moot; keeping the flag
+would have let the count stay wrong.
+
+**What bounds the claim.** One writer connection is guaranteed within the
+serving process. Across processes it rests on `lockDB` (`cmd/server/lock.go:54`),
+which `serve` alone takes (`cmd/server/main.go:377`) — and that is deliberate:
+the comment there says `inspect`, `mcp`, `plan` and `share` open the same file
+as readers and must keep working while a server runs. ⚠One command does not fit
+that description cleanly: `sync` opens through `openDB`, the WRITABLE pragma set
+(`cmd/server/sync.go:58`), while in fact only reading SQLite and writing to the
+vector index. It should take the reader handle, and T4 moves it. That is a
+consequence of this rule rather than an exception to it.
+
+**What would make this fail, and the data exists today.** T1's criterion: 8
+goroutines × 40 read-then-write transactions through the serving writer handle
+must reach 0 failures. It fails on any tree where that handle is uncapped — 280
+of 320 at `732b727`. The mutant is `SetMaxOpenConns(1)` deleted, and it is the
+whole decision in one line, which is the property this record wants: the thing
+that can be removed is the thing the test is about.
 
 ## Alternatives Considered
 
-- **`_txlock=immediate` alone, with no pool cap and no handle split:** change one constant and stop. Rejected as the RECORD's scope rather than as a bad idea — it is the measured 0-of-320 fix and it is what T2 ships, so anyone wanting the minimal change should take T1–T3 and leave the rest. It is listed here because the earlier draft left it implicit, and an alternative that is actually the core of the chosen option belongs on the page where a reader can weigh it.
-- **`SetMaxOpenConns(1)` on the single shared handle, and nothing else:** cap the existing pool at one connection. Rejected because it serialises *reads* as well as writes, which throws away the reader/writer concurrency WAL was turned on for in the first place — this palace's dominant workload is recall, and a single connection would queue every search behind every write.
-- **A Go-side write mutex or an actor goroutine owning the database:** serialise writes in application code. Rejected because it is a second lock over a resource that already has one — SQLite's — and it cannot see the writes that arrive from `inspect`, `sync`, `mcp` or a second process, so it would enforce an invariant only for callers that happened to route through it.
-- **Retry on `SQLITE_BUSY` with backoff:** wrap every write in a retry loop. Rejected because `internal/palace/contentkey.go:106` already records that this driver wraps errors so detection is string matching, and because a retry converts a deterministic lock-ordering fix into a probabilistic one — `_txlock=immediate` removes the failure rather than re-running it.
-- **`BEGIN IMMEDIATE` per read-first call site:** fix the six sites individually. Rejected because it is a list kept beside the truth: the seventh site added tomorrow is not on it, and `internal/palace/service.go:1444` shows the read can be hidden inside a helper and invisible at the call site.
-- **Leave it and document the contention:** treat `database is locked` as an operating note. Rejected because it is already documented — `main.go:1694` explains `busy_timeout` — and the documentation is what made the gap invisible, since it describes a mechanism that does not cover the failing case.
-
+- **`_txlock=immediate` on the writer DSN:** make every transaction take its write lock at `BEGIN`. Rejected because it is unnecessary behind a single writer connection, and measured to change nothing there (0 of 320 either way). It is the right fix for a design with several writer handles, which is the design this record replaces — keeping both would leave the real invariant, the writer count, unenforced and unstated.
+- **`SetMaxOpenConns(1)` on the single shared handle, and nothing else:** cap the existing pool and skip the reader split. Rejected because it serialises *reads* as well as writes, and recall is this palace's dominant workload — every search would queue behind every write. The split is what makes the cap affordable.
+- **A Go-side write mutex or an actor goroutine owning the database:** serialise writes in application code. Rejected because it is a second lock over a resource that already has one, and it cannot see writes arriving from another process, so it would enforce an invariant only for callers that happened to route through it.
+- **Retry on `SQLITE_BUSY` with backoff:** wrap every write in a retry loop. Rejected because `internal/palace/contentkey.go:106` already records that this driver wraps errors so detection is string matching, and because a retry converts a structural property into a probabilistic one — with one writer there is nothing to retry against.
+- **`BEGIN IMMEDIATE` per read-first call site:** fix the six sites individually. Rejected because it is a list kept beside the truth: the seventh site added tomorrow is not on it, and `internal/palace/service.go:1444` shows the read can hide inside a helper and be invisible at the call site.
+- **Let the writer validate through the read model:** reuse the reader pool for the write path's lookups, so there is one query layer. Rejected on correctness rather than taste — it is the failure the Decision's second bullet names. The read is a different snapshot, so the check is not binding on the write that follows it, and nothing in review distinguishes that from a correct one.
 ## Component / Boundary Impact
 
 `cmd/server` gains ownership of *which* handle each component receives; that is
@@ -194,7 +198,7 @@ the module map in `README.md` is unchanged.
 
 | Surface | Change | Producer | Consumer(s) |
 |---------|--------|----------|-------------|
-| `writerDBPragmas`, `readerDBPragmas` | new constants; `dbPragmas` becomes the shared base | `cmd/server/main.go` | `internal/mcptest/harness.go`, `cmd/server/sync.go` |
+| `readerDBPragmas` | new constant; `dbPragmas` gains `foreign_keys(1)` and stays the writer's | `cmd/server/main.go` | `internal/mcptest/harness.go`, `cmd/server/sync.go` |
 | `openWriterDB`, `openReaderDB` | new openers wrapping `openDBWithPragmas` with pool configuration | `cmd/server/main.go` | `cmd/server` serve path |
 | `palace.NewRepo` | signature takes a reader and a writer handle rather than one `*gorm.DB` | `internal/palace/repo.go` | `cmd/server/main.go`, `internal/palace` tests |
 | `PRAGMA foreign_keys` | `0` to `1` on every serving connection | `cmd/server/main.go` | every package with a declared FK |
@@ -204,7 +208,7 @@ the module map in `README.md` is unchanged.
 | Contract | Producing task | Consuming task(s) | Breaking? |
 |----------|----------------|-------------------|-----------|
 | `TestAReadThenWriteTransactionSurvivesConcurrentWriters` (T1) | T1 | T2 | No — T2 turns it green |
-| `writerDBPragmas` (T2) | T2 | T3, T4 | Yes — `dbPragmas` stops being the only constant, and `harness.go` must adopt one |
+| `openWriterDB` (T2) | T2 | T3, T4 | Yes — `dbPragmas` stops being reached directly, and `harness.go` must adopt the opener |
 | `openReaderDB` (T4) | T4 | T5, T6 | No — additive |
 | `palace.NewRepo` (T5) | T5 | T6 | Yes — every caller and test constructing a `Repo` changes |
 
@@ -217,7 +221,7 @@ five waves.
 
 - **Positive:** the six read-first transactions stop failing under concurrency, measured from 273–281 failures to 0. Declared foreign keys start being enforced. The read path cannot write through the handle it holds, and that is checked by the driver rather than by review. The test harness exercises the database we ship.
 - **Positive:** the writer count becomes greppable. `SetMaxOpenConns(1)` with a comment naming this ADR answers "how many writers does this have" in one line, where today the answer is the absence of a call.
-- **Negative:** `_txlock=immediate` makes every transaction on the writer handle take a write lock at `BEGIN`, including one that only reads. Read-only work must go to the reader handle to stay concurrent, which is a rule a future caller can get wrong — T6's gate covers the wiring, not every future call site.
+- **Negative:** capping the writer at one connection makes a slow write block the next write rather than running it concurrently. That is the decision, not a side effect — but it means a long transaction is now a queue for every other writer, where before they contended and mostly lost. Reads are unaffected; they are on the other handle.
 - **Negative:** `palace.NewRepo`'s signature change touches every test that builds a `Repo`. That is a wide, mechanical diff, and it is the reason T5 is scoped to one package.
 - **Neutral:** turning foreign keys on can surface a latent ordering bug in a multi-row write that has been passing because nothing enforced the constraint. T2's acceptance runs `go test ./...` for exactly this reason, and a failure there is a real defect this ADR found rather than one it caused. ⚠It does NOT validate rows that already exist — the pragma changes subsequent writes and activates cascades, so T2's Stop Condition requires a `PRAGMA foreign_key_check` against every deployment corpus before the change ships, with a stated response to any violation.
 
@@ -236,7 +240,7 @@ five waves.
 | Risk | Likelihood | Impact | Mitigation |
 |------|------------|--------|------------|
 | `foreign_keys(1)` breaks a write that has been passing unenforced | Med | High | T2's acceptance is the whole suite, not the new test alone; a failure is triaged as a found defect and either fixed in T2 or the ADR stops at its Stop Condition |
-| `_txlock=immediate` is honoured by this driver version and silently dropped by a future one | Low | High | T1's test fails on exactly that regression, and T2 pins the driver version in the test's comment so a version bump reads as relevant |
+| A future contributor adds a second writer handle, or raises the cap, and the serialisation silently stops | Med | High | T6's gate reads `SetMaxOpenConns(1)` out of the AST and fails on its deletion; T1's test goes red at 280 of 320 the moment there is more than one writer connection |
 | `query_only(1)` refuses something the read path legitimately does — a temp table, a `PRAGMA optimize` | Med | Med | T4 wires the handle and runs the full suite before T5 routes anything onto it, so the blast radius is one commit and the rollback is one line |
 | `SetMaxOpenConns(1)` on the writer serialises a slow write behind others under real load | Med | Med | Measured cheaper than contention on this workload (30ms against 61ms), and the reader handle keeps recall off the writer entirely; revisit with a served-path measurement rather than by raising the cap |
 | The wide `NewRepo` signature change collides with in-flight ADR PRs touching `internal/palace` | High | Low | T5 is the last substantive wave, and the Stop Condition requires rebasing onto main before it runs |
