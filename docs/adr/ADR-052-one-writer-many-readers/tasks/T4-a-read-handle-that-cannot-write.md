@@ -4,11 +4,11 @@
 **Covers:** none — no spec
 **Estimated scope:** M (multi-file)
 **Owner:** unassigned
-**Produces:** `openReaderDB`
+**Produces:** `openReaderDB`, `--db-reader-pool`
 **Consumes:** `readerDBPragmas` (T2)
 **Data dependency:** hermetic
 **Proof map:** v1
-**Rests-on:** `the exit code`, `query_only being refused at the driver rather than in Go`
+**Rests-on:** `the exit code`, `query_only being refused at the driver rather than in Go`, `the pool size the serve path actually passes to SetMaxOpenConns`
 
 ## Goal
 
@@ -19,22 +19,28 @@ the refusal is real rather than a naming convention.
 
 | File | Change | Why |
 |------|--------|-----|
-| `cmd/server/main.go` | edit | add `openReaderDB` using `readerDBPragmas` and `SetMaxOpenConns(max(4, runtime.NumCPU()))`; open it beside the writer in the serve path and hold both |
+| `cmd/server/main.go` | edit | add `openReaderDB` using `readerDBPragmas` and `SetMaxOpenConns(cfg.DBReaderPool)`; declare `--db-reader-pool`; populate the config field; open the reader beside the writer in the serve path and hold both |
+| `internal/config/config.go` | edit | `DBReaderPool int`, defaulted like `RerankPool` — a field an operator cannot set is a setting that does not exist, and `TestEveryConfigFieldIsPopulatedAndRead` fails on both halves |
+| `README.md` | edit | the flags table row; `TestReadEnvVarsAreDocumented` fails on a variable the code reads and no operator doc mentions |
+| `.env.example` | edit | `DB_READER_POOL`, for the same reason and in the direction `TestDocumentedEnvVarsAreRead` checks |
 | `cmd/server/dbwiring_test.go` | add | the gate proving the read handle refuses a write, and that the serve path builds one |
 
 ## Ordered Steps
 
 1. [S1] Write `TestTheReadHandleCannotWrite` first and watch it fail to compile, because `openReaderDB` does not exist (TDD red).
-2. [S2] Add `openReaderDB(path, debug)` wrapping `openDBWithPragmas` with `readerDBPragmas`, setting `SetMaxOpenConns` to `max(4, runtime.NumCPU())`. Doc-comment it with why the pool is many where the writer's is one, and cite ADR-052.
-3. [S3] Open the reader in the serve path beside the writer and close both on shutdown. Nothing consumes it yet — T5 does — so this step is wiring only, and the point is that the handle exists at the composition root where the choice belongs.
-4. [S4] Assert in the test that a write through the reader returns an error mentioning a readonly database, and that a read through it succeeds. Assert both, because a handle that refuses everything would also pass a refusal-only check.
-5. [S5] Run the whole `cmd/server` suite before anything is routed onto the reader, so a `query_only` incompatibility surfaces while the blast radius is one commit. [proof: acceptance]
+2. [S2] Add `openReaderDB(path, debug, pool)` wrapping `openDBWithPragmas` with `readerDBPragmas` and calling `SetMaxOpenConns(pool)`. Derive the pool from `max(4, runtime.NumCPU())` when the caller passes `0` or less, the way `RerankPool` already treats its zero. Doc-comment it with why the pool is many where the writer's is one, cite ADR-052, and say in the comment that no such knob exists for the writer because raising that one would delete the decision.
+3. [S3] Declare `&cli.IntFlag{Name: "db-reader-pool", Sources: cli.EnvVars("DB_READER_POOL"), Value: def.DBReaderPool}` beside `rerank-pool` (`cmd/server/main.go:220`), assign it into `config.Config` where `RerankPool` is assigned (`main.go:157`), and add the field to `internal/config/config.go` with its default. Its `Usage` string must name what it does and that `0` derives from `NumCPU()`, because `--help` is the only place a caller learns the knob exists.
+4. [S4] Document it in `README.md`'s flags table and in `.env.example`. Both directions are gated — a read variable no doc mentions fails `TestReadEnvVarsAreDocumented`, a documented one nothing reads fails `TestDocumentedEnvVarsAreRead` — so this step is not tidying.
+5. [S5] Open the reader in the serve path beside the writer and close both on shutdown. Nothing consumes it yet — T5 does — so this step is wiring only, and the point is that the handle exists at the composition root where the choice belongs.
+6. [S6] Assert in the test that a write through the reader returns an error mentioning a readonly database, and that a read through it succeeds. Assert both, because a handle that refuses everything would also pass a refusal-only check.
+7. [S7] Run the whole `cmd/server` suite before anything is routed onto the reader, so a `query_only` incompatibility surfaces while the blast radius is one commit. [proof: acceptance]
+8. [S8] Prove the flag is not decoration: `TestTheReaderPoolFlagReachesTheHandle` sets `--db-reader-pool` to a value the derivation cannot produce and asserts `db.Stats().MaxOpenConnections` is that value, then asserts the derived default with the flag unset. ⚠**The mutant is the `SetMaxOpenConns(pool)` argument replaced by the derived constant** — a knob that is read into a variable nothing passes on is exactly the inert setting ADR-006 rejects, and it passes every reachability check in the tree. [proof: mutation]
 
 ## Acceptance
 
 ```bash
 set -o pipefail
-go test ./cmd/server/ -run 'TestTheReadHandleCannotWrite$|TestTheServePathOpensBothHandles$' -count=1 2>&1 | tee /tmp/adr052-t4a.out \
+go test ./cmd/server/ -run 'TestTheReadHandleCannotWrite$|TestTheServePathOpensBothHandles$|TestTheReaderPoolFlagReachesTheHandle$' -count=1 2>&1 | tee /tmp/adr052-t4a.out \
   && ! grep -qE "no tests to run|^FAIL|^--- FAIL|\[build failed\]" /tmp/adr052-t4a.out \
   && go test ./cmd/server/ -count=1 2>&1 | tee /tmp/adr052-t4b.out \
   && ! grep -qE "^FAIL|^--- FAIL|\[build failed\]" /tmp/adr052-t4b.out
@@ -44,8 +50,11 @@ go test ./cmd/server/ -run 'TestTheReadHandleCannotWrite$|TestTheServePathOpensB
 
 | Test name | File | Verifies | Covers | Steps |
 |-----------|------|----------|--------|-------|
-| `TestTheReadHandleCannotWrite` | `cmd/server/dbwiring_test.go` | a read succeeds and a write is refused by the driver through a handle from `openReaderDB` | — | S1, S2, S4 |
-| `TestTheServePathOpensBothHandles` | `cmd/server/dbwiring_test.go` | the serve path constructs a reader as well as a writer, and closes both | — | S3 |
+| `TestTheReadHandleCannotWrite` | `cmd/server/dbwiring_test.go` | a read succeeds and a write is refused by the driver through a handle from `openReaderDB` | — | S1, S2, S6 |
+| `TestTheServePathOpensBothHandles` | `cmd/server/dbwiring_test.go` | the serve path constructs a reader as well as a writer, and closes both | — | S5 |
+| `TestTheReaderPoolFlagReachesTheHandle` | `cmd/server/dbwiring_test.go` | `--db-reader-pool` sets the reader handle's `MaxOpenConnections`, and an unset flag derives `max(4, NumCPU())` | — | S3, S8 |
+| `TestReadEnvVarsAreDocumented` | `cmd/server/envreach_test.go` | `DB_READER_POOL` is named in operator documentation now that the code reads it — an existing gate, listed because it is what proves S4 rather than a reviewer's memory | — | S4 |
+| `TestDocumentedEnvVarsAreRead` | `cmd/server/envreach_test.go` | the `DB_READER_POOL` added to `.env.example` is a variable the server actually reads, which is the arrow that catches a documented knob nothing consumes | — | S4 |
 
 ## Reachability
 
@@ -53,8 +62,8 @@ go test ./cmd/server/ -run 'TestTheReadHandleCannotWrite$|TestTheServePathOpensB
 |------|------------------------|
 | 1 — exists | `TestTheReadHandleCannotWrite` |
 | 2 — something selects it | the serve path calls `openReaderDB`; `TestTheServePathOpensBothHandles` goes red when that call is deleted, which is the mutation to run |
-| 3 — the caller can discover it | `openReaderDB`'s doc comment names ADR-052 and states the rule that read-only work belongs on this handle |
-| 4 — it is used | nothing consumes it until T5; that is the honest answer and it is why T5 exists |
+| 3 — the caller can discover it | `openReaderDB`'s doc comment names ADR-052 and states the rule that read-only work belongs on this handle; `--db-reader-pool` is in `--help`, in `README.md`'s flags table and in `.env.example`, which is the only route by which an operator learns the pool is theirs to set |
+| 4 — it is used | the serve path passes `cfg.DBReaderPool` into the handle it builds, and `TestTheReaderPoolFlagReachesTheHandle` fails when that argument stops being the flag's value. Nothing yet READS through the handle — T5 does — and that is the honest answer to this rung |
 
 ## Mutation Log
 
@@ -63,17 +72,23 @@ go test ./cmd/server/ -run 'TestTheReadHandleCannotWrite$|TestTheServePathOpensB
 - `readerDBPragmas` carries `query_only(1)` and never `_txlock=immediate`.
 - The reader and the writer point at the same database file; this is a connection split, not a replica.
 - `doctor`'s `openInspectionDB` is untouched.
+- The writer gets no pool flag. `SetMaxOpenConns(1)` on the writer stays a literal, because a knob that can raise it is a knob that can silently undo ADR-052 — T6's gate reads that literal out of the AST for this reason.
 
 ## Risks
 
-- `query_only` may refuse something gorm does on a read that is not obviously a write — a temp table for a complex join, or `PRAGMA optimize` on close. S5 runs the whole package suite before anything depends on the handle, so this is found before it matters.
-- `runtime.NumCPU()` on a large host opens more connections than the file needs. Each connection has its own page cache, so this is memory, not correctness; the follow-up asks whether it should be a flag.
+- `query_only` may refuse something gorm does on a read that is not obviously a write — a temp table for a complex join, or `PRAGMA optimize` on close. S7 runs the whole package suite before anything depends on the handle, so this is found before it matters.
+- `runtime.NumCPU()` on a large host opens more connections than the file needs. Each connection has its own page cache, so this is memory, not correctness — and it is now the DEFAULT rather than the only option: `--db-reader-pool` is the lever. What the flag does not come with is a measurement justifying its default, which the record carries as an open follow-up rather than pretending otherwise.
 
 ## Stop Condition
 
 Stop and ask if `query_only(1)` refuses an operation the read path legitimately
 performs. The alternative is a reader without `query_only`, which is a weaker
 decision than the one this ADR made, and swapping it is the owner's call.
+
+Stop and ask if anything asks for the same flag on the writer handle. The answer
+this record gives is no, and a request for one is a sign the writer count is
+being treated as a tuning parameter again — which is the defect ADR-052 exists
+to remove, not a configuration gap.
 
 ## Out of Scope
 

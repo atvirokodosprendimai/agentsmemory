@@ -51,6 +51,7 @@ Status: `pending` | `partial` | `blocked` | `done`.
 
 ## Notes
 
+- **T4 also ships `--db-reader-pool`**, decided by the owner on 2026-09-04 against the record's own first instinct. Its unit fence names `TestTheReaderPoolFlagReachesTheHandle` beside the two handle tests, and S4 is bound to `cmd/server/envreach_test.go`'s two existing env-documentation gates rather than to a reviewer noticing. The writer deliberately gets no equivalent knob — see the task's Invariants.
 - **Rebase before wave 4.** T5 changes `palace.NewRepo`'s signature and touches every test that builds a `Repo`. Open ADR PRs on `internal/palace` collide with it; the record's Stop Condition requires rebasing onto `main` first.
 - **T2 runs the whole `cmd/server` suite, not its own test alone**, because `foreign_keys(1)` can surface a latent constraint-ordering bug. A failure there is a finding, not noise.
 - The measurements behind this ADR were taken with a throwaway module against the repository's pinned dependency graph, 2026-09-04. T1 is what puts them in the tree so they stop being a session's private evidence.

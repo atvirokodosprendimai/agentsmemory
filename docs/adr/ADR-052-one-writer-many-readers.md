@@ -1,6 +1,6 @@
 # ADR-052: One writer, many readers — make the writer count a decision
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-09-04
 **Owner:** M
 **Spec:** None — no spec stage
@@ -48,7 +48,6 @@ could make it writable. Confirmed in the pinned engine at
 `modernc.org/sqlite@v1.49.1/lib/sqlite_darwin_arm64.go:50553-50565`, with the WAL
 BUSY/BUSY_SNAPSHOT paths at 45693-45731.
 So `busy_timeout(5000)` does not cover the case, and 6 of the 16
-non-test `Transaction(` sites read before they write:
 non-test `Transaction(` sites read before they write:
 
 | Site | What it does |
@@ -120,10 +119,30 @@ The serving path opens exactly two handles onto the same file:
 - **The writer**, `SetMaxOpenConns(1)`. It owns every write, **and every read
   that a write depends on**, both inside its own transaction on its own single
   connection.
-- **The readers**, `query_only(1)` with a pool of `max(4, runtime.NumCPU())`.
-  They serve the read model and nothing else.
+- **The readers**, `query_only(1)` with a pool of `--db-reader-pool`, which
+  takes `max(4, runtime.NumCPU())` when it is left at its default. They serve
+  the read model and nothing else.
 
 Both carry `foreign_keys(1)`.
+
+**The reader pool is a flag; the writer count is not.** `--db-reader-pool` /
+`DB_READER_POOL` exists because the right number is a property of the host and
+the workload, and neither is knowable from here — a 64-core box serving one
+agent and a 4-core box serving twenty want different values, and the derived
+default is a guess that fits neither exactly. ⚠**No such flag exists for the
+writer, and adding one would delete this decision.** One is not a tuning
+parameter here: it is the serialisation, and a knob that can raise it is a knob
+that can reintroduce 280 failures in 320 while every test stays green.
+
+⚠**This is the owner's call against this record's own first instinct, taken
+2026-09-04.** The draft shipped the derived value with no flag, citing ADR-006:
+a knob must change something, and nothing measures read concurrency today. The
+counter-argument that won is that ADR-006 forbids a knob that is *inert*, not
+one that is *unmeasured* — `SetMaxOpenConns` on the reader handle changes the
+served path whatever the measurement says, and an operator hitting connection
+pressure on a large host has no other lever. What the record still owes is the
+measurement: the third follow-up below is what would let a later reader judge
+the default rather than inherit it.
 
 ★**THE RULE THAT MATTERS IS THE SECOND HALF OF THE FIRST BULLET, AND IT IS THE
 ONE A FUTURE CHANGE WILL GET WRONG: the write path validates against its own
@@ -200,6 +219,7 @@ the module map in `README.md` is unchanged.
 |---------|--------|----------|-------------|
 | `readerDBPragmas` | new constant; `dbPragmas` gains `foreign_keys(1)` and stays the writer's | `cmd/server/main.go` | `internal/mcptest/harness.go`, `cmd/server/sync.go` |
 | `openWriterDB`, `openReaderDB` | new openers wrapping `openDBWithPragmas` with pool configuration | `cmd/server/main.go` | `cmd/server` serve path |
+| `--db-reader-pool` / `DB_READER_POOL` | new flag and `config.Config` field; `0` or less takes `max(4, runtime.NumCPU())` | `cmd/server/main.go`, `internal/config/config.go` | `cmd/server` serve path, `README.md`, `.env.example` |
 | `palace.NewRepo` | signature takes a reader and a writer handle rather than one `*gorm.DB` | `internal/palace/repo.go` | `cmd/server/main.go`, `internal/palace` tests |
 | `PRAGMA foreign_keys` | `0` to `1` on every serving connection | `cmd/server/main.go` | every package with a declared FK |
 
@@ -261,5 +281,6 @@ superset, so rolling back cannot orphan anything that was not already orphaned.
 ## Follow-ups
 
 - [ ] Route reads onto the reader handle in the nine remaining SQL-owning packages, tracked in `docs/adr/BACKLOG.md` under this record's name
-- [ ] Decide whether the reader pool size should be a flag rather than `max(4, NumCPU())`, once a served-path measurement exists — ADR-006 says a knob must change something, and nothing measures read concurrency today
+- [x] Decide whether the reader pool size should be a flag rather than `max(4, NumCPU())` — decided 2026-09-04: it is a flag, `--db-reader-pool`, defaulting to the derived value. T4 ships it. The measurement that would justify a different default is still owed, and is the follow-up below.
+- [ ] Measure read concurrency on the served path, so `--db-reader-pool`'s default is a number somebody chose rather than one nobody has tested — ADR-006's standard is that a knob changes something, and this one has no evidence behind its default
 - [ ] Re-take the contention measurement against the hosted deployment rather than a temp file, since a network filesystem changes SQLite's locking behaviour

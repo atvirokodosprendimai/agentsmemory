@@ -13,7 +13,6 @@
 ## Goal
 
 Give the writer its own opener capped at ONE connection, give the readers their own, turn foreign keys on for every serving connection, and turn T1's test green.
-foreign keys on for every serving connection, and turn T1's test green.
 
 ## Affected Files
 
@@ -85,8 +84,6 @@ a cascade that was silently not happening is a data-integrity question this
 task has no authority to settle, and it may deserve its own record.
 
 Stop and ask if capping the writer at one connection does not bring the failure count to zero on the executing machine. The measurement said it does; a disagreement means there is a second writer this record has not accounted for, and finding it matters more than the cap.
-the executing machine. The measurement said it does; a disagreement means the
-Decision rests on something that is not true here.
 
 ⚠ Stop and ask BEFORE enabling `foreign_keys(1)` against any deployment that
 holds real data. Turning the pragma on does not validate or repair existing
