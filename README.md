@@ -24,6 +24,22 @@ versioned skills** the team keeps up to date.
 
 ---
 
+## Getting started
+
+The step-by-step guides live in their own files, so each one can be followed
+start to finish without reading the rest of this document:
+
+| | |
+|---|---|
+| **[INSTALL.md](INSTALL.md)** | First install — the server, the kit, and what differs on macOS, Windows and Linux |
+| **[UPDATE.md](UPDATE.md)** | Upgrading. Three parts update independently, and doing it in the wrong order repoints your hooks silently |
+| **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)** | Organised by what you see. Almost every failure here is silent, which is why it needs its own list |
+
+This README is the **reference**: what the system is, what each tool does, every
+flag, and why the design is the way it is.
+
+---
+
 ## Why it exists
 
 The "memory palace" metaphor *is* the data model:
@@ -243,29 +259,11 @@ A request without a valid token comes back as a fail-closed
 ### Preparing Ollama (embeddings)
 
 agentsmemory never embeds text itself — it calls **your** Ollama, so nothing you
-remember leaves your machine. One install, one model pull:
+remember leaves your machine. The install steps, including what each platform
+needs and why a containerised Ollama is the wrong choice on macOS, are in
+[INSTALL.md](INSTALL.md#an-embedder-required-for-a-self-hosted-server).
 
-```bash
-# 1. Install and run Ollama — https://ollama.com/download
-#    macOS/Windows: the app starts the server.
-#    Linux:  curl -fsSL https://ollama.com/install.sh | sh
-ollama --version
-
-# 2. Pull the embedding model (bge-m3, 1024-dim, ~1.2 GB)
-ollama pull bge-m3
-
-# 3. Prove it answers on the endpoint the server will use
-curl -s http://localhost:11434/api/embed \
-  -d '{"model":"bge-m3","input":"hello"}' | head -c 120
-```
-
-Step 3 is the one worth running: a JSON array of floats means the server will
-work, and it fails loudly here rather than on your first `am_add_drawer`. The
-model must be *pulled*, not merely installed — Ollama does not fetch it on
-demand for `/api/embed`; a missing one comes back as `model "bge-m3" not found`.
-When that happens nothing is lost: writes return the embed error, and rows that
-came through `/import` sit in the embed queue and drain by themselves once the
-model is there.
+Two things about the choice of model, which are reference rather than procedure:
 
 **Why `bge-m3`, and why not to change it casually.** It matches the frozen Python
 palace (1024-dim), so migrated memories and new ones share one vector space.
@@ -273,24 +271,11 @@ Swapping the model changes that space: old and new vectors stop being comparable
 and every drawer needs re-embedding. Pick it before you fill the palace, not
 after — `--ollama-model` exists for a fresh one.
 
-**Running the server in Docker? `localhost` is not your machine.** Ollama binds
-`127.0.0.1` by default, and a container cannot reach the host's loopback. Either
-bind it wider and use the name compose maps for you (`OLLAMA_URL=http://host.docker.internal:11434`):
-
-```bash
-# macOS
-launchctl setenv OLLAMA_HOST 0.0.0.0     # then restart the Ollama app
-
-# Linux (systemd)
-sudo systemctl edit ollama               # add: Environment="OLLAMA_HOST=0.0.0.0"
-sudo systemctl restart ollama
-```
-
-…or, on Linux, skip the problem entirely with the host-network override below,
-where `localhost:11434` inside the container *is* your machine's loopback.
-
-A GPU box elsewhere works just as well — point `OLLAMA_URL` at it
-(`http://192.168.1.50:11434`) and pull `bge-m3` there instead.
+**A missing model fails loudly and loses nothing.** Ollama does not fetch a model
+on demand for `/api/embed`, so an unpulled one comes back as
+`model "bge-m3" not found`. Writes return the embed error, and rows that came
+through `/import` sit in the embed queue and drain by themselves once the model
+is there.
 
 ### Self-hosted single-workspace mode (`--local`)
 
@@ -507,12 +492,9 @@ Worth knowing:
   call can still pass `wing: "*"` when it deliberately needs every project.
 - **`AGENTSMEMORY_SOCKET` configures both halves** — the server's listen path and
   the bridge's dial path — so the pair cannot drift apart.
-- **`AGENTSMEMORY_WING` configures the bridge's `--wing` value** when a process
-  manager supplies registration scope through the environment:
-
-  ```bash
-  AGENTSMEMORY_WING=wing_acme
-  ```
+- **The bridge's `--wing` value can come from the environment** when a process
+  manager supplies registration scope that way — see
+  [INSTALL.md](INSTALL.md#against-your-own-server).
 - **Socket paths are short.** The kernel caps them near 104 bytes (macOS) or 108
   (Linux); a deeply nested path fails to bind with a bare `invalid argument`.
 
@@ -970,42 +952,24 @@ Two things worth reading twice:
 
 Full reference: [`clients/claude-code/README.md`](clients/claude-code/README.md).
 
-### Install in one line
+### Installing the kit
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/atvirokodosprendimai/agentsmemory/main/clients/claude-code/install.sh | bash
 ```
 
 The bootstrap script detects your OS/arch, downloads the latest
-`aiagentmemory-<os>-<arch>` from
-[GitHub Releases](https://github.com/atvirokodosprendimai/agentsmemory/releases)
-into `~/.local/bin`, then runs `aiagentmemory install`. Anything after `--` is
-forwarded to `install`. Prefer to build it yourself?
+`aiagentmemory-<os>-<arch>` into `~/.local/bin`, then runs `aiagentmemory
+install`. Anything after `--` is forwarded to `install`.
 
-```bash
-go build -o aiagentmemory ./clients/claude-code
-./aiagentmemory install
-```
+The full procedure — hosted vs self-hosted, global vs sandboxed, what to pass so
+recall stays scoped to one project, and the per-platform differences — is
+[INSTALL.md](INSTALL.md#3-install-the-kit). Upgrading afterwards is
+[UPDATE.md](UPDATE.md), which is a genuinely separate matter: the binary, the
+protocol in your config dir, and the server all update independently.
 
-`install` prompts for your **workspace API token** (create a project in the
-dashboard and copy or **Reveal** its key), then registers the agentsmemory MCP in
-one shot. Supply it non-interactively with `--token <key>` or the
-`AGENTSMEMORY_TOKEN` environment variable. Add `--recommended` to also install the
-companion tools: the [codebase-memory](https://github.com/DeusData/codebase-memory-mcp)
-MCP and the codex review plugin. Preview any run with `--dry-run` — it prints
-every file write and command without touching anything.
-
-### Two ways to install
-
-| Mode | Command | What it does |
-|------|---------|--------------|
-| **Global** | `aiagentmemory install` | Wires the MCP, commands, all five hooks and the shipped subagent definition into the global `~/.claude`. Wraps the Claude you already run. |
-| **Sandboxed** | `aiagentmemory install --sandbox <name>` | Installs a self-contained config under `~/.sandboxes/<name>`, isolated from every other project and from the global `~/.claude`. |
-
-Sandboxing works by pinning the agent's own config-dir variable
-(`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `PI_CODING_AGENT_DIR`) at launch. **Cursor
-exposes no such variable**, so `--agent cursor --sandbox x` is refused rather than
-writing a complete kit into a directory Cursor will never open.
+For per-project isolation, see
+[Sandboxed installation](#sandboxed-installation-per-project-isolation) below.
 
 ### Command options
 
