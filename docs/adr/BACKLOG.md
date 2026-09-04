@@ -3504,11 +3504,15 @@ widening has to be measured the same way.
   open the shipped writer configuration, which is what makes its measurements honest. It does not give
   the harness the reader/writer split the server will have after T4 and T5, so a scenario cannot
   exercise the `query_only` boundary end to end. Deferred out of ADR-052 T4.
-- **Fix whatever `-race` finds** — ADR-052 T7 turns the detector on in CI and deliberately does not fix
-  what it reports, so that a pre-existing race arrives as its own finding rather than as fallout from
-  the refactor. Whatever T7's first run surfaces is owed a fix here, and T7's sign-off is required to
-  say whether anything was found and where. This also closes the ADR-042 follow-up asking for `-race`
-  in CI, which is where the obligation came from. Deferred out of ADR-052 T7.
+- **ADR-042's `-race` follow-up is STALE and should be closed where it is written** — it says "Run the
+  test suite under `-race` in CI. Nothing in this repository does: every workflow…". That stopped being
+  true on 2026-08-30, when `11c7176` added a dedicated `race` job running `go test -race -timeout=30m
+  ./...` as a REQUIRED branch-protection context (`.github/workflows/build.yml:148`); `release.yml:59`
+  runs it too. ADR-052's first draft read the follow-up, believed it, and proposed a seventh task to add
+  what already existed — caught only because the `race` check reported green on ADR-052's own PR. Nothing
+  swept it, because `adr-debt` reports an open follow-up faithfully and cannot know the work landed
+  elsewhere. Close it in ADR-042, and treat this as the recurrence it is: a written obligation outlives
+  the condition that created it. Found via ADR-052.
 - **A parity gate between the CLI `mcp` adapter and the HTTP one** — restated here only because ADR-052
   §Out of Scope points at this file for it; the substantive entry is already recorded under ADR-008 and
   is not duplicated. ADR-052 adds nothing to it beyond noting that a reader/writer split is one more

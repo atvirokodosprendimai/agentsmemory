@@ -70,9 +70,11 @@ harness harsher. It does not: the same read-then-write shape failed 79 of 320
 there against 273–281 under the shipped DSN, so a concurrency test written in
 the harness under-reports the defect by roughly a factor of three.
 
-Nothing in CI would have caught any of it: no workflow runs the suite under
-`-race`, which is an open follow-up from ADR-042 and is pulled into this record
-as T7 rather than deferred a second time.
+The one thing this ADR does NOT need to add is the race detector. `-race` runs
+in CI already, as its own required job (`.github/workflows/build.yml:148`,
+`go test -race -timeout=30m ./...`), added 2026-08-30 in `11c7176`. ADR-042's
+follow-up asking for it is stale, and an earlier draft of this record trusted
+that follow-up over the workflow and proposed adding what already exists.
 
 ## Existing Primitives Audit
 
@@ -146,7 +148,6 @@ the module map in `README.md` is unchanged.
 | `openWriterDB`, `openReaderDB` | new openers wrapping `openDBWithPragmas` with pool configuration | `cmd/server/main.go` | `cmd/server` serve path |
 | `palace.NewRepo` | signature takes a reader and a writer handle rather than one `*gorm.DB` | `internal/palace/repo.go` | `cmd/server/main.go`, `internal/palace` tests |
 | `PRAGMA foreign_keys` | `0` to `1` on every serving connection | `cmd/server/main.go` | every package with a declared FK |
-| CI workflow | the Go test job gains `-race` | `.github/workflows/build.yml` | CI |
 
 ## Inter-task Contracts
 
@@ -159,7 +160,7 @@ the module map in `README.md` is unchanged.
 
 ## Implementation
 
-See `docs/adr/ADR-052-one-writer-many-readers/tasks/README.md`. Seven tasks in
+See `docs/adr/ADR-052-one-writer-many-readers/tasks/README.md`. Six tasks in
 five waves.
 
 ## Consequences
@@ -189,7 +190,6 @@ five waves.
 | `query_only(1)` refuses something the read path legitimately does — a temp table, a `PRAGMA optimize` | Med | Med | T4 wires the handle and runs the full suite before T5 routes anything onto it, so the blast radius is one commit and the rollback is one line |
 | `SetMaxOpenConns(1)` on the writer serialises a slow write behind others under real load | Med | Med | Measured cheaper than contention on this workload (30ms against 61ms), and the reader handle keeps recall off the writer entirely; revisit with a served-path measurement rather than by raising the cap |
 | The wide `NewRepo` signature change collides with in-flight ADR PRs touching `internal/palace` | High | Low | T5 is the last substantive wave, and the Stop Condition requires rebasing onto main before it runs |
-| `-race` turns CI red on a pre-existing race unrelated to this ADR | Med | Med | T7 is independent and in wave 1, so the finding arrives before the refactor rather than tangled with it |
 
 ## Rollback
 
