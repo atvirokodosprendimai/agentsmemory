@@ -39,7 +39,7 @@ what is missing.
 
 ```bash
 set -o pipefail
-go test ./internal/mcpserver/ -run 'TestAGraphAnswerIsBoundedAndSaysWhatItCut$|TestAGraphCursorReturnsTheRestExactlyOnce$' -count=1 2>&1 | tee /tmp/adr053-t1a.out \
+go test ./internal/mcpserver/ -run 'TestAGraphAnswerIsBoundedAndSaysWhatItCut$|TestAGraphCursorReturnsTheRestExactlyOnce$|TestWithheldNamesEveryCauseThatRemovedSomething$' -count=1 2>&1 | tee /tmp/adr053-t1a.out \
   && ! grep -qE "no tests to run|^FAIL|^--- FAIL|\[build failed\]" /tmp/adr053-t1a.out \
   && go test ./internal/palace/... ./internal/mcpserver/... -count=1 2>&1 | tee /tmp/adr053-t1b.out \
   && ! grep -qE "^FAIL|^--- FAIL|\[build failed\]" /tmp/adr053-t1b.out
@@ -68,7 +68,7 @@ caller in the tree reads.
 
 ## Mutation Log
 
-- 2026-09-04 · f3695ba* · mutant killed · exit 1 · `internal/mcpserver/kg.go` · the page renders every fact and the budget is computed and thrown away — the inert-mechanism shape this repository keeps shipping: the code exists, its unit tests exercise it, and nothing selects it · acceptance-sha256:7fe635c04d355bd6aaa11d06836da9aaf8a4c405e1842e32ec189b10c3aaf17e
+- 2026-09-04 · 06b8213* · mutant killed · exit 1 · `internal/mcpserver/kg.go` · the page renders every fact and the budget is computed and thrown away — the inert-mechanism shape this repository keeps shipping: the code exists, its unit tests exercise it, and nothing selects it · acceptance-sha256:9bb48b9df9cf4a13d9b3c88fa17f448d8ce33fead769a1dbaa76603cdb9ccb6e
 
 ## Invariants
 
@@ -95,18 +95,4 @@ reshaped rather than reused, which is a wider decision than this task owns.
 - Bounding `Traverse`, `ListTunnels`, `ListHallways` or `FollowTunnels` (deferred: `docs/adr/BACKLOG.md`)
 
 ## Verification Log
-- 2026-09-04 · f3695ba* · exit 1 · `set -o pipefail …` · acceptance-sha256:7fe635c04d355bd6aaa11d06836da9aaf8a4c405e1842e32ec189b10c3aaf17e · ms:2532
-  ```
-  --- last 10 line(s) of stdout (of 42 after folding 42 raw)
-  2026/09/04 12:54:28 OK   00034_billing_checkout_intents.sql (525.42µs)
-  2026/09/04 12:54:28 OK   00035_billing_applied_orders.sql (351.67µs)
-  2026/09/04 12:54:28 OK   00036_drawer_fetches.sql (440µs)
-  2026/09/04 12:54:28 goose: successfully migrated database to version: 36
-  --- FAIL: TestAGraphAnswerIsBoundedAndSaysWhatItCut (0.57s)
-      kg_test.go:93: the graph answer is 106884 runes, past the 40000-rune budget every other read obeys — a response this size spills to a file the model never reads
-      kg_test.go:100: withheld is not a map keyed by cause: <nil>
-  FAIL
-  FAIL	github.com/atvirokodosprendimai/agentsmemory/internal/mcpserver	0.907s
-  FAIL
-  ```
-- 2026-09-04 · f3695ba* · exit 0 · `set -o pipefail …` · acceptance-sha256:7fe635c04d355bd6aaa11d06836da9aaf8a4c405e1842e32ec189b10c3aaf17e · ms:24546
+- 2026-09-04 · 06b8213* · exit 0 · `set -o pipefail …` · acceptance-sha256:9bb48b9df9cf4a13d9b3c88fa17f448d8ce33fead769a1dbaa76603cdb9ccb6e · ms:51597
