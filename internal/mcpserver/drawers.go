@@ -488,7 +488,7 @@ func recordFetchJoin(ctx context.Context, drawers *palace.Service, teamID string
 // registerGetDrawer: fetch one drawer by id.
 func registerGetDrawer(reg *registrar, drawers *palace.Service, usageSvc *usage.Service) {
 	tool := newTool("get_drawer",
-		mcp.WithDescription("Fetch a drawer by its id. A memory longer than ~1600 characters is stored as several chunks and a search returns the ONE that matched; pass whole=true to get every chunk of that memory, in order, so you can read the note as it was written. A response you did NOT ask to be whole says whether it is one: content_truncated is set with content_length, the whole memory's rune count, whenever the drawer you asked for is a chunk of a longer memory — so a fragment is never mistakable for a complete short memory. Complete it by calling this tool again with the same id and whole=true; that is the only completion path, and no cursor or offset exists."),
+		mcp.WithDescription("Fetch a drawer by its id. A memory longer than ~1600 characters is stored as several chunks and a search returns the ONE that matched; pass whole=true to get every chunk of that memory, in order, so you can read the note as it was written. A response you did NOT ask to be whole says whether it is one: content_truncated is set with content_length, the whole memory's rune count, whenever the drawer you asked for is a chunk of a longer memory — so a fragment is never mistakable for a complete short memory. Complete it by calling this tool again with the same id and whole=true; that is the only completion path, and no cursor or offset exists. A `facts` block arrives beside the memory when the graph holds any edge naming this drawer — ⚠INCLUDING THE INCOMING ONES, which is where a correction lives: retracts, supersedes and qualifies all point AT the record they correct, so this is the check you would otherwise have to know to make separately. It is bounded by the same response budget as everything else and says so under `withheld`; a fact tied to the drawer only by source_drawer_id is provenance rather than a reference and does NOT appear here."),
 		mcp.WithString("id", mcp.Required(), mcp.Description("The drawer id returned by am_add_drawer or am_search.")),
 		mcp.WithBoolean("whole", mcp.Description("Return every chunk of the memory this drawer belongs to, in order, instead of just this one. Any chunk's id works — you do not need the first.")),
 		mcp.WithString("search_id", mcp.Description("Optional: the search_id of the am_search page that led you to this memory. It is recorded on the request's trace span AND, since ADR-028 T3, durably against the drawer this call returned — so the recall that sent you here becomes a relevance signal. Nothing changes in what you get back. A fetch that does not resolve records nothing, and an id that is not the shape am_search mints is refused rather than stored.")),
@@ -538,7 +538,11 @@ func registerGetDrawer(reg *registrar, drawers *palace.Service, usageSvc *usage.
 			if len(chunks) > 0 {
 				recordFetchJoin(ctx, drawers, t.TeamID, req, chunks[0].ID, true)
 			}
-			return jsonResult(map[string]any{"chunks": views, "count": len(views)}), nil
+			out := map[string]any{"chunks": views, "count": len(views)}
+			if len(chunks) > 0 {
+				addDrawerFacts(ctx, drawers, t.TeamID, chunks[0].ID, out)
+			}
+			return jsonResult(out), nil
 		}
 		get := drawers.Get
 		if history {
@@ -572,7 +576,9 @@ func registerGetDrawer(reg *registrar, drawers *palace.Service, usageSvc *usage.
 		} else if n > 1 {
 			partialWithFetchID(&v, full)
 		}
-		return jsonResult(v), nil
+		out := viewAsMap(v)
+		addDrawerFacts(ctx, drawers, t.TeamID, d.ID, out)
+		return jsonResult(out), nil
 	})
 }
 
@@ -1503,4 +1509,60 @@ func unionLen(ranges []disclosedRange, total int) int {
 func partialWithFetchID(v *drawerView, full int) {
 	v.Truncated = true
 	v.FullLength = full
+}
+
+// addDrawerFacts puts the graph's view of a memory on the call that returns it.
+//
+// am_search has rendered a facts block since ADR-036 and the by-id fetch did
+// not, which is the wrong way round: the fetch is what a caller makes AFTER
+// deciding to read a memory, so it is exactly when the context is worth paying
+// for. ADR-053 T4.
+//
+// ⚠ IT ASKS FOR INCOMING EDGES, and that is the half that would look complete
+// while being wrong. A correction attaches to the record it corrects as an
+// INCOMING edge — retracts, supersedes, qualifies all point AT the drawer — so
+// an outgoing-only block omits exactly the check start-here says every leaf
+// fetch must do, and omits it silently. A caller then reads a superseded memory
+// believing they checked.
+//
+// Containment stays hidden here by the same rule as everywhere else: a fetch
+// that dragged in its room's listing would reintroduce the defect ADR-053
+// removes, through a different door.
+//
+// It fails OPEN. A graph lookup that errors must not turn a working read into an
+// error — the memory is what the caller asked for, and the facts are context.
+func addDrawerFacts(ctx context.Context, drawers *palace.Service, teamID, id string, out map[string]any) {
+	res, err := drawers.KGQuery(ctx, teamID, palace.KGQueryInput{Entity: id, Direction: "both"})
+	if err != nil {
+		telemetry.Annotate(ctx, attribute.Bool("am.drawer_facts_failed", true))
+		return
+	}
+	facts, cut, cursor := boundGraphPage(res.Facts, res.NextCursor)
+	if len(facts) == 0 {
+		return
+	}
+	out["facts"] = facts
+	if cut > 0 {
+		// Reported through the same map as everywhere else, so a caller reading
+		// `withheld` does not have to learn a second shape for this surface.
+		out["withheld"] = map[string]int64{palace.KGWithheldBudget: int64(cut)}
+		out["next_cursor"] = cursor
+	}
+}
+
+// viewAsMap re-renders a drawerView so a fact block can be added beside it.
+//
+// The round trip through JSON is deliberate: the view's wire shape is defined by
+// its struct tags, and hand-copying the fields here would be a second definition
+// of that shape which drifts the first time a tag changes.
+func viewAsMap(v drawerView) map[string]any {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return map[string]any{}
+	}
+	out := map[string]any{}
+	if err := json.Unmarshal(b, &out); err != nil {
+		return map[string]any{}
+	}
+	return out
 }

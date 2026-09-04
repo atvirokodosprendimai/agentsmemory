@@ -20,7 +20,7 @@ where today it is only on the call they made before.
 | File | Change | Why |
 |------|--------|-----|
 | `internal/mcpserver/drawers.go` | edit | render `facts` on the `am_get_drawer` response through the same budget helper, and describe the new block |
-| `internal/mcpserver/drawers_test.go` | edit | the gate, including the incoming-correction case that is the block's highest-value content |
+| `internal/mcpserver/getdrawerfacts_test.go` | add | the gate, including the incoming-correction case that is the block's highest-value content. ⚠It is a NEW file in package `mcpserver_test`, not an edit to `drawers_test.go`: that file is package `mcpserver`, and driving the tool surface needs `internal/mcptest`, which imports this package — an import cycle from inside it |
 
 ## Ordered Steps
 
@@ -45,8 +45,8 @@ go test ./internal/mcpserver/ -run 'TestAFetchCarriesTheFactsAboutItsDrawer$|Tes
 
 | Test name | File | Verifies | Covers | Steps |
 |-----------|------|----------|--------|-------|
-| `TestAFetchCarriesTheFactsAboutItsDrawer` | `internal/mcpserver/drawers_test.go` | `am_get_drawer` returns a bounded `facts` block for a drawer named by a fact | — | S1, S2, S5 |
-| `TestAFetchSurfacesAnIncomingCorrection` | `internal/mcpserver/drawers_test.go` | a `retracts`/`supersedes`/`qualifies` edge pointing AT the drawer arrives in the block, and containment edges do not | — | S3, S4 |
+| `TestAFetchCarriesTheFactsAboutItsDrawer` | `internal/mcpserver/getdrawerfacts_test.go` | `am_get_drawer` returns a bounded `facts` block for a drawer named by a fact | — | S1, S2, S5 |
+| `TestAFetchSurfacesAnIncomingCorrection` | `internal/mcpserver/getdrawerfacts_test.go` | a `retracts`/`supersedes`/`qualifies` edge pointing AT the drawer arrives in the block, and containment edges do not | — | S3, S4 |
 
 ## Reachability
 
@@ -58,6 +58,8 @@ go test ./internal/mcpserver/ -run 'TestAFetchCarriesTheFactsAboutItsDrawer$|Tes
 | 4 — it is used | every by-id fetch renders it, and the corpus holds live `qualifies` and `supersedes` edges that exercise the correction case today |
 
 ## Mutation Log
+
+- 2026-09-04 · ab56495* · mutant killed · exit 1 · `internal/mcpserver/drawers.go` · the incoming half dropped: a correction attaches to the record it corrects as an INCOMING edge, so an outgoing-only block looks complete while omitting every retracts/supersedes/qualifies — the caller reads a superseded memory believing they checked · acceptance-sha256:7bae97de17a092e6c0c8c0a64868dc70f6e7cc3de07140ad74e87d3766d8536f
 
 ## Invariants
 
@@ -80,6 +82,8 @@ and it belongs to whoever owns that constant.
 ## Out of Scope
 
 - Returning facts from `am_list_drawers` (deferred: `docs/adr/BACKLOG.md`)
+- Returning facts whose only tie to the drawer is `source_drawer_id` — provenance rather than reference (deferred: `docs/adr/BACKLOG.md`)
 - Changing which facts `am_search` returns (permanent: boundary: ADR-036 decided that shape and this task adds a second reader of it, not a second definition)
 
 ## Verification Log
+- 2026-09-04 · ab56495* · exit 0 · `set -o pipefail …` · acceptance-sha256:7bae97de17a092e6c0c8c0a64868dc70f6e7cc3de07140ad74e87d3766d8536f · ms:5209

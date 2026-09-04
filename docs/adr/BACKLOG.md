@@ -3562,3 +3562,14 @@ widening has to be measured the same way.
   and transcripts**, the largest of the four and their entire product rather than a feature. Each
   needs its own record: (1) is a schema and mint change, (2) is a hooks change, (3) is an eval, and
   (4) is a new ingestion path. Deferred out of ADR-053 §Out of Scope.
+- **A fetch does not return facts EXTRACTED FROM the drawer, only facts that point AT it** — ADR-053
+  T4 gives `am_get_drawer` a facts block built from `KGQuery(Entity: <drawer id>, Direction: "both")`,
+  so it carries every edge where the drawer is an endpoint. That covers the case the task singles out
+  as highest value — a correction attaches as an INCOMING edge, so this is where `retracts`,
+  `supersedes` and `qualifies` surface. It does NOT cover a fact whose only tie to the drawer is
+  `source_drawer_id`: provenance rather than reference. Discovered 2026-09-04 while writing T4's first
+  test, which had asserted the provenance case; the test was corrected to the scoped one rather than
+  the scope widened silently. Closing it needs a repo lookup that does not exist — `grep -rn
+  "source_drawer_id = ?" internal/palace` returns nothing — and a decision about whether a memory's
+  fetch should carry facts somebody derived from it, which is a different question from what the
+  graph says about it. Deferred out of ADR-053 T4 §Out of Scope.
