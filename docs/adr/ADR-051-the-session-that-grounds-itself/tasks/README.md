@@ -41,12 +41,28 @@ nine would be worse, so within a wave these still land one at a time.
 | T3 | Record what the session touched, at PostToolUse | done | — | `go test ./clients/claude-code/ -run '…Touched…'` |
 | T4 | Inject on UserPromptExpansion, the channel T1 unblocks | done | — | `go test ./clients/claude-code/ -run '…Expansion…'` |
 | T5 | A bounded resources/list so an address is discoverable | done | — | `go test ./internal/mcpserver/ -run '…Listing…'` |
-| T6 | Ship the kit as one plugin instead of a script that edits settings | done | — | `go test ./clients/claude-code/ -run '…Plugin…'` |
+| T6 | Ship the kit as one plugin instead of a script that edits settings | partial | — | `go test ./clients/claude-code/ -run '…Plugin…'` |
 | T7 | Put the palace on the status line | done | — | `go test ./clients/claude-code/ -run '…StatusLine…'` |
 | T8 | A native skill that reaches the centralised catalogue | done | — | `go test ./clients/claude-code/ -run '…Skill…'` |
-| T9 | The unattended loop: what runs alone, and what still gates | done | — | `go test ./clients/claude-code/ -run '…Unattended…'` |
+| T9 | The unattended loop: what runs alone, and what still gates | partial | — | `go test ./clients/claude-code/ -run '…Unattended…'` |
 
 Status: `pending` | `partial` | `blocked` | `done`.
+
+⚠ **T6 and T9 were marked `done` and were downgraded to `partial` on 2026-09-04
+after an independent review.** Both ship artifacts that NOTHING LOADS:
+
+- **T6.** Plugin hooks must live at `hooks/hooks.json`; `.claude-plugin/` is for
+  `plugin.json` alone. The manifest here is at the wrong path, carries no MCP
+  declaration, and is not embedded — so `/plugin install` would load none of it.
+  The equality gate holds the manifest to the installer's plan, which is real and
+  worth keeping, but it validates a file Claude Code never reads.
+- **T9.** `permissions` is not a key plugin `settings.json` supports, and nothing
+  in this repository reads that file except its own tests. The rules are inert.
+
+Neither was a lie about test results — every receipt is real — and that is the
+uncomfortable part: **the fences passed because the tests read the same files the
+code wrote, and never asked whether anything downstream consumes them.** That is
+this corpus's §Reachability defect committed by the gates written to prevent it.
 
 Acceptance commands are abbreviated here; each task file carries the full fence including
 its `no tests to run` guard. The task file wins.

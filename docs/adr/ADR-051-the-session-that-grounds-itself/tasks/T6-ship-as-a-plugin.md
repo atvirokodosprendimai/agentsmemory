@@ -89,6 +89,20 @@ migration that silently drops a registration is worse than no migration.
 - The non-Claude-Code kits. (permanent: boundary: codex, pi and cursor have different extension models and no plugin format)
 - Publishing to a public marketplace. (deferred: `docs/adr/BACKLOG.md`)
 
+## ⚠ Status: PARTIAL — the manifest is not loadable (review, 2026-09-04)
+
+Claude Code loads plugin hooks from `hooks/hooks.json`; `.claude-plugin/` holds
+`plugin.json` and nothing else. This task wrote `.claude-plugin/hooks.json`, added
+no `.mcp.json`, and embedded neither — so a `/plugin install` of this directory
+would register no hooks and no MCP server.
+
+What stands: `doctor`'s `DUPLICATED` verdict, and the equality gate deriving both
+sides from source. What does not: the claim that the kit is installable as a
+plugin. Moving the manifest and adding the MCP declaration is the remaining work,
+and it needs a live `claude plugin` check rather than another JSON-reading test —
+the reviewer ran `claude plugin validate` and it did not look at the misplaced
+files at all, which is why nothing here caught it.
+
 ## Verification Log
 
 Filled by `adr-verify`.

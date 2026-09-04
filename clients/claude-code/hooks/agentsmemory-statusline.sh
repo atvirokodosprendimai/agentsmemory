@@ -19,11 +19,33 @@ CACHE="${AGENTSMEMORY_STATE_DIR:-${TMPDIR:-/tmp}}/agentsmemory-status.txt"
 # is the one surface a user cannot dismiss.
 [ -s "$CACHE" ] || exit 0
 
-. "$CACHE" 2>/dev/null || exit 0
+# ⚠ PARSED AS DATA, NEVER SOURCED. `. "$CACHE"` executed the file, and the wing in
+# it comes from a repository's own .aiagentmemory — so any checkout could put
+# command substitution in a wing name and have it run on EVERY status-line render,
+# in the user's shell, forever. Demonstrated 2026-09-04 with a wing of
+# `$(touch /tmp/PWNED && echo owned)`: the file appeared. Reported by review.
+#
+# Fixed keys, read one at a time, and every value constrained to what a wing or a
+# count can legitimately be. A status line is the last place to run untrusted
+# input: it renders constantly, unattended, and nobody is reading its source.
+read_key() {
+  sed -n "s/^$1=\(.*\)$/\1/p" "$CACHE" 2>/dev/null | head -n1
+}
+AM_WING="$(read_key AM_WING)"
+AM_DRIFTED="$(read_key AM_DRIFTED)"
+AM_INBOX="$(read_key AM_INBOX)"
+
+# A wing is a safe name (palace.SanitizeName's alphabet). Anything else is not a
+# wing, and rendering it would be rendering whatever wrote the cache.
+case "$AM_WING" in
+  ''|*[!A-Za-z0-9_-]*) AM_WING="" ;;
+esac
+case "$AM_DRIFTED" in ''|*[!0-9]*) AM_DRIFTED=0 ;; esac
+case "$AM_INBOX" in ''|*[!0-9]*) AM_INBOX=0 ;; esac
 
 OUT="🧠 ${AM_WING:-no wing}"
-[ -n "${AM_DRIFTED:-}" ] && [ "${AM_DRIFTED:-0}" -gt 0 ] 2>/dev/null && OUT="$OUT · ⚠ ${AM_DRIFTED} drifted"
-[ -n "${AM_INBOX:-}" ] && [ "${AM_INBOX:-0}" -gt 0 ] 2>/dev/null && OUT="$OUT · 📥 ${AM_INBOX}"
+[ "$AM_DRIFTED" -gt 0 ] 2>/dev/null && OUT="$OUT · ⚠ ${AM_DRIFTED} drifted"
+[ "$AM_INBOX" -gt 0 ] 2>/dev/null && OUT="$OUT · 📥 ${AM_INBOX}"
 
 # Age, in whole minutes, from the cache's own mtime. Nothing is stored about when
 # it was written: a stored timestamp is one more thing that can disagree with the

@@ -139,3 +139,4 @@ Filled by `adr-verify`.
 - 2026-09-04 · 673d52d* · exit 0 · `gofmt -l cmd internal | (! grep -q .) && go vet ./... && \ …` · acceptance-sha256:aca6fe0ea4085afb98ec51e202c4e3c324a4e6805cc6a7c2ca82606c1d45d64d · ms:43866
 - 2026-09-04 · 673d52d* · exit 0 · `gofmt -l cmd internal | (! grep -q .) && go vet ./... && \ …` · acceptance-sha256:aca6fe0ea4085afb98ec51e202c4e3c324a4e6805cc6a7c2ca82606c1d45d64d · ms:33478
 - 2026-09-04 · 673d52d* · exit 0 · `gofmt -l cmd internal | (! grep -q .) && go vet ./... && \ …` · acceptance-sha256:aca6fe0ea4085afb98ec51e202c4e3c324a4e6805cc6a7c2ca82606c1d45d64d · ms:32817
+- 2026-09-04 · 12de7bf* · exit 0 · `gofmt -l cmd internal | (! grep -q .) && go vet ./... && \ …` · acceptance-sha256:aca6fe0ea4085afb98ec51e202c4e3c324a4e6805cc6a7c2ca82606c1d45d64d · ms:44185

@@ -111,6 +111,23 @@ most likely to produce.
 - MCP elicitation for the irreversible set. (deferred: `docs/adr/ADR-051-the-session-that-grounds-itself.md` §Follow-ups — ⚠ amended 2026-09-04 on the owner's correction that "human elicitation sometimes is needed, but not the most of the turns": the deny rules above make those turns STOP, and elicitation is what would let the server ASK instead of merely refusing. That is a strictly better answer for the minority of turns where a human genuinely must decide, and it is a real follow-up rather than a rejected alternative)
 - Filing memories without an agent deciding what is worth filing. (permanent: boundary: the persist gate reports what went unrecorded; choosing what deserves a memory is a judgement this record does not automate)
 
+## ⚠ Status: PARTIAL — the permission rules are inert (review, 2026-09-04)
+
+Plugin `settings.json` supports `agent` and `subagentStatusLine`; `permissions` is
+not among them, and nothing in this repository reads the file except the tests
+written for it. So the deny list does not gate anything, and the allow list grants
+nothing — the rules are a document.
+
+The tests are the instructive part. They parse the file and assert its contents,
+including the wildcard check that was written specifically to avoid a permissive
+rule passing. Every one of them passes over a file that is never loaded, because
+none asks whether Claude Code consumes it. **A test that reads what the code wrote
+is not a reachability test**, and that is the defect this corpus exists to catch.
+
+The remaining work is a supported route — `--settings`, or the CLI's own
+permission arguments — plus a test that asserts a DENIED action is actually
+refused, rather than that a string appears in JSON.
+
 ## Verification Log
 
 Filled by `adr-verify`.

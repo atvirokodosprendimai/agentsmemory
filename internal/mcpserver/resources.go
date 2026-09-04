@@ -95,28 +95,33 @@ func listRecentMemories(drawers *palace.Service, usageSvc *usage.Service, scopeS
 		if !ok {
 			return
 		}
-		// ⚠ NOT searchWingFor, though the resolution below is its scoped-default
-		// branch inlined. That helper resolves a wing a CALLER passed, and the
+		// ⚠ NOT searchWingFor. That helper resolves a wing a CALLER passed, and the
 		// contract axis requires anything using it to advertise the "*" scope as a
 		// tool argument — which a listing hook cannot do, because resources/list
 		// takes no arguments at all. Calling it here fails
 		// TestMCPContractStarScopeAssertion, and correctly: it would claim a
 		// widening this call can never offer.
 		//
-		// The scope is the one am_list_drawers already uses for an omitted wing:
-		// this registration's default wing when it has one and scoping is on,
-		// otherwise every wing this TEAM can see. The tenant boundary is the team,
-		// not the wing, so that is the same data the caller can already list by
-		// tool — a listing is a second door onto it, never a wider one.
+		// ⚠ AND WHEN SCOPING IS ON WITH NO DEFAULT WING, THIS LISTS NOTHING. An
+		// earlier version fell through to wing="" and listed every wing the TEAM can
+		// see, on the reasoning that the tenant boundary is the team and
+		// am_list_drawers does the same for an omitted wing. Review was right that
+		// this is different: a TOOL call with an omitted argument is a caller asking
+		// broadly, while resources/list has no argument to omit — the client did not
+		// choose, so the server must not choose the widest answer on its behalf. T5's
+		// own Invariant says serve nothing here, and the first implementation
+		// contradicted the task file it was written from.
 		wing := ""
 		if scopeSearchToWing {
-			if def := strings.TrimSpace(auth.DefaultWingFrom(ctx)); def != "" && def != "*" {
-				w, err := palace.SanitizeName(def, "wing")
-				if err != nil {
-					return
-				}
-				wing = w
+			def := strings.TrimSpace(auth.DefaultWingFrom(ctx))
+			if def == "" || def == "*" {
+				return
 			}
+			w, err := palace.SanitizeName(def, "wing")
+			if err != nil {
+				return
+			}
+			wing = w
 		}
 		rows, err := drawers.ListCurrent(ctx, t.TeamID, wing, "", listedResourceLimit, 0)
 		if err != nil {

@@ -199,6 +199,14 @@ func runTaskRecall(t *testing.T, input string) (stdout, stderr string) {
 // command NAME, and recalling against it retrieves whatever is nearest to one. So
 // until this branch existed, every slash-command turn got no task recall at all —
 // the turns most likely to be substantive work.
+//
+// ⚠ THE PAYLOAD HERE IS THE DOCUMENTED ONE, AND AN EARLIER VERSION FABRICATED IT.
+// That version sent `expanded_prompt`, a field this event does not carry, invented
+// to make the hook's five speculative lookups succeed. It passed, and measured
+// nothing but its own fixture. Reported by review 2026-09-04. The fields below —
+// command_name, command_args, command_source, expansion_type — are what the event
+// documents; if they are wrong the hook goes silent and says so, which is the
+// failure a fabricated fixture hides.
 func TestTheExpansionBranchRecallsWhereTheSubmitBranchRefuses(t *testing.T) {
 	task := "how does the rebind guard decide this machine is the boundary"
 
@@ -210,9 +218,11 @@ func TestTheExpansionBranchRecallsWhereTheSubmitBranchRefuses(t *testing.T) {
 		t.Errorf("the submit branch should say why it refused; got %q", errs)
 	}
 
-	out, _ = runTaskRecall(t, `{"hook_event_name":"UserPromptExpansion","prompt":"/am","expanded_prompt":"`+task+`"}`)
+	expansion := `{"hook_event_name":"UserPromptExpansion","expansion_type":"command",` +
+		`"command_name":"am","command_source":"user","command_args":"` + task + `","prompt":"/am ` + task + `"}`
+	out, _ = runTaskRecall(t, expansion)
 	if out == "" {
-		t.Fatal("the expansion branch said nothing; the slash-command turn still gets no recall, which is the whole gap T4 closes")
+		t.Fatal("the expansion branch said nothing for a documented payload; the slash-command turn still gets no recall, which is the whole gap T4 closes")
 	}
 	if !strings.Contains(out, "a recalled memory") {
 		t.Errorf("the expansion branch did not inject what it recalled:\n%s", out)
@@ -242,8 +252,8 @@ func TestTheUserPromptExpansionHookIsRegistered(t *testing.T) {
 	}
 }
 
-// TestTheExpansionBranchStillRefusesAnUnexpandedCommand is the case a surviving
-// mutant exposed.
+// TestTheExpansionBranchIsSilentWithoutCommandArgs is the case a surviving mutant
+// exposed, restated for the documented payload.
 //
 // The expansion field name is NOT documented — the hooks reference truncates
 // before its payload table — so the script tries several spellings. If none
@@ -251,13 +261,13 @@ func TestTheUserPromptExpansionHookIsRegistered(t *testing.T) {
 // retrieves whatever is nearest to one. An earlier version exempted this branch
 // from the slash-command refusal; the exemption was dead code on the happy path
 // and removed a safety check on the unhappy one.
-func TestTheExpansionBranchStillRefusesAnUnexpandedCommand(t *testing.T) {
-	out, errs := runTaskRecall(t, `{"hook_event_name":"UserPromptExpansion","prompt":"/am","unknown_field_name":"the real task text"}`)
+func TestTheExpansionBranchIsSilentWithoutCommandArgs(t *testing.T) {
+	out, errs := runTaskRecall(t, `{"hook_event_name":"UserPromptExpansion","expansion_type":"command","command_name":"clear","prompt":"/clear"}`)
 	if out != "" {
-		t.Errorf("with no recognised expansion field the hook recalled against the command name:\n%s", out)
+		t.Errorf("with no command_args the hook recalled against something it did not receive:\n%s", out)
 	}
-	if !strings.Contains(errs, "slash command") {
-		t.Errorf("it should refuse and say why; got %q", errs)
+	if !strings.Contains(errs, "no command_args") {
+		t.Errorf("it should say what was missing; got %q", errs)
 	}
 }
 
@@ -380,9 +390,22 @@ func TestTheStatusLineMakesNoNetworkCall(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, bad := range []string{"curl", "wget", "aiagentmemory ", "nc "} {
-		if strings.Contains(string(b), bad) {
-			t.Errorf("the status line invokes %q; it must read the cache and nothing else", strings.TrimSpace(bad))
+	// ⚠ CODE ONLY, COMMENTS STRIPPED — AND THIS IS THE SECOND GATE IN ONE SESSION
+	// TO MATCH PROSE. The first version scanned the whole file and fired on the
+	// word ".aiagentmemory" inside a comment explaining where the wing comes from;
+	// the stat-ordering gate did the same thing on a comment describing the hazard
+	// it checks. A gate that reads prose is not checking code, and a gate whose
+	// first run is a false alarm is one nobody trusts afterwards.
+	for n, line := range strings.Split(string(b), "\n") {
+		code := line
+		if i := strings.Index(code, "#"); i >= 0 {
+			code = code[:i]
+		}
+		for _, bad := range []string{"curl", "wget", "aiagentmemory ", "nc "} {
+			if strings.Contains(code, bad) {
+				t.Errorf("%s:%d invokes %q; the status line must read the cache and nothing else\n    %s",
+					"agentsmemory-statusline.sh", n+1, strings.TrimSpace(bad), strings.TrimSpace(line))
+			}
 		}
 	}
 }

@@ -482,3 +482,58 @@ func TestTheListingAndTheTemplateBothResolve(t *testing.T) {
 		t.Fatalf("resources/templates/list is empty (%v); the general form is gone", err)
 	}
 }
+
+// TestTheListingRefusesToChooseAWingForTheCaller is T5's isolation invariant,
+// which the first implementation contradicted.
+//
+// ⚠ Reported by review 2026-09-04. That version fell through to wing="" when
+// scoping was on with no default wing, and listed every wing the TEAM can see —
+// reasoning that the tenant boundary is the team and am_list_drawers does the same
+// for an omitted wing. The difference is who omitted it: a TOOL call with no wing
+// argument is a caller asking broadly, while resources/list has no argument to
+// omit at all. The client did not choose, so the server must not choose the widest
+// answer on its behalf, and T5's Invariant said so before the code was written.
+func TestTheListingRefusesToChooseAWingForTheCaller(t *testing.T) {
+	gdb := graphTestDB(t)
+	svc := palace.NewService(palace.NewRepo(gdb), graphTestEmbedder{}, sqlitevec.New(gdb), graphTestDim)
+	srv := New(Deps{
+		Version:           "test",
+		Drawers:           svc,
+		Usage:             usage.NewService(usage.NewRepo(gdb), graphTestCaps{}),
+		ScopeSearchToWing: true,
+	})
+	cli, err := client.NewInProcessClient(srv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = cli.Close() })
+	if err := cli.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := cli.Initialize(t.Context(), mcp.InitializeRequest{}); err != nil {
+		t.Fatal(err)
+	}
+
+	const team = "team-scoped"
+	ctx := auth.WithTenant(context.Background(), tenant.Tenant{TeamID: team, UserID: "u1", Role: tenant.RoleAdmin})
+	for _, w := range []string{"wing_acme", "wing_beta"} {
+		if _, err := svc.Add(ctx, team, palace.AddInput{Wing: w, Room: "decisions", Content: "a memory in " + w}); err != nil {
+			t.Fatalf("seed %s: %v", w, err)
+		}
+	}
+
+	// Scoping ON and no default wing: the registration names no project, so there
+	// is no wing this listing may speak for.
+	got, err := cli.ListResources(ctx, mcp.ListResourcesRequest{})
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(got.Resources) != 0 {
+		var wings []string
+		for _, r := range got.Resources {
+			wings = append(wings, r.Name)
+		}
+		t.Errorf("with wing scoping on and no default wing the listing returned %d entries (%v); it must serve nothing rather than pick the widest answer",
+			len(got.Resources), wings)
+	}
+}

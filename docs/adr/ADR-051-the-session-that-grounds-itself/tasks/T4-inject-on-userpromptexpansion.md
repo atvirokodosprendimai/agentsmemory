@@ -37,7 +37,7 @@ has a stated subject, and one of only four events whose plain stdout reaches the
 ```bash
 gofmt -l clients internal | (! grep -q .) && go vet ./... && \
 go test ./clients/claude-code/ \
-  -run 'TestTheExpansionBranchRecallsWhereTheSubmitBranchRefuses|TestTheExpansionBranchStillRefusesAnUnexpandedCommand|TestTheUserPromptExpansionHookIsRegistered|TestEveryInjectingHookIsOnAnInjectingEvent' \
+  -run 'TestTheExpansionBranchRecallsWhereTheSubmitBranchRefuses|TestTheExpansionBranchIsSilentWithoutCommandArgs|TestTheUserPromptExpansionHookIsRegistered|TestEveryInjectingHookIsOnAnInjectingEvent' \
   -count=1 2>&1 | tee /tmp/adr051-t4.out; \
 ! grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/adr051-t4.out && go test ./... -count=1
 ```
@@ -48,7 +48,7 @@ go test ./clients/claude-code/ \
 |-----------|------|----------|--------|
 | `TestTheExpansionBranchRecallsWhereTheSubmitBranchRefuses` | `clients/claude-code/anchorcue_test.go` | The PAIR, which is what proves this is a gap and not a duplicate: the submit branch refuses `/am …` and the expansion branch recalls against the text it expanded into | — |
 | `TestTheUserPromptExpansionHookIsRegistered` | `clients/claude-code/anchorcue_test.go` | The plan registers the task-recall script on the event, AND the event is classified as injecting — the T1 dependency asserted rather than commented | — |
-| `TestTheExpansionBranchStillRefusesAnUnexpandedCommand` | `clients/claude-code/anchorcue_test.go` | ⚠ Written because a mutant SURVIVED: with no recognised expansion field the prompt is still the literal `/am`, and the refusal must still fire | — |
+| `TestTheExpansionBranchIsSilentWithoutCommandArgs` | `clients/claude-code/anchorcue_test.go` | ⚠ Written because a mutant SURVIVED, and rewritten because the payload was FABRICATED: with no `command_args` the hook says what was missing and recalls against nothing | — |
 | `TestEveryInjectingHookIsOnAnInjectingEvent` | `clients/claude-code/hookchannel_test.go` | The pre-existing install gate now passes for this registration; before T1 it rejected it | — |
 
 ⚠ **The gap is precise and was verified before the task was written.** The
@@ -80,6 +80,12 @@ write a test defending it. Filled by `adr-verify --mutant`.
   ```
 - 2026-09-04 · 89fc448* · mutant killed · exit 1 · `clients/claude-code/hooks/agentsmemory-task-recall-hook.sh` · the slash-command refusal removed: an expansion whose field name is unrecognised then recalls against the command name itself · acceptance-sha256:c4c0e3932edbbacfea941c362e428b7943b671c046d1688dd4910c6d5d2d555a
 - 2026-09-04 · 89fc448* · mutant killed · exit 1 · `clients/claude-code/installer.go` · the expansion recall registered on an event that reaches nothing: slash-command turns get no recall · acceptance-sha256:c4c0e3932edbbacfea941c362e428b7943b671c046d1688dd4910c6d5d2d555a
+- 2026-09-04 · 12de7bf* · mutant survived · exit 0 · `clients/claude-code/hooks/agentsmemory-task-recall-hook.sh` · the expansion branch keeps the raw prompt instead of the command arguments, so it recalls against the command name — the exact failure the submit branch refuses · acceptance-sha256:bc57a8e82bf8bcb9e1e9a313a8a11476839021eb67e3d3119b823c19016e43fb
+  ```
+  the fence passed with the mechanism broken; it may not materialize, compile, load, or assert on the changed path
+  ```
+- 2026-09-04 · 12de7bf* · mutant killed · exit 1 · `clients/claude-code/installer.go` · the expansion recall registered on an event that reaches nothing · acceptance-sha256:bc57a8e82bf8bcb9e1e9a313a8a11476839021eb67e3d3119b823c19016e43fb
+- 2026-09-04 · 12de7bf* · mutant killed · exit 1 · `clients/claude-code/hooks/agentsmemory-task-recall-hook.sh` · the expansion branch keeps the raw prompt instead of building the query from command_name and command_args, so it recalls against the command name — the exact failure the submit branch refuses · acceptance-sha256:bc57a8e82bf8bcb9e1e9a313a8a11476839021eb67e3d3119b823c19016e43fb
 
 ## Invariants
 
@@ -99,6 +105,19 @@ failure ADR-041 T5 recorded, and this task must not repeat it in a new event.
 ## Out of Scope
 
 Rewriting the expanded prompt via `updatedPrompt`. (deferred: `docs/adr/BACKLOG.md`)
+
+## ⚠ Amended 2026-09-04 — the first version invented its own payload
+
+The hook searched five spellings of an expanded-prompt field — `expanded_prompt`,
+`expandedPrompt`, `updated_prompt`, `updatedPrompt`, `expansion` — none of which
+this event documents, and the test FABRICATED `expanded_prompt` so they would
+succeed. It passed, and measured nothing but its own fixture. Reported by review.
+
+The query is built from `command_name` and `command_args` now, which is what the
+event carries. ⚠ The documentation page truncates before this schema, so those
+names come from a reviewer's reading rather than from a page this session could
+load: if they are wrong the hook is SILENT and says so on stderr, which is the
+honest failure a fabricated fixture hides.
 
 ## Verification Log
 
@@ -123,3 +142,21 @@ Filled by `adr-verify`.
 - 2026-09-04 · 89fc448* · exit 0 · `gofmt -l clients internal | (! grep -q .) && go vet ./... && \ …` · acceptance-sha256:c4c0e3932edbbacfea941c362e428b7943b671c046d1688dd4910c6d5d2d555a · ms:32890
 - 2026-09-04 · 89fc448* · exit 0 · `gofmt -l clients internal | (! grep -q .) && go vet ./... && \ …` · acceptance-sha256:c4c0e3932edbbacfea941c362e428b7943b671c046d1688dd4910c6d5d2d555a · ms:32977
 - 2026-09-04 · 89fc448* · exit 0 · `gofmt -l clients internal | (! grep -q .) && go vet ./... && \ …` · acceptance-sha256:c4c0e3932edbbacfea941c362e428b7943b671c046d1688dd4910c6d5d2d555a · ms:40530
+- 2026-09-04 · 12de7bf* · exit 1 · `gofmt -l clients internal | (! grep -q .) && go vet ./... && \ …` · acceptance-sha256:bc57a8e82bf8bcb9e1e9a313a8a11476839021eb67e3d3119b823c19016e43fb · ms:52010
+  ```
+  --- last 10 line(s) of stdout (of 129 after folding 129 raw)
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/store/sqlitevec	3.302s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/store/storetest	3.351s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/telemetry	3.616s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/tenant	4.097s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/updatecheck	3.516s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/usage	3.612s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/web	5.070s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/web/views	4.575s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/wingbundle	4.918s
+  FAIL
+  ```
+- 2026-09-04 · 12de7bf* · exit 0 · `gofmt -l clients internal | (! grep -q .) && go vet ./... && \ …` · acceptance-sha256:bc57a8e82bf8bcb9e1e9a313a8a11476839021eb67e3d3119b823c19016e43fb · ms:34325
+- 2026-09-04 · 12de7bf* · exit 0 · `gofmt -l clients internal | (! grep -q .) && go vet ./... && \ …` · acceptance-sha256:bc57a8e82bf8bcb9e1e9a313a8a11476839021eb67e3d3119b823c19016e43fb · ms:35682
+- 2026-09-04 · 12de7bf* · exit 0 · `gofmt -l clients internal | (! grep -q .) && go vet ./... && \ …` · acceptance-sha256:bc57a8e82bf8bcb9e1e9a313a8a11476839021eb67e3d3119b823c19016e43fb · ms:34852
+- 2026-09-04 · 12de7bf* · exit 0 · `gofmt -l clients internal | (! grep -q .) && go vet ./... && \ …` · acceptance-sha256:bc57a8e82bf8bcb9e1e9a313a8a11476839021eb67e3d3119b823c19016e43fb · ms:36905

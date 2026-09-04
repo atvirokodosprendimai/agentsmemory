@@ -86,3 +86,4 @@ Filled by `adr-verify`.
 - 2026-09-04 · cb33ab7* · exit 0 · `gofmt -l clients internal | (! grep -q .) && go vet ./... && \ …` · acceptance-sha256:3eb0dfa817868b548eaa039d8c6facc324b846604a96d0da9d5d3f28e461dcaa · ms:45614
 - 2026-09-04 · cb33ab7* · exit 0 · `gofmt -l clients internal | (! grep -q .) && go vet ./... && \ …` · acceptance-sha256:3eb0dfa817868b548eaa039d8c6facc324b846604a96d0da9d5d3f28e461dcaa · ms:33793
 - 2026-09-04 · cb33ab7* · exit 0 · `gofmt -l clients internal | (! grep -q .) && go vet ./... && \ …` · acceptance-sha256:3eb0dfa817868b548eaa039d8c6facc324b846604a96d0da9d5d3f28e461dcaa · ms:34506
+- 2026-09-04 · 12de7bf* · exit 0 · `gofmt -l clients internal | (! grep -q .) && go vet ./... && \ …` · acceptance-sha256:3eb0dfa817868b548eaa039d8c6facc324b846604a96d0da9d5d3f28e461dcaa · ms:36333

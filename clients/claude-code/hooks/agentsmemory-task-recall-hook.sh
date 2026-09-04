@@ -65,21 +65,36 @@ EVENT="$(printf '%s' "$INPUT" | tr '\n' ' ' | sed -n 's/.*"hook_event_name"[[:sp
 
 PROMPT="$(printf '%s' "$INPUT" | tr '\n' ' ' | sed -n 's/.*"prompt"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
 
-# ⚠ ON UserPromptExpansion THE TASK IS IN THE EXPANDED TEXT, NOT THE PROMPT.
-# The field name is not documented — the hooks reference truncates before its
-# payload table — so this tries the plausible spellings and gives up quietly
-# rather than guessing one and being silently wrong. If none matches, the branch
-# below finds an empty query and the hook says so on stderr, which is where
-# `doctor` reads it.
+# ⚠ ON UserPromptExpansion THE PAYLOAD CARRIES NO EXPANDED PROMPT, AND AN EARLIER
+# VERSION OF THIS BLOCK INVENTED ONE.
+#
+# It searched five spellings — expanded_prompt, expandedPrompt, updated_prompt,
+# updatedPrompt, expansion — none of which is documented, and its test FABRICATED
+# `expanded_prompt` to make itself pass. A test that manufactures the payload it
+# asserts on measures nothing but its own fixture, which is the fabrication this
+# repository gates against everywhere else. Reported by review 2026-09-04.
+#
+# What the event documents is the command and its arguments: command_name,
+# command_args, command_source, expansion_type. So the query is built from THOSE —
+# the words the user typed after the command, which is the task, plus the command
+# name for context when the arguments are thin.
+#
+# ⚠ THE DOC PAGE TRUNCATES BEFORE THIS SCHEMA, so the field names come from a
+# reviewer's reading rather than from a page this session could load. If they are
+# wrong the hook is SILENT and says so on stderr, which is the honest failure: it
+# cannot recall against something it did not receive, and it must never recall
+# against a command name.
 if [ "$EVENT" = "UserPromptExpansion" ]; then
-  for field in expanded_prompt expandedPrompt updated_prompt updatedPrompt expansion; do
-    EXPANDED="$(printf '%s' "$INPUT" | tr '\n' ' ' | sed -n "s/.*\"$field\"[[:space:]]*:[[:space:]]*\"\\([^\"]*\\)\".*/\\1/p")"
-    [ -n "$EXPANDED" ] && { PROMPT="$EXPANDED"; break; }
-  done
+  CMD_NAME="$(printf '%s' "$INPUT" | tr '\n' ' ' | sed -n 's/.*"command_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
+  CMD_ARGS="$(printf '%s' "$INPUT" | tr '\n' ' ' | sed -n 's/.*"command_args"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
+  if [ -n "$CMD_ARGS" ]; then
+    PROMPT="$CMD_ARGS"
+    [ -n "$CMD_NAME" ] && PROMPT="$CMD_NAME $CMD_ARGS"
+  else
+    trace "expansion carries no command_args; nothing to ask with"
+    exit 0
+  fi
 fi
-PROMPT="$(printf '%s' "$PROMPT" | tr -s ' ' | sed 's/^ *//;s/ *$//')"
-
-[ -n "$PROMPT" ] || { trace "no prompt field in the hook input"; exit 0; }
 
 # ⚠ A SLASH COMMAND IS NOT A QUESTION. `/am`, `/clear`, `/model sonnet` — these
 # expand into something else entirely, and recalling against the literal text
