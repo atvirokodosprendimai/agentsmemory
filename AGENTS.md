@@ -126,7 +126,7 @@ full, because three of its steps failed silently today:
     aiagentmemory install --agent claude --local --wing wing_agentmemories --scope local --yes   # --dry-run first
     aiagentmemory install --agent claude-desktop --local --yes   # QUIT Desktop first (#208); while it runs, copy the binary over the Desktop path atomically instead
     # then VERIFY FROM THE SERVED SURFACE: am_status must report the version you
-    # stamped, and `aiagentmemory doctor --agent claude-desktop` must say ok
+    # stamped, and redeploy.sh's kit check must print the desktop bridge as tree-identical
 
 ⚠ A git worktree's `.git` is a pointer file the container does not mount, so
 every test that shells out to git goes red — four did, at a tag whose suite was
@@ -136,7 +136,9 @@ resets the served version to `dev`; `redeploy.sh` refuses to build without it.
 `~/.local/bin` on PATH and were both stale copies; both are symlinks now, keep
 them so. The Desktop installer copies the FIRST `aiagentmemory-server` on PATH,
 and on 2026-09-04 that shadow was a build from before the release while the
-server it fronted was current — `doctor --agent claude-desktop` is what sees it.
+server it fronted was current — `redeploy.sh`'s kit check judges the bridge by
+tree against the checkout; `doctor --agent claude-desktop` only compares it with
+the PATH copy it was installed from, which agrees when both are stale together.
 ⚠ `redeploy.sh | tail` returns tail's exit status — the script REFUSED a red
 suite today and the pipeline reported 0. Never read an exit code through a pipe.
 

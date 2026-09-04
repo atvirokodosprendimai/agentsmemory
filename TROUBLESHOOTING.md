@@ -256,11 +256,12 @@ networking is Linux-only; Docker Desktop runs containers in a VM.
 - **Check every `-f` flag is present.** An overlay alone is not a complete stack,
   and leaving one off starts a valid *different* stack rather than failing. Fix it
   once with `COMPOSE_FILE`, ideally in a `.env` beside the compose files.
-- **Check `scripts/redeploy.sh` deploys the same chain.** It reads the chain from
-  the running container's `config_files` label, or from `COMPOSE_FILE`, so it
-  follows the overlay set that is up and prints the chain it resolved first.
-  Releases before that hardcoded two files and silently reverted `RERANK_URL` on a
-  four-file setup (issue #209).
+- **Check `scripts/redeploy.sh` deploys the same chain.** It takes the chain from
+  `COMPOSE_FILE` in the ENVIRONMENT first — it does not read a `.env`, so export
+  it for this script — else from the running container's `config_files` label,
+  so it follows the overlay set that is up; it prints the chain it resolved on
+  its first line. Releases before that hardcoded two files and silently reverted
+  `RERANK_URL` on a four-file setup (issue #209).
 - **Check the variable is actually read.** A variable documented and read by
   nothing is the failure `TestDocumentedEnvVarsAreRead` exists to catch — it found
   a shipped compose file advertising a rerank pool the server never read. If you
