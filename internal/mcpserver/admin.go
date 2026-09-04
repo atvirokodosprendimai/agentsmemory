@@ -26,6 +26,7 @@ func registerAnchors(reg *registrar, drawers *palace.Service, usageSvc *usage.Se
 		mcp.WithString("wing", mcp.Description("Only anchors on drawers in this wing. Omitted, scoped to this registration's default_wing only when one is configured and SEARCH_SCOPE is not workspace; otherwise every wing. Pass \"*\" for every wing deliberately."), searchWingProperty()),
 		mcp.WithString("repo", mcp.Description("Only anchors carrying this repo label.")),
 		mcp.WithString("status", mcp.Description("Only anchors in this state.")),
+		mcp.WithString("path", mcp.Description("Only anchors pinned to exactly this file path. An exact match, not a prefix — this is how a client asks \"what does the team already know about the file I am opening?\" without composing a query. It answers nothing for a path no memory pins, which is the common case and is meant to be silent.")),
 		mcp.WithNumber("limit", mcp.Description("Max anchors to return (default 500).")),
 		mcp.WithBoolean("include_ended", mcp.Description("Also return anchors on superseded or retracted drawers (default false). Off by default because those pins cannot be repaired — correcting a memory mints a new record and am_update_drawer refuses an ended one, so a drifted verdict there re-reports at every session start and nothing can clear it. Turn it on to AUDIT what the corpus pins, not to verify: an ended record legitimately keeps its anchors, because it keeps its text.")),
 	)
@@ -47,6 +48,7 @@ func registerAnchors(reg *registrar, drawers *palace.Service, usageSvc *usage.Se
 			Wing:         wing,
 			Repo:         req.GetString("repo", ""),
 			Status:       req.GetString("status", ""),
+			Path:         req.GetString("path", ""),
 			Limit:        req.GetInt("limit", 0),
 			IncludeEnded: req.GetBool("include_ended", false),
 		})

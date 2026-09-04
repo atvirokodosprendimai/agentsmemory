@@ -48,6 +48,16 @@ const subagentHookAsset = "hooks/agentsmemory-subagent-start-hook.sh"
 // ADR-041 T2's baseline; this is the mechanism it was waiting on.
 const recallHookAsset = "hooks/agentsmemory-recall-hook.sh"
 
+// anchorCueHookAsset is the embedded PreToolUse hook: it surfaces the memories
+// PINNED TO the file a tool is about to touch (ADR-051 T2).
+//
+// ⚠ It is not ADR-041's T5, which is STOPPED. T5 reaches the same event with a
+// SEARCH, and the only query available there is a bare grep pattern — re-measured
+// 2026-09-03, 14 of 25 bare identifiers top out in a narrative or scratch room
+// against 0 of 5 real questions. This issues no query at all: an anchor is an
+// exact pin, so the lookup is a join on a path the tool call already names.
+const anchorCueHookAsset = "hooks/agentsmemory-anchor-cue-hook.sh"
+
 // taskRecallHookAsset is the UserPromptSubmit sibling of the recall hook: it asks
 // the palace about the TASK, using the user's own words, at the moment the task
 // arrives.
@@ -75,6 +85,9 @@ const (
 
 	// recallHookFile is where the recall hook lands, beside the others.
 	recallHookFile = "agentsmemory-recall-hook.sh"
+
+	// anchorCueHookFile is where the PreToolUse anchor cue lands, beside the others.
+	anchorCueHookFile = "agentsmemory-anchor-cue-hook.sh"
 
 	// taskRecallHookFile is where the per-prompt recall hook lands.
 	taskRecallHookFile = "agentsmemory-task-recall-hook.sh"
@@ -855,6 +868,11 @@ func (i *Installer) recallHookPath() string {
 	return filepath.Join(i.targetDir, recallHookFile)
 }
 
+// anchorCueHookPath is where the PreToolUse anchor cue is installed.
+func (i *Installer) anchorCueHookPath() string {
+	return filepath.Join(i.targetDir, anchorCueHookFile)
+}
+
 // taskRecallHookPath is where the UserPromptSubmit recall hook is installed.
 func (i *Installer) taskRecallHookPath() string {
 	return filepath.Join(i.targetDir, taskRecallHookFile)
@@ -1220,6 +1238,19 @@ func (i *Installer) hookPlansOn(goos string) []hookPlan {
 			cmd:   i.hookCommand(i.subagentHookPath()),
 			note:  "registered SubagentStart hook (a subagent wakes knowing memory exists)",
 		},
+		// ADR-051 T2. THIS LINE IS THE MECHANISM: the script is inert without it.
+		//
+		// Registered matcher-less, like every other plan here, and the script
+		// filters instead — it exits silently when the event carries no file_path,
+		// which is every tool that names no file. A matcher would be a second copy
+		// of a guard that has to exist anyway, since PreToolUse fires for tools this
+		// kit has never heard of.
+		hookPlan{
+			event: "PreToolUse",
+			cmd:   i.hookCommand(i.anchorCueHookPath()),
+			note:  "registered PreToolUse hook (a memory pinned to this file arrives with it)",
+		},
+
 		// The WRITE half (ADR-017 T3), and deliberately the SAME script as Stop:
 		// it branches on hook_event_name, so the two nudges differ in text and not
 		// in machinery. A second script would be a second thing to keep in step.

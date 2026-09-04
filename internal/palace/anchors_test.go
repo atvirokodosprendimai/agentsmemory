@@ -126,3 +126,62 @@ func TestReplaceAnchorsSwapsRatherThanAppends(t *testing.T) {
 		t.Errorf("%d anchor(s) survived an empty replace", len(got))
 	}
 }
+
+// TestAnchorFilterSelectsByPath is the retrieval T2's PreToolUse cue rests on,
+// and the reason that cue is not ADR-041's stopped T5.
+//
+// T5 died on QUERY QUALITY: at PreToolUse the only thing available is a bare grep
+// pattern, and a bare identifier retrieves a session's narrative more often than
+// a team's decision. This filter issues no query. An anchor is an exact pin — the
+// path is stored beside the drawer id — so the lookup is a join on a string the
+// tool call already names, and nothing is ranked. There is no distance to fall
+// short of, which is why the stopped finding does not reach it.
+//
+// The empty-Path case is asserted alongside because the field is additive: every
+// existing caller passes the zero value, and a filter that narrowed on "" would
+// silently return nothing to the verifier and to doctor.
+func TestAnchorFilterSelectsByPath(t *testing.T) {
+	ctx := context.Background()
+	svc := newTestService(t)
+	const team = "team-anchor-path"
+
+	seed := func(content, path string) {
+		drawers := mustAdd(t, svc, team, AddInput{Wing: "wing_acme", Room: "decisions", Content: content})
+		if _, err := svc.AddAnchors(ctx, team, drawers[0].ID,
+			[]AnchorInput{{Repo: "agentsmemory", Path: path, Snippet: "func Example() {"}}); err != nil {
+			t.Fatalf("anchor %s: %v", path, err)
+		}
+	}
+	seed("why the rebind guard decides this machine", "internal/auth/origin.go")
+	seed("why chunks overlap by 320 runes", "internal/palace/chunk.go")
+	seed("a second memory about the guard", "internal/auth/origin.go")
+
+	all, err := svc.ListAnchors(ctx, team, AnchorFilter{})
+	if err != nil {
+		t.Fatalf("list all: %v", err)
+	}
+	if len(all) != 3 {
+		t.Fatalf("the zero-value filter returned %d anchors, want 3 — an additive field must not narrow by default", len(all))
+	}
+
+	got, err := svc.ListAnchors(ctx, team, AnchorFilter{Path: "internal/auth/origin.go"})
+	if err != nil {
+		t.Fatalf("list by path: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("Path filter returned %d anchors, want the 2 pinned to that file", len(got))
+	}
+	for _, a := range got {
+		if a.Path != "internal/auth/origin.go" {
+			t.Errorf("Path filter returned an anchor on %s", a.Path)
+		}
+	}
+
+	none, err := svc.ListAnchors(ctx, team, AnchorFilter{Path: "internal/nothing/pins/this.go"})
+	if err != nil {
+		t.Fatalf("list by unpinned path: %v", err)
+	}
+	if len(none) != 0 {
+		t.Errorf("a path nothing pins returned %d anchors; the cue must be silent there", len(none))
+	}
+}
