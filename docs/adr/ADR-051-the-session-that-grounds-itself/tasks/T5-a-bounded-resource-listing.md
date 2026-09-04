@@ -64,6 +64,9 @@ worse than no pointer.
 ## Mutation Log
 
 Filled by `adr-verify --mutant`. At minimum: the bound removed, and the template deregistered.
+- 2026-09-04 · 673d52d* · mutant killed · exit 1 · `internal/mcpserver/resources.go` · the bound is not passed to the query: the listing returns whatever the service default yields instead of the doorway, which is the enumeration ADR-050 rejected · acceptance-sha256:aca6fe0ea4085afb98ec51e202c4e3c324a4e6805cc6a7c2ca82606c1d45d64d
+- 2026-09-04 · 673d52d* · mutant killed · exit 1 · `internal/mcpserver/server.go` · the listing hook never registered: resources/list answers [] again, so the addresses stay undiscoverable in the client whose documented discovery calls name it · acceptance-sha256:aca6fe0ea4085afb98ec51e202c4e3c324a4e6805cc6a7c2ca82606c1d45d64d
+- 2026-09-04 · 673d52d* · mutant killed · exit 1 · `internal/mcpserver/resources.go` · the listing hands out an address that does not resolve — a pointer to nothing, discovered by a caller rather than by us · acceptance-sha256:aca6fe0ea4085afb98ec51e202c4e3c324a4e6805cc6a7c2ca82606c1d45d64d
 
 ## Invariants
 
@@ -90,3 +93,49 @@ better answered by documentation than by a listing.
 ## Verification Log
 
 Filled by `adr-verify`.
+- 2026-09-04 · 673d52d* · exit 1 · `gofmt -l cmd internal | (! grep -q .) && go vet ./... && \ …` · acceptance-sha256:aca6fe0ea4085afb98ec51e202c4e3c324a4e6805cc6a7c2ca82606c1d45d64d · ms:46552
+  ```
+  --- last 10 line(s) of stdout (of 4239 after folding 4239 raw)
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/store/sqlitevec	3.456s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/store/storetest	3.586s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/telemetry	3.496s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/tenant	3.947s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/updatecheck	3.273s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/usage	3.566s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/web	3.639s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/web/views	3.285s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/wingbundle	4.636s
+  FAIL
+  ```
+- 2026-09-04 · 673d52d* · exit 1 · `gofmt -l cmd internal | (! grep -q .) && go vet ./... && \ …` · acceptance-sha256:aca6fe0ea4085afb98ec51e202c4e3c324a4e6805cc6a7c2ca82606c1d45d64d · ms:34983
+  ```
+  --- last 10 line(s) of stdout (of 4239 after folding 4239 raw)
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/store/sqlitevec	1.667s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/store/storetest	1.554s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/telemetry	1.258s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/tenant	1.636s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/updatecheck	1.442s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/usage	1.010s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/web	1.520s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/web/views	1.070s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/wingbundle	0.484s
+  FAIL
+  ```
+- 2026-09-04 · 673d52d* · exit 1 · `gofmt -l cmd internal | (! grep -q .) && go vet ./... && \ …` · acceptance-sha256:aca6fe0ea4085afb98ec51e202c4e3c324a4e6805cc6a7c2ca82606c1d45d64d · ms:36203
+  ```
+  --- last 10 line(s) of stdout (of 4239 after folding 4239 raw)
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/store/sqlitevec	1.788s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/store/storetest	1.484s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/telemetry	1.182s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/tenant	1.643s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/updatecheck	1.436s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/usage	0.938s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/web	1.359s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/web/views	1.322s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/wingbundle	1.116s
+  FAIL
+  ```
+- 2026-09-04 · 673d52d* · exit 0 · `gofmt -l cmd internal | (! grep -q .) && go vet ./... && \ …` · acceptance-sha256:aca6fe0ea4085afb98ec51e202c4e3c324a4e6805cc6a7c2ca82606c1d45d64d · ms:35688
+- 2026-09-04 · 673d52d* · exit 0 · `gofmt -l cmd internal | (! grep -q .) && go vet ./... && \ …` · acceptance-sha256:aca6fe0ea4085afb98ec51e202c4e3c324a4e6805cc6a7c2ca82606c1d45d64d · ms:43866
+- 2026-09-04 · 673d52d* · exit 0 · `gofmt -l cmd internal | (! grep -q .) && go vet ./... && \ …` · acceptance-sha256:aca6fe0ea4085afb98ec51e202c4e3c324a4e6805cc6a7c2ca82606c1d45d64d · ms:33478
+- 2026-09-04 · 673d52d* · exit 0 · `gofmt -l cmd internal | (! grep -q .) && go vet ./... && \ …` · acceptance-sha256:aca6fe0ea4085afb98ec51e202c4e3c324a4e6805cc6a7c2ca82606c1d45d64d · ms:32817

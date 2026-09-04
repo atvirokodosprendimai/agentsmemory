@@ -381,3 +381,104 @@ func newResourceServer(t *testing.T) (*client.Client, *palace.Service, string) {
 	}
 	return cli, svc, "team-resources"
 }
+
+// TestTheResourceListingIsBounded is the assertion that keeps ADR-050's argument
+// intact while giving the capability a door.
+//
+// ADR-050 rejected enumerating the palace, and that reasoning stands: thousands of
+// entries in a listing with no relevance order is a worse answer than the search
+// that already exists. What it did not anticipate is that Claude Code's documented
+// discovery calls are "tools/list, prompts/list, and resources/list" — templates
+// are named nowhere — so an empty listing made the addresses undiscoverable in the
+// client that matters. A BOUNDED listing keeps both: a door, and no enumeration.
+func TestTheResourceListingIsBounded(t *testing.T) {
+	cli, svc, team := newResourceServer(t)
+	if _, err := cli.Initialize(t.Context(), mcp.InitializeRequest{}); err != nil {
+		t.Fatalf("initialize: %v", err)
+	}
+	ctx := auth.WithTenant(context.Background(), tenant.Tenant{TeamID: team, UserID: "u1", Role: tenant.RoleAdmin})
+
+	for i := range listedResourceLimit + 7 {
+		if _, err := svc.Add(ctx, team, palace.AddInput{
+			Wing: "wing_acme", Room: "decisions",
+			Content: fmt.Sprintf("memory number %03d, filed so the listing has more than its bound", i),
+		}); err != nil {
+			t.Fatalf("seed %d: %v", i, err)
+		}
+	}
+
+	got, err := cli.ListResources(ctx, mcp.ListResourcesRequest{})
+	if err != nil {
+		t.Fatalf("list resources: %v", err)
+	}
+	if len(got.Resources) == 0 {
+		t.Fatal("the listing is empty with memories present; Claude Code reads resources/list and would show nothing")
+	}
+	if len(got.Resources) > listedResourceLimit {
+		t.Errorf("the listing returned %d entries against a bound of %d — an unbounded listing is the enumeration ADR-050 rejected",
+			len(got.Resources), listedResourceLimit)
+	}
+}
+
+// TestAListedResourceUriReadsBack is the gate that matters most here.
+//
+// A listing is a set of promises. An entry that does not resolve is a pointer to
+// nothing, which this corpus already treats as worse than no pointer at all —
+// and a listing is exactly where a client learns which addresses exist, so a
+// broken entry is discovered by a caller rather than by us.
+func TestAListedResourceUriReadsBack(t *testing.T) {
+	cli, svc, team := newResourceServer(t)
+	if _, err := cli.Initialize(t.Context(), mcp.InitializeRequest{}); err != nil {
+		t.Fatalf("initialize: %v", err)
+	}
+	ctx := auth.WithTenant(context.Background(), tenant.Tenant{TeamID: team, UserID: "u1", Role: tenant.RoleAdmin})
+	if _, err := svc.Add(ctx, team, palace.AddInput{
+		Wing: "wing_acme", Room: "decisions", Content: "a memory the listing must be able to hand out",
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	got, err := cli.ListResources(ctx, mcp.ListResourcesRequest{})
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(got.Resources) == 0 {
+		t.Fatal("nothing listed")
+	}
+	for _, r := range got.Resources {
+		res, err := cli.ReadResource(ctx, mcp.ReadResourceRequest{Params: mcp.ReadResourceParams{URI: r.URI}})
+		if err != nil {
+			t.Errorf("the listing handed out %s and it does not resolve: %v", r.URI, err)
+			continue
+		}
+		if len(res.Contents) == 0 {
+			t.Errorf("%s resolved to nothing", r.URI)
+		}
+	}
+}
+
+// TestTheListingAndTheTemplateBothResolve: adding the first must not cost the
+// second.
+//
+// A client that reads templates keeps the general form — how ANY memory is
+// addressed, including the thousands the bounded listing omits. A client that
+// reads only the list gets a door. Both, or the capability is worse for one of
+// them than it was before.
+func TestTheListingAndTheTemplateBothResolve(t *testing.T) {
+	cli, svc, team := newResourceServer(t)
+	if _, err := cli.Initialize(t.Context(), mcp.InitializeRequest{}); err != nil {
+		t.Fatalf("initialize: %v", err)
+	}
+	ctx := auth.WithTenant(context.Background(), tenant.Tenant{TeamID: team, UserID: "u1", Role: tenant.RoleAdmin})
+	if _, err := svc.Add(ctx, team, palace.AddInput{Wing: "wing_acme", Room: "decisions", Content: "x marks a memory"}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	list, err := cli.ListResources(ctx, mcp.ListResourcesRequest{})
+	if err != nil || len(list.Resources) == 0 {
+		t.Fatalf("resources/list is empty (%v); the door is shut", err)
+	}
+	tmpl, err := cli.ListResourceTemplates(ctx, mcp.ListResourceTemplatesRequest{})
+	if err != nil || len(tmpl.ResourceTemplates) == 0 {
+		t.Fatalf("resources/templates/list is empty (%v); the general form is gone", err)
+	}
+}

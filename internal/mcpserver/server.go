@@ -439,10 +439,16 @@ func New(deps Deps) *server.MCPServer {
 		// serves; declaring one without the other is the "advertised and backed by
 		// nothing" defect this file already carries a gate for.
 		server.WithCompletions(),
-		// ADR-050. subscribe=false and listChanged=false for the same reason the
-		// tools capability declares no listChanged: nothing here can push. What is
-		// served is a TEMPLATE, not a listing — see registerResources.
+		// ADR-050, bounded listing added by ADR-051 T5. subscribe=false and
+		// listChanged=false for the same reason the tools capability declares no
+		// listChanged: nothing here can push.
 		server.WithResourceCapabilities(false, false),
+		// THE LISTING IS A HOOK, NOT A REGISTRATION, because its answer depends on
+		// the caller and on the corpus at request time. Without it resources/list
+		// answers [] — which is what made ADR-050's addresses undiscoverable in
+		// Claude Code, whose documented discovery calls name resources/list and
+		// never resources/templates/list.
+		server.WithHooks(resourceListingHooks(deps.Drawers, deps.Usage, deps.ScopeSearchToWing)),
 		server.WithPromptCompletionProvider(newWingCompleter(deps.Drawers)),
 	)
 	reg := &registrar{srv: srv}

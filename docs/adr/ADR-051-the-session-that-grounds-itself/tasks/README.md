@@ -40,7 +40,7 @@ nine would be worse, so within a wave these still land one at a time.
 | T2 | Cue the memory that pins THIS file, by path, at PreToolUse | done | — | `go test ./clients/claude-code/ ./internal/palace/ -run '…Anchor…'` |
 | T3 | Record what the session touched, at PostToolUse | pending | — | `go test ./clients/claude-code/ -run '…Touched…'` |
 | T4 | Inject on UserPromptExpansion, the channel T1 unblocks | pending | — | `go test ./clients/claude-code/ -run '…Expansion…'` |
-| T5 | A bounded resources/list so an address is discoverable | pending | — | `go test ./internal/mcpserver/ -run '…Listing…'` |
+| T5 | A bounded resources/list so an address is discoverable | done | — | `go test ./internal/mcpserver/ -run '…Listing…'` |
 | T6 | Ship the kit as one plugin instead of a script that edits settings | pending | — | `go test ./clients/claude-code/ -run '…Plugin…'` |
 | T7 | Put the palace on the status line | pending | — | `go test ./clients/claude-code/ -run '…StatusLine…'` |
 | T8 | A native skill that reaches the centralised catalogue | pending | — | `go test ./clients/claude-code/ -run '…Skill…'` |
