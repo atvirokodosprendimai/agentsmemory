@@ -111,7 +111,29 @@ TXT
 # printf with %s, never a heredoc into the JSON: the context contains newlines and
 # quotes, and hand-assembled JSON is how an envelope becomes unparseable and is
 # then dropped in silence by the harness.
-esc() { printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' | awk 'BEGIN{ORS=""} {print sep $0; sep="\\n"}'; }
+#
+# ⚠ IT ESCAPES CONTROL BYTES, NOT ONLY QUOTES AND NEWLINES. JSON forbids every
+# unescaped byte below 0x20, so a TAB anywhere in an MCP response — a Makefile
+# snippet, a Go struct tag, any indented source, which is most of what an anchor
+# pins — produced invalid JSON. Demonstrated: "has<TAB>a tab" yields "Invalid
+# control character at line 1 column 48". The harness reports nothing; it drops the
+# envelope, so the cue goes quiet and looks exactly like a file nothing pins. That
+# is the silent-failure class this hook is otherwise careful about, reached through
+# its own escaper. Reported by review, deferred once as a follow-up, then fixed
+# because a tab in a code snippet is the common case here rather than an edge one.
+#
+# ⚠ sed FOR THE ESCAPES, NOT awk, AND THAT WAS MEASURED. An awk implementation
+# using gsub round-tripped correctly on macOS and FAILED to double the backslash on
+# busybox, emitting a lone \s — an invalid escape, and the same
+# works-on-the-developer's-machine shape as the stat -f bug this kit already fixed.
+# The chain below produces byte-identical output on macOS and Alpine.
+esc() {
+  TAB="$(printf '\t')"
+  printf '%s' "$1" \
+    | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e "s/${TAB}/\\\\t/g" \
+    | tr -d '\001-\010\013\014\016-\037' \
+    | awk 'BEGIN{ORS=""} {print sep $0; sep="\\n"}'
+}
 
 printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":"%s"}}\n' "$(esc "$CONTEXT")"
 

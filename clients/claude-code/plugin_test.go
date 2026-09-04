@@ -562,3 +562,40 @@ func TestDoctorPrintsTheDuplicatedVerdict(t *testing.T) {
 		t.Errorf("the verdict explains itself with a case doctor cannot see:\n%s", v.detail)
 	}
 }
+
+// TestEveryIrreversibleCapabilityHasADenyRule is the half the substring test
+// cannot do, and the reason adding two entries was not the whole fix.
+//
+// ⚠ TestTheDenyListNamesTheIrreversibleActions asserts four substrings are
+// PRESENT. That is structurally incapable of noticing an equivalent command that
+// is ABSENT — and `gh api` is a universal equivalent for three of the four rules
+// it names: it can merge a PR, delete a release and force-update a ref directly
+// against the REST API. Plain `git push` likewise reaches a remote. Reported by
+// review; the two entries are added, but an enumerated list will grow a hole again
+// the next time somebody learns a new way to do the same thing.
+//
+// So this test is keyed on the CAPABILITY rather than on the spelling: for each
+// irreversible thing, at least one rule must cover at least one route to it. It
+// does not claim completeness — no list can — but it fails when a whole capability
+// has no rule at all, which is the failure mode the substring check misses.
+func TestEveryIrreversibleCapabilityHasADenyRule(t *testing.T) {
+	_, deny := unattendedRules(t)
+	joined := strings.Join(deny, "\n")
+
+	// capability -> the routes we know of. Every route must be covered, because a
+	// covered capability with one uncovered route is an uncovered capability.
+	for capability, routes := range map[string][]string{
+		"rewrite a published branch": {"git push --force", "git push -f", "git push"},
+		"reach a remote at all":      {"git push"},
+		"cut or delete a release":    {"gh release create", "gh release delete", "gh api"},
+		"merge a pull request":       {"gh pr merge", "gh api"},
+		"destroy stored state":       {"docker compose down -v", "goose down", "goose reset"},
+		"un-record a memory":         {"am_merge_wing", "am_invalidate_drawer", "am_kg_invalidate"},
+	} {
+		for _, route := range routes {
+			if !strings.Contains(joined, route) {
+				t.Errorf("%q is a route to %q and no deny rule mentions it", route, capability)
+			}
+		}
+	}
+}

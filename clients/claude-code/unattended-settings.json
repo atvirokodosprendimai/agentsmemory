@@ -17,6 +17,8 @@
       "mcp__agentsmemory__am_diary_write"
     ],
     "deny": [
+      "Bash(git push:*)",
+      "Bash(gh api:*)",
       "Bash(git push --force:*)",
       "Bash(git push -f:*)",
       "Bash(gh release create:*)",
