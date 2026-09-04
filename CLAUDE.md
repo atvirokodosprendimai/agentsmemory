@@ -41,7 +41,19 @@ Everything above applies. Three things are particular to this harness:
   `AGENTS.md` §The working loop, item 2. A session that says "the monitor stays
   armed" must have actually called it this session — one that was armed last
   session died with it.
-- **Project permissions are in `.claude/settings.json`** so the repository's own
-  gates (`adr-*`, `mrw`, `go test`, `docker compose`, `gh`) run without a prompt
-  in auto mode. Add a command there when you find yourself approving it twice.
+- **Project permissions are in `.claude/settings.json`, and it ships with the
+  clone.** The `allow` list names the repository's own gates and the read-only
+  or reversible half of `git` and `gh` — `gh pr view`, `git push origin`, never
+  `gh:*` or `git:*`. The `deny` list is ADR-051 T9's, copied verbatim so that
+  `gh pr merge`, a force-push, `gh release create` and a data-destroying compose
+  or goose command still PROMPT whatever the allow list says — deny wins. ⚠ The
+  first draft of this file allowed `gh:*`, `git:*`, `python3:*` and `curl:*` with
+  no deny list, in the same PR that told a session never to stop for permission;
+  review caught that the two together remove the prompt and the boundary at
+  once. Add a command here when you approve it twice — narrowly, and check the
+  deny list still covers what it should.
+- **`scripts/redeploy.sh` is pre-approved, and that is a deploy, not a gate.** It
+  is on the allow list because AGENTS.md §The working loop item 3 requires it
+  after every merge that changes served code, and a redeploy that prompts is one
+  that gets skipped. It restarts the local palace; it cannot reach hosted.
 

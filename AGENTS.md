@@ -95,7 +95,11 @@ choice inside a record that the record does not settle, a scope change, an
 irreversible action outside the repository. Do not ask for PERMISSION to
 continue, and do not end a turn with "want me to take the next one?". Measured:
 three such stops in one session, each answered "proceed", the third answered
-*"am I asked anywhere to stop, ever?"*
+*"am I asked anywhere to stop, ever?"* ⚠ "Never stop" is bounded by the
+`deny` list in `.claude/settings.json`, not by judgement: a merge, a force-push,
+a release and a data-destroying command still prompt, and that prompt IS the
+owner's decision point. Review of this rule's first draft caught it shipping
+beside an allow list that would have removed those prompts too.
 
 **2. Arm the watch at session start, before anything else.** One persistent
 Monitor over this repository's new issues, issue comments, PR comments, reviews
