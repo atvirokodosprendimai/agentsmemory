@@ -14,12 +14,21 @@
 
 `am_recall_stats` describes its `suggestions` list as *"one memory this team looked for and does not
 have … and which wing to file it in"* — a to-write list. Measured 2026-09-04 over a 336-hour window
-on this project's local palace (1,461 searches, 93% answered): seven of the ten `suggestions` are
-machine-shaped — a branch name concatenated with changed filenames, or a run of merge-commit
-subjects — and every one of the ten `unanswered` entries is a sentence the owner typed to the agent
-(*"am I asked anywhere to stop, ever?"*), relayed verbatim by the task-recall hook. The
-`(unscoped)` pseudo-wing carries 848 of those 1,461 searches against zero drawers, because the hooks
-search with no wing. The same shape was reported to this wing's inbox on 2026-09-02 and re-confirmed
+on the LOCAL palace this repository's sessions use (`am_status`: `mode: local`, workspace slug
+`local`; 1,461 searches, 93% answered): seven of the ten `suggestions` are machine-shaped — a
+branch name concatenated with changed filenames, or a run of merge-commit subjects — and every one of
+the ten `unanswered` entries is a sentence the owner typed to the agent (*"am I asked anywhere to
+stop, ever?"*), relayed verbatim by the task-recall hook. The `(unscoped)` pseudo-wing carries 848
+of those 1,461 searches against zero drawers, because the hooks search with no wing.
+
+**The magnitude is instance-specific; the class is not.** A reviewer re-ran the same window on
+2026-09-04 against the HOSTED palace (workspace slug `atvirokodosprendimai-498ccd`): 97 `(unscoped)`
+searches of 861, four `unanswered` entries — agent-composed inbox queries, last asked 2026-08-24, not
+chat prompts — and none of the four suggestions machine-shaped. `(unscoped)` still carries searches
+against zero drawers there, at a tenth of the volume and a different shape. A reader registered to
+either instance who re-runs the command will get that instance's numbers, and the case for recording
+the origin rests on the class of the defect — a hook's recall and a person's question share one
+door — not on 848. The same shape was reported to this wing's inbox on 2026-09-02 and re-confirmed
 2026-09-03; both reports named the root cause and stopped, correctly, because the remedy is a
 decision.
 

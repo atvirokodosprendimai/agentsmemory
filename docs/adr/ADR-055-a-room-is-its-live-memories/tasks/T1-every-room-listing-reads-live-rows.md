@@ -18,14 +18,17 @@ A room whose memories are all ended is absent from every surface that lists or c
 
 | File | Change | Why |
 |------|--------|-----|
-| `internal/palace/graphquery.go` | edit | `GraphStats`' room aggregate (`TotalRooms`, `RoomsPerWing`) adds `valid_to = ''`, the rule `Repo.Rooms` and `Repo.Wings` already follow |
+| `internal/palace/graph.go` | edit | `Repo.GraphRoomWings` — the query `GraphStats` builds `TotalRooms` and `RoomsPerWing` from — adds `valid_to = ''`, the rule `Repo.Rooms` and `Repo.Wings` already follow; `graphquery.go` is unchanged |
 | `internal/palace/roomlife_test.go` | add | the enumeration's command in a comment, and `TestEveryRoomListingAgreesOnARetractedRoom` |
 | `internal/mcpserver/drawers.go` | edit | `list_rooms` description: a room exists while it holds a live memory; retract or relocate its last memory to remove a mistyped one |
 | `TROUBLESHOOTING.md` | edit | a short "I created a room by mistake" entry naming the same two verbs |
 
 Enumerate the class before editing, and record the command and count in the test file's header
-comment: `grep -rn 'DISTINCT room\|GROUP BY.*room\|Group("wing, room")\|COUNT(DISTINCT room)' --include='*.go' internal cmd | grep -v _test`.
-Measured 2026-09-04 at 8c8945f: `Repo.Wings` and `Repo.Rooms` (`internal/palace/repo.go`, both filtered) and the `GraphStats` room aggregate (`internal/palace/graphquery.go`, unfiltered). A member the command finds and this table does not name is a finding to add to both.
+comment. ⚠ The first draft's pattern (`DISTINCT room|GROUP BY.*room|Group("wing, room")`) missed
+the member that matters: `GraphRoomWings` selects `room` with no GROUP BY and filters on `room != ''`.
+The pattern that finds every query touching the room column of the drawers table is:
+`grep -rn 'room != \x27\x27\|DISTINCT room\|Group("wing, room")\|COUNT(DISTINCT room)\|Select("room' --include='*.go' internal cmd | grep -v _test`.
+Measured 2026-09-04 at 8c8945f: `Repo.Wings` and `Repo.Rooms` (`internal/palace/repo.go`, both filtered on `valid_to = ''`) and `Repo.GraphRoomWings` (`internal/palace/graph.go`, unfiltered — the source of `GraphStats`' count). A member the command finds and this table does not name is a finding to add to both; a reviewer found this one by reading the call path rather than by the grep, which is why the pattern is recorded beside its miss.
 
 ## Ordered Steps
 

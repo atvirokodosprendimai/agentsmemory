@@ -41,8 +41,10 @@ history.
   memory is no room, and both already exist.
 - **`Repo.Rooms` / `Repo.Wings`** (`internal/palace/repo.go`) already filter on `valid_to = ''` and
   are the shape to copy. **Reused.**
-- **`Service.GraphStats`** (`internal/palace/graphquery.go`). **Reshaped:** its room aggregate reads
-  live rows.
+- **`Service.GraphStats`** (`internal/palace/graphquery.go`) builds its room count from
+  `Repo.GraphRoomWings` (`internal/palace/graph.go`), whose query filters `wing != '' AND room != ''
+  AND room != 'general'` and never `valid_to` — verified in source 2026-09-04. **Reshaped:** that
+  query reads live rows; `GraphStats` itself is unchanged.
 - **Rejected as a primitive:** a `rooms` table with explicit create/delete. It would be a second
   source of truth for a fact the drawers table already carries, and the one destructive verb this
   surface kept (ADR-015) was kept precisely because a delete that erases is what the agent surface
