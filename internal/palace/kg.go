@@ -504,6 +504,10 @@ type KGQueryInput struct {
 	// never assembled by a caller (ADR-053).
 	Limit  int
 	Cursor string
+	// IncludeContainment returns the room→drawer listings this query hides by
+	// default. See isContainmentEdge for why they are hidden and for the one
+	// case the hiding does not apply to.
+	IncludeContainment bool
 }
 
 // DefaultKGQueryLimit is how many facts a graph page carries when the caller
@@ -998,6 +1002,18 @@ func (s *Service) KGQuery(ctx context.Context, teamID string, in KGQueryInput) (
 		return KGQueryResult{}, err
 	}
 
+	// ⚠ THE CARVE-OUT IS THE WHOLE DESIGN, NOT AN EXCEPTION TO IT. Asking a room
+	// what it holds is the one question containment edges answer, and
+	// Service.EntryPoint asks exactly that — it resolves DerivedEdgeSubject(wing,
+	// EntryRoom) and Service.Bootstrap builds its entire answer from the result.
+	// Hiding listings from a caller who NAMED the room would empty the wake-up
+	// path every session walks first, and worse than emptying it: the node stays
+	// in kg_entities, so resolveKGTerms would answer known_term_no_facts and the
+	// entry point would report itself PRESENT AND EMPTY rather than absent. Those
+	// are opposites in what a caller does next — absent is recoverable, empty is
+	// an answer a session acts on.
+	hideContainment := !in.IncludeContainment && !isContainmentEdge(ent)
+
 	// withhold records what a filter removed, keyed by the filter. Nil until
 	// something is actually withheld, so an untouched page carries no key at all
 	// and the key's presence stays the signal.
@@ -1027,6 +1043,14 @@ func (s *Service) KGQuery(ctx context.Context, teamID string, in KGQueryInput) (
 		}
 		for _, row := range rows {
 			if !inEffectAt(row, asOfKey) {
+				continue
+			}
+			// Filtered AFTER the page is fetched rather than in SQL: the subject
+			// stored on the row is an entity id, and the shape test belongs with
+			// the mint that produced it rather than duplicated as a LIKE clause
+			// that would drift from it.
+			if hideContainment && isContainmentEdge(names[row.Subject]) {
+				withhold(KGWithheldContainment, 1)
 				continue
 			}
 			out.Facts = append(out.Facts, kgFact("", names[row.Subject], row.Predicate, names[row.Object], row))
@@ -1072,6 +1096,10 @@ func (s *Service) KGQuery(ctx context.Context, teamID string, in KGQueryInput) (
 			if !inEffectAt(row, asOfKey) {
 				continue
 			}
+			if hideContainment && isContainmentEdge(ent) {
+				withhold(KGWithheldContainment, 1)
+				continue
+			}
 			out.Facts = append(out.Facts, kgFact("outgoing", ent, row.Predicate, names[row.Object], row))
 		}
 		if dropped != "" {
@@ -1114,6 +1142,10 @@ func (s *Service) KGQuery(ctx context.Context, teamID string, in KGQueryInput) (
 			if !inEffectAt(row, asOfKey) {
 				continue
 			}
+			if hideContainment && isContainmentEdge(names[row.Subject]) {
+				withhold(KGWithheldContainment, 1)
+				continue
+			}
 			out.Facts = append(out.Facts, kgFact("incoming", names[row.Subject], row.Predicate, ent, row))
 		}
 		if more {
@@ -1139,6 +1171,36 @@ func (s *Service) KGQuery(ctx context.Context, teamID string, in KGQueryInput) (
 // a filter of some kind ran; that half of the contract predates ADR-053 and the
 // reshape keeps it rather than flattening it to a generic "status".
 const KGWithheldBudget = "budget"
+
+// KGWithheldContainment is the Withheld key for room→drawer listings hidden by
+// default (ADR-053 T2).
+const KGWithheldContainment = "containment"
+
+// isContainmentEdge says whether a row is a room's listing of what it holds
+// rather than a fact somebody filed.
+//
+// The rule keys on the SUBJECT SHAPE — the `room:<wing>/<room>` node
+// DerivedEdgeSubject mints — and deliberately NOT on the `derived` column.
+// Measured 2026-09-04 on the live corpus: 580 of 586 derived edges are these
+// listings, and the other SIX are the wing-root spine,
+// `wing_<name>.root —holds→ room:<name>/llm_init`. Keying on `derived` would
+// have emptied three of six wing roots, which is the address start-here tells
+// every session to walk first.
+//
+// ⚠ These edges are not noise — they are an ANSWER to one question, "what does
+// this room hold", which am_list_drawers already answers with a budget and
+// paging. What makes them worth hiding is that they arrive in answer to every
+// OTHER question too, and they dominate: one room fanned out to 184 edges while
+// no authored node in the corpus exceeded 10.
+func isContainmentEdge(subject string) bool {
+	return strings.HasPrefix(subject, containmentSubjectPrefix)
+}
+
+// containmentSubjectPrefix is the shape DerivedEdgeSubject mints. It is a
+// convention rather than a typed column, so an authored entity whose name begins
+// with it would be treated as a listing — the mint is the only writer of this
+// prefix today, and that is the assumption to re-check if it stops being true.
+const containmentSubjectPrefix = "room:"
 
 // The three entry points a cursor can point into. A bare row id could not say
 // which, and resuming the wrong one repeats or skips a whole branch.

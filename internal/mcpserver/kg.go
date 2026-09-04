@@ -183,6 +183,7 @@ func registerKGQuery(reg *registrar, drawers *palace.Service, usageSvc *usage.Se
 		mcp.WithString("direction", mcp.Description("\"outgoing\", \"incoming\", or \"both\" (default). Ignored without an entity: with predicate alone there is no queried endpoint for a fact to be incoming or outgoing of.")),
 		mcp.WithString("status", mcp.Description(kgStatusParamDescription)),
 		mcp.WithNumber("limit", mcp.Description("How many facts this page carries (default 100, max 1000). A page is ALSO cut when it would exceed the response budget, whatever limit you ask for — so a large limit does not buy a larger answer, it only stops the budget being the thing that decides.")),
+		mcp.WithBoolean("include_containment", mcp.Description("Return the room→drawer listings this query hides by default. They are what a room holds, not facts anybody filed, and am_list_drawers already answers that question with a budget and paging — go there instead unless you specifically want the edges. ⚠You do NOT need this to ask a room directly: naming a `room:<wing>/<room>` entity returns its listing whatever this is set to, because that is the question you asked. The `containment` key in `withheld` says how many were hidden.")),
 		mcp.WithString("cursor", mcp.Description("Continue a cut page: pass back the `next_cursor` a previous call returned, VERBATIM. It is opaque and one-way — it names the entry point as well as the position, because a both-directions query is two index scans and a bare row id cannot say which to resume. Assembling one yourself is refused rather than silently mis-paged.")),
 	)
 	reg.add(tool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -192,13 +193,14 @@ func registerKGQuery(reg *registrar, drawers *palace.Service, usageSvc *usage.Se
 		}
 		asOf := req.GetString("as_of", "")
 		res, err := drawers.KGQuery(ctx, t.TeamID, palace.KGQueryInput{
-			Entity:    req.GetString("entity", ""),
-			Predicate: req.GetString("predicate", ""),
-			AsOf:      asOf,
-			Direction: req.GetString("direction", "both"),
-			Status:    req.GetString("status", kgQueryDefaultStatus),
-			Limit:     req.GetInt("limit", 0),
-			Cursor:    req.GetString("cursor", ""),
+			Entity:             req.GetString("entity", ""),
+			Predicate:          req.GetString("predicate", ""),
+			AsOf:               asOf,
+			Direction:          req.GetString("direction", "both"),
+			Status:             req.GetString("status", kgQueryDefaultStatus),
+			Limit:              req.GetInt("limit", 0),
+			Cursor:             req.GetString("cursor", ""),
+			IncludeContainment: req.GetBool("include_containment", false),
 		})
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil

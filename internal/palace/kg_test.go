@@ -444,3 +444,113 @@ func TestANodeUnderTheLimitWarnsAboutNothing(t *testing.T) {
 		t.Errorf("advice on a one-edge node: %q", res.FanOutAdvice)
 	}
 }
+
+// TestEveryWingRootStillResolvesWithContainmentHidden is ADR-053 T2's first
+// gate, and it is written before the rule it protects on purpose.
+//
+// ⚠ THE WRONG RULE LOOKS MORE PRINCIPLED. "Hide what the server derived" reads
+// better than "hide what has a room: subject", and it empties three of six wing
+// roots in the live corpus — the address start-here tells every session to walk
+// FIRST — because the root's own `holds` edge to its entry room is derived too.
+// Measured 2026-09-04: 580 of 586 derived edges are room listings; the other 6
+// are that spine.
+func TestEveryWingRootStillResolvesWithContainmentHidden(t *testing.T) {
+	t.Parallel()
+	svc := newTestService(t)
+	const team = "team-root"
+	ctx := context.Background()
+
+	// Mint the root through the shipped path rather than by hand, so this holds
+	// on a fresh install rather than only against a corpus someone prepared.
+	if _, err := svc.Add(ctx, team, AddInput{
+		Wing: "wing_acme", Room: EntryRoom,
+		Content: "WHAT MUST I LOAD AT THE START OF A SESSION? The tier below.",
+	}); err != nil {
+		t.Fatalf("seed the entry room: %v", err)
+	}
+
+	res, err := svc.KGQuery(ctx, team, KGQueryInput{Entity: "wing_acme.root", Direction: "outgoing"})
+	if err != nil {
+		t.Fatalf("query the root: %v", err)
+	}
+	if len(res.Facts) == 0 {
+		t.Fatalf("the wing root resolved to nothing with containment hidden — this is the front "+
+			"door every session walks first, and %q is a rule about room listings, not about the "+
+			"root's own edge to its entry room", "isContainmentEdge")
+	}
+}
+
+// TestAnAbsentEntryPointStillResolvesUnknown is T2's second gate, and it cannot
+// be left to the first.
+//
+// ⚠ HIDING ROWS WITHOUT HIDING THE ENTITY TURNS "ABSENT" INTO "PRESENT AND
+// EMPTY", and those are opposites in what a caller does next. "No entry point"
+// is recoverable — a session reads it and walks the fallback chain. "Empty entry
+// point" is an answer, and a session acts on it. resolveKGTerms decides
+// unknown_term on whether the entity NAME exists, never on whether rows came
+// back, and attachDerivedEdge upserts a kg_entities row for the room: subject —
+// so the node survives any filter on its edges. The two failures are identical
+// from a count, which is why assertion one cannot cover this.
+func TestAnAbsentEntryPointStillResolvesUnknown(t *testing.T) {
+	t.Parallel()
+	svc := newTestService(t)
+	res, err := svc.EntryPoint(context.Background(), "team-absent", "wing_no_such_place")
+	if err != nil {
+		t.Fatalf("entry point: %v", err)
+	}
+	if res.Resolution != KGResolutionUnknownTerm {
+		t.Errorf("resolution = %q; want %q. A wing with no entry point must stay distinguishable "+
+			"from one whose entry point is empty, or a session stops instead of falling back",
+			res.Resolution, KGResolutionUnknownTerm)
+	}
+}
+
+// TestContainmentIsHiddenAndCounted covers the rule itself: hidden by default,
+// reported when hidden, and restored exactly by the flag.
+func TestContainmentIsHiddenAndCounted(t *testing.T) {
+	t.Parallel()
+	svc := newTestService(t)
+	const team = "team-containment"
+	ctx := context.Background()
+	if _, err := svc.Add(ctx, team, AddInput{
+		Wing: "wing_acme", Room: "decisions", Content: "a decision worth remembering",
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	room := DerivedEdgeSubject("wing_acme", "decisions")
+
+	// The predicate sweep is the entry point that hurts: 587 edges on the live
+	// corpus, 586 of them containment.
+	hidden, err := svc.KGQuery(ctx, team, KGQueryInput{Predicate: DerivedEdgePredicate})
+	if err != nil {
+		t.Fatalf("sweep: %v", err)
+	}
+	if len(hidden.Facts) != 0 {
+		t.Errorf("a bare %q sweep returned %d containment edge(s) by default", DerivedEdgePredicate, len(hidden.Facts))
+	}
+	if hidden.Withheld[KGWithheldContainment] == 0 {
+		t.Errorf("nothing reported under %q — a filtered page that does not say so presents itself "+
+			"as the whole answer", KGWithheldContainment)
+	}
+
+	shown, err := svc.KGQuery(ctx, team, KGQueryInput{Predicate: DerivedEdgePredicate, IncludeContainment: true})
+	if err != nil {
+		t.Fatalf("sweep with the flag: %v", err)
+	}
+	if int64(len(shown.Facts)) != hidden.Withheld[KGWithheldContainment] {
+		t.Errorf("the flag returned %d edge(s); %d were reported hidden. A flag that restores a "+
+			"different set is not a restoration", len(shown.Facts), hidden.Withheld[KGWithheldContainment])
+	}
+
+	// ⚠ Asking a ROOM what it holds is the one question containment edges answer,
+	// and EntryPoint asks exactly it. The carve-out is the whole reason the rule
+	// keys on the queried entity as well as on the subject.
+	asked, err := svc.KGQuery(ctx, team, KGQueryInput{Entity: room, Direction: "outgoing"})
+	if err != nil {
+		t.Fatalf("ask the room: %v", err)
+	}
+	if len(asked.Facts) == 0 {
+		t.Error("asking a room what it holds returned nothing — the caller named the room, so the " +
+			"listing IS the answer they asked for")
+	}
+}

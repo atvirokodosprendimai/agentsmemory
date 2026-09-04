@@ -196,7 +196,7 @@ func TestDeletingADrawerTakesItsDerivedEdge(t *testing.T) {
 
 	edgesNaming := func(t *testing.T, svc *Service, id string) int {
 		t.Helper()
-		q, err := svc.KGQuery(ctx, team, KGQueryInput{Entity: id, Direction: "incoming", Status: KGStatusAll})
+		q, err := svc.KGQuery(ctx, team, KGQueryInput{Entity: id, Direction: "incoming", Status: KGStatusAll, IncludeContainment: true})
 		if err != nil {
 			t.Fatalf("query: %v", err)
 		}
