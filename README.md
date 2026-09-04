@@ -1289,6 +1289,7 @@ All flags have sensible local defaults:
 | `--local` | `false` | Self-hosted single-workspace mode: one `local` workspace, unauthenticated `/mcp`, no dashboard |
 | `--token` | *(empty)* | `--local` only (`AGENTSMEMORY_LOCAL_TOKEN`): require this bearer on `/mcp` and `/import`, so the server can safely bind a LAN address |
 | `--db` | `agentsmemory.db` | SQLite database path |
+| `--db-reader-pool` | `0` | `DB_READER_POOL` — connections the read-only handle may open at once; `0` derives `max(4, NumCPU)`. The writer is one connection by decision (ADR-052) and has no such knob |
 | `--vector-backend` | `sqlite` (`chromem` with `--local`) | Search index: `sqlite` \| `chromem` \| `qdrant` — SQLite is always the source of truth |
 | `--qdrant-url` | `http://localhost:6333` | Qdrant base URL |
 | `--qdrant-api-key` | *(empty)* | Qdrant API key (optional) |

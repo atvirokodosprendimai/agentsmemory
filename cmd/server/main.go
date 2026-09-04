@@ -20,6 +20,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -155,6 +156,7 @@ func configFromCmd(c *cli.Command, def config.Config) config.Config {
 		OllamaCPUQuota:         c.String("ollama-cpu-quota"),
 		RerankURL:              strings.TrimSpace(c.String("rerank-url")),
 		RerankPool:             c.Int("rerank-pool"),
+		DBReaderPool:           c.Int("db-reader-pool"),
 		BM25Weight:             strings.TrimSpace(c.String("bm25-weight")),
 		EmbedBackend:           strings.TrimSpace(c.String("embed-backend")),
 		SearchScope:            strings.TrimSpace(c.String("search-scope")),
@@ -218,6 +220,7 @@ func dataFlags(def config.Config) []cli.Flag {
 		&cli.StringFlag{Name: "ollama-cpu-quota", Sources: cli.EnvVars("AGENTSMEMORY_OLLAMA_CPUS"), Value: def.OllamaCPUQuota, Usage: "The CPU limit Ollama's container runs under, as Docker spells it (fractions allowed). Used ONLY when --ollama-num-thread is unset, to size the thread pool to the quota so the two cannot drift; the compose overlay passes the limit it already applies"},
 		&cli.StringFlag{Name: "rerank-url", Sources: cli.EnvVars("RERANK_URL"), Value: def.RerankURL, Usage: "cross-encoder base URL for re-ranking search results (TEI, or llama.cpp's server; empty disables re-ranking)"},
 		&cli.IntFlag{Name: "rerank-pool", Sources: cli.EnvVars("RERANK_POOL"), Value: def.RerankPool, Usage: "how many candidates to cross-encode per search (ignored without --rerank-url)"},
+		&cli.IntFlag{Name: "db-reader-pool", Sources: cli.EnvVars("DB_READER_POOL"), Value: def.DBReaderPool, Usage: "how many connections the read-only database handle may open at once; 0 derives max(4, NumCPU()). The writer has no such knob: one writer connection is ADR-052's decision, not a default"},
 		&cli.StringFlag{Name: "bm25-weight", Sources: cli.EnvVars("BM25_WEIGHT"), Value: def.BM25Weight, Usage: "lexical fusion weight: 'auto' scales per query by measured lexical signal (default), 'auto-idf' weights each query term by how much it discriminates (ahead on every table measured so far), or a fixed 0..1. DOES NOTHING when --fusion=rrf: rank fusion combines positions rather than magnitudes, so there is no weight to apply"},
 		&cli.StringFlag{Name: "embed-backend", Sources: cli.EnvVars("EMBED_BACKEND"), Value: def.EmbedBackend, Usage: "what embeds text: ollama (default) or tei (text-embeddings-inference — the only path to bge-m3's sparse and multi-vector output)"},
 		&cli.StringFlag{Name: "search-scope", Sources: cli.EnvVars("SEARCH_SCOPE"), Value: def.SearchScope, Usage: "what a recall naming no wing searches: wing (default, the project this MCP was registered for) or workspace (every wing)"},
@@ -387,6 +390,7 @@ func run(ctx context.Context, cfg config.Config) error {
 	if err != nil {
 		return err
 	}
+	defer svc.Close()
 	log.Printf("vector backend: %s (SQLite source of truth)", cfg.VectorBackend)
 	warnIfPayloadMissing(ctx, cfg, svc)
 	tenants, skills, usageSvc, drawers := svc.tenants, svc.skills, svc.usage, svc.drawers
@@ -942,7 +946,13 @@ const defaultVectorDim = 1024
 // palace/skill/usage services. Extracting the wiring keeps the two driving
 // adapters — the HTTP MCP server and the read-only CLI — over one domain core.
 type services struct {
-	gdb       *gorm.DB
+	gdb *gorm.DB
+	// rdb is the read model's handle: query_only at the driver, pooled wide,
+	// opened beside gdb on the serving path and nil on the inspection path.
+	// Nothing reads through it until ADR-052 T5 routes internal/palace onto
+	// it; it is held HERE because the composition root is where the split is
+	// chosen rather than assumed.
+	rdb       *gorm.DB
 	vectors   store.VectorStore
 	tenants   *tenant.Repo
 	skills    *skill.Service
@@ -951,6 +961,31 @@ type services struct {
 	drawers   *palace.Service
 	shares    *share.Service    // cross-workspace wing-share handshake (GUI consent flow)
 	merges    *mergejob.Service // background wing-merge queue (GUI enqueue/list/detect)
+}
+
+// Close releases both database handles, reader first.
+//
+// ADR-052 T4: the serve path holds two handles on one file, and closing only
+// the writer would leave the reader's pooled connections open across
+// shutdown — which pins the WAL sidecar and reads as a leaked descriptor in a
+// test. The reader is nil on the inspection path, where doctor opens its own
+// query_only handle and there is nothing extra to release.
+func (s *services) Close() error {
+	var errs []error
+	for _, h := range []*gorm.DB{s.rdb, s.gdb} {
+		if h == nil {
+			continue
+		}
+		sqlDB, err := h.DB()
+		if err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		if err := sqlDB.Close(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // configureRanking applies the search-ranking settings to svc and returns the
@@ -1171,6 +1206,20 @@ func buildServicesWith(cfg config.Config, prepare bool) (*services, error) {
 		}
 	}
 
+	// ADR-052 T4: the read model's handle, opened only on the prepared
+	// (serving) path — the inspection path is query_only end to end already,
+	// and a second read-only handle there would be a second copy of the same
+	// decision. It is opened at the composition root because that is where
+	// the split is chosen; TestTheServePathOpensBothHandles fails when this
+	// call is deleted, which is the rung nothing else could prove while no
+	// read is routed through it yet (T5).
+	var rdb *gorm.DB
+	if prepare {
+		if rdb, err = openReaderDB(cfg.DBPath, cfg.Debug, cfg.DBReaderPool); err != nil {
+			return nil, fmt.Errorf("open reader db: %w", err)
+		}
+	}
+
 	// Bounded contexts: tenant (auth + workspaces), skill (load_skill), and
 	// usage (monthly request metering).
 	tenants := tenant.NewRepo(gdb, tenant.WithTokenSecret(tokenSecret()))
@@ -1212,7 +1261,7 @@ func buildServicesWith(cfg config.Config, prepare bool) (*services, error) {
 	// The background worker that drains it is started in run() (serve-only).
 	merges := mergejob.NewService(mergejob.NewRepo(gdb), tenants, drawers)
 
-	return &services{gdb: gdb, vectors: vectors, tenants: tenants, skills: skills, skillsets: skillsets, usage: usageSvc, drawers: drawers, shares: shares, merges: merges}, nil
+	return &services{gdb: gdb, rdb: rdb, vectors: vectors, tenants: tenants, skills: skills, skillsets: skillsets, usage: usageSvc, drawers: drawers, shares: shares, merges: merges}, nil
 }
 
 // buildVectorStore assembles the vector layer from cfg. SQLite is always the
@@ -1704,6 +1753,45 @@ func openWriterDB(path string, debug bool) (*gorm.DB, error) {
 	// is a knob that can silently reintroduce the defect with every test green.
 	sqlDB.SetMaxOpenConns(1)
 	return gdb, nil
+}
+
+// openReaderDB opens a handle SQLite itself refuses writes on, pooled wide.
+//
+// ADR-052: the read path cannot write through the handle it holds, and that
+// is enforced by the driver — query_only(1) in readerDBPragmas — rather than
+// by review. The pool is many where the writer's is one because readers never
+// take the write lock and WAL lets any number of them run beside the writer.
+// It is a flag (--db-reader-pool) because the right number is a property of
+// the host; pool <= 0 derives max(4, NumCPU()), the treatment RerankPool gives
+// its zero. No such knob exists for the writer: raising that cap silently
+// reintroduces the lock-upgrade failure the record measured (280 of 320), so
+// one writer is the decision, and openWriterDB keeps it as a literal.
+func openReaderDB(path string, debug bool, pool int) (*gorm.DB, error) {
+	gdb, err := openDBWithPragmas(path, debug, readerDBPragmas)
+	if err != nil {
+		return nil, err
+	}
+	sqlDB, err := gdb.DB()
+	if err != nil {
+		return nil, err
+	}
+	sqlDB.SetMaxOpenConns(resolveReaderPool(pool))
+	return gdb, nil
+}
+
+// resolveReaderPool turns the configured reader pool into the number the
+// handle is opened with: the value when positive, otherwise max(4, NumCPU()).
+//
+// Four is a floor so a small host still serves parallel reads; one per core
+// above that. Each connection carries its own page cache, so a large host
+// pays memory rather than correctness for the derived default — and the
+// measurement that would justify a better default is the follow-up ADR-052
+// records, not a number this function pretends to know.
+func resolveReaderPool(n int) int {
+	if n > 0 {
+		return n
+	}
+	return max(4, runtime.NumCPU())
 }
 
 // openInspectionDB opens SQLite with query_only enabled and without changing
