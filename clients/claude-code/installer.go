@@ -67,6 +67,13 @@ const anchorCueHookAsset = "hooks/agentsmemory-anchor-cue-hook.sh"
 // unrecorded, instead of asking the agent to persist in the abstract.
 const touchedHookAsset = "hooks/agentsmemory-touched-hook.sh"
 
+// statusLineAsset is the embedded status-line command (ADR-051 T7).
+//
+// It is registered under settings.json's `statusLine` key rather than as a hook —
+// it is the one surface a human sees without asking, and the only one this kit
+// writes outside `hooks`.
+const statusLineAsset = "hooks/agentsmemory-statusline.sh"
+
 // taskRecallHookAsset is the UserPromptSubmit sibling of the recall hook: it asks
 // the palace about the TASK, using the user's own words, at the moment the task
 // arrives.
@@ -97,6 +104,9 @@ const (
 
 	// anchorCueHookFile is where the PreToolUse anchor cue lands, beside the others.
 	anchorCueHookFile = "agentsmemory-anchor-cue-hook.sh"
+
+	// statusLineFile is where the status-line command lands.
+	statusLineFile = "agentsmemory-statusline.sh"
 
 	// touchedHookFile is where the PostToolUse touched-path recorder lands.
 	touchedHookFile = "agentsmemory-touched-hook.sh"
@@ -885,6 +895,11 @@ func (i *Installer) anchorCueHookPath() string {
 	return filepath.Join(i.targetDir, anchorCueHookFile)
 }
 
+// statusLinePath is where the status-line command is installed.
+func (i *Installer) statusLinePath() string {
+	return filepath.Join(i.targetDir, statusLineFile)
+}
+
 // touchedHookPath is where the PostToolUse touched-path recorder is installed.
 func (i *Installer) touchedHookPath() string {
 	return filepath.Join(i.targetDir, touchedHookFile)
@@ -1157,7 +1172,13 @@ func (i *Installer) registerStopHook() error {
 		}
 		regs[n] = hookReg{event: p.event, cmd: p.cmd, obsolete: obsolete, retire: p.retire}
 	}
-	changed, err := ensureHooks(hooksFile, regs)
+	// ADR-051 T7. Claude Code only: the other kits have no statusLine key, and
+	// writing one into a config that ignores it would be a promise nothing keeps.
+	statusLineCmd := ""
+	if i.kit.name == agentClaude {
+		statusLineCmd = i.hookCommand(i.statusLinePath())
+	}
+	changed, err := ensureHooks(hooksFile, regs, statusLineCmd)
 	if err != nil {
 		return err
 	}
@@ -1166,6 +1187,14 @@ func (i *Installer) registerStopHook() error {
 			i.ok("%s", p.note)
 		} else {
 			i.ok("%s hook already registered", p.event)
+		}
+	}
+
+	if statusLineCmd != "" {
+		if changed["statusLine"] {
+			i.ok("registered statusLine (wing, drift and inbox where you already look)")
+		} else {
+			i.ok("statusLine left as you set it — agentsmemory does not replace one you chose")
 		}
 	}
 	return nil

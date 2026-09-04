@@ -58,6 +58,33 @@ case "$OUT" in
     ;;
 esac
 
+# WRITE THE STATUS CACHE (ADR-051 T7). This hook has already asked the palace what
+# it knows; the status line is a second READER of that answer rather than a second
+# asker. Putting the query here is what lets the status line make no network call
+# at all, which is the only way it can render constantly without freezing a prompt.
+#
+# Counts come from `verify`'s own report line, so the number on screen and the
+# number in the report are one figure rather than two that can disagree.
+STATUS_DIR="${AGENTSMEMORY_STATE_DIR:-${TMPDIR:-/tmp}}"
+DRIFTED="$(printf '%s' "$OUT" | sed -n 's/.*, \([0-9][0-9]*\) drifted.*/\1/p' | head -n1)"
+: "${DRIFTED:=0}"
+WING="${AGENTSMEMORY_WING:-}"
+if [ -z "$WING" ]; then
+  d="${CLAUDE_PROJECT_DIR:-$PWD}"
+  while [ -n "$d" ] && [ "$d" != "/" ]; do
+    for f in "$d/.aiagentmemory.local" "$d/.aiagentmemory"; do
+      [ -z "$WING" ] && [ -f "$f" ] && WING="$(sed -n 's/^[[:space:]]*wing[[:space:]]*=[[:space:]]*//p' "$f" 2>/dev/null | head -1)"
+    done
+    [ -n "$WING" ] && break
+    d="$(dirname "$d")"
+  done
+fi
+{
+  printf 'AM_WING=%s\n' "${WING:-}"
+  printf 'AM_DRIFTED=%s\n' "$DRIFTED"
+  printf 'AM_INBOX=%s\n' "0"
+} > "$STATUS_DIR/agentsmemory-status.txt" 2>/dev/null || true
+
 # Always succeed. A SessionStart hook that exits non-zero blocks the session, and
 # nothing here is worth that.
 exit 0

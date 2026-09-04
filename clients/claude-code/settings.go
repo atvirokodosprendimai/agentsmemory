@@ -37,7 +37,7 @@ const (
 // This is the Go replacement for the jq block in the old install.sh — same
 // behaviour and same on-disk shape, with no external jq dependency.
 func ensureHook(path, event, hookCmd string, isObsolete func(cmd string) bool) (bool, error) {
-	changed, err := ensureHooks(path, []hookReg{{event: event, cmd: hookCmd, obsolete: isObsolete}})
+	changed, err := ensureHooks(path, []hookReg{{event: event, cmd: hookCmd, obsolete: isObsolete}}, "")
 	return changed[event], err
 }
 
@@ -79,7 +79,9 @@ type hookReg struct {
 // A registration that fails to parse or that finds a value of the wrong shape
 // aborts the WHOLE batch before anything is written, so the file is never left
 // carrying half of an install.
-func ensureHooks(path string, regs []hookReg) (map[string]bool, error) {
+// ensureHooks writes every hook registration, and the statusLine when one is
+// given, in a single read-modify-write of settings.json.
+func ensureHooks(path string, regs []hookReg, statusLineCmd string) (map[string]bool, error) {
 	changed := map[string]bool{}
 
 	raw, err := os.ReadFile(path)
@@ -141,6 +143,14 @@ func ensureHooks(path string, regs []hookReg) (map[string]bool, error) {
 		}
 		hooks[reg.event] = pruned
 		changed[reg.event] = true
+	}
+
+	statusWritten := false
+	if statusLineCmd != "" {
+		statusWritten = applyStatusLine(settings, statusLineCmd)
+		if statusWritten {
+			changed["statusLine"] = true
+		}
 	}
 
 	if len(changed) == 0 {
@@ -503,4 +513,26 @@ func ensureMCPServer(path, name string, entry map[string]any) (bool, error) {
 		return false, err
 	}
 	return true, nil
+}
+
+// applyStatusLine fills settings.json's `statusLine` key, and REFUSES to replace
+// one the user already set (ADR-051 T7).
+//
+// ⚠ THE REFUSAL IS THE DESIGN, NOT A LIMITATION. A status line is the one surface
+// a user cannot dismiss, and many people have already put something they care
+// about there — a git branch, a model name, a cost counter. Overwriting it would
+// be the most visible thing this installer does and the least invited. So an
+// existing value is left alone and reported, and only an ABSENT key is filled.
+//
+// ⚠ IT MUTATES THE MAP AND DOES NO I/O, WHICH A GATE INSISTED ON. Written first as
+// its own read-modify-write, it produced a SECOND backup of settings.json in a
+// single install and TestOneInstallLeavesAtMostOneBackup failed — correctly: two
+// backups from one run means a user cannot tell which one is the state they had
+// before. One install, one read, one backup, one write.
+func applyStatusLine(settings map[string]any, command string) bool {
+	if existing, ok := settings["statusLine"]; ok && existing != nil {
+		return false
+	}
+	settings["statusLine"] = map[string]any{"type": "command", "command": command}
+	return true
 }

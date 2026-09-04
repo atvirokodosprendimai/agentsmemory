@@ -367,3 +367,105 @@ func TestThePostToolUseHookIsRegistered(t *testing.T) {
 		t.Fatal("no PostToolUse registration for the touched recorder; the Stop nudge can never name a file")
 	}
 }
+
+// TestTheStatusLineMakesNoNetworkCall is the property that lets it render at all.
+//
+// A status line runs constantly. A command that waits on a server freezes the
+// prompt for as long as the server takes, and a frozen prompt is the fastest way
+// to have a status line removed. Every number it shows is read from a cache the
+// SessionStart verify hook writes — a second READER of an answer that already
+// exists rather than a second asker.
+func TestTheStatusLineMakesNoNetworkCall(t *testing.T) {
+	b, err := os.ReadFile(filepath.Join("hooks", "agentsmemory-statusline.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, bad := range []string{"curl", "wget", "aiagentmemory ", "nc "} {
+		if strings.Contains(string(b), bad) {
+			t.Errorf("the status line invokes %q; it must read the cache and nothing else", strings.TrimSpace(bad))
+		}
+	}
+}
+
+// TestTheStatusLineIsSilentWithoutACache: no cache, no output, exit 0.
+//
+// An error string in a status line is PERMANENT noise — it is the one surface a
+// user cannot dismiss — and no cache is the ordinary state before the first
+// session-start hook has run.
+func TestTheStatusLineIsSilentWithoutACache(t *testing.T) {
+	cmd := exec.Command("bash", filepath.Join("hooks", "agentsmemory-statusline.sh"))
+	cmd.Env = append(os.Environ(), "AGENTSMEMORY_STATE_DIR="+t.TempDir())
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("the status line exited non-zero with no cache: %v", err)
+	}
+	if len(out) != 0 {
+		t.Errorf("it printed %q with no cache; silence is the only acceptable answer", out)
+	}
+}
+
+// TestTheStatusLineShowsWhatTheCacheHolds, including that a zero drift count is
+// not rendered.
+//
+// A status line that always shows "0 drifted" spends the user's attention on the
+// absence of a problem, every second, forever.
+func TestTheStatusLineShowsWhatTheCacheHolds(t *testing.T) {
+	dir := t.TempDir()
+	write := func(body string) string {
+		if err := os.WriteFile(filepath.Join(dir, "agentsmemory-status.txt"), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		cmd := exec.Command("bash", filepath.Join("hooks", "agentsmemory-statusline.sh"))
+		cmd.Env = append(os.Environ(), "AGENTSMEMORY_STATE_DIR="+dir)
+		out, err := cmd.Output()
+		if err != nil {
+			t.Fatalf("status line failed: %v", err)
+		}
+		return string(out)
+	}
+	got := write("AM_WING=wing_acme\nAM_DRIFTED=11\nAM_INBOX=0\n")
+	if !strings.Contains(got, "wing_acme") || !strings.Contains(got, "11 drifted") {
+		t.Errorf("the status line does not show the wing and the drift: %q", got)
+	}
+	got = write("AM_WING=wing_acme\nAM_DRIFTED=0\nAM_INBOX=0\n")
+	if strings.Contains(got, "drifted") {
+		t.Errorf("it renders a zero drift count (%q); that spends attention on the absence of a problem", got)
+	}
+}
+
+// TestTheStatusLineDoesNotReplaceOneTheUserSet.
+//
+// ⚠ THE REFUSAL IS THE DESIGN. A status line is the one surface a user cannot
+// dismiss, and many have already put something they care about there. Overwriting
+// it would be the most visible thing this installer does and the least invited.
+func TestTheStatusLineDoesNotReplaceOneTheUserSet(t *testing.T) {
+	mine := map[string]any{"statusLine": map[string]any{"type": "command", "command": "my-own-thing"}}
+	if applyStatusLine(mine, "/cfg/agentsmemory-statusline.sh") {
+		t.Error("it replaced a statusLine the user had already set")
+	}
+	got, _ := mine["statusLine"].(map[string]any)
+	if got["command"] != "my-own-thing" {
+		t.Errorf("the user's status line is gone: %v", mine["statusLine"])
+	}
+
+	fresh := map[string]any{}
+	if !applyStatusLine(fresh, "/cfg/agentsmemory-statusline.sh") {
+		t.Fatal("it did not fill an absent key")
+	}
+	set, _ := fresh["statusLine"].(map[string]any)
+	if set["command"] != "/cfg/agentsmemory-statusline.sh" {
+		t.Errorf("wrong command written: %v", fresh["statusLine"])
+	}
+}
+
+// TestTheStatusLineIsRegistered covers the rung the script's own tests cannot see:
+// a status line written to disk and registered by nothing renders never.
+func TestTheStatusLineIsRegistered(t *testing.T) {
+	b, err := os.ReadFile("installer.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), "statusLineCmd = i.hookCommand(i.statusLinePath())") {
+		t.Fatal("the installer never passes the status-line command to ensureHooks; it ships and is never registered")
+	}
+}
