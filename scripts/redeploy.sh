@@ -12,10 +12,54 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-COMPOSE=(docker compose -f docker-compose.yml -f docker-compose.full.yml)
 SVC=agentsmemory
+# The DEFAULT project's container, used only to read the chain label before
+# anything is deployed. After `up -d` it is re-resolved from the project the
+# chain actually selected (see there) — a chain can name a differently named
+# project, and a hardcoded container would then read one this run never touched.
 CONTAINER=agentsmemory-agentsmemory-1
 BIN=/usr/local/bin/agentsmemory
+
+# The compose chain is READ FROM THE RUNNING PROJECT, not declared here. The
+# repository ships six compose files and the documented local setup uses four;
+# a hardcoded two-file chain recreated the service from the SHORTER one and
+# silently reverted the overlay's decisions (RERANK_URL, issue #209), because
+# `up -d` recreates whenever the resolved config hash changes. Precedence:
+#   1. COMPOSE_FILE — Compose's own mechanism. Explicit -f flags override it,
+#      which is why it could not steer the old script at all;
+#   2. the config_files label on the running container, by BASENAME, so the
+#      overlay SET follows the stack that is up while the files come from THIS
+#      checkout — the label's absolute paths point at whatever directory the
+#      stack was last brought up from, often a clone that no longer exists;
+#   3. the two-file default, for a first deploy with nothing running.
+# A basename the label names and this checkout lacks is a refusal, not a
+# fallback: deploying a different stack silently is the defect being removed.
+chain="${COMPOSE_FILE:-}"
+chain_from="COMPOSE_FILE"
+if [ -z "$chain" ]; then
+  chain="$(docker inspect "$CONTAINER" --format '{{index .Config.Labels "com.docker.compose.project.config_files"}}' 2>/dev/null || true)"
+  chain_from="the running $CONTAINER"
+fi
+if [ -z "$chain" ]; then
+  chain="docker-compose.yml:docker-compose.full.yml"
+  chain_from="the default: no such container and COMPOSE_FILE is unset"
+fi
+COMPOSE=(docker compose)
+chain_names=""
+# Split on ':' (COMPOSE_FILE) or ',' (the label). The ${arr[@]+"${arr[@]}"}
+# form is the bash 3.2 idiom for "expand an array that may be empty" — a bare
+# "${arr[@]}" on an empty array is an unbound-variable death under set -u, the
+# trap AUTH_HEADER below already records. Blank parts (adjacent separators,
+# a trailing one) are skipped rather than resolved to a blank filename.
+IFS=':,' read -r -a chain_parts <<< "$chain"
+for f in ${chain_parts[@]+"${chain_parts[@]}"}; do
+  [ -n "$f" ] || continue
+  name="$(basename "$f")"
+  [ -f "$name" ] || { echo "compose file $name (from $chain_from) is not in this checkout — refusing to deploy a different stack"; exit 1; }
+  COMPOSE+=(-f "$name")
+  chain_names="$chain_names $name"
+done
+echo "==> compose chain:$chain_names  (from $chain_from)"
 
 # A needle that MUST be present whatever changed. Without it, "absent" cannot be
 # told apart from "the grep is looking in the wrong place", which is how a wrong
@@ -26,6 +70,19 @@ needles=("$@")
 if [ ${#needles[@]} -eq 0 ]; then
   needles=("ranking: " "chunks_matched" "reranked" "lex-norm" "BEST over " "case_set_id")
 fi
+
+# The version is compiled in, so a build without it is a DIFFERENT artifact that
+# reports `dev` with every check below green — the container is healthy, the
+# digest matches, the needles are present — and the one comparison that tells a
+# stale server from a current one (checkout against am_status's version) is
+# gone. Refused BEFORE the suite runs rather than detected after it: a dev
+# server detected after `up -d` is a dev server already serving (issue #210).
+case "${AGENTSMEMORY_VERSION:-}" in
+  ""|dev|dev-*)
+    echo "AGENTSMEMORY_VERSION is '${AGENTSMEMORY_VERSION:-}': the image would report version 'dev'."
+    echo "    Stamp it:  AGENTSMEMORY_VERSION=\$(git describe --tags) scripts/redeploy.sh"
+    exit 1 ;;
+esac
 
 echo "==> tests must pass before anything is built"
 docker run --rm -v "$PWD":/src \
@@ -57,6 +114,14 @@ echo "==> build"
 "${COMPOSE[@]}" build "$SVC" >/dev/null
 echo "==> restart"
 "${COMPOSE[@]}" up -d "$SVC" >/dev/null
+# Re-resolve the container from the project the chain SELECTED. docker-compose.yml
+# sets `name: agentsmemory` and docker-compose.prod.yml sets `name:
+# agentsmemory-hosted`, and the last name: in a chain wins — so a chain that
+# includes the hosted overlay brings up a different project, and every `docker
+# exec` below on the hardcoded name would read a container this run never
+# touched, consistently enough to print "deployed and verified" over it.
+CONTAINER="$("${COMPOSE[@]}" ps -q "$SVC" 2>/dev/null | head -n1)"
+[ -n "$CONTAINER" ] || { echo "    no container for service $SVC in the project the chain selected"; exit 1; }
 
 # The host port and the local token are configurable, and this script probed
 # 8080 with no Authorization header whatever they were set to: a server on
@@ -78,6 +143,29 @@ for _ in $(seq 1 60); do
   sleep 1
 done
 curl -fsS -m 5 "$BASE/healthz" >/dev/null || { echo "    server did not come back on $BASE"; exit 1; }
+
+echo "==> version: the running server must name the stamp it was built with"
+# Read from the ARTIFACT (`agentsmemory --version` inside the container), not
+# from the build args this script was given. REDEPLOY_WANT_VERSION drives the
+# comparison to fail without deploying a different build, for the reason
+# REDEPLOY_IMAGE exists below: a gate nobody can make fail is not a gate.
+want_ver="${REDEPLOY_WANT_VERSION:-$AGENTSMEMORY_VERSION}"
+# `|| true`, as the digest read below has: under `set -e -o pipefail` a failing
+# `docker exec` otherwise kills the script at this assignment and the
+# <unreadable> diagnostic two lines down never prints.
+served_ver="$(docker exec "$CONTAINER" "$BIN" --version 2>/dev/null | sed -n 's/^agentsmemory version //p' || true)"
+# The dev arm comes FIRST: with the exact-match arm first, a stamp of literally
+# `dev` matched itself and printed "served dev" as a pass.
+case "$served_ver" in
+  ""|dev|dev-*)
+    echo "    served version is '${served_ver:-<unreadable>}': the stamp did not reach the binary"
+    exit 1 ;;
+  "$want_ver") printf "    served %s\n" "$served_ver" ;;
+  *)
+    printf "    MISMATCH  served=%s  stamped=%s\n" "$served_ver" "$want_ver"
+    echo "    the container is not running the build this script stamped"
+    exit 1 ;;
+esac
 
 echo "==> read the ARTIFACT that is serving, not the build log"
 if ! docker exec "$CONTAINER" grep -ac -- "$CONTROL" "$BIN" >/dev/null 2>&1; then
@@ -221,48 +309,77 @@ fi
 #
 # It FAILS rather than warns. A gate whose result is printed and not branched on
 # is decoration, and this one has already been ignored once.
+# judge_tree LABEL PATH prints one verdict line for a Go binary against this
+# checkout and sets kit_stale when it is behind. It reads the ARTIFACT — the
+# vcs.revision `go build` stamps inside a checkout — never the binary's
+# self-report, and it compares TREES, not revisions: a merge commit gives the
+# same tree a new sha, and revision equality reported every kit stale the moment
+# a branch merged. One function for every binary the kit check judges, because
+# the first version of the Desktop check below used a different oracle
+# (doctor's "does the bridge match the PATH copy"), and since the installer
+# COPIES the PATH binary into Desktop, agreeing was the normal outcome of the
+# very incident it was written to catch. Review of f80e12c found it blind by
+# construction.
+judge_tree() {
+  label="$1"; path="$2"
+  # sed, not awk: an unescaped $NF is expanded by the SHELL under `set -u`
+  # before awk sees it, and the gate then dies with "NF: unbound variable"
+  # instead of reporting staleness — a check that fails for its own reasons.
+  have_rev="$(go version -m "$path" 2>/dev/null | sed -n 's/.*vcs\.revision=//p' | head -n1)"
+  have_dirty="$(go version -m "$path" 2>/dev/null | sed -n 's/.*vcs\.modified=//p' | head -n1)"
+  # git rev-parse on an unknown object fails, and the empty result then falls
+  # through to the revision comparison below.
+  have_tree="$(git rev-parse "${have_rev}^{tree}" 2>/dev/null || echo "")"
+  if [ -n "$have_rev" ] && [ -n "$have_tree" ] && [ "$have_tree" = "$want_tree" ] &&
+     [ "$have_rev" != "$want_rev" ] && [ "$have_dirty" != "true" ]; then
+    echo "    $label $(printf '%.7s' "$have_rev") (tree identical to $(printf '%.7s' "$want_rev"))  $path"
+  elif [ -n "$have_rev" ]; then
+    if [ "$have_rev" = "$want_rev" ] && [ "$have_dirty" != "true" ]; then
+      echo "    $label $(printf '%.7s' "$have_rev")  $path"
+    elif [ "$have_rev" = "$want_rev" ]; then
+      echo "    $label STALE: $path built from $(printf '%.7s' "$have_rev") with uncommitted changes"; kit_stale=1
+    else
+      echo "    $label STALE: $path built from $(printf '%.7s' "$have_rev"), checkout is $(printf '%.7s' "$want_rev")"; kit_stale=1
+    fi
+  else
+    # No Go toolchain here, or a binary carrying no VCS stamp: the artifact
+    # cannot be read, so say that rather than guess. Not a failure — a gate that
+    # blocks with no way to satisfy it is the bug this block once fixed — but it
+    # must never look like a pass, because silence is not success.
+    echo "    $label UNVERIFIED: no vcs stamp readable in $path (need go on PATH)"
+  fi
+}
 echo "==> the installed client kit, against this checkout"
 kit_stale=0
 if command -v aiagentmemory >/dev/null 2>&1; then
   want_rev="$(git rev-parse HEAD 2>/dev/null || echo unknown)"
   bin_path="$(command -v aiagentmemory)"
   # Read the ARTIFACT, not its self-report — the same rule the needle check above
-  # follows. Every `go build` inside a checkout stamps vcs.revision into the
-  # binary, while main.version is set only by -ldflags in the release workflow.
-  # The old check compared `--version` against the short SHA, so every locally
-  # built kit reported STALE forever, including one built from this exact commit
-  # by the very command the failure message prescribes. A gate whose own remedy
-  # cannot satisfy it is a gate people learn to skip.
-  # sed, not awk: an unescaped $NF is expanded by the SHELL under `set -u`
-  # before awk sees it, and the gate then dies with "NF: unbound variable"
-  # instead of reporting staleness — a check that fails for its own reasons.
-  have_rev="$(go version -m "$bin_path" 2>/dev/null | sed -n 's/.*vcs\.revision=//p' | head -n1)"
-  have_dirty="$(go version -m "$bin_path" 2>/dev/null | sed -n 's/.*vcs\.modified=//p' | head -n1)"
-  # Compare TREES, not revisions. A merge commit gives the same tree a new sha,
-  # and revision equality reported every kit stale the moment a branch merged —
-  # a gate that cries wolf on every merge is one people learn to pass with the
-  # skip flag. git rev-parse on an unknown object fails, and the empty result
-  # then falls through to the revision comparison below.
+  # follows. The old check compared `--version` against the short SHA, so every
+  # locally built kit reported STALE forever, including one built from this exact
+  # commit by the very command the failure message prescribes. A gate whose own
+  # remedy cannot satisfy it is a gate people learn to skip.
   want_tree="$(git rev-parse "${want_rev}^{tree}" 2>/dev/null || echo "")"
-  have_tree="$(git rev-parse "${have_rev}^{tree}" 2>/dev/null || echo "")"
-  if [ -n "$have_rev" ] && [ -n "$have_tree" ] && [ "$have_tree" = "$want_tree" ] &&
-     [ "$have_rev" != "$want_rev" ] && [ "$have_dirty" != "true" ]; then
-    echo "    binary  $(printf '%.7s' "$have_rev") (tree identical to $(printf '%.7s' "$want_rev"))"
-  elif [ -n "$have_rev" ]; then
-    if [ "$have_rev" = "$want_rev" ] && [ "$have_dirty" != "true" ]; then
-      echo "    binary  $(printf '%.7s' "$have_rev")"
-    elif [ "$have_rev" = "$want_rev" ]; then
-      echo "    binary  STALE: built from $(printf '%.7s' "$have_rev") with uncommitted changes"; kit_stale=1
-    else
-      echo "    binary  STALE: built from $(printf '%.7s' "$have_rev"), checkout is $(printf '%.7s' "$want_rev")"; kit_stale=1
-    fi
-  else
-    # No Go toolchain here, or a binary carrying no VCS stamp: the artifact
-    # cannot be read, so say that rather than guess. Not a failure — a gate that
-    # blocks with no way to satisfy it is the bug this block just fixed — but it
-    # must never look like a pass, because silence is not success.
-    have_ver="$(aiagentmemory --version 2>/dev/null | sed -n 's/.* //p')"
-    echo "    binary  UNVERIFIED: reports $have_ver; no vcs stamp readable (need go on PATH)"
+  judge_tree "binary " "$bin_path"
+
+  # The path is printed above because the remedy below writes to ONE directory
+  # and `command -v` reads whatever wins PATH: on 2026-09-04 ~/.claude/bin
+  # preceded ~/.local/bin and held an older copy, so the prescribed `go build`
+  # ran, the warning persisted, and the file it named was not the problem
+  # (issue #204). A symlink into the remedy directory is the sanctioned shape
+  # and is not a shadow, so one hop of readlink is resolved before comparing.
+  # The same directory install.sh writes to, overridable the same way; a
+  # hardcoded ~/.local/bin warned about a directory holding nothing on a host
+  # that installed elsewhere.
+  remedy_dir="${AIAGENTMEMORY_BIN_DIR:-$HOME/.local/bin}"
+  real_path="$bin_path"
+  if [ -L "$bin_path" ]; then
+    real_path="$(readlink "$bin_path")"
+    case "$real_path" in /*) ;; *) real_path="$(dirname "$bin_path")/$real_path" ;; esac
+  fi
+  if [ "$(cd "$(dirname "$real_path")" 2>/dev/null && pwd -P)" != "$(cd "$remedy_dir" 2>/dev/null && pwd -P)" ]; then
+    echo "    ⚠ PATH resolves aiagentmemory to $bin_path; the Fix below writes to $remedy_dir, which is SHADOWED."
+    echo "      Make the shadow a symlink to $remedy_dir/aiagentmemory, or the remedy cannot clear this."
   fi
 
   # Byte-compare what the installer would lay down against what is there. The
@@ -294,6 +411,34 @@ if command -v aiagentmemory >/dev/null 2>&1; then
       kit_stale=1
     fi
   done
+
+  # The Claude Desktop bridge is a THIRD binary at a THIRD path — a copy the
+  # installer places in Desktop's own config dir and registers as `mcp-stdio` —
+  # and nothing above reads it. On 2026-09-04 the server was current at
+  # v0.0.113 while Desktop spawned a build from before the release, because
+  # this loop rebuilt two host binaries and never that one. Judged by the SAME
+  # tree comparison as the CLI, against THIS checkout: `doctor --agent
+  # claude-desktop` was tried first and compares the bridge with the PATH copy
+  # it was installed from, which agrees exactly when both are stale together —
+  # the documented order rebuilds the host binaries AFTER this script runs. Only
+  # when a Desktop config registers a bridge; a machine without Desktop, or one
+  # registered by URL, has nothing to judge.
+  case "$(uname -s)" in
+    Darwin) desktop_cfg="$HOME/Library/Application Support/Claude/claude_desktop_config.json" ;;
+    MINGW*|MSYS*|CYGWIN*) desktop_cfg="${APPDATA:-}/Claude/claude_desktop_config.json" ;;
+    *) desktop_cfg="${XDG_CONFIG_HOME:-$HOME/.config}/Claude/claude_desktop_config.json" ;;
+  esac
+  if [ -f "$desktop_cfg" ]; then
+    # The registered command, JSON-unescaped: Windows paths arrive as C:\\Users.
+    bridge="$(sed -n 's/.*"command": *"\([^"]*aiagentmemory-server[^"]*\)".*/\1/p' "$desktop_cfg" | head -n1 | sed 's/\\\\/\\/g')"
+    if [ -n "$bridge" ]; then
+      if [ -f "$bridge" ]; then
+        judge_tree "desktop" "$bridge"
+      else
+        echo "    desktop MISSING: the registration names $bridge and nothing is there"; kit_stale=1
+      fi
+    fi
+  fi
 else
   echo "    (aiagentmemory not on PATH — nothing installed to check)"
 fi
@@ -301,8 +446,10 @@ if [ "$kit_stale" -ne 0 ]; then
   echo
   echo "    The server is current and the client is not. That gap is invisible until"
   echo "    something embedded in the old kit misbehaves, which is how it was found."
-  echo "    Fix:  go build -o \$HOME/.local/bin/aiagentmemory ./clients/claude-code"
-  echo "          aiagentmemory install --agent claude --global --local --yes"
+  echo "    Fix:  go build -o $remedy_dir/aiagentmemory ./clients/claude-code"
+  echo "          go build -o $remedy_dir/aiagentmemory-server ./cmd/server   # the Desktop bridge is copied from this"
+  echo "          aiagentmemory install --agent claude --local --yes                 # with the same --wing/--scope as before"
+  echo "          aiagentmemory install --agent claude-desktop --local --yes         # quit Claude Desktop first"
   echo "    Skip: REDEPLOY_SKIP_KIT_CHECK=1 scripts/redeploy.sh"
   [ "${REDEPLOY_SKIP_KIT_CHECK:-0}" = "1" ] || exit 1
 fi
