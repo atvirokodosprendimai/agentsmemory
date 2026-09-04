@@ -57,7 +57,26 @@ command -v aiagentmemory >/dev/null 2>&1 || { trace "no aiagentmemory on PATH"; 
 # these hooks keep gating against. A prompt containing an escaped quote is
 # truncated at that quote here; the recall is still asked with the leading words,
 # which is the degradation worth having over a pattern that works on one libc.
+# WHICH EVENT IS THIS? One script, two events, branching on the name — the same
+# shape the Stop and SubagentStop nudges already share, because the two recalls
+# differ in WHICH TEXT they ask with and not in machinery. A second script would
+# be a second thing to keep in step.
+EVENT="$(printf '%s' "$INPUT" | tr '\n' ' ' | sed -n 's/.*"hook_event_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
+
 PROMPT="$(printf '%s' "$INPUT" | tr '\n' ' ' | sed -n 's/.*"prompt"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
+
+# ⚠ ON UserPromptExpansion THE TASK IS IN THE EXPANDED TEXT, NOT THE PROMPT.
+# The field name is not documented — the hooks reference truncates before its
+# payload table — so this tries the plausible spellings and gives up quietly
+# rather than guessing one and being silently wrong. If none matches, the branch
+# below finds an empty query and the hook says so on stderr, which is where
+# `doctor` reads it.
+if [ "$EVENT" = "UserPromptExpansion" ]; then
+  for field in expanded_prompt expandedPrompt updated_prompt updatedPrompt expansion; do
+    EXPANDED="$(printf '%s' "$INPUT" | tr '\n' ' ' | sed -n "s/.*\"$field\"[[:space:]]*:[[:space:]]*\"\\([^\"]*\\)\".*/\\1/p")"
+    [ -n "$EXPANDED" ] && { PROMPT="$EXPANDED"; break; }
+  done
+fi
 PROMPT="$(printf '%s' "$PROMPT" | tr -s ' ' | sed 's/^ *//;s/ *$//')"
 
 [ -n "$PROMPT" ] || { trace "no prompt field in the hook input"; exit 0; }
@@ -67,6 +86,22 @@ PROMPT="$(printf '%s' "$PROMPT" | tr -s ' ' | sed 's/^ *//;s/ *$//')"
 # retrieves whatever is nearest to a command name. The sibling hook's own record
 # of the merge-subject fallback is the same lesson: a long query made of the wrong
 # words is worse than no query, because it returns something.
+# ⚠ A SLASH COMMAND IS NOT A QUESTION. `/am`, `/clear`, `/model sonnet` — these
+# expand into something else entirely, and recalling against the literal text
+# retrieves whatever is nearest to a command name. The sibling hook's own record
+# of the merge-subject fallback is the same lesson: a long query made of the wrong
+# words is worse than no query, because it returns something.
+#
+# ⚠ IT APPLIES ON BOTH EVENTS, AND AN EARLIER VERSION EXEMPTED THE EXPANSION
+# BRANCH. A mutant proved that exemption bought nothing and cost something. On a
+# successful expansion PROMPT has ALREADY been replaced by the expanded text,
+# which does not begin with a slash, so the refusal never fires and the exemption
+# is dead code. On a FAILED expansion — an undocumented field name, a payload
+# shape that changed — PROMPT is still the literal "/am", and the exemption would
+# have disabled the one check that stops a recall against a command name. The
+# guard survived its mutant because the test could not tell the two apart; the
+# right answer was to delete the exemption rather than to write a test defending
+# it.
 case "$PROMPT" in
   /*) trace "slash command, not a task: ${PROMPT%% *}"; exit 0 ;;
 esac

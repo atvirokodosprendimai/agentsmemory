@@ -174,3 +174,89 @@ func TestNoHookPlanIsRegisteredTwice(t *testing.T) {
 		seen[key] = true
 	}
 }
+
+// runTaskRecall drives the shipped task-recall script with a stubbed binary.
+func runTaskRecall(t *testing.T, input string) (stdout, stderr string) {
+	t.Helper()
+	dir := t.TempDir()
+	stub := filepath.Join(dir, "aiagentmemory")
+	if err := os.WriteFile(stub, []byte("#!/bin/sh\necho '{\"hits\":[{\"wing\":\"wing_acme\",\"room\":\"decisions\",\"content\":\"a recalled memory\"}],\"count\":1}'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("bash", filepath.Join("hooks", "agentsmemory-task-recall-hook.sh"))
+	cmd.Stdin = strings.NewReader(input)
+	var out, errb strings.Builder
+	cmd.Stdout, cmd.Stderr = &out, &errb
+	cmd.Env = append(os.Environ(), "PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	_ = cmd.Run()
+	return out.String(), errb.String()
+}
+
+// TestTheExpansionBranchRecallsWhereTheSubmitBranchRefuses is the gap T4 fills,
+// stated as the pair that proves it is a gap rather than a duplicate.
+//
+// The UserPromptSubmit hook refuses a slash command deliberately: "/am" is a
+// command NAME, and recalling against it retrieves whatever is nearest to one. So
+// until this branch existed, every slash-command turn got no task recall at all —
+// the turns most likely to be substantive work.
+func TestTheExpansionBranchRecallsWhereTheSubmitBranchRefuses(t *testing.T) {
+	task := "how does the rebind guard decide this machine is the boundary"
+
+	out, errs := runTaskRecall(t, `{"hook_event_name":"UserPromptSubmit","prompt":"/am `+task+`"}`)
+	if out != "" {
+		t.Errorf("the submit branch recalled against a slash command; it must refuse:\n%s", out)
+	}
+	if !strings.Contains(errs, "slash command") {
+		t.Errorf("the submit branch should say why it refused; got %q", errs)
+	}
+
+	out, _ = runTaskRecall(t, `{"hook_event_name":"UserPromptExpansion","prompt":"/am","expanded_prompt":"`+task+`"}`)
+	if out == "" {
+		t.Fatal("the expansion branch said nothing; the slash-command turn still gets no recall, which is the whole gap T4 closes")
+	}
+	if !strings.Contains(out, "a recalled memory") {
+		t.Errorf("the expansion branch did not inject what it recalled:\n%s", out)
+	}
+}
+
+// TestTheUserPromptExpansionHookIsRegistered covers the wiring, and it is the
+// half T1 had to land first.
+//
+// Before T1 this registration could not pass the install gate at all:
+// hookchannel.go filed UserPromptExpansion under the debug log, so
+// TestEveryInjectingHookIsOnAnInjectingEvent rejected a stdout-injecting hook
+// registered there. The dependency is real rather than bookkeeping.
+func TestTheUserPromptExpansionHookIsRegistered(t *testing.T) {
+	inst, _, _ := newTestInstaller(t, false)
+	var found bool
+	for _, p := range inst.hookPlans() {
+		if p.event == "UserPromptExpansion" && !p.retire && strings.Contains(p.cmd, taskRecallHookFile) {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("no UserPromptExpansion registration for the task-recall hook; a slash command's real task still gets no recall")
+	}
+	if hookEventChannel("UserPromptExpansion") != channelInjected {
+		t.Error("UserPromptExpansion is not classified as injecting, so the install gate would refuse this registration")
+	}
+}
+
+// TestTheExpansionBranchStillRefusesAnUnexpandedCommand is the case a surviving
+// mutant exposed.
+//
+// The expansion field name is NOT documented — the hooks reference truncates
+// before its payload table — so the script tries several spellings. If none
+// matches, PROMPT is still the literal "/am", and recalling against a command name
+// retrieves whatever is nearest to one. An earlier version exempted this branch
+// from the slash-command refusal; the exemption was dead code on the happy path
+// and removed a safety check on the unhappy one.
+func TestTheExpansionBranchStillRefusesAnUnexpandedCommand(t *testing.T) {
+	out, errs := runTaskRecall(t, `{"hook_event_name":"UserPromptExpansion","prompt":"/am","unknown_field_name":"the real task text"}`)
+	if out != "" {
+		t.Errorf("with no recognised expansion field the hook recalled against the command name:\n%s", out)
+	}
+	if !strings.Contains(errs, "slash command") {
+		t.Errorf("it should refuse and say why; got %q", errs)
+	}
+}

@@ -126,6 +126,13 @@ reporting success.
   case. Registered matcher-less like every plan here — the script exits silently
   when the event carries no `file_path`, which is the guard a matcher would only
   duplicate.
+- The task-recall script is registered on **`UserPromptSubmit`** and
+  **`UserPromptExpansion`**, branching on `hook_event_name`. The submit branch
+  REFUSES a slash command on purpose — `/am` is a command name, and recalling
+  against it retrieves whatever is nearest to one — so the expansion branch is
+  what gives those turns a recall at all, asked against the text the command
+  expanded into. One script, because the two differ in which text they ask with
+  and not in machinery.
 - `agentsmemory-verify-hook.sh` → the `SessionStart` hook: before a session acts
   on anything, it checks that memories carrying code anchors still match the code.
   Detection that arrives after the wrong decision is not detection.

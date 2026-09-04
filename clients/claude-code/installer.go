@@ -1245,6 +1245,19 @@ func (i *Installer) hookPlansOn(goos string) []hookPlan {
 		// which is every tool that names no file. A matcher would be a second copy
 		// of a guard that has to exist anyway, since PreToolUse fires for tools this
 		// kit has never heard of.
+		// ADR-051 T4. The SAME script as UserPromptSubmit, branching on the event —
+		// the shape Stop and SubagentStop already share.
+		//
+		// It is not a duplicate recall. The submit hook REFUSES a slash command by
+		// design, because "/am" is a command name and recalling against it retrieves
+		// whatever is nearest to one. The text it expands into is the real task, so
+		// until this registration every slash-command turn got no task recall at all.
+		hookPlan{
+			event: "UserPromptExpansion",
+			cmd:   i.hookCommand(i.taskRecallHookPath()),
+			note:  "registered UserPromptExpansion hook (a slash command's real task gets a recall too)",
+		},
+
 		hookPlan{
 			event: "PreToolUse",
 			cmd:   i.hookCommand(i.anchorCueHookPath()),
