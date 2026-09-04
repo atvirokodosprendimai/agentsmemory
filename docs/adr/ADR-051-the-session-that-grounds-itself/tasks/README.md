@@ -44,7 +44,7 @@ nine would be worse, so within a wave these still land one at a time.
 | T6 | Ship the kit as one plugin instead of a script that edits settings | done | — | `go test ./clients/claude-code/ -run '…Plugin…'` |
 | T7 | Put the palace on the status line | done | — | `go test ./clients/claude-code/ -run '…StatusLine…'` |
 | T8 | A native skill that reaches the centralised catalogue | done | — | `go test ./clients/claude-code/ -run '…Skill…'` |
-| T9 | The unattended loop: what runs alone, and what still gates | pending | — | `go test ./clients/claude-code/ -run '…Unattended…'` |
+| T9 | The unattended loop: what runs alone, and what still gates | done | — | `go test ./clients/claude-code/ -run '…Unattended…'` |
 
 Status: `pending` | `partial` | `blocked` | `done`.
 

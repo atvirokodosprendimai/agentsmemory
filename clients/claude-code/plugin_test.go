@@ -170,3 +170,103 @@ func TestDoctorFailsOnADuplicateRegistration(t *testing.T) {
 		t.Errorf("duplicated = %v, want it to name SessionStart", reg.duplicated)
 	}
 }
+
+// unattendedRules reads the permission rules the plugin ships.
+func unattendedRules(t *testing.T) (allow, deny []string) {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join(".claude-plugin", "settings.json"))
+	if err != nil {
+		t.Fatalf("no plugin settings: %v", err)
+	}
+	var doc struct {
+		Permissions struct {
+			Allow []string `json:"allow"`
+			Deny  []string `json:"deny"`
+		} `json:"permissions"`
+	}
+	if err := json.Unmarshal(b, &doc); err != nil {
+		t.Fatalf("plugin settings do not parse: %v", err)
+	}
+	return doc.Permissions.Allow, doc.Permissions.Deny
+}
+
+// TestTheDenyListNamesTheIrreversibleActions is where the one line this record
+// draws is written down as a rule rather than left to judgement.
+//
+// Where a session would stop to ask a human about RECALL, it consults the palace
+// instead — that is the whole thesis, and the allow list is it. But the palace
+// records what was DECIDED; it cannot consent on a human's behalf to something
+// nobody has decided yet. So the irreversible and outward-facing set gates, and it
+// gates HERE, in a file one review can read, because a rule can be reviewed and a
+// mid-run judgement cannot.
+func TestTheDenyListNamesTheIrreversibleActions(t *testing.T) {
+	_, deny := unattendedRules(t)
+	if len(deny) == 0 {
+		t.Fatal("the deny list is empty; an allow-everything rule with a comment is not a gate")
+	}
+	for _, must := range []string{"push --force", "release create", "pr merge", "am_merge_wing"} {
+		var found bool
+		for _, d := range deny {
+			if strings.Contains(d, must) {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("nothing in the deny list covers %q — an irreversible action the palace cannot consent to", must)
+		}
+	}
+}
+
+// TestTheAllowListDoesNotAllowEverything is the half that matters, and the shape
+// this repository has learned to insist on.
+//
+// ⚠ A PERMISSION RULE IS THE EASIEST THING HERE TO SHIP INERT. It parses, it
+// installs, and nothing proves it ever refused anything — the green-suite-over-a-
+// dead-mechanism failure §Reachability records repeatedly. A test that only
+// asserts the deny list CONTAINS some strings passes happily beside a wildcard
+// that readmits every one of them, so this asserts the allow list cannot.
+func TestTheAllowListDoesNotAllowEverything(t *testing.T) {
+	allow, deny := unattendedRules(t)
+	if len(allow) == 0 {
+		t.Fatal("the allow list is empty; the unattended path grants nothing and every recall prompts")
+	}
+	for _, a := range allow {
+		if a == "*" || a == "Bash" || strings.HasPrefix(a, "Bash(*") {
+			t.Errorf("allow contains %q, which readmits everything the deny list names", a)
+		}
+		// A blanket Bash grant is the specific wildcard that would swallow the
+		// force-push and release rules while every assertion above still passed.
+		if strings.HasPrefix(a, "Bash(") && strings.Contains(a, ":*)") && !strings.Contains(a, " ") {
+			t.Errorf("allow contains the broad grant %q", a)
+		}
+	}
+	// Recall is granted; writing memory is granted; DESTRUCTIVE memory operations
+	// are not. The palace may record, and may not un-record, without a human.
+	for _, a := range allow {
+		for _, d := range deny {
+			if a == d {
+				t.Errorf("%q is both allowed and denied; the resolution is then a coin flip wearing a rule", a)
+			}
+		}
+	}
+}
+
+// TestRecallIsGrantedSoNoTurnStopsToAskForIt.
+//
+// The goal is a session that grounds itself. If a recall prompts, an unattended
+// run stalls on the one call the whole protocol is built around, and a watched run
+// trains its human to click through prompts — which is worse than not prompting.
+func TestRecallIsGrantedSoNoTurnStopsToAskForIt(t *testing.T) {
+	allow, _ := unattendedRules(t)
+	for _, must := range []string{"am_search", "am_status", "am_get_drawer", "am_add_drawer", "am_kg_add", "am_diary_write"} {
+		var found bool
+		for _, a := range allow {
+			if strings.Contains(a, must) {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("%s is not granted; a session cannot ground or persist itself without stopping to ask", must)
+		}
+	}
+}
