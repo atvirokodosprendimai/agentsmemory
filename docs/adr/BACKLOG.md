@@ -3477,3 +3477,39 @@ widening has to be measured the same way.
   needs its own count of how many ordinary prose openers it would newly flag,
   because a gate that fires on correct comments is the gate somebody deletes.
   **Revisit with that measurement, not before.** The comment itself is fixed.
+
+## From ADR-052 (one writer, many readers)
+
+- **Route reads onto the read handle in the nine SQL-owning packages ADR-052 T5 did not touch** —
+  `internal/tenant`, `internal/billing`, `internal/share`, `internal/skill`, `internal/skillset`,
+  `internal/usage`, `internal/passkey`, `internal/mergejob` and `internal/store/sqlitevec` all take
+  the one `*gorm.DB` built at `cmd/server/main.go:1116` and read and write through it. ADR-052 scopes
+  its refactor to `internal/palace` because threading a second handle through eleven packages in one
+  change is a rewrite wearing a refactor's clothes, not because the other nine are correct. Three of
+  the six read-first transactions the record measured are in `internal/tenant` (`tenant.go:476`,
+  `:514`, `:547`), so this is the half of the class that keeps the defect. Deferred out of ADR-052
+  §Out of Scope and T5.
+- **Extend `TestEveryServingHandleDeclaresItsRole` past `cmd/server`** — ADR-052 T6's gate reads the
+  composition root's AST and can say which openers exist; it cannot say whether a read method in some
+  other package routes itself onto the writer handle. The record states that limit rather than hiding
+  it, and closing it needs a different shape of check than an AST walk over one package. Deferred out
+  of ADR-052 T6.
+- **Write the concurrent-mutation scenarios `internal/mcptest` still cannot honestly measure** — the
+  existing entry under ADR-008 names two blockers: no statement of what a write race should do, and a
+  harness opening SQLite without the server's pragmas. ADR-052 T3 closes the second and measured the
+  first assumption to be backwards — the pragma-less harness failed a read-then-write shape 79 times
+  in 320 against 273–281 under the shipped DSN, so it under-reports rather than over-reports. The
+  remaining blocker is the undecided semantics, which is ADR-010's question. Deferred out of ADR-052 T3.
+- **Give `internal/mcptest` a read handle as well as a write handle** — ADR-052 T3 makes the harness
+  open the shipped writer configuration, which is what makes its measurements honest. It does not give
+  the harness the reader/writer split the server will have after T4 and T5, so a scenario cannot
+  exercise the `query_only` boundary end to end. Deferred out of ADR-052 T4.
+- **Fix whatever `-race` finds** — ADR-052 T7 turns the detector on in CI and deliberately does not fix
+  what it reports, so that a pre-existing race arrives as its own finding rather than as fallout from
+  the refactor. Whatever T7's first run surfaces is owed a fix here, and T7's sign-off is required to
+  say whether anything was found and where. This also closes the ADR-042 follow-up asking for `-race`
+  in CI, which is where the obligation came from. Deferred out of ADR-052 T7.
+- **A parity gate between the CLI `mcp` adapter and the HTTP one** — restated here only because ADR-052
+  §Out of Scope points at this file for it; the substantive entry is already recorded under ADR-008 and
+  is not duplicated. ADR-052 adds nothing to it beyond noting that a reader/writer split is one more
+  thing the two adapters could diverge on. Deferred out of ADR-052 §Out of Scope.
