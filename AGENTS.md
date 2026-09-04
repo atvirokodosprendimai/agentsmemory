@@ -81,6 +81,97 @@ task. (An unfamiliar *wing* is not this case; an unfamiliar *workspace* is.)
 
 ---
 
+## The working loop — what a session does WITHOUT being told
+
+Every rule here was said out loud by the owner on 2026-09-04, most of them more
+than once, in a session that had every tool it needed. That is the failure this
+section exists to remove: not a missing capability, a session that stops to ask
+whether to use one.
+
+**1. You are never asked to stop.** An Accepted record's next `READY` task
+(`adr-next <adr> --all`) is the default next action, and after it the next one,
+and after the last one the release. Ask the owner for a DECISION — a design
+choice inside a record that the record does not settle, a scope change, an
+irreversible action outside the repository. Do not ask for PERMISSION to
+continue, and do not end a turn with "want me to take the next one?". Measured:
+three such stops in one session, each answered "proceed", the third answered
+*"am I asked anywhere to stop, ever?"* ⚠ "Never stop" is bounded by the
+`deny` list in `.claude/settings.json`, not by judgement: a merge, a force-push,
+a release and a data-destroying command still prompt, and that prompt IS the
+owner's decision point. Review of this rule's first draft caught it shipping
+beside an allow list that would have removed those prompts too.
+
+**2. Arm the watch at session start, before anything else.** One persistent
+Monitor over this repository's new issues, issue comments, PR comments, reviews
+and failed checks. Reviews arrive minutes after a push and the reviewer names the
+head it read; a session that is not watching answers them an hour late or not at
+all. Reply to every review: verify each claim against the tree before accepting
+OR rejecting it — measured today, one review claim was right and sharper than the
+code's own comment, one was wrong because the reviewer's shell was on a different
+ref, and both looked equally confident.
+
+**3. The local stack tracks `main`.** After any merge that changes served code,
+redeploy — the palace this session reads and writes must be the code under work,
+or every `am_*` call measures the previous release. The procedure that works, in
+full, because three of its steps failed silently today:
+
+    git clone -q --no-local --branch <tag-or-sha> . "$DIR"   # a CLONE, never a worktree
+    cp .env.docker "$DIR/"                                    # a clone has no untracked files
+    cd "$DIR" && AGENTSMEMORY_VERSION=<tag> scripts/redeploy.sh
+    # then the kit, from the same tree:
+    CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=<tag>" -o ~/.local/bin/aiagentmemory ./clients/claude-code
+    CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=<tag>" -o ~/.local/bin/agentsmemory ./cmd/server
+    aiagentmemory install --agent claude --local --yes
+    # then VERIFY FROM THE SERVED SURFACE: am_status must report the version you stamped
+
+⚠ A git worktree's `.git` is a pointer file the container does not mount, so
+every test that shells out to git goes red — four did, at a tag whose suite was
+green. ⚠ `AGENTSMEMORY_VERSION` is per-build, not sticky: a rebuild without it
+resets the served version to `dev`. ⚠ `~/.claude/bin/aiagentmemory` shadows
+`~/.local/bin` on PATH and was a stale copy; it is a symlink now, keep it one.
+⚠ `redeploy.sh | tail` returns tail's exit status — the script REFUSED a red
+suite today and the pipeline reported 0. Never read an exit code through a pipe.
+
+**4. Write to the palace DURING the work, not after it.** Before the first edit
+of a material task, file the crash-resume checkpoint (`llm_open_threads`,
+opening `WHERE SHOULD WORK ON <task> RESUME AFTER A CRASH?`) and supersede it as
+the state moves. File a finding when it lands, not at the end. The Stop hook's
+nudge is a floor, not the plan — a session that reads the palace all day and
+writes nothing until told is the session the owner noticed.
+
+**5. A release is one PR, one tag, one redeploy.** Changelog entry AND
+`clients/claude-code/.claude-plugin/plugin.json` bump in the SAME commit —
+`TestThePluginVersionMatchesTheNewestChangelogHeading` pins them, and writing the
+heading without the bump turned `test`, `race` and `image` red on a docs-only PR,
+which reads as "main is broken" and is not. Merge, annotated tag on the merge
+commit with a summary message, push, watch the release workflow to 16 assets,
+then step 3 from the tag. The changelog entry carries what the release got WRONG
+first, because that is the transferable part.
+
+**6. Evidence rules the tools cannot enforce for you.**
+- Choose mutants from the ASSERTIONS, not from the diff. Two assertions in one
+  gate look like one mechanism from the fence, and the mutant is the only thing
+  that tells them apart. One entry per mechanism; a `--why` that describes an
+  assertion the mutant did not exercise is a claim nothing bound.
+- A `survived` mutant is a finding, not an annoyance. It usually means the test
+  sits one layer below the line that was broken — a service test cannot see a
+  tool-boundary drop — and the fix is a test one layer up, never an edit to the
+  Reachability row that predicted a kill.
+- A task's test-name table and its `-run` filter must agree, and adding a test to one
+  means widening the other; widening changes the fence digest, so re-record BOTH
+  the acceptance and the mutant afterwards. Hit twice in one day.
+- Cite the symbol; give a line number only beside a name. A reviewer on `main`
+  and an author on the branch produce two correct numbers for one line, and the
+  diff under review is exactly what moves them.
+
+**7. `mrw` replaces a wrapped line with re-wrapped text and KEEPS the old wrap's
+tail.** Address the whole sentence (`N-M replace`), then READ THE RESULT — the
+receipt says `ok` because the write succeeded, not because the file says what you
+meant. Three such duplicates shipped in ADR-052's record and the repair produced
+a fourth.
+
+---
+
 ## When the tools are absent
 
 ### Step 1 — tell the user, before anything else

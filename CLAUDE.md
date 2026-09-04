@@ -30,3 +30,36 @@ Everything above applies. Three things are particular to this harness:
   applies whether or not you type one. ⚠ `/M` was RETIRED: it carried a Go- and
   UI-specific variant of the same grounding sequence, which is a second copy of a
   protocol, and the installer now removes it from config dirs that still have it.
+
+- **Auto mode edits through Bash and `mrw`, and the shipped PostToolUse "touched"
+  hook records `Edit|Write|NotebookEdit|MultiEdit` only** — so the Stop nudge's
+  file list is EMPTY for a session that worked the house way. Do not read an
+  empty list as "nothing changed"; `git status --porcelain` is the truth. Filed
+  as a gotcha in `wing_agentmemories` on 2026-09-04.
+- **The watch is a `Monitor` tool call, persistent, armed first.** The command
+  shape lives in `wing_agentmemories/tooling`; the rule that it exists is
+  `AGENTS.md` §The working loop, item 2. A session that says "the monitor stays
+  armed" must have actually called it this session — one that was armed last
+  session died with it.
+- **Project permissions are in `.claude/settings.json`, and it ships with the
+  clone.** The `allow` list names the repository's own gates and the read-only
+  or reversible half of `git` and `gh` — `gh pr view`, `git commit`, never
+  `gh:*` or `git:*`. ⚠ `git push` is NOT on it, deliberately: a push is an
+  outward action, and an enumerated deny list cannot cover its spellings —
+  `git push origin --force main` puts the flag AFTER the remote and slips past
+  both `git push --force:*` and `git push -f:*`, as `--force-with-lease` and a
+  `+refspec` do. Letting every push prompt costs one keypress and removes the
+  whole class; review found this on the first narrowing, in the artifact that
+  had just been narrowed. The `deny` list is ADR-051 T9's, copied verbatim so that
+  `gh pr merge`, a force-push, `gh release create` and a data-destroying compose
+  or goose command still PROMPT whatever the allow list says — deny wins. ⚠ The
+  first draft of this file allowed `gh:*`, `git:*`, `python3:*` and `curl:*` with
+  no deny list, in the same PR that told a session never to stop for permission;
+  review caught that the two together remove the prompt and the boundary at
+  once. Add a command here when you approve it twice — narrowly, and check the
+  deny list still covers what it should.
+- **`scripts/redeploy.sh` is pre-approved, and that is a deploy, not a gate.** It
+  is on the allow list because AGENTS.md §The working loop item 3 requires it
+  after every merge that changes served code, and a redeploy that prompts is one
+  that gets skipped. It restarts the local palace; it cannot reach hosted.
+
