@@ -126,6 +126,12 @@ reporting success.
   case. Registered matcher-less like every plan here — the script exits silently
   when the event carries no `file_path`, which is the guard a matcher would only
   duplicate.
+- `agentsmemory-touched-hook.sh` → registered on **`PostToolUse`**, write tools only.
+  It appends each edited path to a session-scoped list and says nothing to the
+  model; the `Stop` hook reads that list and NAMES the files, which turns the
+  end-of-turn nudge from "persist something" into a question with an answer in it.
+  It is not the `PostToolUse` audit ADR-041 rejected — it delivers no verdict, so
+  there is nothing to report late.
 - The task-recall script is registered on **`UserPromptSubmit`** and
   **`UserPromptExpansion`**, branching on `hook_event_name`. The submit branch
   REFUSES a slash command on purpose — `/am` is a command name, and recalling

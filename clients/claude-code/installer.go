@@ -58,6 +58,15 @@ const recallHookAsset = "hooks/agentsmemory-recall-hook.sh"
 // exact pin, so the lookup is a join on a path the tool call already names.
 const anchorCueHookAsset = "hooks/agentsmemory-anchor-cue-hook.sh"
 
+// touchedHookAsset is the embedded PostToolUse recorder: it appends the path of
+// every file this session EDITS to a session-scoped list (ADR-051 T3).
+//
+// ⚠ Not the PostToolUse audit ADR-041 rejected. That rejection — "it reports the
+// error after it has been published" — stands. This delivers no verdict; it
+// appends a path. What it buys is the Stop nudge being able to NAME what went
+// unrecorded, instead of asking the agent to persist in the abstract.
+const touchedHookAsset = "hooks/agentsmemory-touched-hook.sh"
+
 // taskRecallHookAsset is the UserPromptSubmit sibling of the recall hook: it asks
 // the palace about the TASK, using the user's own words, at the moment the task
 // arrives.
@@ -88,6 +97,9 @@ const (
 
 	// anchorCueHookFile is where the PreToolUse anchor cue lands, beside the others.
 	anchorCueHookFile = "agentsmemory-anchor-cue-hook.sh"
+
+	// touchedHookFile is where the PostToolUse touched-path recorder lands.
+	touchedHookFile = "agentsmemory-touched-hook.sh"
 
 	// taskRecallHookFile is where the per-prompt recall hook lands.
 	taskRecallHookFile = "agentsmemory-task-recall-hook.sh"
@@ -873,6 +885,11 @@ func (i *Installer) anchorCueHookPath() string {
 	return filepath.Join(i.targetDir, anchorCueHookFile)
 }
 
+// touchedHookPath is where the PostToolUse touched-path recorder is installed.
+func (i *Installer) touchedHookPath() string {
+	return filepath.Join(i.targetDir, touchedHookFile)
+}
+
 // taskRecallHookPath is where the UserPromptSubmit recall hook is installed.
 func (i *Installer) taskRecallHookPath() string {
 	return filepath.Join(i.targetDir, taskRecallHookFile)
@@ -1256,6 +1273,14 @@ func (i *Installer) hookPlansOn(goos string) []hookPlan {
 			event: "UserPromptExpansion",
 			cmd:   i.hookCommand(i.taskRecallHookPath()),
 			note:  "registered UserPromptExpansion hook (a slash command's real task gets a recall too)",
+		},
+
+		// ADR-051 T3. The write half of the pair: T2 reads what a path is pinned to,
+		// this records what the session changed, and the Stop nudge names it.
+		hookPlan{
+			event: "PostToolUse",
+			cmd:   i.hookCommand(i.touchedHookPath()),
+			note:  "registered PostToolUse hook (the session remembers which files it changed)",
 		},
 
 		hookPlan{

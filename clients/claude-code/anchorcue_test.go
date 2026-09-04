@@ -260,3 +260,110 @@ func TestTheExpansionBranchStillRefusesAnUnexpandedCommand(t *testing.T) {
 		t.Errorf("it should refuse and say why; got %q", errs)
 	}
 }
+
+// touchedDir runs the recorder and returns the session's list.
+func touchedDir(t *testing.T, stateDir string, events ...string) string {
+	t.Helper()
+	for _, ev := range events {
+		cmd := exec.Command("bash", filepath.Join("hooks", "agentsmemory-touched-hook.sh"))
+		cmd.Stdin = strings.NewReader(ev)
+		cmd.Env = append(os.Environ(), "AGENTSMEMORY_STATE_DIR="+stateDir, "CLAUDE_PROJECT_DIR=/repo")
+		if err := cmd.Run(); err != nil {
+			t.Fatalf("recorder exited non-zero: %v", err)
+		}
+	}
+	return filepath.Join(stateDir, "agentsmemory-touched")
+}
+
+// TestTouchedPathsAreRecordedOncePerPath: a file edited fifteen times is one file.
+//
+// A list that grows with every keystroke is a list nobody reads, and the Stop
+// nudge that quotes it becomes a wall of repeats — which is how a nudge gets
+// skimmed instead of answered.
+func TestTouchedPathsAreRecordedOncePerPath(t *testing.T) {
+	dir := t.TempDir()
+	edit := `{"session_id":"s1","tool_name":"Edit","tool_input":{"file_path":"/repo/a.go"}}`
+	out := touchedDir(t, dir, edit, edit, edit,
+		`{"session_id":"s1","tool_name":"Write","tool_input":{"file_path":"/repo/b.go"}}`,
+		`{"session_id":"s1","tool_name":"Read","tool_input":{"file_path":"/repo/c.go"}}`)
+	b, err := os.ReadFile(filepath.Join(out, "s1"))
+	if err != nil {
+		t.Fatalf("no record written: %v", err)
+	}
+	got := strings.Fields(string(b))
+	if len(got) != 2 || got[0] != "a.go" || got[1] != "b.go" {
+		t.Errorf("recorded %v, want [a.go b.go] — deduplicated, and READS excluded", got)
+	}
+}
+
+// TestTouchedRecordIsScopedToTheSession: one session must never report another's
+// work at its own end of turn.
+func TestTouchedRecordIsScopedToTheSession(t *testing.T) {
+	dir := t.TempDir()
+	out := touchedDir(t, dir,
+		`{"session_id":"one","tool_name":"Edit","tool_input":{"file_path":"/repo/one.go"}}`,
+		`{"session_id":"two","tool_name":"Edit","tool_input":{"file_path":"/repo/two.go"}}`)
+	for name, want := range map[string]string{"one": "one.go", "two": "two.go"} {
+		b, err := os.ReadFile(filepath.Join(out, name))
+		if err != nil {
+			t.Fatalf("session %s has no record: %v", name, err)
+		}
+		if strings.TrimSpace(string(b)) != want {
+			t.Errorf("session %s recorded %q, want %q", name, strings.TrimSpace(string(b)), want)
+		}
+	}
+}
+
+// TestTheStopHookNamesTouchedPaths is what makes the WRITE reachable.
+//
+// A recorder nothing consumes is a file that grows — the reachability defect this
+// repository keeps recording, in a shell script. This is the only test that fails
+// if the Stop hook stops reading the list, and it is the reason T3 is a pair
+// rather than a single hook.
+func TestTheStopHookNamesTouchedPaths(t *testing.T) {
+	dir := t.TempDir()
+	touchedDir(t, dir,
+		`{"session_id":"s9","tool_name":"Edit","tool_input":{"file_path":"/repo/alpha.go"}}`,
+		`{"session_id":"s9","tool_name":"Edit","tool_input":{"file_path":"/repo/beta.go"}}`)
+
+	cmd := exec.Command("bash", filepath.Join("hooks", "agentsmemory-stop-hook.sh"))
+	cmd.Stdin = strings.NewReader(`{"session_id":"s9","hook_event_name":"Stop"}`)
+	var errb strings.Builder
+	cmd.Stderr = &errb
+	cmd.Env = append(os.Environ(), "AGENTSMEMORY_STATE_DIR="+dir, "AGENTSMEMORY_STOP_HOOK=on")
+	_ = cmd.Run()
+	got := errb.String()
+	for _, want := range []string{"alpha.go", "beta.go", "edited 2 file(s)"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the Stop nudge does not name %q; the record is written and never read:\n%s", want, got)
+		}
+	}
+}
+
+// TestTheStopHookIsQuietWhenNothingWasTouched: a read-only session ends without
+// being told what it changed, because it changed nothing.
+func TestTheStopHookIsQuietWhenNothingWasTouched(t *testing.T) {
+	cmd := exec.Command("bash", filepath.Join("hooks", "agentsmemory-stop-hook.sh"))
+	cmd.Stdin = strings.NewReader(`{"session_id":"empty-session","hook_event_name":"Stop"}`)
+	var errb strings.Builder
+	cmd.Stderr = &errb
+	cmd.Env = append(os.Environ(), "AGENTSMEMORY_STATE_DIR="+t.TempDir(), "AGENTSMEMORY_STOP_HOOK=on")
+	_ = cmd.Run()
+	if strings.Contains(errb.String(), "file(s)") {
+		t.Errorf("the nudge claimed edits in a session that made none:\n%s", errb.String())
+	}
+}
+
+// TestThePostToolUseHookIsRegistered: the wiring rung.
+func TestThePostToolUseHookIsRegistered(t *testing.T) {
+	inst, _, _ := newTestInstaller(t, false)
+	var found bool
+	for _, p := range inst.hookPlans() {
+		if p.event == "PostToolUse" && !p.retire && strings.Contains(p.cmd, touchedHookFile) {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("no PostToolUse registration for the touched recorder; the Stop nudge can never name a file")
+	}
+}
