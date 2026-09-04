@@ -30,6 +30,7 @@ serving handle is opened by something other than the two named openers.
 3. [S3] Assert that `openWriterDB`'s body contains a `SetMaxOpenConns` call with the literal `1`, and that `writerDBPragmas` contains `_txlock=immediate`. Both are one-line deletions that leave every behavioural test green, which is exactly the failure `AGENTS.md` §Reachability records against this repository.
 4. [S4] Put the falsifiability case INSIDE the acceptance command as a subtest, driving the same extractor over a fixture that hard-codes an unbounded pool — a sibling test would sit outside the one command that has to pass.
 5. [S5] Add the two gate names to `AGENTS.md` §Reachability with one sentence each saying what they do not see: neither can tell whether a future read method routes itself onto the writer, which stays review's job. [proof: human: a reviewer reads the AGENTS.md paragraph against the test bodies and confirms the stated limit matches what the tests actually check]
+6. [S6] Derive the read-first population rather than freezing it: walk every `Transaction(` closure in non-test packages with `go/parser` and report each whose first statement on `tx` is a read. The record's "6 of 16" is true at `732b727` and drifts the moment someone adds a seventeenth, which is the frozen-count shape this corpus keeps recording against itself. The gate does not have to FAIL on a read-first site — `_txlock=immediate` makes them safe — it has to fail when one appears while the writer DSN lacks that knob.
 
 ## Acceptance
 
@@ -49,6 +50,7 @@ cannot report success.
 | Test name | File | Verifies | Covers | Steps |
 |-----------|------|----------|--------|-------|
 | `TestEveryServingHandleDeclaresItsRole` | `cmd/server/dbwiring_test.go` | every `openDBWithPragmas` call site is one of the three named openers, the writer caps its pool at 1, and the writer DSN carries `_txlock=immediate` | — | S1, S2, S3 |
+| `TestAReadFirstTransactionRequiresTheImmediateWriter` | `cmd/server/dbwiring_test.go` | the read-first `Transaction(` population is derived from source, and a read-first site is only permitted while the writer DSN carries `_txlock=immediate` | — | S6 |
 | `TestEveryServingHandleDeclaresItsRole/catches_an_unbounded_pool` | `cmd/server/dbwiring_test.go` | the same extractor reports a fixture that omits the pool cap | — | S4 |
 
 ## Reachability

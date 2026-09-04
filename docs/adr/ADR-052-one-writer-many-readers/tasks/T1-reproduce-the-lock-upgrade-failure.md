@@ -27,6 +27,7 @@ evidence.
 1. [S1] Write `TestAReadThenWriteTransactionSurvivesConcurrentWriters` in `cmd/server/dbcontention_test.go`: open a temp-directory database through `openDB`, `AutoMigrate` a two-column throwaway model, then run 8 goroutines × 40 `Transaction` closures that `Count` before they `Create`. Collect every error and fail the test naming the count and the first error string. Confirm it is RED (TDD red).
 2. [S2] Record in the test's own comment that the failure is a deferred-transaction lock upgrade, that `busy_timeout` does not cover it, and that the behaviour is pinned to `github.com/glebarez/sqlite@v1.11.0` — a version bump is a reason to re-read this test, not to delete it. [proof: human: a reviewer reads the comment and checks the version against `go.mod`]
 3. [S3] Assert on the count being zero rather than on a threshold, so the test states the invariant the ADR decides rather than the number today's tree happens to produce.
+4. [S4] Write the test's read-then-write closure in the shape of `internal/palace/service.go:1444` — a read reached through a HELPER rather than a visible `SELECT` before the `UPDATE` — because that is the one of the six sites a reviewer scanning the call site cannot see, and therefore the one a future change reintroduces. [proof: human: a reviewer compares the test closure against `Repo.Update`'s read at `repo.go:491` and confirms the shape matches]
 
 ## Acceptance
 

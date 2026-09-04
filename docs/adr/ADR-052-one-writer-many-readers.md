@@ -19,14 +19,24 @@ read a live server, and its own comment says so: *"This is a concurrency
 writers the serving path actually has.
 
 The answer, read from source 2026-09-04 at `732b727`, is that nobody chose.
-`SetMaxOpenConns`, `SetMaxIdleConns`, `SetConnMaxLifetime` and
-`SetConnMaxIdleTime` appear nowhere in the repository, so the pool is
-`database/sql`'s default: unbounded open connections. Every one of them is a
-separate SQLite connection that may write. There is no writer goroutine, no
-queue, no mutex on the write path, and no retry on `SQLITE_BUSY` — the only
-mention of "database is locked" in the tree is the comment explaining
-`busy_timeout`. One `*gorm.DB` built at `cmd/server/main.go:1116` is shared by
-every package that owns SQL.
+`grep -rn SetMaxOpenConns --include='*.go'` returns four hits and every one is a
+test — `internal/tenant/local_test.go:35`, `internal/web/billing_gate_test.go:41`,
+`internal/web/wingimport_authz_test.go:39`, `internal/billing/service_test.go:45`.
+No non-test path sets a pool limit at all, so serving runs on `database/sql`'s
+default: unbounded open connections, every one of them a separate SQLite
+connection that may write. There is no writer goroutine, no queue, no mutex on
+the write path, and no retry on `SQLITE_BUSY` — the only mention of "database is
+locked" in the tree is the comment at `cmd/server/main.go:1695` explaining why
+`busy_timeout(5000)` was chosen, which is the passage this record invalidates.
+One `*gorm.DB` built at `cmd/server/main.go:1116` is shared by every package
+that owns SQL.
+
+★**And what those four tests set is `SetMaxOpenConns(1)`** — one of the two
+configurations the table below shows passing 320 of 320. **They cannot reproduce
+this defect by construction**: they are pinned to the configuration that works
+while serving runs the one that fails. That is a sharper instance of the
+harness finding below than the DSN difference is, and it arrives with a citation
+rather than an argument.
 
 **That default is load-bearing, and it fails.** SQLite grants a deferred
 transaction's write lock on its first write statement. A transaction that reads
@@ -106,7 +116,18 @@ prose asks for — the `cqrs` skill's "a read model is only ever handed a
 read-only port", with the compiler's job done by the driver.
 
 Both handles get `foreign_keys(1)`, which is orthogonal to contention (268 of
-320 still failed with it alone) and closes a separate silent defect.
+320 still failed with it alone) and closes a separate silent defect. It is the
+finding to lead with in any summary of this record: it needs no concurrency to
+bite, and it is silently already true of every row in every deployment.
+
+⚠**T2 and T4/T5 are not two halves of one fix, and the record should not read as
+though they were.** `_txlock=immediate` alone takes the failure from 273–281 to
+0 of 320, so **T2 fixes the bug**. T4 and T5 buy something else: connection-level
+enforcement that a read path *cannot* write, which makes a class of future defect
+unrepresentable rather than fixing a present one. If the owner wants the smaller
+record, T1–T3 stand alone and T4–T6 can be split out; they are sequenced together
+here because the reader handle is what keeps `MaxOpenConns(1)` on the writer from
+serialising recall, and that coupling is real.
 
 **What would make this fail, and the data exists today.** The criterion is T1's
 test: 8 goroutines × 40 read-then-write transactions against a temp database
