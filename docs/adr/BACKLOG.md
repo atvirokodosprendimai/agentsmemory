@@ -3573,3 +3573,15 @@ widening has to be measured the same way.
   "source_drawer_id = ?" internal/palace` returns nothing — and a decision about whether a memory's
   fetch should carry facts somebody derived from it, which is a different question from what the
   graph says about it. Deferred out of ADR-053 T4 §Out of Scope.
+
+## A shape heuristic for machine recalls needs its false-negative rate first — 2026-09-04
+
+Deferred from `docs/adr/ADR-054-a-search-records-who-asked.md` (Alternatives, Out of Scope). ADR-054
+records the origin of a search so hook-driven recalls stay out of `am_recall_stats`'s to-write list.
+The alternative — classifying a query as machine-shaped by its text (mostly filenames, mostly commit
+subjects) — is the heuristic-that-eats-real-questions this project has overturned before, and today's
+data shows both failure directions in one top-ten: *"inbox findings handed over from another
+project"* is a real question a shape rule keeps, while a run of three commit subjects reads as prose.
+Revisit only if, after two default windows past ADR-054's deploy, `suggestions` still carries
+machine-shaped entries with `hook_searches` non-zero — and only with a measured false-negative rate
+over the real corpus, not a rule that looks right.
