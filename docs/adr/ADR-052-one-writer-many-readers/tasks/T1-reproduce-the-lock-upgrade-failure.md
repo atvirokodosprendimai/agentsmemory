@@ -65,6 +65,8 @@ the fence is red, which is the state it must be in at authoring time.
 
 ## Mutation Log
 
+- 2026-09-04 · 474de54* · mutant killed · exit 1 · `cmd/server/dbcontention_test.go` · deleting the READ turns the transaction into a plain UPDATE that never upgrades a lock: 0 of 320 fail, the test passes, and the fence goes red because it requires a non-zero exit AND the "database is locked" string. A fence that only asked for failure would have survived this, since a broken test fails too. · acceptance-sha256:1963a2503202d90d24a482bd2efce8ab2aba72eb4035692062f6880cbdde19fe
+
 ## Invariants
 
 - The test opens through `openDB`, never by hand-assembling a DSN, so it keeps measuring whatever the shipped constant says rather than a copy of it that can drift.
@@ -89,3 +91,5 @@ anything.
 - Testing the same shape through the MCP surface end to end rather than at the database
 
 ## Verification Log
+- 2026-09-04 · 474de54* · exit 0 · `set -o pipefail …` · acceptance-sha256:1963a2503202d90d24a482bd2efce8ab2aba72eb4035692062f6880cbdde19fe · ms:1575
+- 2026-09-04 · 474de54* · exit 0 · `set -o pipefail …` · acceptance-sha256:1963a2503202d90d24a482bd2efce8ab2aba72eb4035692062f6880cbdde19fe · ms:2928
