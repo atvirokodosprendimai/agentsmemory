@@ -23,6 +23,8 @@ failure modes we have actually hit, each with what it looks like from the outsid
 | Your own palace, one binary, no Docker | `agentsmemory --local` | [1. Prerequisites](#1-prerequisites) |
 | Your own palace in containers | Docker Compose | [1. Prerequisites](#1-prerequisites) |
 | Highest recall quality, several machines | Compose + Qdrant + cross-encoder | [2c. Docker Compose](#2c-docker-compose) |
+| Claude Desktop | needs a host binary to spawn | [Claude Desktop](#claude-desktop---agent-claude-desktop) |
+| To wire an MCP client yourself | any | [Registering by hand](#registering-by-hand-and-over-a-unix-socket) |
 
 Everything below works on **Linux, macOS and Windows**. Where a platform differs
 it is called out at the step where it bites, not collected in a footnote — see
@@ -272,6 +274,92 @@ AGENTSMEMORY_WING=wing_acme
 ```
 
 A tool call can still pass `wing: "*"` when it deliberately needs every project.
+
+### Claude Desktop (`--agent claude-desktop`)
+
+Desktop is the thinnest install there is, and the differences are worth knowing
+before you start rather than after.
+
+```bash
+# 1. Desktop spawns a LOCAL PROCESS, so it needs a server binary on this machine.
+#    A Docker-only install produces none (issue #199).
+go build -o ~/.local/bin/aiagentmemory-server ./cmd/server
+
+# 2. QUIT CLAUDE DESKTOP FIRST. It holds its config file open while running.
+# 3. Then install.
+aiagentmemory install --local --agent claude-desktop --wing wing_acme
+```
+
+**What it writes:** `claude_desktop_config.json`, with an `mcpServers` entry that
+spawns the `mcp-stdio` bridge — the same file shape Cursor and Claude Code use.
+The config directory is the one place that is not under `$HOME` in the usual way:
+
+| | |
+|---|---|
+| macOS | `~/Library/Application Support/Claude` |
+| Windows | `%AppData%\Roaming\Claude` |
+| Linux | `~/.config/Claude` |
+
+**Which binary it spawns:** the installer looks for `aiagentmemory-server` first,
+then `agentsmemory`, on `PATH`. `--server-bin /path/to/agentsmemory` names one
+explicitly. If neither is found the install **refuses** rather than writing a
+command that is not there.
+
+⚠ **Desktop gets the tools and no protocol file.** It has no commands directory,
+no memory file, no rules file, no hooks and no subagent system — every one of
+those is a measured absence, not an omission. The only channel for the rules is
+the MCP `initialize` handshake, which the server answers with `instructions` for
+exactly this reason (ADR-021). In practice that means Desktop **recalls** memory
+and is never prompted to **write** it.
+
+⚠ **`--sandbox` is refused for Desktop**, because it exposes no config-dir
+variable to pin — the same reason it is refused for Cursor.
+
+⚠ **A failed registration can still exit 0**, reporting a rename error rather than
+"quit Claude Desktop" (issue #208). Do not trust the exit code here:
+
+```bash
+aiagentmemory doctor      # judges the binary the bridge spawns, not just the file
+```
+
+### Registering by hand, and over a Unix socket
+
+**By hand, over HTTP.** Any MCP client can be pointed straight at a `--local`
+server with no header, because a loopback server carries no token:
+
+```bash
+claude mcp add --transport http agentsmemory http://localhost:8080/mcp
+```
+
+⚠ **That gives you the tools and nothing else** — no protocol, no hooks, no
+commands, no subagent definition. It is a registration, not an install; see
+[the server is inert without the protocol](README.md#the-server-is-inert-without-the-protocol).
+`aiagentmemory install` does this step *and* the rest.
+
+**Over a Unix socket.** A port is a weak boundary for an unauthenticated
+endpoint — every user and process on the machine can open `127.0.0.1:8080`. A
+socket at mode `0600` narrows that to the account that started the server:
+
+```bash
+./agentsmemory --local --socket /tmp/agentsmemory.sock --db agentsmemory.db
+aiagentmemory install --local --socket /tmp/agentsmemory.sock --wing wing_acme
+```
+
+A socket has no URL, so agents reach it through the `mcp-stdio` bridge shipped in
+the same binary. The server prints the ready-made registration lines on startup
+with its own absolute path filled in, so they can be copied out of the log:
+
+```bash
+claude mcp add agentsmemory -- /path/to/agentsmemory mcp-stdio --socket /tmp/agentsmemory.sock --wing wing_acme
+codex  mcp add agentsmemory -- /path/to/agentsmemory mcp-stdio --socket /tmp/agentsmemory.sock --wing wing_acme
+```
+
+`--socket` requires `--local` — the bridge carries no token, so it only reaches a
+self-hosted server. It works for Claude and Codex; **pi has no MCP client of its
+own**, so install that one with `--mcp-url` against `--addr`.
+
+⚠ **Socket paths are short** — near 104 bytes on macOS, 108 on Linux. A deeply
+nested path fails to bind with a bare `invalid argument` that does not say so.
 
 ### Preview first
 
