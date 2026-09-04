@@ -38,19 +38,22 @@ foreign keys on for every serving connection, and turn T1's test green.
 set -o pipefail
 go test ./cmd/server/ -run 'TestAReadThenWriteTransactionSurvivesConcurrentWriters$|TestServingConnectionsCarryTheirPragmas$' -count=1 2>&1 | tee /tmp/adr052-t2a.out \
   && ! grep -qE "no tests to run|^FAIL|^--- FAIL|\[build failed\]" /tmp/adr052-t2a.out \
-  && go test ./cmd/server/... -count=1 2>&1 | tee /tmp/adr052-t2b.out \
+  && go test ./... -count=1 2>&1 | tee /tmp/adr052-t2b.out \
   && ! grep -qE "^FAIL|^--- FAIL|\[build failed\]" /tmp/adr052-t2b.out
 ```
 
 The new units run alone first so neither can be carried by the regression half,
 then the whole `cmd/server` tree runs because `foreign_keys(1)` is exactly the
-kind of change whose damage shows up somewhere else.
+kind of change whose damage shows up somewhere else. The regression half is the
+WHOLE tree, not `./cmd/server/...`: a foreign key enforced for the first time can
+break a multi-row write in any package, and an earlier draft scoped this to one
+package while the record claimed it ran the full suite.
 
 ## Tests
 
 | Test name | File | Verifies | Covers | Steps |
 |-----------|------|----------|--------|-------|
-| `TestAReadThenWriteTransactionSurvivesConcurrentWriters` | `cmd/server/dbcontention_test.go` | zero `SQLITE_BUSY` failures under 8 concurrent read-then-write transactions | — | S2, S3, S4 |
+| `TestAReadThenWriteTransactionSurvivesConcurrentWriters` | `cmd/server/dbcontention_test.go` | zero `SQLITE_BUSY` failures across eight independent writer handles on one file | — | S2, S3, S4 |
 | `TestServingConnectionsCarryTheirPragmas` | `cmd/server/dbcontention_test.go` | a writer handle reads back `foreign_keys=1`, `journal_mode=wal`, `busy_timeout=5000` | — | S5 |
 
 ## Reachability
@@ -84,6 +87,14 @@ task has no authority to settle, and it may deserve its own record.
 Stop and ask if `_txlock=immediate` does not bring the failure count to zero on
 the executing machine. The measurement said it does; a disagreement means the
 Decision rests on something that is not true here.
+
+⚠ Stop and ask BEFORE enabling `foreign_keys(1)` against any deployment that
+holds real data. Turning the pragma on does not validate or repair existing
+rows — it changes subsequent writes and activates cascades — so the question is
+what the corpus already contains. Run `PRAGMA foreign_key_check` against every
+deployment corpus, not just a local one, and bring the result with a stated
+response to any violation. A local check passing over a single-team corpus says
+nothing about hosted data.
 
 ## Out of Scope
 

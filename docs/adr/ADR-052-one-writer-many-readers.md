@@ -41,8 +41,14 @@ rather than an argument.
 **That default is load-bearing, and it fails.** SQLite grants a deferred
 transaction's write lock on its first write statement. A transaction that reads
 first must *upgrade*, and on an upgrade conflict SQLite returns `SQLITE_BUSY`
-immediately — it does not invoke the busy handler, because waiting would
-deadlock. So `busy_timeout(5000)` does not cover the case, and 6 of the 16
+immediately rather than invoking the busy handler. In WAL that covers **two**
+distinct cases, and this record no longer treats them as one: the writer lock is
+held by someone else, and the reader's snapshot is stale so no amount of waiting
+could make it writable. Confirmed in the pinned engine at
+`modernc.org/sqlite@v1.49.1/lib/sqlite_darwin_arm64.go:50553-50565`, with the WAL
+BUSY/BUSY_SNAPSHOT paths at 45693-45731.
+So `busy_timeout(5000)` does not cover the case, and 6 of the 16
+non-test `Transaction(` sites read before they write:
 non-test `Transaction(` sites read before they write:
 
 | Site | What it does |
@@ -74,11 +80,21 @@ write**: reads succeed, and a write returns `attempt to write a readonly
 database (8)`.
 
 **And the tests measure a different database than the one we ship.**
-`internal/mcptest/harness.go:416` opens with no pragmas at all — no WAL,
-`busy_timeout` at 0. `docs/adr/BACKLOG.md` records this and assumes it makes the
-harness harsher. It does not: the same read-then-write shape failed 79 of 320
-there against 273–281 under the shipped DSN, so a concurrency test written in
-the harness under-reports the defect by roughly a factor of three.
+`internal/mcptest/harness.go:416` opens with no pragmas at all, so it runs in
+`journal_mode=delete` where serving runs WAL. The same read-then-write shape
+failed 79 of 320 there against 273-281 under the shipped DSN, so a concurrency
+test written in the harness under-reports the defect by roughly a factor of
+three.
+
+⚠**It is the JOURNAL MODE that differs, not the busy timeout, and an earlier
+draft of this record said otherwise.** `docs/adr/BACKLOG.md:1065` states the
+harness runs with `busy_timeout` at 0; that is false and this record repeated it
+before checking. The pinned driver issues `pragma BUSY_TIMEOUT(5000)`
+unconditionally on every connection BEFORE it applies any `_pragma` from the DSN
+(`glebarez/go-sqlite@v1.21.2/sqlite.go:879-880`), and a probe agrees: a
+pragma-free handle reports `busy_timeout=5000 journal_mode=delete
+foreign_keys=0`. The 79/320 measurement stands; the explanation for it changes,
+and the backlog entry needs the same correction.
 
 The one thing this ADR does NOT need to add is the race detector. `-race` runs
 in CI already, as its own required job (`.github/workflows/build.yml:148`,
@@ -99,21 +115,30 @@ that follow-up over the workflow and proposed adding what already exists.
 Split the one shared `*gorm.DB` into a **writer handle** and a **reader
 handle**, and make the writer count explicit at both ends.
 
-The writer handle opens with `_txlock=immediate` and `SetMaxOpenConns(1)`. The
-DSN knob is what fixes correctness — measured 0 of 320 failures — by making
-every transaction take its write lock at `BEGIN`, so there is no upgrade to
-deadlock on and `busy_timeout(5000)` covers the wait that replaces it. The
-pool cap is what makes the count a decision rather than a default: one writer
-per aggregate is the house rule (the `cqrs` skill §1), the database file is the
-aggregate, and a cap of 1 costs nothing measurable on writes (30ms against 61ms
-on plain inserts, because contention is not free either).
+The writer handle opens with `_txlock=immediate` and `SetMaxOpenConns(1)`.
+
+**The DSN knob is what fixes correctness** — measured 0 of 320 — by making every
+transaction take its write lock at `BEGIN`, so there is no upgrade to deadlock on
+and `busy_timeout(5000)` covers the wait that replaces it.
+
+⚠**The pool cap is NOT what serialises writing, and an earlier draft implied it
+was.** `SetMaxOpenConns` binds one `*sql.DB`, and `serve`, `mcp` and `sync` each
+open their own writer-capable handle; only `serve` takes the file lock. Measured
+2026-09-04, eight independent handles on one file each capped at 1: **284 of 320
+failed without `_txlock`, 0 of 320 with it.** So the cap does not serialise
+across handles — SQLite and `_txlock` do. What the cap buys is that the writer
+count becomes a stated decision rather than an unbounded default, and it costs
+nothing measurable (30ms against 61ms on plain inserts). "One writer per
+aggregate" describes the intent, not what this one line enforces.
 
 The reader handle opens with `query_only(1)` and a pool of
-`max(4, runtime.NumCPU())`. WAL is what makes many readers concurrent with the
-writer, and this is the first change that actually spends it. `query_only`
-turns the read/write split into something SQLite enforces rather than something
-prose asks for — the `cqrs` skill's "a read model is only ever handed a
-read-only port", with the compiler's job done by the driver.
+`max(4, runtime.NumCPU())`. `query_only` turns the read/write split into
+something SQLite enforces rather than something prose asks for — the `cqrs`
+skill's "a read model is only ever handed a read-only port", with the compiler's
+job done by the driver. ⚠It does not "finally spend WAL": the existing unbounded
+pool and the separate `inspect` and export connections already use WAL
+concurrency (`cmd/server/main.go:1689`). What is new is the enforcement, not the
+concurrency.
 
 Both handles get `foreign_keys(1)`, which is orthogonal to contention (268 of
 320 still failed with it alone) and closes a separate silent defect. It is the
@@ -130,13 +155,16 @@ here because the reader handle is what keeps `MaxOpenConns(1)` on the writer fro
 serialising recall, and that coupling is real.
 
 **What would make this fail, and the data exists today.** The criterion is T1's
-test: 8 goroutines × 40 read-then-write transactions against a temp database
-must reach 0 failures. It fails on any tree where the writer DSN loses
-`_txlock=immediate`, and it fails today — the same harness scores 273–281
-failures at `732b727`. The threshold is valid for `glebarez/sqlite@v1.11.0` on
-this module graph and for SQLite's deferred-transaction semantics; it is not a
-claim about a different driver, and T2 pins the driver version in the test's
-own comment for that reason.
+test: eight INDEPENDENT writer handles on one file, 40 read-then-write
+transactions each, must reach 0 failures. ⚠**The handle count is the whole
+design and an earlier draft got it wrong.** A single handle capped at 1 scores
+0 of 320 *whether or not* the DSN carries `_txlock`, so a one-handle test cannot
+tell the knob from its absence and would go green with the fix deleted. Measured
+2026-09-04: one handle capped at 1 gives 0/320 both ways; eight independent
+handles capped at 1 give 284/320 without `_txlock` and 0/320 with it. The
+criterion is valid for `glebarez/sqlite@v1.11.0` on this module graph and for
+SQLite's deferred-transaction semantics; it is not a claim about a different
+driver, and T2 pins the driver version in the test's own comment for that reason.
 
 Routing reads onto the reader handle is staged: `internal/palace` in T5, every
 other SQL-owning package deferred with a receipt, because threading a second
@@ -145,6 +173,7 @@ clothes.
 
 ## Alternatives Considered
 
+- **`_txlock=immediate` alone, with no pool cap and no handle split:** change one constant and stop. Rejected as the RECORD's scope rather than as a bad idea — it is the measured 0-of-320 fix and it is what T2 ships, so anyone wanting the minimal change should take T1–T3 and leave the rest. It is listed here because the earlier draft left it implicit, and an alternative that is actually the core of the chosen option belongs on the page where a reader can weigh it.
 - **`SetMaxOpenConns(1)` on the single shared handle, and nothing else:** cap the existing pool at one connection. Rejected because it serialises *reads* as well as writes, which throws away the reader/writer concurrency WAL was turned on for in the first place — this palace's dominant workload is recall, and a single connection would queue every search behind every write.
 - **A Go-side write mutex or an actor goroutine owning the database:** serialise writes in application code. Rejected because it is a second lock over a resource that already has one — SQLite's — and it cannot see the writes that arrive from `inspect`, `sync`, `mcp` or a second process, so it would enforce an invariant only for callers that happened to route through it.
 - **Retry on `SQLITE_BUSY` with backoff:** wrap every write in a retry loop. Rejected because `internal/palace/contentkey.go:106` already records that this driver wraps errors so detection is string matching, and because a retry converts a deterministic lock-ordering fix into a probabilistic one — `_txlock=immediate` removes the failure rather than re-running it.
@@ -190,7 +219,7 @@ five waves.
 - **Positive:** the writer count becomes greppable. `SetMaxOpenConns(1)` with a comment naming this ADR answers "how many writers does this have" in one line, where today the answer is the absence of a call.
 - **Negative:** `_txlock=immediate` makes every transaction on the writer handle take a write lock at `BEGIN`, including one that only reads. Read-only work must go to the reader handle to stay concurrent, which is a rule a future caller can get wrong — T6's gate covers the wiring, not every future call site.
 - **Negative:** `palace.NewRepo`'s signature change touches every test that builds a `Repo`. That is a wide, mechanical diff, and it is the reason T5 is scoped to one package.
-- **Neutral:** turning foreign keys on can surface a latent ordering bug in a multi-row write that has been passing because nothing enforced the constraint. T2's acceptance runs the full suite for exactly this reason, and a failure there is a real defect this ADR found rather than one it caused.
+- **Neutral:** turning foreign keys on can surface a latent ordering bug in a multi-row write that has been passing because nothing enforced the constraint. T2's acceptance runs `go test ./...` for exactly this reason, and a failure there is a real defect this ADR found rather than one it caused. ⚠It does NOT validate rows that already exist — the pragma changes subsequent writes and activates cascades, so T2's Stop Condition requires a `PRAGMA foreign_key_check` against every deployment corpus before the change ships, with a stated response to any violation.
 
 ## Out of Scope
 

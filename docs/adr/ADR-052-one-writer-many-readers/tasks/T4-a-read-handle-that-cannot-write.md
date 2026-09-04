@@ -5,7 +5,7 @@
 **Estimated scope:** M (multi-file)
 **Owner:** unassigned
 **Produces:** `openReaderDB`
-**Consumes:** `writerDBPragmas` (T2)
+**Consumes:** `readerDBPragmas` (T2)
 **Data dependency:** hermetic
 **Proof map:** v1
 **Rests-on:** `the exit code`, `query_only being refused at the driver rather than in Go`

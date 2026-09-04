@@ -21,11 +21,9 @@ convention.
 | File | Change | Why |
 |------|--------|-----|
 | `internal/palace/repo.go` | edit | `Repo` gains a second field; `NewRepo` takes a reader and a writer; read methods use the reader, write methods and any `Transaction` use the writer |
-| `internal/palace/service.go` | edit | the places that reach `s.repo.db` directly must name which handle they mean |
-| `internal/palace/admin.go` | edit | the two read-first merge transactions run on the writer |
-| `internal/palace/validity.go` | edit | same, for the retraction transaction |
-| `internal/palace/supersede.go` | edit | same, for both correction transactions |
+| every other `internal/palace` file that reaches a `*gorm.DB` directly | edit | **fourteen** files do, not the five an earlier draft listed — derive the set with `grep -rln 'r\.db\|s\.repo\.db\|\.db\.WithContext' --include='*.go' internal/palace/ \| grep -v _test`, which today returns `admin.go`, `anchors.go`, `closet.go`, `contentkey.go`, `currentonly.go`, `fetchlog.go`, `graph.go`, `kg.go`, `kgextract.go`, `recallstats.go`, `repo.go`, `service.go`, `supersede.go`, `validity.go`. `anchors.go`, `closet.go`, `graph.go`, `kg.go` and `recallstats.go` carry pure-read surfaces the earlier list omitted |
 | `cmd/server/main.go` | edit | pass both handles to `NewRepo` — the line that SELECTS the split |
+| `internal/mcpserver/*_test.go`, `internal/mcptest`, `cmd/server/*_test.go` | edit | **thirteen** constructions of `palace.NewRepo`/`NewService` live in `internal/mcpserver` alone; the signature change does not compile without them |
 | `internal/palace/*_test.go` | edit | every test constructing a `Repo` gets the new signature |
 
 ## Ordered Steps
@@ -43,7 +41,7 @@ convention.
 set -o pipefail
 go test ./internal/palace/ -run 'TestReadMethodsUseTheReadHandle$|TestEveryTransactionUsesTheWriteHandle$' -count=1 2>&1 | tee /tmp/adr052-t5a.out \
   && ! grep -qE "no tests to run|^FAIL|^--- FAIL|\[build failed\]" /tmp/adr052-t5a.out \
-  && go test ./internal/palace/... ./cmd/server/... -count=1 2>&1 | tee /tmp/adr052-t5b.out \
+  && go test ./internal/palace/... ./internal/mcpserver/... ./internal/mcptest/... ./cmd/server/... -count=1 2>&1 | tee /tmp/adr052-t5b.out \
   && ! grep -qE "^FAIL|^--- FAIL|\[build failed\]" /tmp/adr052-t5b.out
 ```
 

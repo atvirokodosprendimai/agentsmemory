@@ -24,10 +24,11 @@ evidence.
 
 ## Ordered Steps
 
-1. [S1] Write `TestAReadThenWriteTransactionSurvivesConcurrentWriters` in `cmd/server/dbcontention_test.go`: open a temp-directory database through `openDB`, `AutoMigrate` a two-column throwaway model, then run 8 goroutines × 40 `Transaction` closures that `Count` before they `Create`. Collect every error and fail the test naming the count and the first error string. Confirm it is RED (TDD red).
+1. [S1] Write `TestAReadThenWriteTransactionSurvivesConcurrentWriters` in `cmd/server/dbcontention_test.go`: open a temp-directory database, then open **eight INDEPENDENT handles to that same file** — each a separate `*gorm.DB` through the opener under test, standing in for the separate writer-capable pools `serve`, `mcp` and `sync` each open — and run 40 `Transaction` closures per handle that read before they write. Collect every error and fail naming the count and the first error string. Confirm it is RED (TDD red).
 2. [S2] Record in the test's own comment that the failure is a deferred-transaction lock upgrade, that `busy_timeout` does not cover it, and that the behaviour is pinned to `github.com/glebarez/sqlite@v1.11.0` — a version bump is a reason to re-read this test, not to delete it. [proof: human: a reviewer reads the comment and checks the version against `go.mod`]
 3. [S3] Assert on the count being zero rather than on a threshold, so the test states the invariant the ADR decides rather than the number today's tree happens to produce.
 4. [S4] Write the test's read-then-write closure in the shape of `internal/palace/service.go:1444` — a read reached through a HELPER rather than a visible `SELECT` before the `UPDATE` — because that is the one of the six sites a reviewer scanning the call site cannot see, and therefore the one a future change reintroduces. [proof: human: a reviewer compares the test closure against `Repo.Update`'s read at `repo.go:491` and confirms the shape matches]
+5. [S5] ⚠**Do NOT write this test against a single handle.** Measured 2026-09-04: one handle capped at `SetMaxOpenConns(1)` scores 0 of 320 *whether or not* the DSN carries `_txlock=immediate`, so a one-handle test goes green with the fix deleted and proves nothing. Eight independent handles capped at 1 score 284 of 320 without `_txlock` and 0 with it. The handle count is what makes this test able to fail for the reason it names. [proof: mutation]
 
 ## Acceptance
 
