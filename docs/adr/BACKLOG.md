@@ -3517,3 +3517,48 @@ widening has to be measured the same way.
   §Out of Scope points at this file for it; the substantive entry is already recorded under ADR-008 and
   is not duplicated. ADR-052 adds nothing to it beyond noting that a reader/writer split is one more
   thing the two adapters could diverge on. Deferred out of ADR-052 §Out of Scope.
+- **Bound the four other unbounded graph reads** — `Traverse`, `ListTunnels`, `ListHallways` and
+  `FollowTunnels` return rows with no limit at any layer. Enumerated 2026-09-04 with `grep -rn
+  "Limit(" internal/palace/kg.go internal/palace/graphquery.go internal/palace/graph.go
+  internal/palace/tunnel.go internal/palace/anchors.go`: only `KGTimeline`
+  (`kgTimelineLimit = 100`) and `ListAnchors` (a caller-supplied limit) are bounded. ADR-053 fixes
+  `KGQuery` and names these rather than pretending the class has one member. `Traverse` is the one
+  with a live reproduction against it — 62,952 bytes, spilled, three independent reproductions on
+  2026-08-29 recorded in the `start-here` skill — and it is deferred rather than fixed because its
+  fan-out is dominated by the same containment edges ADR-053 T2 hides, so the number to design
+  against does not exist until T2 lands. Deferred out of ADR-053 §Out of Scope and T1.
+- **Decide whether per-drawer containment edges should still be minted** — ADR-036's migration mints
+  one `room:<wing>/<room> —holds→ <drawer id>` edge per drawer. Measured 2026-09-04 on the live
+  palace: 580 of 586 derived edges are these listings, they are every oversized fan-out in the graph
+  (`room:wing_craft/gotchas` alone is 184 edges, ~16.9KB of raw fields), and they answer a question
+  `am_list_drawers` already answers with a budget and paging. ADR-053 T2 hides them behind
+  `include_containment` rather than removing them, deliberately: hiding is reversible in one
+  parameter and a migration over 580 live rows is not, and the flag is what will show whether
+  anything ever asks for them. Revisit once it has. Deferred out of ADR-053 §Out of Scope.
+- **A query-length or request-body limit on `/mcp`** — `am_search`'s `query` parameter promises "max
+  250 chars" and nothing enforces it: measured 2026-09-03, a `tools/call` carrying a 9.5 MB query
+  string was accepted and answered HTTP 200 after 11.7 seconds. ADR-053 bounds what a graph read
+  RETURNS and says nothing about what a call may send, which is the other half of the same surface.
+  The care needed is on the write side — a body limit below the largest legitimate `am_add_drawer`
+  turns a working write into a refusal. Deferred out of ADR-053 §Out of Scope; the measurement is
+  already filed as a gotcha in `wing_agentmemories`.
+- **Return facts from `am_list_drawers`** — ADR-053 T4 gives `am_get_drawer` the facts block that
+  `am_search` already has. A listing is the third reader of the same shape and is deliberately not
+  in that record: a page of whole drawers is already the response most likely to spend its budget,
+  so adding a facts block there needs a measurement rather than a symmetry argument. Deferred out of
+  ADR-053 T4.
+- **Insource the four things entire.io does better, each on its own evidence** — reviewed 2026-09-04
+  against `https://entire.io/blog/introducing-agentic-search-for-code-and-context` and
+  `https://docs.entire.io/llms.txt`. Their whole corpus is DERIVED — 30+ commands and no write path,
+  no memory bank, no decision log — which is the half this palace deliberately does not do, and it
+  costs them the class of thing source cannot settle. What it buys them is the half we are weak at,
+  and the owner selected all four on 2026-09-04: (1) **symbol-anchored drawers**, anchoring a memory
+  to file plus symbol rather than a verbatim snippet, so a rename does not drift a memory that is
+  still true — 11 of 171 anchors were reported drifted on this repository on 2026-09-04; (2)
+  **automatic recall on context**, so the agent never has to decide to remember, which their `/search`
+  skill achieves and our hooks only half do; (3) **a measured token/step benchmark** — they publish
+  70/90 → 81/90 at "less than half the tokens and half the steps", and this project has no
+  equivalent number for recall-with-memory against recall-without; (4) **derived memory from commits
+  and transcripts**, the largest of the four and their entire product rather than a feature. Each
+  needs its own record: (1) is a schema and mint change, (2) is a hooks change, (3) is an eval, and
+  (4) is a new ingestion path. Deferred out of ADR-053 §Out of Scope.
