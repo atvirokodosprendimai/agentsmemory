@@ -278,7 +278,7 @@ func (r *Repo) PendingClosets(ctx context.Context, teamID string, limit int) ([]
 		limit = 64
 	}
 	var rows []closetRow
-	if err := r.db.WithContext(ctx).
+	if err := r.reader.WithContext(ctx).
 		Where("team_id = ? AND embedded_at IS NULL", teamID).
 		Order("filed_at ASC, id ASC").
 		Limit(limit).
@@ -316,7 +316,7 @@ func (r *Repo) MarkClosetsEmbedded(ctx context.Context, teamID string, ids []str
 // TeamsWithPendingClosets lists distinct teams with at least one un-embedded
 // closet. limit bounds the slice (0 = unbounded).
 func (r *Repo) TeamsWithPendingClosets(ctx context.Context, limit int) ([]string, error) {
-	q := r.db.WithContext(ctx).
+	q := r.reader.WithContext(ctx).
 		Model(&closetRow{}).
 		Distinct("team_id").
 		Where("embedded_at IS NULL")
@@ -333,7 +333,7 @@ func (r *Repo) TeamsWithPendingClosets(ctx context.Context, limit int) ([]string
 // PendingClosetCount is how many of a team's closets still await embedding.
 func (r *Repo) PendingClosetCount(ctx context.Context, teamID string) (int64, error) {
 	var n int64
-	if err := r.db.WithContext(ctx).
+	if err := r.reader.WithContext(ctx).
 		Model(&closetRow{}).
 		Where("team_id = ? AND embedded_at IS NULL", teamID).
 		Count(&n).Error; err != nil {
@@ -348,7 +348,7 @@ func (r *Repo) PendingClosetCount(ctx context.Context, teamID string) (int64, er
 // paging.
 func (r *Repo) ClosetsByWing(ctx context.Context, teamID, wing string) ([]Closet, error) {
 	var rows []closetRow
-	if err := r.db.WithContext(ctx).
+	if err := r.reader.WithContext(ctx).
 		Where("team_id = ? AND wing = ?", teamID, wing).
 		Find(&rows).Error; err != nil {
 		return nil, err
@@ -373,7 +373,7 @@ func (r *Repo) ClosetsByWing(ctx context.Context, teamID, wing string) ([]Closet
 // re-mine can drop the prior closets (rows + vectors) before writing fresh ones.
 func (r *Repo) ClosetIDsBySource(ctx context.Context, teamID, source string) ([]string, error) {
 	var ids []string
-	if err := r.db.WithContext(ctx).
+	if err := r.reader.WithContext(ctx).
 		Model(&closetRow{}).
 		Where("team_id = ? AND source_file = ?", teamID, source).
 		Pluck("id", &ids).Error; err != nil {
@@ -392,7 +392,7 @@ func (r *Repo) ClosetIDsBySource(ctx context.Context, teamID, source string) ([]
 // that nothing can find while skipping the rebuild that would have embedded it.
 func (r *Repo) EmbeddedClosetDocumentsBySource(ctx context.Context, teamID, source string) (map[string]string, error) {
 	var rows []closetRow
-	if err := r.db.WithContext(ctx).
+	if err := r.reader.WithContext(ctx).
 		Select("id", "document").
 		Where("team_id = ? AND source_file = ? AND embedded_at IS NOT NULL", teamID, source).
 		Find(&rows).Error; err != nil {
@@ -438,7 +438,7 @@ func (r *Repo) ClosetsByIDs(ctx context.Context, teamID string, ids []string) (m
 		return out, nil
 	}
 	var rows []closetRow
-	if err := r.db.WithContext(ctx).
+	if err := r.reader.WithContext(ctx).
 		Where("team_id = ? AND id IN ?", teamID, ids).
 		Find(&rows).Error; err != nil {
 		return nil, err

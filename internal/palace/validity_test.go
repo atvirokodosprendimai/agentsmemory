@@ -149,7 +149,7 @@ func TestExistingRowsReadAsCurrentAfterMigration(t *testing.T) {
 		t.Fatalf("apply the validity window: %v", err)
 	}
 
-	svc := NewService(NewRepo(gdb), fakeEmbedder{}, sqlitevec.New(gdb), fakeDim)
+	svc := NewService(NewRepo(gdb, gdb), fakeEmbedder{}, sqlitevec.New(gdb), fakeDim)
 	d, err := svc.Get(ctx, "t", "old-row-1")
 	if err != nil {
 		t.Fatalf("a row written before the migration must still read: %v", err)

@@ -155,7 +155,7 @@ func (s *Service) Mine(ctx context.Context, teamID string, in MineInput) (result
 	// purgeClosetSourceExcept, which drops every prior closet the new set does not
 	// replace — including the zero-chunk case below, where the new set is empty
 	// and everything prior is stale.
-	priorClosets, err := s.repo.EmbeddedClosetDocumentsBySource(ctx, teamID, source)
+	priorClosets, err := s.writer.EmbeddedClosetDocumentsBySource(ctx, teamID, source)
 	if err != nil {
 		return MineResult{}, fmt.Errorf("read the source's current closets: %w", err)
 	}
@@ -171,7 +171,7 @@ func (s *Service) Mine(ctx context.Context, teamID string, in MineInput) (result
 	// Same reuse as Add: a re-mine of unchanged text must not rename the memory,
 	// and attachDerivedEdgeTo edges the id in this slice — a fresh mint here would
 	// edge an id the upsert never created.
-	existing, err := s.repo.IDsByContentKeys(ctx, teamID, keep)
+	existing, err := s.writer.IDsByContentKeys(ctx, teamID, keep)
 	if err != nil {
 		return MineResult{}, fmt.Errorf("look up rows already holding these content keys: %w", err)
 	}
@@ -214,7 +214,7 @@ func (s *Service) Mine(ctx context.Context, teamID string, in MineInput) (result
 	// index are not comparable (see buildEmbedder), so a model switch needs the
 	// namespace rebuilt rather than a re-mine — which was already true of every
 	// row nothing re-mined.
-	reusable, err := s.repo.EmbeddedIDsByContentKeys(ctx, teamID, keep)
+	reusable, err := s.writer.EmbeddedIDsByContentKeys(ctx, teamID, keep)
 	if err != nil {
 		return MineResult{}, fmt.Errorf("look up rows already embedded under these content keys: %w", err)
 	}
@@ -380,7 +380,7 @@ func (s *Service) upsertClosetVectors(ctx context.Context, teamID string, closet
 // source, so a re-mine replaces rather than accumulates closets. Vectors are
 // removed from the closet namespace by the ids the rows carry, then the rows.
 func (s *Service) purgeClosetSourceExcept(ctx context.Context, teamID, source string, keep map[string]bool) error {
-	ids, err := s.repo.ClosetIDsBySource(ctx, teamID, source)
+	ids, err := s.writer.ClosetIDsBySource(ctx, teamID, source)
 	if err != nil {
 		return fmt.Errorf("list source closets: %w", err)
 	}

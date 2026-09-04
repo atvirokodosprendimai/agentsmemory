@@ -24,7 +24,7 @@ import (
 // division error — while the raw per-namespace fields still show the queue.
 func TestAmStatusReportsCoverage(t *testing.T) {
 	gdb := graphTestDB(t)
-	drawers := palace.NewService(palace.NewRepo(gdb), graphTestEmbedder{}, sqlitevec.New(gdb), graphTestDim)
+	drawers := palace.NewService(palace.NewRepo(gdb, gdb), graphTestEmbedder{}, sqlitevec.New(gdb), graphTestDim)
 	srv := New(Deps{
 		Drawers: drawers,
 		Usage:   usage.NewService(usage.NewRepo(gdb), graphTestCaps{}),
@@ -131,7 +131,7 @@ func TestFailedDriftAuditRendersNoCoverageNumber(t *testing.T) {
 // passing nil compiles perfectly and goes silent. This is the test for that.
 func TestAmStatusServesTheEntryProtocolPointer(t *testing.T) {
 	gdb := graphTestDB(t)
-	drawers := palace.NewService(palace.NewRepo(gdb), graphTestEmbedder{}, sqlitevec.New(gdb), graphTestDim)
+	drawers := palace.NewService(palace.NewRepo(gdb, gdb), graphTestEmbedder{}, sqlitevec.New(gdb), graphTestDim)
 	skills := skill.NewService(skill.NewRepo(gdb))
 	srv := New(Deps{
 		Drawers: drawers,

@@ -84,7 +84,7 @@ func (s *Service) EmbedPendingForTeam(ctx context.Context, teamID string, batch 
 
 // embedPendingDrawers embeds one batch of a tenant's un-embedded drawers.
 func (s *Service) embedPendingDrawers(ctx context.Context, teamID string, batch int) (int, error) {
-	pending, err := s.repo.PendingDrawers(ctx, teamID, batch)
+	pending, err := s.writer.PendingDrawers(ctx, teamID, batch)
 	if err != nil {
 		return 0, fmt.Errorf("load pending drawers: %w", err)
 	}
@@ -116,7 +116,7 @@ func (s *Service) embedPendingDrawers(ctx context.Context, teamID string, batch 
 
 // embedPendingClosets embeds one batch of a tenant's un-embedded closets.
 func (s *Service) embedPendingClosets(ctx context.Context, teamID string, batch int) (int, error) {
-	pending, err := s.repo.PendingClosets(ctx, teamID, batch)
+	pending, err := s.writer.PendingClosets(ctx, teamID, batch)
 	if err != nil {
 		return 0, fmt.Errorf("load pending closets: %w", err)
 	}

@@ -51,10 +51,18 @@ func newTestService(t *testing.T) *Service {
 // newTestServiceWith is newTestService with the embedder chosen by the caller, so
 // a test can observe what the service asks the embedder to do rather than only
 // what it returns.
+// newTestServiceWith is newTestService with the embedder chosen by the caller, so
+// a test can observe what the service asks the embedder to do rather than only
+// what it returns.
+//
+// The reader is a query_only twin of the writer over the same file (ADR-052 T5),
+// so every test built on this fixture also proves that no read method writes
+// and no transaction runs on the reader — SQLite refuses it with "readonly
+// database" instead of a reviewer having to notice.
 func newTestServiceWith(t *testing.T, embedder Embedder) *Service {
 	t.Helper()
 	gdb := newMigratedDB(t, "palace_test.db")
-	return NewService(NewRepo(gdb), embedder, sqlitevec.New(gdb), fakeDim)
+	return NewService(NewRepo(readOnlyTwin(t, gdb), gdb), embedder, sqlitevec.New(gdb), fakeDim)
 }
 
 // fakeReranker is a cross-encoder stand-in: it ranks by how many query words a

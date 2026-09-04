@@ -1,6 +1,9 @@
 package main
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -147,4 +150,189 @@ func TestTheReaderPoolFlagReachesTheHandle(t *testing.T) {
 		t.Errorf("with the flag unset the reader pool is %d, want max(4, NumCPU)=%d — the derivation "+
 			"the --help text promises is not what the handle got", got, want)
 	}
+}
+
+// TestEveryServingHandleDeclaresItsRole reads the database wiring out of the
+// AST and fails when the composition root stops saying which handle is which.
+//
+// ADR-052 T6. The decision is two one-line facts in this package — the writer
+// is ONE connection, and every serving handle is opened by one of three named
+// openers — and both are facts every behavioural test survives the loss of:
+// raise SetMaxOpenConns(1) and the lock-upgrade failure returns with the suite
+// green (T1's test is the exception, and it is one test); add a fourth opener
+// beside the three and nothing objects. So the gate derives its universe from
+// the source rather than from a list of file names beside it: every
+// openDBWithPragmas call must sit inside openWriterDB, openReaderDB or
+// openInspectionDB, and openWriterDB's cap must be the literal 1. The
+// falsifiability case is a SUBTEST over a fixture that IS an offender, inside
+// this fence, because an AST check can be real, passing, and unable to see the
+// thing it names — and the Acceptance fence greps for the subtest's name so a
+// skipped negative case cannot report success. The third section walks every
+// Transaction( in internal/palace and requires it to open on the writer or on
+// the tx it was handed: a read-first transaction on the pooled reader is the
+// exact shape that reintroduces the failure, and T5's repoOn exists so that no
+// tx-internal read lands there.
+//
+// What it cannot see is stated in AGENTS.md §Reachability: a read method that
+// routes itself onto the writer, or a new read that writes. That stays
+// review's job, and internal/palace's strict fixture is what makes the second
+// fail loudly.
+func TestEveryServingHandleDeclaresItsRole(t *testing.T) {
+	t.Parallel()
+
+	fset := token.NewFileSet()
+	files := parseNonTestGoFiles(t, fset, ".")
+	universe, findings := servingHandleFindings(fset, files)
+	if universe < 3 {
+		t.Fatalf("saw %d openDBWithPragmas call(s) in cmd/server, want at least the three openers — the gate is looking at the wrong tree", universe)
+	}
+	for _, f := range findings {
+		t.Error(f)
+	}
+
+	palaceFset := token.NewFileSet()
+	palaceFiles := parseNonTestGoFiles(t, palaceFset, filepath.Join("..", "..", "internal", "palace"))
+	txCount, txFindings := transactionHandleFindings(palaceFset, palaceFiles)
+	if txCount == 0 {
+		t.Fatal("saw no Transaction( call in internal/palace — the gate is looking at the wrong tree")
+	}
+	for _, f := range txFindings {
+		t.Error(f)
+	}
+
+	t.Run("catches an unbounded pool", func(t *testing.T) {
+		const fixture = `package main
+
+func openWriterDB(path string, debug bool) (*gorm.DB, error) {
+	gdb, err := openDBWithPragmas(path, debug, db.WriterPragmas)
+	if err != nil {
+		return nil, err
+	}
+	sqlDB, _ := gdb.DB()
+	sqlDB.SetMaxOpenConns(8)
+	return gdb, nil
+}
+
+func openSideDoor(path string) (*gorm.DB, error) {
+	return openDBWithPragmas(path, false, "?_pragma=busy_timeout(1)")
+}
+`
+		fset := token.NewFileSet()
+		f, err := parser.ParseFile(fset, "fixture.go", fixture, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, got := servingHandleFindings(fset, []*ast.File{f})
+		joined := strings.Join(got, "\n")
+		if !strings.Contains(joined, "openWriterDB caps its pool with 8") {
+			t.Errorf("the extractor did not report the writer pool of 8 — a raised cap would pass this gate:\n%s", joined)
+		}
+		if !strings.Contains(joined, "openSideDoor") {
+			t.Errorf("the extractor did not report the fourth opener — a handle nobody named would pass this gate:\n%s", joined)
+		}
+	})
+
+	t.Run("catches a transaction on the reader", func(t *testing.T) {
+		const fixture = `package palace
+
+func (s *Service) drift(ctx context.Context) error {
+	return s.repo.reader.WithContext(ctx).Transaction(func(tx *gorm.DB) error { return nil })
+}
+
+func (r *Repo) fine(ctx context.Context) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		return tx.Transaction(func(inner *gorm.DB) error { return nil })
+	})
+}
+`
+		fset := token.NewFileSet()
+		f, err := parser.ParseFile(fset, "fixture.go", fixture, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		n, got := transactionHandleFindings(fset, []*ast.File{f})
+		if n != 3 {
+			t.Errorf("counted %d Transaction( calls in the fixture, want 3", n)
+		}
+		if len(got) != 1 || !strings.Contains(got[0], "drift") {
+			t.Errorf("want exactly one finding, naming drift; got %v", got)
+		}
+	})
+}
+
+// TestNoServingOpenerAddsAWriteSerialisationPragma evaluates each opener's DSN
+// argument from the AST and refuses a write-side serialisation pragma.
+//
+// ADR-052 rejected _txlock=immediate deliberately: with ONE writer connection
+// there is nothing to serialise against, and a serialisation pragma appearing
+// on a serving DSN means the writer count stopped being one and somebody
+// papered over the second writer instead of removing it. T2's constant test
+// pins the two named constants; this one reads the ARGUMENT each opener
+// actually passes, so `readerDBPragmas + "&_txlock=immediate"` typed at the
+// call site — invisible to a test of the constants — is caught here.
+func TestNoServingOpenerAddsAWriteSerialisationPragma(t *testing.T) {
+	t.Parallel()
+
+	fset := token.NewFileSet()
+	files := parseNonTestGoFiles(t, fset, ".")
+	consts := packageConsts(files)
+	seen := 0
+	for _, f := range files {
+		ast.Inspect(f, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			if id, ok := call.Fun.(*ast.Ident); !ok || id.Name != "openDBWithPragmas" || len(call.Args) != 3 {
+				return true
+			}
+			seen++
+			pos := fset.Position(call.Pos())
+			dsn, ok := pragmaValue(call.Args[2], consts)
+			if !ok {
+				t.Errorf("%s: cannot evaluate the DSN argument from the source — a pragma string this gate cannot read is one it cannot refuse", pos)
+				return true
+			}
+			for _, banned := range []string{"_txlock", "locking_mode"} {
+				if strings.Contains(dsn, banned) {
+					t.Errorf("%s: the serving DSN carries %s — a write-side serialisation pragma means the writer count stopped being one (ADR-052)", pos, banned)
+				}
+			}
+			return true
+		})
+	}
+	if seen < 3 {
+		t.Fatalf("evaluated %d opener DSN(s), want at least 3", seen)
+	}
+
+	t.Run("catches _txlock typed at the call site", func(t *testing.T) {
+		const fixture = `package main
+
+const readerDBPragmas = db.WriterPragmas + "&_pragma=query_only(1)"
+
+func openWriterDB(path string, debug bool) (*gorm.DB, error) {
+	return openDBWithPragmas(path, debug, readerDBPragmas+"&_txlock=immediate")
+}
+`
+		fset := token.NewFileSet()
+		f, err := parser.ParseFile(fset, "fixture.go", fixture, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		files := []*ast.File{f}
+		consts := packageConsts(files)
+		var call *ast.CallExpr
+		ast.Inspect(f, func(n ast.Node) bool {
+			if c, ok := n.(*ast.CallExpr); ok {
+				if id, ok := c.Fun.(*ast.Ident); ok && id.Name == "openDBWithPragmas" {
+					call = c
+				}
+			}
+			return true
+		})
+		dsn, ok := pragmaValue(call.Args[2], consts)
+		if !ok || !strings.Contains(dsn, "_txlock=immediate") {
+			t.Errorf("the evaluator did not see _txlock through the constant and the concatenation: ok=%v dsn=%q", ok, dsn)
+		}
+	})
 }

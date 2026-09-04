@@ -55,6 +55,7 @@ func TestFactLookupIssuesABoundedNumberOfStatements(t *testing.T) {
 	// Record only the statements the fact lookup itself issues.
 	rec := &sqlRecorder{Interface: logger.Default.LogMode(logger.Silent)}
 	svc.repo.db = svc.repo.db.Session(&gorm.Session{Logger: rec})
+	svc.repo.reader = svc.repo.reader.Session(&gorm.Session{Logger: rec}) // reads run on the reader since ADR-052 T5
 
 	vec, err := svc.embed.EmbedOne(ctx, "what does Kestrel call")
 	if err != nil {

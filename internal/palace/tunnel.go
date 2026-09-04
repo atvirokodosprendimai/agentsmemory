@@ -94,7 +94,7 @@ func (s *Service) CreateTunnel(ctx context.Context, teamID string, in TunnelInpu
 	}
 	// Return the canonical stored record (its orientation/created_at may predate
 	// this call if the tunnel already existed).
-	return s.repo.GetTunnel(ctx, teamID, id)
+	return s.writer.GetTunnel(ctx, teamID, id)
 }
 
 // DeleteTunnel removes a tunnel by id, reporting whether it existed.
@@ -169,7 +169,7 @@ func (s *Service) connection(ctx context.Context, teamID, direction string, t Tu
 // that keeps a tunnel from pointing at a location that was never filed. It reuses
 // the paginated List with a page of one.
 func (s *Service) roomExists(ctx context.Context, teamID, wing, room string) (bool, error) {
-	list, err := s.repo.List(ctx, teamID, wing, room, 1, 0)
+	list, err := s.writer.List(ctx, teamID, wing, room, 1, 0)
 	if err != nil {
 		return false, err
 	}

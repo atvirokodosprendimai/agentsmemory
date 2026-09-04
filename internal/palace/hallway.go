@@ -41,7 +41,7 @@ func hallwayID(wing, a, b string) string {
 // any matching prior hallway so a recompute does not reset a connection's history.
 // The returned hallways are sorted for determinism. now stamps newly created ones.
 func (s *Service) computeHallwaysForWing(ctx context.Context, teamID, wing, now string) ([]Hallway, error) {
-	drawers, err := s.repo.DrawersForHallways(ctx, teamID, wing)
+	drawers, err := s.writer.DrawersForHallways(ctx, teamID, wing)
 	if err != nil {
 		return nil, fmt.Errorf("load wing drawers: %w", err)
 	}
@@ -85,7 +85,7 @@ func (s *Service) computeHallwaysForWing(ctx context.Context, teamID, wing, now 
 	// and 1,338 of 1,338 hallways claiming they were last activated eight days
 	// before they existed. Any decay or reinforcement computed from that pair reads
 	// a negative age.
-	existing, err := s.repo.ListHallways(ctx, teamID, wing)
+	existing, err := s.writer.ListHallways(ctx, teamID, wing)
 	if err != nil {
 		return nil, err
 	}

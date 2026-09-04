@@ -204,7 +204,7 @@ func (s *Service) ListAnchors(ctx context.Context, teamID string, f AnchorFilter
 	if !f.IncludeEnded {
 		join += " AND drawers.valid_to = ''"
 	}
-	q := s.repo.db.WithContext(ctx).Model(&anchorRow{}).
+	q := s.repo.reader.WithContext(ctx).Model(&anchorRow{}).
 		Joins(join).
 		Where("drawer_anchors.team_id = ?", teamID)
 	if f.Repo != "" {
@@ -276,7 +276,7 @@ func (s *Service) AnchorsForDrawers(ctx context.Context, teamID string, ids []st
 		return out, nil
 	}
 	var rows []anchorRow
-	if err := s.repo.db.WithContext(ctx).
+	if err := s.repo.reader.WithContext(ctx).
 		Where("team_id = ? AND drawer_id IN ?", teamID, ids).
 		Find(&rows).Error; err != nil {
 		return nil, fmt.Errorf("load anchors: %w", err)

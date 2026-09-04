@@ -94,7 +94,7 @@ func (r *Repo) namedCollision(ctx context.Context, teamID, key, movingID string,
 		return cause
 	}
 	var other []string
-	_ = r.db.WithContext(ctx).Model(&drawerRow{}).
+	_ = r.reader.WithContext(ctx).Model(&drawerRow{}).
 		Where("team_id = ? AND content_key = ? AND valid_to = '' AND id <> ?", teamID, key, movingID).
 		Limit(2).Pluck("id", &other).Error
 	return fmt.Errorf("%w: drawer %s would share content with %s, which is already current in this team. "+
@@ -239,7 +239,7 @@ var _ = gorm.ErrRecordNotFound
 // ending overwrite the first one's reason.
 func (r *Repo) CurrentBySource(ctx context.Context, teamID, wing, room, source string) ([]Drawer, error) {
 	var rows []drawerRow
-	err := r.db.WithContext(ctx).
+	err := r.reader.WithContext(ctx).
 		Where("team_id = ? AND wing = ? AND room = ? AND source_file = ? AND valid_to = ''",
 			teamID, wing, room, source).
 		Find(&rows).Error
@@ -288,7 +288,7 @@ func (r *Repo) EmbeddedIDsByContentKeys(ctx context.Context, teamID string, keys
 	}
 	for _, batch := range chunkIDs(lookup) {
 		var rows []drawerRow
-		err := r.db.WithContext(ctx).
+		err := r.reader.WithContext(ctx).
 			Select("id", "content_key").
 			Where("team_id = ? AND valid_to = '' AND embedded_at IS NOT NULL AND content_key IN ?", teamID, batch).
 			Find(&rows).Error
@@ -319,7 +319,7 @@ func (r *Repo) IDsByContentKeys(ctx context.Context, teamID string, keys []strin
 	}
 	for _, batch := range chunkIDs(lookup) {
 		var rows []drawerRow
-		err := r.db.WithContext(ctx).
+		err := r.reader.WithContext(ctx).
 			Select("id", "content_key").
 			Where("team_id = ? AND valid_to = '' AND content_key IN ?", teamID, batch).
 			Find(&rows).Error

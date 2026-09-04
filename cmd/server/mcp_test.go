@@ -115,7 +115,7 @@ func seedDirectDrawers(t *testing.T, cfg config.Config, teamID string) *services
 		{ID: "alpha-id", TeamID: teamID, Wing: "wing_alpha", Room: "decisions", SourceFile: "alpha.md", Content: "alpha", FiledAt: "2026-08-24T08:00:00Z"},
 		{ID: "beta-id", TeamID: teamID, Wing: "wing_beta", Room: "decisions", SourceFile: "beta.md", Content: "beta", FiledAt: "2026-08-24T08:01:00Z"},
 	}
-	if err := palace.NewRepo(svc.gdb).Save(t.Context(), drawers); err != nil {
+	if err := palace.NewRepo(svc.gdb, svc.gdb).Save(t.Context(), drawers); err != nil {
 		t.Fatalf("seed drawers: %v", err)
 	}
 	return svc

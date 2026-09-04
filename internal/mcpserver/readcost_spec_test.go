@@ -283,7 +283,7 @@ func f4Memory() string {
 // this go red. That mutant is in the Mutation Log, tool-written.
 func TestF4ChunkingCreatesNoReassemblyObligation(t *testing.T) {
 	gdb := graphTestDB(t)
-	drawers := palace.NewService(palace.NewRepo(gdb), graphTestEmbedder{}, sqlitevec.New(gdb), budgetDim)
+	drawers := palace.NewService(palace.NewRepo(gdb, gdb), graphTestEmbedder{}, sqlitevec.New(gdb), budgetDim)
 	ctx := auth.WithTenant(context.Background(), tenant.Tenant{
 		TeamID: f4Team, UserID: "u1", Role: tenant.RoleAdmin,
 	})

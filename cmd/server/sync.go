@@ -147,7 +147,7 @@ func syncIndex(ctx context.Context, cfg config.Config, recreate, repairPayload b
 // map had been changed and the receiver had not.
 func repairNamespacePayload(ctx context.Context, gdb *gorm.DB, dst store.VectorStore, namespace string) (int, error) {
 	const page = 2000
-	repo := palace.NewRepo(gdb)
+	repo := palace.NewRepo(gdb, gdb)
 	repaired := 0
 	for offset := 0; ; offset += page {
 		drawers, err := repo.List(ctx, namespace, "", "", page, offset)

@@ -173,7 +173,7 @@ func promptText(r *mcp.GetPromptResult) string {
 // else would reproduce the bug with a nicer interface.
 func TestWingCompletionAnswersWithWingsThatExist(t *testing.T) {
 	gdb := graphTestDB(t)
-	svc := palace.NewService(palace.NewRepo(gdb), graphTestEmbedder{}, sqlitevec.New(gdb), graphTestDim)
+	svc := palace.NewService(palace.NewRepo(gdb, gdb), graphTestEmbedder{}, sqlitevec.New(gdb), graphTestDim)
 	const teamID = "team-completion"
 	ctx0 := context.Background()
 	for _, w := range []string{"wing_acme", "wing_acme_laravel", "wing_beta", "wing_billing"} {
@@ -241,7 +241,7 @@ func TestWingCompletionAnswersWithWingsThatExist(t *testing.T) {
 // server through a client and reads what comes back.
 func TestTheCompletionCapabilityIsBackedByAProvider(t *testing.T) {
 	gdb := graphTestDB(t)
-	svc := palace.NewService(palace.NewRepo(gdb), graphTestEmbedder{}, sqlitevec.New(gdb), graphTestDim)
+	svc := palace.NewService(palace.NewRepo(gdb, gdb), graphTestEmbedder{}, sqlitevec.New(gdb), graphTestDim)
 	const teamID = "team-wired"
 	if _, err := svc.Add(context.Background(), teamID, palace.AddInput{
 		Wing: "wing_acme", Room: "decisions", Content: "a memory so the wing exists",

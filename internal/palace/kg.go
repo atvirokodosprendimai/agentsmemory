@@ -216,7 +216,7 @@ func (r *Repo) UpsertKGEntity(ctx context.Context, teamID, id, name, now string)
 // subject/predicate/object, or "" if none — the dedup check kg_add uses.
 func (r *Repo) CurrentTripleID(ctx context.Context, teamID, subject, predicate, object string) (string, error) {
 	var ids []string
-	if err := r.db.WithContext(ctx).Model(&kgTripleRow{}).
+	if err := r.reader.WithContext(ctx).Model(&kgTripleRow{}).
 		Where("team_id = ? AND subject = ? AND predicate = ? AND object = ? AND valid_to = ''", teamID, subject, predicate, object).
 		Limit(1).Pluck("id", &ids).Error; err != nil {
 		return "", err
@@ -236,7 +236,7 @@ func (r *Repo) InsertKGTriple(ctx context.Context, row kgTripleRow) error {
 // rows kg_invalidate will end (and validate the new end against their starts).
 func (r *Repo) CurrentTriples(ctx context.Context, teamID, subject, predicate, object string) ([]kgTripleRow, error) {
 	var rows []kgTripleRow
-	err := r.db.WithContext(ctx).
+	err := r.reader.WithContext(ctx).
 		Where("team_id = ? AND subject = ? AND predicate = ? AND object = ? AND valid_to = ''", teamID, subject, predicate, object).
 		Find(&rows).Error
 	return rows, err
@@ -314,7 +314,7 @@ type kgTripleFilter struct {
 // dry-run session and read its query plan, instead of asserting against a
 // hand-copied echo that can drift.
 func (r *Repo) kgTripleQuery(ctx context.Context, teamID string, f kgTripleFilter) *gorm.DB {
-	q := r.db.WithContext(ctx).Model(&kgTripleRow{}).
+	q := r.reader.WithContext(ctx).Model(&kgTripleRow{}).
 		Where("team_id = ? AND "+f.column+" = ?", teamID, f.value)
 	if f.predicate != "" {
 		// No unary + here, unlike the status scope: with ~one distinct predicate
@@ -409,7 +409,7 @@ func (r *Repo) KGEntityNames(ctx context.Context, teamID string, ids []string) (
 		return out, nil
 	}
 	var rows []kgEntityRow
-	if err := r.db.WithContext(ctx).Where("team_id = ? AND id IN ?", teamID, ids).Find(&rows).Error; err != nil {
+	if err := r.reader.WithContext(ctx).Where("team_id = ? AND id IN ?", teamID, ids).Find(&rows).Error; err != nil {
 		return nil, err
 	}
 	for _, row := range rows {
@@ -421,7 +421,7 @@ func (r *Repo) KGEntityNames(ctx context.Context, teamID string, ids []string) (
 // KGTimeline returns up to kgTimelineLimit triples for a team ordered by validity
 // start (empties last), narrowed to those touching entity eid when it is non-empty.
 func (r *Repo) KGTimeline(ctx context.Context, teamID, eid string) ([]kgTripleRow, error) {
-	q := r.db.WithContext(ctx).Where("team_id = ?", teamID)
+	q := r.reader.WithContext(ctx).Where("team_id = ?", teamID)
 	if eid != "" {
 		q = q.Where("subject = ? OR object = ?", eid, eid)
 	}
@@ -442,16 +442,16 @@ func (r *Repo) KGTimeline(ctx context.Context, teamID, eid string) ([]kgTripleRo
 // keeps the endedness test from driving an index. The two spellings encode which
 // term is meant to find the rows, and TestStatusCurrentIsIndexed pins this half.
 func (r *Repo) kgCurrentQuery(ctx context.Context, teamID string) *gorm.DB {
-	return r.db.WithContext(ctx).Model(&kgTripleRow{}).Where("team_id = ? AND valid_to = ''", teamID)
+	return r.reader.WithContext(ctx).Model(&kgTripleRow{}).Where("team_id = ? AND valid_to = ''", teamID)
 }
 
 // KGCounts returns the entity count, total triples, and current (not-ended) triple
 // count for a team — the numeric half of kg_stats.
 func (r *Repo) KGCounts(ctx context.Context, teamID string) (entities, triples, current int64, err error) {
-	if err = r.db.WithContext(ctx).Model(&kgEntityRow{}).Where("team_id = ?", teamID).Count(&entities).Error; err != nil {
+	if err = r.reader.WithContext(ctx).Model(&kgEntityRow{}).Where("team_id = ?", teamID).Count(&entities).Error; err != nil {
 		return
 	}
-	if err = r.db.WithContext(ctx).Model(&kgTripleRow{}).Where("team_id = ?", teamID).Count(&triples).Error; err != nil {
+	if err = r.reader.WithContext(ctx).Model(&kgTripleRow{}).Where("team_id = ?", teamID).Count(&triples).Error; err != nil {
 		return
 	}
 	err = r.kgCurrentQuery(ctx, teamID).Count(&current).Error
@@ -461,7 +461,7 @@ func (r *Repo) KGCounts(ctx context.Context, teamID string) (entities, triples, 
 // KGPredicates returns a team's distinct predicates, sorted.
 func (r *Repo) KGPredicates(ctx context.Context, teamID string) ([]string, error) {
 	var preds []string
-	err := r.db.WithContext(ctx).Model(&kgTripleRow{}).
+	err := r.reader.WithContext(ctx).Model(&kgTripleRow{}).
 		Where("team_id = ?", teamID).Distinct().Order("predicate").Pluck("predicate", &preds).Error
 	return preds, err
 }
@@ -723,7 +723,7 @@ func (s *Service) KGAdd(ctx context.Context, teamID, subject, predicate, object,
 	// count on one subject, and the write is already serialised behind a single
 	// connection (ADR-052), so it costs a query rather than a round trip that
 	// competes with anything.
-	n, err := s.repo.KGTriplesBySubjectCount(ctx, teamID, normalizeEntityID(subj), KGStatusCurrent, "")
+	n, err := s.writer.KGTriplesBySubjectCount(ctx, teamID, normalizeEntityID(subj), KGStatusCurrent, "")
 	if err != nil {
 		// A failed count must not fail a landed write. The fact is in; losing the
 		// advisory is the right trade and the opposite one would be a refusal
@@ -880,7 +880,7 @@ func (s *Service) KGInvalidate(ctx context.Context, teamID, subject, predicate, 
 	subID, objID, p := normalizeEntityID(subj), normalizeEntityID(obj), normalizePredicate(pred)
 
 	// Reject an end before any matching fact's start (the inverted-interval guard).
-	current, err := s.repo.CurrentTriples(ctx, teamID, subID, p, objID)
+	current, err := s.writer.CurrentTriples(ctx, teamID, subID, p, objID)
 	if err != nil {
 		return 0, "", "", err
 	}
@@ -1442,7 +1442,7 @@ const (
 // object, nothing is derived: the writer has said where it belongs, and a server
 // guess must not sit beside a human decision as though the two were equivalent.
 func (s *Service) attachDerivedEdge(ctx context.Context, teamID string, d Drawer) (EdgeAttachment, error) {
-	existing, err := s.repo.KGTriplesByObject(ctx, teamID, normalizeEntityID(d.ID), KGStatusAll, "", kgPage{})
+	existing, err := s.writer.KGTriplesByObject(ctx, teamID, normalizeEntityID(d.ID), KGStatusAll, "", kgPage{})
 	if err != nil {
 		return EdgeAuthored, err
 	}
@@ -1462,7 +1462,7 @@ func (s *Service) attachDerivedEdge(ctx context.Context, teamID string, d Drawer
 	if err := s.repo.UpsertKGEntity(ctx, teamID, objID, d.ID, now); err != nil {
 		return EdgeAuthored, err
 	}
-	if id, err := s.repo.CurrentTripleID(ctx, teamID, subID, p, objID); err != nil {
+	if id, err := s.writer.CurrentTripleID(ctx, teamID, subID, p, objID); err != nil {
 		return EdgeAuthored, err
 	} else if id != "" {
 		return EdgeAlreadyDerived, nil
@@ -1511,7 +1511,7 @@ func WingRootSubject(wing string) string {
 // you cannot notice you needed it until after you have broken something. This
 // mints the skeleton; curating what hangs off it stays a human or agent act.
 func (s *Service) attachWingRootEdge(ctx context.Context, teamID, wing string) error {
-	return s.repo.EnsureWingRoot(ctx, teamID, wing)
+	return s.writer.EnsureWingRoot(ctx, teamID, wing)
 }
 
 // EnsureWingRoot mints `<wing>.root --holds--> room:<wing>/llm_init` unless that
@@ -1651,7 +1651,7 @@ func (r *Repo) BackfillWingRoots(ctx context.Context) (int, error) {
 	// ESCAPE '\' would also work and is one line, but it puts the correctness in a
 	// SQL escape clause that the next person to rename EntryRoom has to remember;
 	// HasPrefix/HasSuffix survive that rename on their own.
-	err := r.db.WithContext(ctx).Model(&kgTripleRow{}).
+	err := r.reader.WithContext(ctx).Model(&kgTripleRow{}).
 		Select("DISTINCT team_id, subject").
 		Where("predicate = ? AND valid_to = '' AND subject LIKE ?",
 			normalizePredicate(DerivedEdgePredicate), "room:%/"+EntryRoom).
@@ -1734,7 +1734,7 @@ func endDerivedEdgesFor(db *gorm.DB, teamID string, drawerIDs []string, endedAt,
 // where this matters, the backfill is the thing to page, not this read.
 func (r *Repo) AllKGEntities(ctx context.Context, teamID string) ([]kgEntityRow, error) {
 	var rows []kgEntityRow
-	err := r.db.WithContext(ctx).Where("team_id = ?", teamID).Find(&rows).Error
+	err := r.reader.WithContext(ctx).Where("team_id = ?", teamID).Find(&rows).Error
 	return rows, err
 }
 
@@ -1756,7 +1756,7 @@ func (r *Repo) WingsForDrawers(ctx context.Context, teamID string, ids []string)
 		ID   string
 		Wing string
 	}
-	if err := r.db.WithContext(ctx).Model(&drawerRow{}).Select("id", "wing").
+	if err := r.reader.WithContext(ctx).Model(&drawerRow{}).Select("id", "wing").
 		Where("team_id = ? AND id IN ?", teamID, ids).Scan(&rows).Error; err != nil {
 		return nil, err
 	}
@@ -1853,7 +1853,7 @@ func (r *Repo) KGTriplesForEntities(ctx context.Context, teamID string, ids []st
 		return nil, nil
 	}
 	var rows []kgTripleRow
-	q := r.db.WithContext(ctx).Where("team_id = ? AND (subject IN ? OR object IN ?)", teamID, ids, ids)
+	q := r.reader.WithContext(ctx).Where("team_id = ? AND (subject IN ? OR object IN ?)", teamID, ids, ids)
 	switch status {
 	case KGStatusCurrent:
 		q = q.Where("valid_to = ''")

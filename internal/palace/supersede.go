@@ -46,7 +46,7 @@ type SupersedeResult struct {
 // are scarce (41 of 2,029 drawers carry one, measured 2026-08-27); clearing them
 // on every correction would spend what the palace barely has.
 func (s *Service) Supersede(ctx context.Context, teamID, id, content, reason string) (SupersedeResult, error) {
-	chunks, err := s.repo.MemoryChunks(ctx, teamID, id)
+	chunks, err := s.writer.MemoryChunks(ctx, teamID, id)
 	if err != nil {
 		return SupersedeResult{}, fmt.Errorf("look up the memory this drawer belongs to: %w", err)
 	}
@@ -72,7 +72,7 @@ func (s *Service) supersedeInto(ctx context.Context, teamID, id, content, reason
 			"nothing replaces, use invalidate", ErrInvalidInput)
 	}
 
-	chunks, err := s.repo.MemoryChunks(ctx, teamID, id)
+	chunks, err := s.writer.MemoryChunks(ctx, teamID, id)
 	if err != nil {
 		return SupersedeResult{}, fmt.Errorf("look up the memory this drawer belongs to: %w", err)
 	}
@@ -224,7 +224,7 @@ func (s *Service) supersedeInto(ctx context.Context, teamID, id, content, reason
 				"Nothing was changed — re-read the memory and correct the record that replaced it",
 				ErrConcurrentCorrection, res.RowsAffected, len(open), short12(id))
 		}
-		return s.persistRows(ctx, &Repo{db: tx}, teamID, prepared)
+		return s.persistRows(ctx, repoOn(tx), teamID, prepared)
 	})
 	if err != nil {
 		return SupersedeResult{}, err
@@ -263,7 +263,7 @@ func (s *Service) supersedeInto(ctx context.Context, teamID, id, content, reason
 // memory is the unit, and ending one chunk leaves the others current and still
 // answering with the claim that was just retracted.
 func (s *Service) InvalidateDrawer(ctx context.Context, teamID, id, reason string) error {
-	chunks, err := s.repo.MemoryChunks(ctx, teamID, id)
+	chunks, err := s.writer.MemoryChunks(ctx, teamID, id)
 	if err != nil {
 		return fmt.Errorf("look up the memory this drawer belongs to: %w", err)
 	}
@@ -362,7 +362,7 @@ func (s *Service) KGSupersede(ctx context.Context, teamID, subject, predicate, o
 		// A transaction-bound view of the repo. Every KG write goes through r.db,
 		// so handing the shared add path this copy is what puts the end and the
 		// add under one commit without a second, drifting copy of the sequence.
-		txRepo := &Repo{db: tx}
+		txRepo := repoOn(tx)
 
 		res := tx.Model(&kgTripleRow{}).
 			Where("team_id = ? AND subject = ? AND predicate = ? AND object = ? AND valid_to = ''",

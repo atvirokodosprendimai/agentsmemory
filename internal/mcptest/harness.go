@@ -511,7 +511,7 @@ func newStream(gdb *gorm.DB) (http.Handler, *palace.Service) {
 // the deployment's real usage policy and local/hosted surface selection.
 func newStreamWith(gdb *gorm.DB, usageSvc *usage.Service, local bool) (http.Handler, *palace.Service) {
 
-	drawers := palace.NewService(palace.NewRepo(gdb), fakeEmbedder{}, sqlitevec.New(gdb), fakeDim)
+	drawers := palace.NewService(palace.NewRepo(gdb, gdb), fakeEmbedder{}, sqlitevec.New(gdb), fakeDim)
 	mcpSrv := mcpserver.Compose(mcpserver.Deps{
 		Skills:   skill.NewService(skill.NewRepo(gdb)),
 		Skillset: skillset.NewService(skillset.NewRepo(gdb)),
