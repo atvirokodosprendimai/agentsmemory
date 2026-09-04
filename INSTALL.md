@@ -305,6 +305,13 @@ then `agentsmemory`, on `PATH`. `--server-bin /path/to/agentsmemory` names one
 explicitly. If neither is found the install **refuses** rather than writing a
 command that is not there.
 
+⚠ **`--dry-run` does not perform that check.** A rehearsal reports the first
+candidate name whether or not any such file exists — it never looks — so a dry run
+can show you `aiagentmemory-server` and the real install can then refuse. Read a
+clean `--dry-run` as "the plan is well-formed", never as "the binary is there".
+It is the same shape as the exit-0 trap below: the rehearsal reports success and
+the authority is the run that actually resolves the path.
+
 ⚠ **Desktop gets the tools and no protocol file.** It has no commands directory,
 no memory file, no rules file, no hooks and no subagent system — every one of
 those is a measured absence, not an omission. The only channel for the rules is
