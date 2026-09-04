@@ -118,6 +118,27 @@ reporting success.
   the event, because the two nudges differ in text and not in machinery. It sits
   flat in the config dir, not under `hooks/`: a sandbox can be shared with pi,
   which halts its launch on any `hooks/` directory it finds.
+- `agentsmemory-anchor-cue-hook.sh` → registered on **`PreToolUse`**. When a tool is
+  about to open a file, it lists the memories PINNED to exactly that path and puts
+  them in front of the model, without anything being asked. It issues no query: a
+  code anchor is an exact pin, so the lookup is a join on a path the tool call
+  already names. It prints nothing for a path no memory pins, which is the common
+  case. Registered matcher-less like every plan here — the script exits silently
+  when the event carries no `file_path`, which is the guard a matcher would only
+  duplicate.
+- `agentsmemory-touched-hook.sh` → registered on **`PostToolUse`**, write tools only.
+  It appends each edited path to a session-scoped list and says nothing to the
+  model; the `Stop` hook reads that list and NAMES the files, which turns the
+  end-of-turn nudge from "persist something" into a question with an answer in it.
+  It is not the `PostToolUse` audit ADR-041 rejected — it delivers no verdict, so
+  there is nothing to report late.
+- The task-recall script is registered on **`UserPromptSubmit`** and
+  **`UserPromptExpansion`**, branching on `hook_event_name`. The submit branch
+  REFUSES a slash command on purpose — `/am` is a command name, and recalling
+  against it retrieves whatever is nearest to one — so the expansion branch is
+  what gives those turns a recall at all, asked against the text the command
+  expanded into. One script, because the two differ in which text they ask with
+  and not in machinery.
 - `agentsmemory-verify-hook.sh` → the `SessionStart` hook: before a session acts
   on anything, it checks that memories carrying code anchors still match the code.
   Detection that arrives after the wrong decision is not detection.
@@ -138,8 +159,10 @@ reporting success.
 
   It shipped first on `PreCompact` and could not work there: Claude Code adds a
   hook's plain stdout to the model's context for `SessionStart`,
-  `UserPromptSubmit` and `UserPromptExpansion` only, and writes every other
-  event's stdout to the debug log. The recall ran and was discarded.
+  `UserPromptSubmit`, `UserPromptExpansion` and `PostModelSwitch` only, and writes
+  every other event's stdout to the debug log. A hook on any other event can still
+  reach the model by returning `hookSpecificOutput.additionalContext` instead of
+  plain text — that is how the `SubagentStart` and `PreToolUse` hooks here work. The recall ran and was discarded.
   `SessionStart` is also the correct side of a compaction — output injected
   before one is part of the context being compacted. `TestEveryInjectingHookIsOnAnInjectingEvent`
   is what keeps that a gate rather than a paragraph.
@@ -239,7 +262,7 @@ It exits non-zero on three states, and only these three:
 | verdict | what it means |
 |---|---|
 | `UNREGISTERED` | the script is installed and no event runs it — re-run `install` |
-| `DISCARDED` | registered on an event whose stdout goes to the debug log; only `SessionStart`, `UserPromptSubmit` and `UserPromptExpansion` reach the model |
+| `DISCARDED` | registered on an event whose PLAIN stdout goes to the debug log; only `SessionStart`, `UserPromptSubmit`, `UserPromptExpansion` and `PostModelSwitch` reach the model that way. A hook declaring a structured channel is not judged here — it injects via `additionalContext` instead |
 | `FAILED` | it exited non-zero; the indented line under it is the hook's own stderr |
 
 **`silent` is not a failure.** Both of these hooks are silent when everything is

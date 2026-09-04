@@ -580,6 +580,8 @@ func reportServerBin(out io.Writer, kit agentKit, dir string, bad, hooks int) er
 			"  UNREGISTERED:   the script is installed and %s registers it for no event.\n"+
 			"  NOT-INSTALLED:  the reverse — %s registers it and the file is not there, so\n"+
 			"                  the agent runs nothing for that event.\n"+
+			"  DUPLICATED:     it is registered more than once on one event, so it runs and\n"+
+			"                  injects twice — usually a half-finished migration\n"+
 			"  DISCARDED:      it is registered on an event whose stdout goes to the debug\n"+
 			"                  log; only %s inject.\n"+
 			"  FAILED:         it exited non-zero. The stderr above says why.\n"+
@@ -710,7 +712,16 @@ func registeredHookEvents(settingsPath string) (map[string]hookRegistration, err
 				if reg.path == "" {
 					reg.path = path
 				}
-				if !containsString(reg.events, event) {
+				if containsString(reg.events, event) {
+					// ⚠ THE SAME SCRIPT REGISTERED TWICE ON ONE EVENT (ADR-051 T6).
+					// This is what a half-finished migration looks like: the
+					// installer wrote a registration and the plugin declared one,
+					// so the hook RUNS TWICE and injects twice. It is silent — no
+					// error, no duplicate output a reader can spot, because the
+					// text was already there once — and no test of the install PLAN
+					// can see it, since the plan is only one of the two writers.
+					reg.duplicated = append(reg.duplicated, event)
+				} else {
 					reg.events = append(reg.events, event)
 				}
 				// The environment the registration carries, so the run below is the
@@ -738,6 +749,14 @@ func registeredHookEvents(settingsPath string) (map[string]hookRegistration, err
 // ⚠ THE ENV IS HALF THE REGISTRATION, and doctor used to drop it. See
 // hookCommandEnv for what that cost on a self-hosted install.
 type hookRegistration struct {
+	// duplicated lists events on which this script is registered MORE THAN ONCE.
+	//
+	// A duplicate is not a style problem: the hook runs once per registration, so
+	// an injecting hook contributes its context twice. It is invisible in a
+	// transcript that already contains the text once, which is why it needs a
+	// command to report it rather than a reader to notice.
+	duplicated []string
+
 	events []string
 	env    []string
 	// path is the command's own path, kept whole.
@@ -777,6 +796,26 @@ func containsString(haystack []string, needle string) bool {
 func judgeHook(ctx context.Context, c *cli.Command, dir, name string, reg hookRegistration, projectDir string) hookVerdict {
 	events := reg.events
 	v := hookVerdict{name: name, events: events}
+	// ⚠ DUPLICATED FIRST (ADR-051 T6). A hook registered twice on one event RUNS
+	// TWICE, so an injecting hook contributes its context twice — silently, because
+	// the text was already there once. It is reported ahead of every other verdict
+	// because those describe a hook that does too little, and this one describes a
+	// hook doing too much; an operator who sees "speaks" beside a doubled
+	// registration has been told the reassuring half.
+	if len(reg.duplicated) > 0 {
+		v.label, v.bad = "DUPLICATED", true
+		// ⚠ THE MESSAGE NAMES ONLY WHAT THIS COMMAND CAN SEE. It used to say "usually
+		// a half-finished migration: the installer wrote one and a plugin declared
+		// another" — and that is precisely the state doctor is BLIND to, because
+		// registeredHookEvents reads settings.json alone and never opens a plugin's
+		// hooks.json. A verdict whose explanation describes a case it cannot reach
+		// reads as enforcement over ground it does not cover. Reported by review.
+		v.detail = "registered more than once on " + strings.Join(reg.duplicated, ", ") +
+			" — it runs once per registration, so it injects twice. This is duplication WITHIN " +
+			"settings.json; doctor does not read plugin manifests, so a hook declared by both a " +
+			"plugin and this installer is a separate case it cannot see."
+		return v
+	}
 	if len(events) == 0 {
 		v.label, v.bad = "UNREGISTERED", true
 		v.detail = "installed, and no event runs it"

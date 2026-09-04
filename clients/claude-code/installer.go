@@ -48,6 +48,46 @@ const subagentHookAsset = "hooks/agentsmemory-subagent-start-hook.sh"
 // ADR-041 T2's baseline; this is the mechanism it was waiting on.
 const recallHookAsset = "hooks/agentsmemory-recall-hook.sh"
 
+// anchorCueHookAsset is the embedded PreToolUse hook: it surfaces the memories
+// PINNED TO the file a tool is about to touch (ADR-051 T2).
+//
+// ⚠ It is not ADR-041's T5, which is STOPPED. T5 reaches the same event with a
+// SEARCH, and the only query available there is a bare grep pattern — re-measured
+// 2026-09-03, 14 of 25 bare identifiers top out in a narrative or scratch room
+// against 0 of 5 real questions. This issues no query at all: an anchor is an
+// exact pin, so the lookup is a join on a path the tool call already names.
+const anchorCueHookAsset = "hooks/agentsmemory-anchor-cue-hook.sh"
+
+// touchedHookAsset is the embedded PostToolUse recorder: it appends the path of
+// every file this session EDITS to a session-scoped list (ADR-051 T3).
+//
+// ⚠ Not the PostToolUse audit ADR-041 rejected. That rejection — "it reports the
+// error after it has been published" — stands. This delivers no verdict; it
+// appends a path. What it buys is the Stop nudge being able to NAME what went
+// unrecorded, instead of asking the agent to persist in the abstract.
+const touchedHookAsset = "hooks/agentsmemory-touched-hook.sh"
+
+// statusLineAsset is the embedded status-line command (ADR-051 T7).
+//
+// It is registered under settings.json's `statusLine` key rather than as a hook —
+// it is the one surface a human sees without asking, and the only one this kit
+// writes outside `hooks`.
+const statusLineAsset = "hooks/agentsmemory-statusline.sh"
+
+// unattendedSettingsAsset is the permission ruleset for an unattended run
+// (ADR-051 T9).
+//
+// ⚠ IT IS A --settings FILE, NOT A PLUGIN KEY. The first version put these rules
+// in a plugin settings.json, which has no `permissions` key: nothing read it, and
+// every test that parsed it passed against an inert document. `--settings` is the
+// route Claude Code actually loads, proven by a two-arm probe — deny echo and the
+// model answers BLOCKED, allow it and the command runs.
+//
+// Installed rather than merged into the user's own settings.json, deliberately.
+// Overwriting somebody's permissions is the most invasive thing this kit could do,
+// and an unattended run is opt-in by nature: the operator points --settings at it.
+const unattendedSettingsAsset = "unattended-settings.json"
+
 // taskRecallHookAsset is the UserPromptSubmit sibling of the recall hook: it asks
 // the palace about the TASK, using the user's own words, at the moment the task
 // arrives.
@@ -75,6 +115,15 @@ const (
 
 	// recallHookFile is where the recall hook lands, beside the others.
 	recallHookFile = "agentsmemory-recall-hook.sh"
+
+	// anchorCueHookFile is where the PreToolUse anchor cue lands, beside the others.
+	anchorCueHookFile = "agentsmemory-anchor-cue-hook.sh"
+
+	// statusLineFile is where the status-line command lands.
+	statusLineFile = "agentsmemory-statusline.sh"
+
+	// touchedHookFile is where the PostToolUse touched-path recorder lands.
+	touchedHookFile = "agentsmemory-touched-hook.sh"
 
 	// taskRecallHookFile is where the per-prompt recall hook lands.
 	taskRecallHookFile = "agentsmemory-task-recall-hook.sh"
@@ -638,6 +687,9 @@ func (i *Installer) writeAssets() error {
 	// not by a test; TestAgentWithoutACommandsDirWritesNoCommands ALLOWED the
 	// agents directory without requiring it, which is a check on what must not
 	// happen with nothing asserting what must.
+	if err := i.writeSkills(); err != nil {
+		return err
+	}
 	if err := i.writeAgentDefinitions(); err != nil {
 		return err
 	}
@@ -725,6 +777,42 @@ func (i *Installer) writeAssets() error {
 			return err
 		}
 		i.ok("hook %s", filepath.Base(i.taskRecallHookPath()))
+
+		// ADR-051 T2, T3, T7. ⚠ THESE THREE WERE REGISTERED BEFORE THEY WERE
+		// WRITTEN, AND `doctor` IS WHAT CAUGHT IT. Adding a script to the embed and
+		// to hookPlans() makes settings.json name a file the installer never
+		// created: the event fires, the agent runs nothing, and every test passed
+		// because each checks one rung. NOT-INSTALLED is the verdict doctor exists
+		// to produce and this is the first time it produced a true one.
+		for _, w := range []struct {
+			asset string
+			path  string
+			// kind is what the operator is told this file IS. The
+			// unattended-settings file is not a hook and saying "hook" about it is a
+			// small lie in the one place a person reads to learn what was installed.
+			kind string
+		}{
+			{anchorCueHookAsset, i.anchorCueHookPath(), "hook"},
+			{touchedHookAsset, i.touchedHookPath(), "hook"},
+			{statusLineAsset, i.statusLinePath(), "status line"},
+			{unattendedSettingsAsset, filepath.Join(i.targetDir, "agentsmemory-unattended-settings.json"), "unattended permissions (pass with --settings)"},
+		} {
+			// ⚠ MODE BY KIND. Everything else in this loop is a script and needs the
+			// executable bit; the settings file is JSON and shipping it 0755 says it
+			// is a program. Reported by review.
+			mode := os.FileMode(0o755)
+			if strings.HasSuffix(w.path, ".json") {
+				mode = 0o644
+			}
+			body, err := i.source().ReadFile(w.asset)
+			if err != nil {
+				return err
+			}
+			if err := i.writeFile(w.path, body, mode); err != nil {
+				return err
+			}
+			i.ok("%s %s", w.kind, filepath.Base(w.path))
+		}
 	}
 	// Only a hook-owning kit relocates the script: it is the one that also
 	// re-registers the new path, so no agent is left pointing at a deleted file.
@@ -790,6 +878,35 @@ func (i *Installer) writeAgentDefinitions() error {
 	return nil
 }
 
+// writeSkills installs the native Agent Skills (ADR-051 T8).
+//
+// Claude Code only, because SKILL.md is its mechanism: codex and pi have no skill
+// discovery, and writing one into their config would be a file the agent never
+// reads. Each skill lands at skills/<name>/SKILL.md, which is where Claude Code
+// looks.
+func (i *Installer) writeSkills() error {
+	if i.kit.name != agentClaude {
+		return nil
+	}
+	for _, name := range nativeSkillAssets {
+		data, err := i.source().ReadFile("skills/" + name + "/SKILL.md")
+		if err != nil {
+			return err
+		}
+		if err := i.writeFile(i.skillPath(name), data, 0o644); err != nil {
+			return err
+		}
+		i.ok("skill %s", name)
+	}
+	return nil
+}
+
+// skillPath is where a native skill lands: skills/<name>/SKILL.md under the
+// config dir, the layout Claude Code discovers.
+func (i *Installer) skillPath(name string) string {
+	return filepath.Join(i.targetDir, "skills", name, "SKILL.md")
+}
+
 // writeCommands writes the slash-command markdown into the kit's commands dir.
 // It is split out of writeAssets so `update-skill` can refresh the commands
 // without touching the Stop hook, which it deliberately leaves alone.
@@ -853,6 +970,21 @@ func (i *Installer) sessionEndHookPath() string {
 // recallHookPath is where the recall hook is installed.
 func (i *Installer) recallHookPath() string {
 	return filepath.Join(i.targetDir, recallHookFile)
+}
+
+// anchorCueHookPath is where the PreToolUse anchor cue is installed.
+func (i *Installer) anchorCueHookPath() string {
+	return filepath.Join(i.targetDir, anchorCueHookFile)
+}
+
+// statusLinePath is where the status-line command is installed.
+func (i *Installer) statusLinePath() string {
+	return filepath.Join(i.targetDir, statusLineFile)
+}
+
+// touchedHookPath is where the PostToolUse touched-path recorder is installed.
+func (i *Installer) touchedHookPath() string {
+	return filepath.Join(i.targetDir, touchedHookFile)
 }
 
 // taskRecallHookPath is where the UserPromptSubmit recall hook is installed.
@@ -1122,7 +1254,13 @@ func (i *Installer) registerStopHook() error {
 		}
 		regs[n] = hookReg{event: p.event, cmd: p.cmd, obsolete: obsolete, retire: p.retire}
 	}
-	changed, err := ensureHooks(hooksFile, regs)
+	// ADR-051 T7. Claude Code only: the other kits have no statusLine key, and
+	// writing one into a config that ignores it would be a promise nothing keeps.
+	statusLineCmd := ""
+	if i.kit.name == agentClaude {
+		statusLineCmd = i.hookCommand(i.statusLinePath())
+	}
+	changed, err := ensureHooks(hooksFile, regs, statusLineCmd)
 	if err != nil {
 		return err
 	}
@@ -1131,6 +1269,14 @@ func (i *Installer) registerStopHook() error {
 			i.ok("%s", p.note)
 		} else {
 			i.ok("%s hook already registered", p.event)
+		}
+	}
+
+	if statusLineCmd != "" {
+		if changed["statusLine"] {
+			i.ok("registered statusLine (wing, drift and inbox where you already look)")
+		} else {
+			i.ok("statusLine left as you set it — agentsmemory does not replace one you chose")
 		}
 	}
 	return nil
@@ -1220,6 +1366,40 @@ func (i *Installer) hookPlansOn(goos string) []hookPlan {
 			cmd:   i.hookCommand(i.subagentHookPath()),
 			note:  "registered SubagentStart hook (a subagent wakes knowing memory exists)",
 		},
+		// ADR-051 T2. THIS LINE IS THE MECHANISM: the script is inert without it.
+		//
+		// Registered matcher-less, like every other plan here, and the script
+		// filters instead — it exits silently when the event carries no file_path,
+		// which is every tool that names no file. A matcher would be a second copy
+		// of a guard that has to exist anyway, since PreToolUse fires for tools this
+		// kit has never heard of.
+		// ADR-051 T4. The SAME script as UserPromptSubmit, branching on the event —
+		// the shape Stop and SubagentStop already share.
+		//
+		// It is not a duplicate recall. The submit hook REFUSES a slash command by
+		// design, because "/am" is a command name and recalling against it retrieves
+		// whatever is nearest to one. The text it expands into is the real task, so
+		// until this registration every slash-command turn got no task recall at all.
+		hookPlan{
+			event: "UserPromptExpansion",
+			cmd:   i.hookCommand(i.taskRecallHookPath()),
+			note:  "registered UserPromptExpansion hook (a slash command's real task gets a recall too)",
+		},
+
+		// ADR-051 T3. The write half of the pair: T2 reads what a path is pinned to,
+		// this records what the session changed, and the Stop nudge names it.
+		hookPlan{
+			event: "PostToolUse",
+			cmd:   i.hookCommand(i.touchedHookPath()),
+			note:  "registered PostToolUse hook (the session remembers which files it changed)",
+		},
+
+		hookPlan{
+			event: "PreToolUse",
+			cmd:   i.hookCommand(i.anchorCueHookPath()),
+			note:  "registered PreToolUse hook (a memory pinned to this file arrives with it)",
+		},
+
 		// The WRITE half (ADR-017 T3), and deliberately the SAME script as Stop:
 		// it branches on hook_event_name, so the two nudges differ in text and not
 		// in machinery. A second script would be a second thing to keep in step.

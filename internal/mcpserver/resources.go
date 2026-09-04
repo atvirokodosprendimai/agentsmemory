@@ -4,11 +4,13 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 
+	"github.com/atvirokodosprendimai/agentsmemory/internal/auth"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/palace"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/usage"
 )
@@ -23,6 +25,23 @@ const resourceScheme = "agentsmemory"
 // that a memory is evidence from a context you do not have, and an address that
 // hid the project it belongs to would argue against that.
 const drawerURITemplate = resourceScheme + "://wing/{wing}/room/{room}/drawer/{id}"
+
+// listedResourceLimit bounds resources/list (ADR-051 T5).
+//
+// ADR-050 rejected enumerating the palace and that reasoning stands: thousands of
+// entries in a listing with no relevance order is a worse answer than the search
+// that already exists. What it did not anticipate is that Claude Code's documented
+// discovery calls are "tools/list, prompts/list, and resources/list" — resource
+// TEMPLATES are named nowhere in its documentation — so serving only a template
+// left the addresses undiscoverable in the client that matters. Measured
+// 2026-09-03: ListMcpResourcesTool answered "No resources found" against a server
+// whose template resolved perfectly over the wire.
+//
+// A bound keeps both halves. Twenty is a doorway, not a catalogue: enough that a
+// client sees the shape and can follow one, few enough that nobody mistakes it for
+// the corpus. The template still advertises how ANY memory is addressed, including
+// every one this listing omits.
+const listedResourceLimit = 20
 
 // registerResources gives a memory an address.
 //
@@ -50,6 +69,102 @@ func registerResources(srv *server.MCPServer, drawers *palace.Service, usageSvc 
 		),
 		readDrawerResource(drawers, usageSvc),
 	)
+}
+
+// listRecentMemories fills resources/list with a bounded page of current memories.
+//
+// It is an AFTER-LIST HOOK rather than a set of AddResource calls, because the
+// answer depends on the caller and on the corpus at request time: a static
+// registration would be minted once at construction, would be the same for every
+// tenant, and would go stale the moment anything was filed. mcp-go's
+// AddAfterListResources is the only seam that runs per request with the context in
+// hand.
+//
+// ⚠ IT FAILS OPEN, DELIBERATELY. Any error — no tenant, a refused admission, a
+// query failure — leaves the result exactly as it was rather than propagating.
+// resources/list is a discovery call, and a discovery call that errors is worse
+// than one that answers nothing: a client treats the failure as "this server is
+// broken" rather than "this server has nothing to show me right now", and the
+// template it could still have used goes unread.
+func listRecentMemories(drawers *palace.Service, usageSvc *usage.Service, scopeSearchToWing bool) server.OnAfterListResourcesFunc {
+	return func(ctx context.Context, _ any, _ *mcp.ListResourcesRequest, result *mcp.ListResourcesResult) {
+		if result == nil {
+			return
+		}
+		t, _, ok := admit(ctx, usageSvc)
+		if !ok {
+			return
+		}
+		// ⚠ NOT searchWingFor. That helper resolves a wing a CALLER passed, and the
+		// contract axis requires anything using it to advertise the "*" scope as a
+		// tool argument — which a listing hook cannot do, because resources/list
+		// takes no arguments at all. Calling it here fails
+		// TestMCPContractStarScopeAssertion, and correctly: it would claim a
+		// widening this call can never offer.
+		//
+		// ⚠ A DEFAULT WING NARROWS THIS; ITS ABSENCE DOES NOT SILENCE IT — AND THAT
+		// SPLIT WAS SETTLED BY MEASUREMENT AFTER TWO WRONG ANSWERS.
+		//
+		// v1 fell through to wing="" whenever no default wing was configured. Review
+		// called that a leak: resources/list takes no arguments, so the client never
+		// asked for "everything", and a server choosing the widest answer on its
+		// behalf is not the same as a caller omitting a tool argument. That is right
+		// where a default wing EXISTS, and the scoping below honours it.
+		//
+		// v2 therefore served NOTHING without a default wing. Measured against the
+		// running stack on 2026-09-04, for one anonymous caller on a registration
+		// with no wing:
+		//
+		//   am_search       -> wing_agentmemories, wing_craft
+		//   am_list_drawers -> wing_craft and another project's wing
+		//   resources/list  -> nothing
+		//
+		// So the listing had become STRICTER than every other route the same caller
+		// already has, which isolates nothing — the data is one tool call away — and
+		// only makes the capability dead on the deployment this project runs. A
+		// registration with no wing HAS no project to be scoped to; its scope is
+		// already every wing it can see, and matching that is describing the caller's
+		// situation rather than choosing for them.
+		wing := ""
+		if scopeSearchToWing {
+			if def := strings.TrimSpace(auth.DefaultWingFrom(ctx)); def != "" && def != "*" {
+				w, err := palace.SanitizeName(def, "wing")
+				if err != nil {
+					return
+				}
+				wing = w
+			}
+		}
+		rows, err := drawers.ListCurrent(ctx, t.TeamID, wing, "", listedResourceLimit, 0)
+		if err != nil {
+			return
+		}
+		for _, d := range rows {
+			result.Resources = append(result.Resources, mcp.Resource{
+				URI:      drawerURI(d.Wing, d.Room, d.ID),
+				Name:     d.Wing + "/" + d.Room,
+				MIMEType: "text/plain",
+				Description: firstLine(d.Content) +
+					" — one of the " + strconv.Itoa(listedResourceLimit) +
+					" most recently filed memories; the template addresses every other one.",
+			})
+		}
+	}
+}
+
+// firstLine is the identity a listing shows, bounded so a long memory does not
+// turn a listing into a page of prose.
+//
+// A listing is scanned, not read: its job is to let a caller decide which address
+// to follow, and the whole memory is one resources/read away.
+func firstLine(s string) string {
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		s = s[:i]
+	}
+	if r := []rune(s); len(r) > 90 {
+		return string(r[:90]) + "…"
+	}
+	return s
 }
 
 // readDrawerResource serves one memory by URI.
@@ -203,4 +318,16 @@ func refusalMessage(r *mcp.CallToolResult) string {
 		}
 	}
 	return "refused"
+}
+
+// resourceListingHooks bundles the after-list hook so server.go wires one thing.
+//
+// It is a function rather than a literal at the call site so the seam has a name:
+// TestTheResourceListingIsBounded fails if this stops being registered, and a
+// reader of New() can see that the listing is filled here rather than by an
+// AddResource nobody can find.
+func resourceListingHooks(drawers *palace.Service, usageSvc *usage.Service, scopeSearchToWing bool) *server.Hooks {
+	h := &server.Hooks{}
+	h.AddAfterListResources(listRecentMemories(drawers, usageSvc, scopeSearchToWing))
+	return h
 }

@@ -56,7 +56,7 @@ the line.**
 ```bash
 gofmt -l clients internal | (! grep -q .) && go vet ./... && \
 go test ./clients/claude-code/ \
-  -run 'TestTheDenyListNamesTheIrreversibleActions|TestTheAllowListDoesNotAllowEverything|TestTheStopGateFiresWhenWorkWentUnrecorded|TestTheStopGateIsSilentWhenNothingWasTouched' \
+  -run 'TestTheDenyListNamesTheIrreversibleActions|TestTheAllowListDoesNotAllowEverything|TestRecallIsGrantedSoNoTurnStopsToAskForIt|TestTheStopHookNamesTouchedPaths|TestTheStopHookIsQuietWhenNothingWasTouched' \
   -count=1 2>&1 | tee /tmp/adr051-t9.out; \
 ! grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/adr051-t9.out && go test ./... -count=1
 ```
@@ -65,10 +65,11 @@ go test ./clients/claude-code/ \
 
 | Test name | File | Verifies | Covers |
 |-----------|------|----------|--------|
-| `TestTheDenyListNamesTheIrreversibleActions` | `clients/claude-code/unattended_test.go` | Force-push, release and destructive migration are each denied by name — the assertion that fails if the list is quietly emptied | — |
-| `TestTheAllowListDoesNotAllowEverything` | `clients/claude-code/unattended_test.go` | A wildcard that would admit the denied set is refused. A permissive rule that passes the test above while allowing everything is the shape this gate exists to catch | — |
-| `TestTheStopGateFiresWhenWorkWentUnrecorded` | `clients/claude-code/unattended_test.go` | Touched paths present, nothing filed → exit 2 and the paths are named | — |
-| `TestTheStopGateIsSilentWhenNothingWasTouched` | `clients/claude-code/unattended_test.go` | A read-only session ends quietly. A gate that fires on every session is one an operator disables | — |
+| `TestTheDenyListNamesTheIrreversibleActions` | `clients/claude-code/plugin_test.go` | Force-push, release creation, PR merge and wing merge are each denied by name — the assertion that fails if the list is quietly emptied | — |
+| `TestTheAllowListDoesNotAllowEverything` | `clients/claude-code/plugin_test.go` | No wildcard readmits what deny names, and nothing is in both lists. A rule that only checks the deny list passes happily beside a blanket grant that swallows it | — |
+| `TestRecallIsGrantedSoNoTurnStopsToAskForIt` | `clients/claude-code/plugin_test.go` | Recall AND the three persist calls are granted, so no turn stalls on the calls the protocol is built around | — |
+| `TestTheStopHookNamesTouchedPaths` | `clients/claude-code/anchorcue_test.go` | The persist gate names what the session changed (delivered by T3) | — |
+| `TestTheStopHookIsQuietWhenNothingWasTouched` | `clients/claude-code/anchorcue_test.go` | A read-only session ends quietly — a gate that fires every session is one an operator disables | — |
 
 ## Reachability
 
@@ -83,6 +84,8 @@ rather than asserting the file contains some strings.
 Filled by `adr-verify --mutant`. At minimum: the deny list emptied, and a wildcard added to
 the allow list — the second must be killed by a different test than the first, or one of them
 is not pulling its weight.
+- 2026-09-04 · d5b0faa* · mutant killed · exit 1 · `clients/claude-code/.claude-plugin/settings.json` · the force-push denials removed: an unattended run may rewrite a published branch, which the palace cannot consent to on a humans behalf · acceptance-sha256:fc0e1e92415b47d4ea3b4a159b7e860b83bde6d9c82851cdabdafbb37175e1a1
+- 2026-09-04 · d5b0faa* · mutant killed · exit 1 · `clients/claude-code/.claude-plugin/settings.json` · a blanket Bash grant added: it readmits every denied action while the deny list still reads correctly — the wildcard a deny-list-only test passes over · acceptance-sha256:fc0e1e92415b47d4ea3b4a159b7e860b83bde6d9c82851cdabdafbb37175e1a1
 
 ## Invariants
 
@@ -104,9 +107,38 @@ most likely to produce.
 
 ## Out of Scope
 
-- MCP elicitation. (deferred: `docs/adr/ADR-051-the-session-that-grounds-itself.md` §Follow-ups — it is a human-in-the-loop primitive, and the human in the loop is what this task removes; it returns only for the irreversible set)
+- MCP elicitation as the PERSIST mechanism. (permanent: boundary: persistence must not depend on a human being present, or an unattended run loses the work silently — that is the failure this record exists to end)
+- MCP elicitation for the irreversible set. (deferred: `docs/adr/ADR-051-the-session-that-grounds-itself.md` §Follow-ups — ⚠ amended 2026-09-04 on the owner's correction that "human elicitation sometimes is needed, but not the most of the turns": the deny rules above make those turns STOP, and elicitation is what would let the server ASK instead of merely refusing. That is a strictly better answer for the minority of turns where a human genuinely must decide, and it is a real follow-up rather than a rejected alternative)
 - Filing memories without an agent deciding what is worth filing. (permanent: boundary: the persist gate reports what went unrecorded; choosing what deserves a memory is a judgement this record does not automate)
+
+## ⚠ Status: DONE — but the rules were INERT first, and the reason is worth keeping (review, 2026-09-04)
+
+Plugin `settings.json` supports `agent` and `subagentStatusLine`; `permissions` is
+not among them, and nothing in this repository reads the file except the tests
+written for it. So the deny list does not gate anything, and the allow list grants
+nothing — the rules are a document.
+
+The tests are the instructive part. They parse the file and assert its contents,
+including the wildcard check that was written specifically to avoid a permissive
+rule passing. Every one of them passes over a file that is never loaded, because
+none asks whether Claude Code consumes it. **A test that reads what the code wrote
+is not a reachability test**, and that is the defect this corpus exists to catch.
+
+**Closed with a two-arm probe.** The rules moved to a `--settings` file, the route
+Claude Code loads, and `TestADeniedActionIsActuallyRefused` runs one harmless
+command both ways: deny `echo` and the model answers `BLOCKED`; allow it and the
+command runs. The allow arm is what makes the deny arm mean anything — without it,
+a model that refused everything and a probe that never ran look identical.
+
+⚠ **"The harness accepted the file" was rejected as evidence before that was
+written.** Measured: `claude --settings` also accepts
+`{"permissions":{"deny":"not-an-array"}}` without complaint. Acceptance proves the
+flag parses, not that a rule fires.
 
 ## Verification Log
 
 Filled by `adr-verify`.
+- 2026-09-04 · d5b0faa* · exit 0 · `gofmt -l clients internal | (! grep -q .) && go vet ./... && \ …` · acceptance-sha256:fc0e1e92415b47d4ea3b4a159b7e860b83bde6d9c82851cdabdafbb37175e1a1 · ms:42368
+- 2026-09-04 · d5b0faa* · exit 0 · `gofmt -l clients internal | (! grep -q .) && go vet ./... && \ …` · acceptance-sha256:fc0e1e92415b47d4ea3b4a159b7e860b83bde6d9c82851cdabdafbb37175e1a1 · ms:56876
+- 2026-09-04 · d5b0faa* · exit 0 · `gofmt -l clients internal | (! grep -q .) && go vet ./... && \ …` · acceptance-sha256:fc0e1e92415b47d4ea3b4a159b7e860b83bde6d9c82851cdabdafbb37175e1a1 · ms:43281
+- 2026-09-04 · 9e1a05e* · exit 0 · `gofmt -l clients internal | (! grep -q .) && go vet ./... && \ …` · acceptance-sha256:fc0e1e92415b47d4ea3b4a159b7e860b83bde6d9c82851cdabdafbb37175e1a1 · ms:59224

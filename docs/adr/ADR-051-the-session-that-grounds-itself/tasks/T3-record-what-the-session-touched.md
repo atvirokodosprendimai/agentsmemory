@@ -23,7 +23,7 @@ what to anchor without asking the agent to remember.
 | File | Change | Why |
 |------|--------|-----|
 | `clients/claude-code/hooks/agentsmemory-touched-hook.sh` | add | appends `tool_input.file_path` to a session-scoped file; `# hook-output: none` |
-| `clients/claude-code/installer.go` | edit | registers `PostToolUse`, matcher `Edit|Write` |
+| `clients/claude-code/installer.go` | edit | registers `PostToolUse`; the script filters on `tool_name` rather than a matcher, matching every other plan here |
 | `clients/claude-code/hooks/agentsmemory-stop-hook.sh` | edit | names the touched paths in the persist nudge |
 
 ## Ordered Steps
@@ -42,7 +42,7 @@ what to anchor without asking the agent to remember.
 ```bash
 gofmt -l clients internal | (! grep -q .) && go vet ./... && \
 go test ./clients/claude-code/ \
-  -run 'TestTouchedPathsAreRecordedOncePerPath|TestTouchedRecordIsScopedToTheSession|TestThePostToolUseHookIsRegistered|TestTheStopHookNamesTouchedPaths' \
+  -run 'TestTouchedPathsAreRecordedOncePerPath|TestTouchedRecordIsScopedToTheSession|TestThePostToolUseHookIsRegistered|TestTheStopHookNamesTouchedPaths|TestTheStopHookIsQuietWhenNothingWasTouched' \
   -count=1 2>&1 | tee /tmp/adr051-t3.out; \
 ! grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/adr051-t3.out && go test ./... -count=1
 ```
@@ -51,10 +51,11 @@ go test ./clients/claude-code/ \
 
 | Test name | File | Verifies | Covers |
 |-----------|------|----------|--------|
-| `TestTouchedPathsAreRecordedOncePerPath` | `clients/claude-code/touched_test.go` | A path edited five times appears once — a list that grows with every keystroke is a list nobody reads | — |
-| `TestTouchedRecordIsScopedToTheSession` | `clients/claude-code/touched_test.go` | Two session ids keep two lists; one session cannot report another's work | — |
-| `TestThePostToolUseHookIsRegistered` | `clients/claude-code/installer_test.go` | The plan registers it, scoped to write tools | — |
-| `TestTheStopHookNamesTouchedPaths` | `clients/claude-code/touched_test.go` | The persist nudge names the recorded paths, so the record is consumed rather than merely written | — |
+| `TestTouchedPathsAreRecordedOncePerPath` | `clients/claude-code/anchorcue_test.go` | A path edited five times appears once — a list that grows with every keystroke is a list nobody reads | — |
+| `TestTouchedRecordIsScopedToTheSession` | `clients/claude-code/anchorcue_test.go` | Two session ids keep two lists; one session cannot report another's work | — |
+| `TestThePostToolUseHookIsRegistered` | `clients/claude-code/anchorcue_test.go` | The plan registers it, scoped to write tools | — |
+| `TestTheStopHookNamesTouchedPaths` | `clients/claude-code/anchorcue_test.go` | The persist nudge names the recorded paths, so the record is consumed rather than merely written — the only test that fails if the read goes away | — |
+| `TestTheStopHookIsQuietWhenNothingWasTouched` | `clients/claude-code/anchorcue_test.go` | A read-only session is not told what it changed, because it changed nothing | — |
 
 ## Reachability
 
@@ -64,6 +65,9 @@ that makes the write reachable — it fails if the record is produced and never 
 ## Mutation Log
 
 Filled by `adr-verify --mutant`. At minimum: the dedup severed, and the Stop-hook read severed.
+- 2026-09-04 · 2e7cb51* · mutant killed · exit 1 · `clients/claude-code/hooks/agentsmemory-stop-hook.sh` · the Stop hook stops reading the record: the recorder still writes, nothing consumes it, and the file just grows — a write with no reader · acceptance-sha256:4ec1109f6852acedadbeef8649c2973ae2e13b6937baac45789f145da4f917aa
+- 2026-09-04 · 2e7cb51* · mutant killed · exit 1 · `clients/claude-code/hooks/agentsmemory-touched-hook.sh` · the dedup removed: a file edited fifteen times is fifteen entries, and the nudge quoting it becomes a wall of repeats nobody reads · acceptance-sha256:4ec1109f6852acedadbeef8649c2973ae2e13b6937baac45789f145da4f917aa
+- 2026-09-04 · 2e7cb51* · mutant killed · exit 1 · `clients/claude-code/installer.go` · the recorder registered on an event that never fires for a tool call: the Stop nudge can never name a file · acceptance-sha256:4ec1109f6852acedadbeef8649c2973ae2e13b6937baac45789f145da4f917aa
 
 ## Invariants
 
@@ -89,3 +93,8 @@ sessions reports one session's work to another, which is worse than no record.
 ## Verification Log
 
 Filled by `adr-verify`.
+- 2026-09-04 · 2e7cb51* · exit 0 · `gofmt -l clients internal | (! grep -q .) && go vet ./... && \ …` · acceptance-sha256:4ec1109f6852acedadbeef8649c2973ae2e13b6937baac45789f145da4f917aa · ms:33200
+- 2026-09-04 · 2e7cb51* · exit 0 · `gofmt -l clients internal | (! grep -q .) && go vet ./... && \ …` · acceptance-sha256:4ec1109f6852acedadbeef8649c2973ae2e13b6937baac45789f145da4f917aa · ms:33330
+- 2026-09-04 · 2e7cb51* · exit 0 · `gofmt -l clients internal | (! grep -q .) && go vet ./... && \ …` · acceptance-sha256:4ec1109f6852acedadbeef8649c2973ae2e13b6937baac45789f145da4f917aa · ms:44457
+- 2026-09-04 · 2e7cb51* · exit 0 · `gofmt -l clients internal | (! grep -q .) && go vet ./... && \ …` · acceptance-sha256:4ec1109f6852acedadbeef8649c2973ae2e13b6937baac45789f145da4f917aa · ms:32674
+- 2026-09-04 · 2e7cb51* · exit 0 · `gofmt -l clients internal | (! grep -q .) && go vet ./... && \ …` · acceptance-sha256:4ec1109f6852acedadbeef8649c2973ae2e13b6937baac45789f145da4f917aa · ms:34284

@@ -149,6 +149,21 @@ type AnchorFilter struct {
 	Status string
 	Limit  int
 
+	// Path narrows to the anchors pinned to exactly this file (ADR-051 T2).
+	//
+	// It exists so a memory can be surfaced at the moment its file is opened,
+	// without anything being asked. That is deliberately NOT a search: ADR-041's
+	// T5 is stopped because the only query available at PreToolUse is a bare grep
+	// pattern, and a bare identifier retrieves a session's narrative more often
+	// than a team's decision. An anchor is an exact pin, so this is a join on a
+	// string the tool call already names — nothing is ranked, and there is no
+	// relevance to fall short of.
+	//
+	// Exact match, not a prefix or a glob. A directory-wide cue fires on files
+	// nothing was said about, and a cue that fires when it has nothing to say is
+	// how a channel gets ignored.
+	Path string
+
 	// IncludeEnded brings back anchors on superseded and retracted drawers, which
 	// the default excludes.
 	//
@@ -197,6 +212,9 @@ func (s *Service) ListAnchors(ctx context.Context, teamID string, f AnchorFilter
 	}
 	if f.Status != "" {
 		q = q.Where("drawer_anchors.status = ?", f.Status)
+	}
+	if f.Path != "" {
+		q = q.Where("drawer_anchors.path = ?", f.Path)
 	}
 	if f.Wing != "" {
 		// Wing lives on the drawer (already joined above), so scope through it —

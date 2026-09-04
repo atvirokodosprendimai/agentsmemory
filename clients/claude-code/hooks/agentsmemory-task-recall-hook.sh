@@ -57,16 +57,66 @@ command -v aiagentmemory >/dev/null 2>&1 || { trace "no aiagentmemory on PATH"; 
 # these hooks keep gating against. A prompt containing an escaped quote is
 # truncated at that quote here; the recall is still asked with the leading words,
 # which is the degradation worth having over a pattern that works on one libc.
-PROMPT="$(printf '%s' "$INPUT" | tr '\n' ' ' | sed -n 's/.*"prompt"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
-PROMPT="$(printf '%s' "$PROMPT" | tr -s ' ' | sed 's/^ *//;s/ *$//')"
+# WHICH EVENT IS THIS? One script, two events, branching on the name — the same
+# shape the Stop and SubagentStop nudges already share, because the two recalls
+# differ in WHICH TEXT they ask with and not in machinery. A second script would
+# be a second thing to keep in step.
+EVENT="$(printf '%s' "$INPUT" | tr '\n' ' ' | sed -n 's/.*"hook_event_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
 
-[ -n "$PROMPT" ] || { trace "no prompt field in the hook input"; exit 0; }
+PROMPT="$(printf '%s' "$INPUT" | tr '\n' ' ' | sed -n 's/.*"prompt"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
+
+# ⚠ ON UserPromptExpansion THE PAYLOAD CARRIES NO EXPANDED PROMPT, AND AN EARLIER
+# VERSION OF THIS BLOCK INVENTED ONE.
+#
+# It searched five spellings — expanded_prompt, expandedPrompt, updated_prompt,
+# updatedPrompt, expansion — none of which is documented, and its test FABRICATED
+# `expanded_prompt` to make itself pass. A test that manufactures the payload it
+# asserts on measures nothing but its own fixture, which is the fabrication this
+# repository gates against everywhere else. Reported by review 2026-09-04.
+#
+# What the event documents is the command and its arguments: command_name,
+# command_args, command_source, expansion_type. So the query is built from THOSE —
+# the words the user typed after the command, which is the task, plus the command
+# name for context when the arguments are thin.
+#
+# ⚠ THE DOC PAGE TRUNCATES BEFORE THIS SCHEMA, so the field names come from a
+# reviewer's reading rather than from a page this session could load. If they are
+# wrong the hook is SILENT and says so on stderr, which is the honest failure: it
+# cannot recall against something it did not receive, and it must never recall
+# against a command name.
+if [ "$EVENT" = "UserPromptExpansion" ]; then
+  CMD_NAME="$(printf '%s' "$INPUT" | tr '\n' ' ' | sed -n 's/.*"command_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
+  CMD_ARGS="$(printf '%s' "$INPUT" | tr '\n' ' ' | sed -n 's/.*"command_args"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
+  if [ -n "$CMD_ARGS" ]; then
+    PROMPT="$CMD_ARGS"
+    [ -n "$CMD_NAME" ] && PROMPT="$CMD_NAME $CMD_ARGS"
+  else
+    trace "expansion carries no command_args; nothing to ask with"
+    exit 0
+  fi
+fi
 
 # ⚠ A SLASH COMMAND IS NOT A QUESTION. `/am`, `/clear`, `/model sonnet` — these
 # expand into something else entirely, and recalling against the literal text
 # retrieves whatever is nearest to a command name. The sibling hook's own record
 # of the merge-subject fallback is the same lesson: a long query made of the wrong
 # words is worse than no query, because it returns something.
+# ⚠ A SLASH COMMAND IS NOT A QUESTION. `/am`, `/clear`, `/model sonnet` — these
+# expand into something else entirely, and recalling against the literal text
+# retrieves whatever is nearest to a command name. The sibling hook's own record
+# of the merge-subject fallback is the same lesson: a long query made of the wrong
+# words is worse than no query, because it returns something.
+#
+# ⚠ IT APPLIES ON BOTH EVENTS, AND AN EARLIER VERSION EXEMPTED THE EXPANSION
+# BRANCH. A mutant proved that exemption bought nothing and cost something. On a
+# successful expansion PROMPT has ALREADY been replaced by the expanded text,
+# which does not begin with a slash, so the refusal never fires and the exemption
+# is dead code. On a FAILED expansion — an undocumented field name, a payload
+# shape that changed — PROMPT is still the literal "/am", and the exemption would
+# have disabled the one check that stops a recall against a command name. The
+# guard survived its mutant because the test could not tell the two apart; the
+# right answer was to delete the exemption rather than to write a test defending
+# it.
 case "$PROMPT" in
   /*) trace "slash command, not a task: ${PROMPT%% *}"; exit 0 ;;
 esac

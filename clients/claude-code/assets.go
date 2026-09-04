@@ -47,13 +47,22 @@ import "embed"
 // system, so that one extension both re-registers the remote agentsmemory tools
 // natively and fires the end-of-turn memory checkpoint.
 //
-//go:embed commands/am.md commands/load-skill.md hooks/agentsmemory-stop-hook.sh hooks/agentsmemory-verify-hook.sh hooks/agentsmemory-session-end-hook.sh hooks/agentsmemory-stats.sh hooks/agentsmemory-subagent-start-hook.sh hooks/agentsmemory-recall-hook.sh hooks/agentsmemory-task-recall-hook.sh agents/*.md agents/*.toml bootstrap.md extensions/agentsmemory.ts
+//go:embed commands/am.md commands/load-skill.md hooks/agentsmemory-stop-hook.sh hooks/agentsmemory-verify-hook.sh hooks/agentsmemory-session-end-hook.sh hooks/agentsmemory-stats.sh hooks/agentsmemory-subagent-start-hook.sh hooks/agentsmemory-recall-hook.sh hooks/agentsmemory-task-recall-hook.sh hooks/agentsmemory-anchor-cue-hook.sh hooks/agentsmemory-touched-hook.sh hooks/agentsmemory-statusline.sh unattended-settings.json skills/*/SKILL.md agents/*.md agents/*.toml bootstrap.md extensions/agentsmemory.ts
 var assets embed.FS
 
 // commandAssets are the slash-command files the kit installs, in the order they
 // are written and reported. Both the installer and `update-skill` iterate this
 // one list so a command added here reaches every install path at once.
 var commandAssets = []string{"am.md", "load-skill.md"}
+
+// skillAssets are the native Agent Skills the kit installs (ADR-051 T8).
+//
+// Claude Code only: a SKILL.md is discovered by Claude Code's own skill mechanism,
+// which codex and pi do not have. The skill POINTS at the centralised catalogue —
+// am_list_skills, am_load_skill — and restates none of it, because a second copy
+// of a convention is a second thing to get wrong and the copy nobody maintains is
+// the one that stays wrong.
+var nativeSkillAssets = []string{"recall"}
 
 // retiredCommands are command files earlier versions shipped and this one does
 // not. They are REMOVED from a config dir on install, not merely left unshipped.

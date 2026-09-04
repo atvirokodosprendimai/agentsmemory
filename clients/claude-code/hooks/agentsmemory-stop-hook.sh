@@ -118,6 +118,28 @@ SUBMSG
   exit 2
 fi
 
+# WHAT DID THIS SESSION ACTUALLY CHANGE? (ADR-051 T3.) The PostToolUse recorder
+# appends every edited path to a session-scoped list, and naming those files turns
+# the nudge from "persist something" into a question with an answer in it.
+#
+# ⚠ THE READ IS WHAT MAKES THE WRITE REACHABLE. A recorder nothing consumes is a
+# file that grows — the reachability defect this repository keeps recording, in a
+# shell script. TestTheStopHookNamesTouchedPaths fails if this block goes away.
+#
+# Bounded: a long session edits many files, and a wall of paths is skimmed rather
+# than read. The count is reported so the elision is visible instead of silent.
+SID="$(printf '%s' "$INPUT" | tr '\n' ' ' | sed -n 's/.*"session_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
+TOUCHED_LIST="${AGENTSMEMORY_STATE_DIR:-${TMPDIR:-/tmp}}/agentsmemory-touched/${SID}"
+if [ -n "$SID" ] && [ -s "$TOUCHED_LIST" ]; then
+  TN="$(wc -l < "$TOUCHED_LIST" | tr -d ' ')"
+  {
+    printf 'agentsmemory: this session edited %s file(s):\n' "$TN"
+    head -n 12 "$TOUCHED_LIST" | sed 's/^/    /'
+    [ "$TN" -gt 12 ] && printf '    ... and %s more\n' "$((TN - 12))"
+    printf '  Name what you learned about them, or say plainly that nothing here was worth remembering.\n'
+  } >&2
+fi
+
 # The checkpoint goes to stderr; exit 2 makes Claude Code show it as Stop feedback.
 cat >&2 <<'MSG'
 agentsmemory checkpoint — persist this session into team memory before stopping:

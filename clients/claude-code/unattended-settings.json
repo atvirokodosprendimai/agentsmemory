@@ -1,0 +1,34 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__agentsmemory__am_status",
+      "mcp__agentsmemory__am_search",
+      "mcp__agentsmemory__am_get_drawer",
+      "mcp__agentsmemory__am_list_drawers",
+      "mcp__agentsmemory__am_list_wings",
+      "mcp__agentsmemory__am_list_rooms",
+      "mcp__agentsmemory__am_list_anchors",
+      "mcp__agentsmemory__am_list_skills",
+      "mcp__agentsmemory__am_load_skill",
+      "mcp__agentsmemory__am_skillset",
+      "mcp__agentsmemory__am_kg_query",
+      "mcp__agentsmemory__am_add_drawer",
+      "mcp__agentsmemory__am_kg_add",
+      "mcp__agentsmemory__am_diary_write"
+    ],
+    "deny": [
+      "Bash(git push --force:*)",
+      "Bash(git push -f:*)",
+      "Bash(gh release create:*)",
+      "Bash(gh release delete:*)",
+      "Bash(gh pr merge:*)",
+      "Bash(docker compose down -v:*)",
+      "Bash(rm -rf /*)",
+      "Bash(goose down:*)",
+      "Bash(goose reset:*)",
+      "mcp__agentsmemory__am_merge_wing",
+      "mcp__agentsmemory__am_invalidate_drawer",
+      "mcp__agentsmemory__am_kg_invalidate"
+    ]
+  }
+}
