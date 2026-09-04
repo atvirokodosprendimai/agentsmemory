@@ -30,3 +30,18 @@ Everything above applies. Three things are particular to this harness:
   applies whether or not you type one. ⚠ `/M` was RETIRED: it carried a Go- and
   UI-specific variant of the same grounding sequence, which is a second copy of a
   protocol, and the installer now removes it from config dirs that still have it.
+
+- **Auto mode edits through Bash and `mrw`, and the shipped PostToolUse "touched"
+  hook records `Edit|Write|NotebookEdit|MultiEdit` only** — so the Stop nudge's
+  file list is EMPTY for a session that worked the house way. Do not read an
+  empty list as "nothing changed"; `git status --porcelain` is the truth. Filed
+  as a gotcha in `wing_agentmemories` on 2026-09-04.
+- **The watch is a `Monitor` tool call, persistent, armed first.** The command
+  shape lives in `wing_agentmemories/tooling`; the rule that it exists is
+  `AGENTS.md` §The working loop, item 2. A session that says "the monitor stays
+  armed" must have actually called it this session — one that was armed last
+  session died with it.
+- **Project permissions are in `.claude/settings.json`** so the repository's own
+  gates (`adr-*`, `mrw`, `go test`, `docker compose`, `gh`) run without a prompt
+  in auto mode. Add a command there when you find yourself approving it twice.
+

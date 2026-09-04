@@ -33,7 +33,11 @@ graphify-out/
 .DS_Store
 
 # Claude Code session state, worktrees and local agent config — never the repo's business
-.claude/
+# The directory is local except the one file that carries the project permissions:
+# a committed settings.json is what lets auto mode run this repository's own gates
+# without a prompt on every machine, not only the one that first approved them.
+.claude/*
+!.claude/settings.json
 
 # ADR-036: the REAL fact-retrieval corpus and the real bootstrap transcript.
 # ADR-003 T2 closed this permanently — case files carry queries and drawer ids

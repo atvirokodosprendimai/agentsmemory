@@ -1,0 +1,28 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(go build:*)",
+      "Bash(go test:*)",
+      "Bash(go vet:*)",
+      "Bash(gofmt:*)",
+      "Bash(go version:*)",
+      "Bash(adr-lint:*)",
+      "Bash(adr-judge:*)",
+      "Bash(adr-debt:*)",
+      "Bash(adr-next:*)",
+      "Bash(adr-verify:*)",
+      "Bash(mrw:*)",
+      "Bash(gh:*)",
+      "Bash(git:*)",
+      "Bash(docker compose:*)",
+      "Bash(docker exec:*)",
+      "Bash(docker inspect:*)",
+      "Bash(docker logs:*)",
+      "Bash(scripts/redeploy.sh:*)",
+      "Bash(aiagentmemory:*)",
+      "Bash(agentsmemory:*)",
+      "Bash(curl:*)",
+      "Bash(python3:*)"
+    ]
+  }
+}
