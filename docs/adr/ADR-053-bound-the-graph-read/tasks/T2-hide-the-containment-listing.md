@@ -75,6 +75,24 @@ skills and hooks that walk it live outside `internal/palace`.
 - A consumer outside this repository depends on containment edges arriving by default. Mitigated by the flag and by the withheld count naming what changed; the description is the only route by which they learn, which is why S4 treats it as part of the change rather than as documentation.
 - `room:` as a prefix is a naming convention rather than a typed field, so an authored entity that begins `room:` would be hidden. Accepted and named in the doc comment; the mint is the only writer of that prefix today.
 
+⚠ **`EntryPoint` READS CONTAINMENT EDGES THROUGH `KGQuery`, AND T2 AS WRITTEN
+WOULD EMPTY IT.** Found 2026-09-04, after T1 landed and before T2 was executed,
+while confirming issue #218. `Service.EntryPoint` (`internal/palace/graphquery.go`)
+queries `DerivedEdgeSubject(wing, EntryRoom)` — literally `room:<wing>/llm_init`,
+a `room:*` subject — and `Service.Bootstrap` builds its whole answer from those
+edges. So the default this task introduces would make `am_entry_point` and
+`am_bootstrap` return nothing: the wake-up path every session is told to walk.
+
+This is the SAME failure the subject-shape rule was chosen to avoid, arriving
+through the other door. Keying on `derived` would have emptied three wing roots;
+keying on subject shape empties the entry room instead, unless the exclusion is
+applied where the caller did not ASK for a room. So: **the filter must not apply
+when the queried entity is itself the `room:*` node** — asking a room what it
+holds is the one question containment edges answer, and it is the question
+`EntryPoint` asks. `TestEveryWingRootStillResolvesWithContainmentHidden` must
+gain a sibling asserting `am_bootstrap` still resolves, or the gate proves the
+narrower half only.
+
 ## Stop Condition
 
 Stop and ask if anything in the tree reads containment edges through
