@@ -1109,7 +1109,7 @@ func inspectDatabaseServices(cfg config.Config) (*services, error) {
 // buildServicesWith holds the shared composition. prepare applies migrations
 // and reconciles the selected vector backend; false leaves both stores alone.
 func buildServicesWith(cfg config.Config, prepare bool) (*services, error) {
-	opener := openDB
+	opener := openWriterDB
 	if !prepare {
 		opener = openInspectionDB
 	}
@@ -1644,7 +1644,20 @@ func sortedReportNamespaces(m map[string]int) []string {
 	return ns
 }
 
-// openDB opens a pure-Go (no cgo) SQLite database through gorm's glebarez
+// openWriterDB opens the one handle every write goes through, capped at a
+// single connection. It is a pure-Go (no cgo) SQLite database through gorm's
+// glebarez driver. gorm is the query layer; goose owns the schema, so
+// AutoMigrate is never called. By default the logger is silenced because
+// expected "record not found" lookups (e.g. the create branch of an upsert) are
+// control flow, not errors — real failures still surface through returned error
+// values. In debug mode it logs every statement (logger.Info) so queries are
+// visible during development.
+//
+// ADR-052: one writer, so that no lock is needed. Every write, AND every read a
+// write depends on, belongs on this handle inside its own transaction — a read
+// taken on a reader handle is a different snapshot, so a check made there is not
+// binding on the write that follows it, and nothing in review distinguishes that
+// from a correct one.
 // driver. gorm is the query layer; goose owns the schema, so AutoMigrate is
 // never called. By default the logger is silenced because expected "record not
 // found" lookups (e.g. the create branch of an upsert) are control flow, not
@@ -1660,8 +1673,31 @@ func sortedReportNamespaces(m map[string]int) []string {
 // The DSN carries the pragmas described on dbPragmas, because more than one
 // process legitimately opens this file: serve holds it open for its lifetime
 // while inspect, mcp, plan, share and an export all read it.
-func openDB(path string, debug bool) (*gorm.DB, error) {
-	return openDBWithPragmas(path, debug, dbPragmas)
+func openWriterDB(path string, debug bool) (*gorm.DB, error) {
+	gdb, err := openDBWithPragmas(path, debug, dbPragmas)
+	if err != nil {
+		return nil, err
+	}
+	sqlDB, err := gdb.DB()
+	if err != nil {
+		return nil, err
+	}
+	// ⚠ THIS CAP IS THE WRITE SERIALISATION. There is no lock, no mutex, no
+	// retry and no _txlock pragma standing behind it — ADR-052 decided one
+	// writer so that no wall is needed, and measured that a wall in front of a
+	// single-file door changes nothing (0 of 320 either way). Delete this line
+	// and read-then-write transactions start failing again: measured 280, 292
+	// and 293 of 320 on three runs, all "database is locked", because a
+	// deferred transaction that reads first must UPGRADE its lock and SQLite
+	// returns SQLITE_BUSY immediately on an upgrade conflict rather than
+	// invoking the busy handler. busy_timeout cannot cover that however large.
+	//
+	// It is deliberately NOT a flag. The reader pool is one (--db-reader-pool),
+	// because the right number there is a property of the host; one writer is
+	// not a tuning parameter, it is the decision, and a knob that can raise it
+	// is a knob that can silently reintroduce the defect with every test green.
+	sqlDB.SetMaxOpenConns(1)
+	return gdb, nil
 }
 
 // openInspectionDB opens SQLite with query_only enabled and without changing
@@ -1704,7 +1740,21 @@ func openDBWithPragmas(path string, debug bool, pragmas string) (*gorm.DB, error
 // substitute for the single-instance lock in lock.go — if anything it raises the
 // stakes, because with WAL two servers on one database write happily and
 // silently instead of announcing themselves with lock errors.
-const dbPragmas = "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)"
+const dbPragmas = "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)"
+
+// readerDBPragmas are the writer's pragmas plus query_only, for handles that
+// serve the read model.
+//
+// ADR-052: the read path cannot write through the handle it holds, and that is
+// enforced by SQLite rather than by review — a write through such a handle
+// returns "attempt to write a readonly database (8)". journal_mode is present
+// where openInspectionDB deliberately omits it, because these connections are
+// serving the same live database the writer is, not inspecting evidence.
+//
+// ⚠ It never carries _txlock=immediate. A serialisation pragma on a handle that
+// cannot write is meaningless, and on the WRITER it would mean the writer count
+// had stopped being one — which is the defect to fix rather than to paper over.
+const readerDBPragmas = dbPragmas + "&_pragma=query_only(1)"
 
 // inspectionDBPragmas enforce doctor's no-write boundary at SQLite itself.
 // busy_timeout remains useful when doctor reads a live palace; journal_mode is

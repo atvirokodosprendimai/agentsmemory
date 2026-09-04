@@ -35,7 +35,7 @@ Give the writer its own opener capped at ONE connection, give the readers their 
 
 ```bash
 set -o pipefail
-go test ./cmd/server/ -run 'TestAReadThenWriteTransactionSurvivesConcurrentWriters$|TestServingConnectionsCarryTheirPragmas$' -count=1 2>&1 | tee /tmp/adr052-t2a.out \
+go test ./cmd/server/ -run 'TestAReadThenWriteTransactionSurvivesConcurrentWriters$|TestServingConnectionsCarryTheirPragmas$|TestTheReaderPragmasAreTheWritersPlusQueryOnly$' -count=1 2>&1 | tee /tmp/adr052-t2a.out \
   && ! grep -qE "no tests to run|^FAIL|^--- FAIL|\[build failed\]" /tmp/adr052-t2a.out \
   && go test ./... -count=1 2>&1 | tee /tmp/adr052-t2b.out \
   && ! grep -qE "^FAIL|^--- FAIL|\[build failed\]" /tmp/adr052-t2b.out
@@ -54,6 +54,7 @@ package while the record claimed it ran the full suite.
 |-----------|------|----------|--------|-------|
 | `TestAReadThenWriteTransactionSurvivesConcurrentWriters` | `cmd/server/dbcontention_test.go` | zero `SQLITE_BUSY` failures across eight independent writer handles on one file | — | S2, S3, S4 |
 | `TestServingConnectionsCarryTheirPragmas` | `cmd/server/dbcontention_test.go` | a writer handle reads back `foreign_keys=1`, `journal_mode=wal`, `busy_timeout=5000` | — | S5 |
+| `TestTheReaderPragmasAreTheWritersPlusQueryOnly` | `cmd/server/dbcontention_test.go` | `readerDBPragmas` is exactly `dbPragmas` plus `query_only(1)`, and neither constant carries a `_txlock` — the relationship rather than the string, so a pragma added to the writer cannot go missing from the reader | — | S2 |
 
 ## Reachability
 
@@ -65,6 +66,9 @@ package while the record claimed it ran the full suite.
 | 4 — it is used | every `serve` and every `sync` opens through it; nothing counts the opens yet |
 
 ## Mutation Log
+
+
+- 2026-09-04 · 242863f* · mutant killed · exit 1 · `cmd/server/main.go` · raising the writer cap to unlimited is the whole decision in one line. T1 goes red again at about 280 of 320 "database is locked", so the fence binds to the writer COUNT and not to the DSN, the pragmas, or any wall in front of it. · acceptance-sha256:af4e78ee44b0c74de9c851c3e1cde87f1b43e2df13e71e848d56d3eb45564964
 
 ## Invariants
 
@@ -99,3 +103,5 @@ nothing about hosted data.
 - Changing any package's `*gorm.DB` signature
 
 ## Verification Log
+- 2026-09-04 · 242863f* · exit 0 · `set -o pipefail …` · acceptance-sha256:af4e78ee44b0c74de9c851c3e1cde87f1b43e2df13e71e848d56d3eb45564964 · ms:37328
+- 2026-09-04 · 242863f* · exit 0 · `set -o pipefail …` · acceptance-sha256:af4e78ee44b0c74de9c851c3e1cde87f1b43e2df13e71e848d56d3eb45564964 · ms:38462

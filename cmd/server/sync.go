@@ -55,7 +55,11 @@ func syncIndex(ctx context.Context, cfg config.Config, recreate, repairPayload b
 			"index from SQLite when the server boots (delete its .chromem directory to force one)")
 	}
 
-	gdb, err := openDB(cfg.DBPath, cfg.Debug)
+	// sync only READS SQLite — it writes to the vector index — but it opens
+	// through the writer handle rather than a reader one, because T4 has not
+	// built a reader yet and a writable handle is the incumbent behaviour.
+	// ADR-052 moves this to the reader handle in T4.
+	gdb, err := openWriterDB(cfg.DBPath, cfg.Debug)
 	if err != nil {
 		return err
 	}

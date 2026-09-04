@@ -71,7 +71,7 @@ func TestAReadThenWriteTransactionSurvivesConcurrentWriters(t *testing.T) {
 	// Opened through openDB rather than a hand-assembled DSN, so this measures
 	// whatever the shipped constant says rather than a copy of it that can drift.
 	path := filepath.Join(t.TempDir(), "contention.db")
-	db, err := openDB(path, false)
+	db, err := openWriterDB(path, false)
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
@@ -133,5 +133,83 @@ func TestAReadThenWriteTransactionSurvivesConcurrentWriters(t *testing.T) {
 	if !locked {
 		t.Errorf("the first failure is not the documented symptom — this may be an environment "+
 			"problem rather than the lock upgrade ADR-052 measured: %v", errors.Unwrap(errs[0]))
+	}
+}
+
+// TestServingConnectionsCarryTheirPragmas reads the pragmas back off a serving
+// writer connection, rather than trusting that the DSN string was honoured.
+//
+// A DSN is a claim about a connection; this asserts the connection. The three
+// values are load-bearing for different reasons and each fails silently on its
+// own: journal_mode(WAL) is what lets `inspect` and an export read a live
+// server, busy_timeout(5000) turns a microsecond overlap into a wait instead of
+// an error, and foreign_keys(1) is what makes the five ON DELETE CASCADE
+// clauses in 00001_init.sql mean anything — before ADR-052 it read 0 under the
+// shipped DSN, so those clauses were decoration.
+//
+// ⚠ IT ALSO PINS THE WRITER COUNT, which is why it is here rather than beside
+// a pragma helper: the same handle must report exactly one open connection,
+// and that is the claim ADR-052 makes. Raising the cap turns this red before
+// anything else in the tree notices.
+func TestServingConnectionsCarryTheirPragmas(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "pragmas.db")
+	db, err := openWriterDB(path, false)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("sql handle: %v", err)
+	}
+	defer func() { _ = sqlDB.Close() }()
+
+	for _, tc := range []struct {
+		pragma string
+		want   string
+	}{
+		{"foreign_keys", "1"},
+		{"journal_mode", "wal"},
+		{"busy_timeout", "5000"},
+	} {
+		var got string
+		if err := db.Raw("PRAGMA " + tc.pragma).Scan(&got).Error; err != nil {
+			t.Fatalf("read PRAGMA %s: %v", tc.pragma, err)
+		}
+		if !strings.EqualFold(got, tc.want) {
+			t.Errorf("PRAGMA %s = %q, want %q — the DSN says otherwise, so the "+
+				"connection is not honouring it", tc.pragma, got, tc.want)
+		}
+	}
+
+	if got := sqlDB.Stats().MaxOpenConnections; got != 1 {
+		t.Errorf("writer handle MaxOpenConnections = %d, want 1 — this cap IS the "+
+			"write serialisation (ADR-052); with it gone, read-then-write "+
+			"transactions fail about 280 times in 320", got)
+	}
+}
+
+// TestTheReaderPragmasAreTheWritersPlusQueryOnly pins the relationship rather
+// than the string, so a pragma added to the writer cannot be silently missing
+// from the reader.
+//
+// ADR-052 T4 builds the reader handle; this task only defines its constant, and
+// the property that matters is that the two DSNs cannot drift apart — a reader
+// that quietly lost foreign_keys would enforce a different schema than the
+// writer on the same file.
+func TestTheReaderPragmasAreTheWritersPlusQueryOnly(t *testing.T) {
+	t.Parallel()
+
+	if !strings.HasPrefix(readerDBPragmas, dbPragmas) {
+		t.Fatalf("readerDBPragmas %q does not start with dbPragmas %q", readerDBPragmas, dbPragmas)
+	}
+	if got := strings.TrimPrefix(readerDBPragmas, dbPragmas); got != "&_pragma=query_only(1)" {
+		t.Errorf("readerDBPragmas adds %q; want only query_only(1) — anything else is "+
+			"a second decision hiding in a constant", got)
+	}
+	if strings.Contains(dbPragmas, "_txlock") || strings.Contains(readerDBPragmas, "_txlock") {
+		t.Error("a _txlock pragma appeared: ADR-052 removes the second writer rather than " +
+			"serialising in front of one, so its presence means the writer count stopped being one")
 	}
 }
