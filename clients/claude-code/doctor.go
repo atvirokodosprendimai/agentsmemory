@@ -12,7 +12,9 @@ import (
 	"io/fs"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -165,13 +167,72 @@ func judgeServerBin(kit agentKit, targetDir, onPath string) *binVerdict {
 		// below would have called a directory a healthy binary.
 		v.label, v.bad = "NOT-EXECUTABLE", true
 		v.detail = "the registration names something that is not a regular file"
-	case info.Mode()&0o111 == 0:
+	case !spawnable(info.Mode(), recorded):
 		v.label, v.bad = "NOT-EXECUTABLE", true
-		v.detail = "the registration names a file that cannot be executed"
+		v.detail = "the registration names a file the agent cannot execute"
 	default:
 		v.label, v.detail = compareWithPath(recorded, v.onPath)
 	}
 	return v
+}
+
+// spawnable reports whether a regular file at path is something the agent can
+// execute, and the answer depends on the platform rather than on the mode alone.
+//
+// The POSIX answer is the execute bit. Go never sets one on Windows — os.Stat
+// reports 0666 for every regular file there — so the earlier `Mode()&0o111 == 0`
+// test called EVERY bridge binary NOT-EXECUTABLE on that platform, including one
+// that answered `--version` and served a full 41-tool MCP handshake seconds later
+// (issue #224, second comment). What the Windows loader honours is the extension,
+// so that is what is judged there: PATHEXT when set, its documented default when
+// not. The platform is a parameter so the Windows branch can be pinned from any
+// host, the way serverBinLookupCandidatesOn already is.
+func spawnable(mode fs.FileMode, path string) bool {
+	return spawnableOn(runtime.GOOS, os.Getenv("PATHEXT"), mode, path)
+}
+
+func spawnableOn(goos, pathext string, mode fs.FileMode, file string) bool {
+	if goos != "windows" {
+		return mode&0o111 != 0
+	}
+	if pathext == "" {
+		pathext = ".COM;.EXE;.BAT;.CMD"
+	}
+	// path.Ext, not filepath.Ext: on a POSIX host filepath does not know that a
+	// backslash separates, so `C:\odd.dir\bridge` would read as extension `.dir\bridge`.
+	ext := strings.ToUpper(path.Ext(strings.ReplaceAll(file, `\`, "/")))
+	if ext == "" {
+		return false
+	}
+	for _, e := range strings.Split(pathext, ";") {
+		if strings.ToUpper(e) == ext {
+			return true
+		}
+	}
+	return false
+}
+
+// hookProbePath is the path doctor hands to bash for the hook it probes.
+//
+// It exists because on Windows the path reached bash with every backslash gone —
+// `C:Userszy.claudeagentsmemory-verify-hook.sh` — and doctor reported all three
+// injecting hooks FAILED / exit status 127 on an install whose hooks ran to exit 0
+// by hand and every session (issue #224). Go serialises argv into one Windows
+// command line; MSYS bash, spawned by a non-MSYS parent, parses that line under
+// its own rules, where a backslash outside quotes is an escape. The registrations
+// Claude Code runs are single-quoted in settings.json, which is why they survive
+// and doctor's bare argument did not. Forward slashes are not escapes and MSYS
+// bash resolves `C:/Users/...` natively, so the path is converted rather than
+// quoted — a quote is one more thing for the same parser to eat. The platform is
+// a parameter because filepath.ToSlash on a POSIX host is the identity, and a test
+// that called it there would pass over a function that converts nothing.
+func hookProbePath(joined string) string { return hookProbePathOn(runtime.GOOS, joined) }
+
+func hookProbePathOn(goos, joined string) string {
+	if goos != "windows" {
+		return joined
+	}
+	return strings.ReplaceAll(joined, `\`, "/")
 }
 
 // compareWithPath decides whether the registered binary differs from the one the
@@ -884,7 +945,7 @@ func runOneHook(ctx context.Context, c *cli.Command, dir, name string, reg hookR
 		"hook_event_name": "SessionStart", "source": "startup",
 	})
 
-	cmd := exec.CommandContext(ctx, "bash", "--", filepath.Join(dir, name))
+	cmd := exec.CommandContext(ctx, "bash", "--", hookProbePath(filepath.Join(dir, name)))
 	cmd.Dir = projectDir
 	cmd.Stdin = strings.NewReader(string(payload))
 	var stdout, stderr bytes.Buffer
