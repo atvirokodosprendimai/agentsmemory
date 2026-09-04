@@ -69,7 +69,9 @@ func TestTheReadHandleCannotWrite(t *testing.T) {
 // unreachable capability AGENTS.md §Reachability records four times over.
 // The mutant is deleting the `openReaderDB` call from buildServicesWith.
 func TestTheServePathOpensBothHandles(t *testing.T) {
-	t.Parallel()
+	// Not parallel: buildServices migrates through goose, whose SetBaseFS and
+	// SetDialect are package globals, and two migrations at once are a data race
+	// the -race job on main caught (2026-09-04) after this test shipped parallel.
 
 	cfg := config.Default()
 	cfg.DBPath = filepath.Join(t.TempDir(), "serve.db")
@@ -112,7 +114,8 @@ func TestTheServePathOpensBothHandles(t *testing.T) {
 // itself, so a default that silently became 1 — a second serialised handle —
 // would be caught here rather than in production latency.
 func TestTheReaderPoolFlagReachesTheHandle(t *testing.T) {
-	t.Parallel()
+	// Not parallel, for the reason TestTheServePathOpensBothHandles states: two
+	// concurrent buildServices calls race on goose's globals.
 
 	build := func(t *testing.T, args ...string) *services {
 		t.Helper()
