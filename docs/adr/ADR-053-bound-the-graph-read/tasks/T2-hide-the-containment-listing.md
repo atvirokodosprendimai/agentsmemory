@@ -75,6 +75,46 @@ skills and hooks that walk it live outside `internal/palace`.
 - A consumer outside this repository depends on containment edges arriving by default. Mitigated by the flag and by the withheld count naming what changed; the description is the only route by which they learn, which is why S4 treats it as part of the change rather than as documentation.
 - `room:` as a prefix is a naming convention rather than a typed field, so an authored entity that begins `room:` would be hidden. Accepted and named in the doc comment; the mint is the only writer of that prefix today.
 
+⚠ **`EntryPoint` READS CONTAINMENT EDGES THROUGH `KGQuery`, AND T2 AS WRITTEN
+WOULD EMPTY IT.** Found 2026-09-04, after T1 landed and before T2 was executed,
+while confirming issue #218. `Service.EntryPoint` (`internal/palace/graphquery.go`)
+queries `DerivedEdgeSubject(wing, EntryRoom)` — literally `room:<wing>/llm_init`,
+a `room:*` subject — and `Service.Bootstrap` builds its whole answer from those
+edges. So the default this task introduces would make `am_entry_point` and
+`am_bootstrap` return nothing: the wake-up path every session is told to walk.
+
+This is the SAME failure the subject-shape rule was chosen to avoid, arriving
+through the other door. Keying on `derived` would have emptied three wing roots;
+keying on subject shape empties the entry room instead, unless the exclusion is
+applied where the caller did not ASK for a room. So: **the filter must not apply
+when the queried entity is itself the `room:*` node** — asking a room what it
+holds is the one question containment edges answer, and it is the question
+`EntryPoint` asks. `TestEveryWingRootStillResolvesWithContainmentHidden` must
+gain a sibling asserting `am_bootstrap` still resolves, or the gate proves the
+narrower half only.
+
+⚠ **AND IT LANDS ONE NOTCH WORSE THAN AN EMPTY ANSWER — the entry point would
+report itself as PRESENT AND EMPTY.** Raised in review of #217 and confirmed in
+source. `EntryPoint` branches on `KGResolutionUnknownTerm` to keep three states
+apart, and its own comment says so: no entry point, an error, and an entry point
+that is merely empty. `resolveKGTerms` decides `unknown_term` on whether the
+ENTITY NAME exists (`KGEntityNames`), not on whether rows came back — and
+`attachDerivedEdge` upserts a `kg_entities` row for the `room:*` subject, so the
+node exists whatever is filtered off it. Under a naive hiding the resolution
+would therefore be `known_term_no_facts`, `EntryPoint` would fall through to
+`out.Node = node`, and a session would read *"this wing's entry point is empty"*.
+
+That is the WORST of the three, not the neutral one. "No entry point" is
+recoverable — a session reads it and walks the fallback chain. "Empty entry
+point" reads as an answer, and a session acts on it. It is this team's own
+`start-here` rule — **an empty-looking room is not evidence of an empty room** —
+arriving in the mechanism rather than in a reader's inference.
+
+So the gate asserts BOTH: that a wing WITH an entry point still returns its
+edges, and that a wing WITHOUT one still resolves `unknown_term` rather than
+`known_term_no_facts`. The two failures are identical from a count, which is
+exactly why the second assertion cannot be left to the first.
+
 ## Stop Condition
 
 Stop and ask if anything in the tree reads containment edges through

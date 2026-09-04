@@ -35,11 +35,22 @@ party who can act on it, without ever losing a fact to a shape.
 
 ```bash
 set -o pipefail
-go test ./internal/palace/ ./internal/mcpserver/ -run 'TestAnOversizedNodeWarnsAndStillWrites$' -count=1 2>&1 | tee /tmp/adr053-t3a.out \
+go test ./internal/palace/ ./internal/mcpserver/ -run 'TestAnOversizedNodeWarnsAndStillWrites$|TestANodeUnderTheLimitWarnsAboutNothing$|TestAnOversizedNodeWarnsThroughTheToolSurface$' -count=1 2>&1 | tee /tmp/adr053-t3a.out \
   && ! grep -qE "no tests to run|^FAIL|^--- FAIL|\[build failed\]" /tmp/adr053-t3a.out \
   && go test ./internal/palace/... ./internal/mcpserver/... -count=1 2>&1 | tee /tmp/adr053-t3b.out \
   && ! grep -qE "^FAIL|^--- FAIL|\[build failed\]" /tmp/adr053-t3b.out
 ```
+
+⚠ The unit half now runs both packages because the surface test lives in
+`internal/mcpserver` — and it exists only because the mutant survived without it.
+The earlier note said the opposite; it is corrected rather than replaced, because
+the reason the fence was narrowed is still true of the two service tests.
+
+⚠ The narrowing that note describes, not both. Both tests live in
+`internal/palace`, and a filter run against a package that holds neither exits 0
+with "no tests to run" — which this fence's own guard then catches as a failure.
+That is the fence working, and it caught exactly that on its first run: the
+regression half is where `internal/mcpserver` belongs.
 
 ## Tests
 
@@ -47,17 +58,20 @@ go test ./internal/palace/ ./internal/mcpserver/ -run 'TestAnOversizedNodeWarnsA
 |-----------|------|----------|--------|-------|
 | `TestAnOversizedNodeWarnsAndStillWrites` | `internal/palace/kg_test.go` | passing the fan-out limit returns the warning with its count AND leaves the fact queryable | — | S1, S3, S4 |
 | `TestANodeUnderTheLimitWarnsAboutNothing` | `internal/palace/kg_test.go` | the field is absent below the limit, so its presence is the signal rather than a value every caller compares against | — | S2, S4 |
+| `TestAnOversizedNodeWarnsThroughTheToolSurface` | `internal/mcpserver/kg_test.go` | the warning reaches a caller of `am_kg_add`, not merely a caller of the service | — | S4, S5 |
 
 ## Reachability
 
 | Rung | How this task shows it |
 |------|------------------------|
 | 1 — exists | the two tests above |
-| 2 — something selects it | the `am_kg_add` handler renders the field; S5's mutant drops the render and the gate goes red |
+| 2 — something selects it | the `am_kg_add` handler renders the field, and `TestAnOversizedNodeWarnsThroughTheToolSurface` goes red when the render is deleted. ⚠ This row was FALSE as first written: both tests drove the service directly, so the mutant that drops the render SURVIVED — measured, not reasoned. A service-level test cannot see a surface-level drop by construction, because it is already past the layer that drops it |
 | 3 — the caller can discover it | `am_kg_add`'s description names the warning and the threshold, because a field that only appears past a threshold cannot be discovered by a caller who has never crossed it |
 | 4 — it is used | every write evaluates it; the live corpus has one subject at 184 edges that would trigger it today |
 
 ## Mutation Log
+
+- 2026-09-04 · eb7b41c* · mutant killed · exit 1 · `internal/mcpserver/kg.go` · the count is computed in the service and dropped at the surface — the server does the work and the caller never learns it happened. This mutant SURVIVED on its first run, when both tests drove the service directly, which is what proved the surface test missing · acceptance-sha256:b2211800385b426dae3f596a6b3df9d6a7c8987c19f7d990dba45a8fd46efda2
 
 ## Invariants
 
@@ -83,3 +97,4 @@ than the write path and that is a different decision.
 - Splitting an oversized node automatically (permanent: boundary: where a node splits is a judgement about topic that no tool has the context to make, which is why the warning names the remedy rather than applying it)
 
 ## Verification Log
+- 2026-09-04 · eb7b41c* · exit 0 · `set -o pipefail …` · acceptance-sha256:b2211800385b426dae3f596a6b3df9d6a7c8987c19f7d990dba45a8fd46efda2 · ms:21952

@@ -37,10 +37,10 @@ func registerDrawers(reg *registrar, drawers *palace.Service, usageSvc *usage.Se
 	registerReconnect(reg, drawers, usageSvc)
 }
 
-// responseBudget bounds the TOTAL content one tool response may carry, in runes.
+// ResponseBudget bounds the TOTAL content one tool response may carry, in runes.
 //
 // It is shared, and being shared is the point. It was written for search alone as
-// responseBudget, and am_list_drawers — which returns WHOLE drawers at a default
+// ResponseBudget, and am_list_drawers — which returns WHOLE drawers at a default
 // limit of 50, so ~80,000 runes at ChunkSize — went unbounded beside it for exactly
 // as long. One transport ceiling deserves one number: a second constant of the same
 // value is the same knowledge in two places, and the second copy is the one that
@@ -75,7 +75,7 @@ func registerDrawers(reg *registrar, drawers *palace.Service, usageSvc *usage.Se
 // itself on what the caller most likely wanted and the tail degrades to a bounded
 // head rather than the page being cut. Nothing is ever dropped silently: a trimmed
 // record says so and carries its full length.
-const responseBudget = 40_000
+const ResponseBudget = 40_000
 
 // withheldByBudget keys the search page's withheld count by the thing that
 // withheld the hits. One cause exists today; the key is there so a second one
@@ -757,7 +757,7 @@ func registerListDrawers(reg *registrar, drawers *palace.Service, usageSvc *usag
 			views[i] = toView(d)
 			// The head, not a window: a listing has no query to centre on, and the
 			// opening line is what its author wrote to say what the memory is.
-			if head, cut := headWithin(d.Content, palace.DefaultSnippetChars, responseBudget-spent); cut {
+			if head, cut := headWithin(d.Content, palace.DefaultSnippetChars, ResponseBudget-spent); cut {
 				views[i].Content = head
 				partialWithFetchID(&views[i], len([]rune(d.Content)))
 				trimmed++
@@ -965,7 +965,7 @@ func registerSearch(reg *registrar, drawers *palace.Service, usageSvc *usage.Ser
 		}
 		hits := page.Hits
 		snippetChars := req.GetInt("snippet_chars", palace.DefaultSnippetChars)
-		// spent/overBudget bound the WHOLE-memory expansion. See responseBudget.
+		// spent/overBudget bound the WHOLE-memory expansion. See ResponseBudget.
 		//
 		// withheld is overBudget's SIBLING, not a rename of it, and the two are
 		// deliberately disjoint: a trimmed hit is on the page with less of the
@@ -1029,10 +1029,10 @@ func registerSearch(reg *registrar, drawers *palace.Service, usageSvc *usage.Ser
 			}
 			// snippet_chars=0 asks for whole memories, and that request is honoured
 			// until the page as a whole stops being deliverable — see
-			// responseBudget. Past it the remaining hits fall back to a bounded
+			// ResponseBudget. Past it the remaining hits fall back to a bounded
 			// window, marked truncated with the full length like any other trim, so
 			// a caller can tell it happened and ask for the rest by id.
-			if snippetChars <= 0 && spent+len([]rune(fullContent)) > responseBudget {
+			if snippetChars <= 0 && spent+len([]rune(fullContent)) > ResponseBudget {
 				// The window is still query-centred where it fits; the bound below
 				// then decides whether even that fits.
 				views[i].Content = palace.SnippetWithHead(fullContent, query, palace.DefaultSnippetChars, true)
@@ -1049,7 +1049,7 @@ func registerSearch(reg *registrar, drawers *palace.Service, usageSvc *usage.Ser
 			// somebody tested. Regions are additional rendered text and were never in
 			// the total at all, so a page could pass the check and still ship several
 			// times the budget.
-			if trimmed, cut := headWithin(views[i].Content, len([]rune(views[i].Content)), responseBudget-spent); cut {
+			if trimmed, cut := headWithin(views[i].Content, len([]rune(views[i].Content)), ResponseBudget-spent); cut {
 				views[i].Content = trimmed
 				if !views[i].Truncated {
 					views[i].Truncated = true

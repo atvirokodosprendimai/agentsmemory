@@ -29,7 +29,7 @@ import (
 //
 // The failure it prevents is not a crash. It is a response that spends a large
 // share of a session's context on text nobody asked for — and, on clients that
-// truncate, one that arrives smaller than it looks. See responseBudget for why the
+// truncate, one that arrives smaller than it looks. See ResponseBudget for why the
 // number rests on the first of those and not the second.
 func TestWholeMemorySearchStaysWithinTheResponseBudget(t *testing.T) {
 	srv, ctx := budgetTestServer(t)
@@ -74,10 +74,10 @@ func TestWholeMemorySearchStaysWithinTheResponseBudget(t *testing.T) {
 	for _, h := range decoded.Hits {
 		total += len([]rune(h.Content))
 	}
-	if total > responseBudget {
+	if total > ResponseBudget {
 		t.Errorf("whole-memory page carried %d runes, over the %d budget — a page this size "+
 			"is context the caller never asked to spend, and on a truncating client "+
-			"would receive nothing at all", total, responseBudget)
+			"would receive nothing at all", total, ResponseBudget)
 	}
 
 	// Degrading has to be VISIBLE. A silent cap on "give me everything" teaches
@@ -98,7 +98,7 @@ func TestWholeMemorySearchStaysWithinTheResponseBudget(t *testing.T) {
 			sizes[i] = len([]rune(h.Content))
 		}
 		t.Fatalf("nothing was trimmed, so the fixture never reached the %d budget: %d hit(s) "+
-			"totalling %d runes, per-hit %v", responseBudget, decoded.Count, total, sizes)
+			"totalling %d runes, per-hit %v", ResponseBudget, decoded.Count, total, sizes)
 	}
 	if !strings.Contains(decoded.Note, "am_get_drawer") {
 		t.Errorf("hits were trimmed for size and the response does not say so, or does not say "+
@@ -229,10 +229,10 @@ func TestAListingStaysWithinTheResponseBudget(t *testing.T) {
 			}
 		}
 	}
-	if total > responseBudget {
+	if total > ResponseBudget {
 		t.Errorf("the listing returned %d runes of content against a %d budget — past the "+
 			"transport ceiling the whole result spills to a file and the caller receives "+
-			"nothing at all", total, responseBudget)
+			"nothing at all", total, ResponseBudget)
 	}
 	if trimmed == 0 {
 		t.Fatal("nothing was marked content_truncated on a listing that had to be trimmed; " +
@@ -301,9 +301,9 @@ func TestASnippetPageStaysWithinTheResponseBudget(t *testing.T) {
 			total += len([]rune(r.Text))
 		}
 	}
-	if total > responseBudget {
+	if total > ResponseBudget {
 		t.Errorf("a snippet page rendered %d runes against a %d budget — snippet_chars is "+
 			"caller-supplied and unclamped, so a bound that skips this branch bounds nothing",
-			total, responseBudget)
+			total, ResponseBudget)
 	}
 }
