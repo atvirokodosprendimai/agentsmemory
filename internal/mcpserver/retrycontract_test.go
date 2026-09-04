@@ -109,7 +109,7 @@ func TestANonIdempotentWriteWarnsRatherThanReassures(t *testing.T) {
 // This test is what makes the classification a fact about the code.
 func TestKgAddIsOnlyANoOpForACurrentFact(t *testing.T) {
 	gdb := graphTestDB(t)
-	drawers := palace.NewService(palace.NewRepo(gdb), graphTestEmbedder{}, sqlitevec.New(gdb), graphTestDim)
+	drawers := palace.NewService(palace.NewRepo(gdb, gdb), graphTestEmbedder{}, sqlitevec.New(gdb), graphTestDim)
 	const team = "team-kgretry"
 	ctx := context.Background()
 

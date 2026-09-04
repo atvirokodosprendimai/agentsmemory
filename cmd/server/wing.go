@@ -189,7 +189,7 @@ func exportWing(ctx context.Context, cfg config.Config, slug, wing, out string) 
 		w = f
 	}
 
-	st, err := wingbundle.Export(ctx, palace.NewRepo(svc.gdb), team.ID, wing, w)
+	st, err := wingbundle.Export(ctx, palace.NewRepo(svc.gdb, svc.gdb), team.ID, wing, w)
 	if err != nil {
 		return err
 	}

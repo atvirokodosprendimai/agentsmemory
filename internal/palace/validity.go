@@ -40,7 +40,7 @@ func currentScope(dbq *gorm.DB) *gorm.DB { return dbq.Where("valid_to = ''") }
 // those needs the predicate inside its own query rather than a second whole-wing
 // read. This stays as the wing-wide enumeration the corpus checks use.
 func (r *Repo) CurrentDrawers(ctx context.Context, teamID, wing string) ([]Drawer, error) {
-	q := r.db.WithContext(ctx).Model(&drawerRow{}).Where("team_id = ?", teamID)
+	q := r.reader.WithContext(ctx).Model(&drawerRow{}).Where("team_id = ?", teamID)
 	if strings.TrimSpace(wing) != "" {
 		q = q.Where("wing = ?", wing)
 	}

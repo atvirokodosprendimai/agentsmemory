@@ -76,11 +76,36 @@ type RoomStat struct {
 // `drawers` table; the embeddings live behind the store seam, joined by id. gorm
 // is the query layer — goose owns the schema, so AutoMigrate is never called.
 type Repo struct {
-	db *gorm.DB
+	// db is the WRITER: the single-connection handle every write, and every
+	// Transaction, goes through. reader is the read model's handle — query_only
+	// at the driver, pooled wide — and every method that only reads uses it.
+	//
+	// ADR-052 T5: a method that reads AND writes belongs wholly on db, because a
+	// read on the reader followed by a write on db is two connections and no
+	// longer one transaction. Readers that run inside a Transaction closure use
+	// the tx it was given, never this field. A caller may pass one handle as
+	// both — a test is allowed to be less strict than production — but the
+	// package's own fixture passes a query_only twin, so any read that writes
+	// fails there rather than in a served palace.
+	db     *gorm.DB
+	reader *gorm.DB
 }
 
-// NewRepo wraps an open gorm DB whose schema has been migrated by goose.
-func NewRepo(db *gorm.DB) *Repo { return &Repo{db: db} }
+// NewRepo wraps a reader and a writer over one migrated database. The
+// signature is the interface: nothing constructs a Repo without deciding which
+// handle is which, which is what makes the split a property of the code rather
+// than a convention (ADR-052 T5).
+func NewRepo(reader, writer *gorm.DB) *Repo { return &Repo{db: writer, reader: reader} }
+
+// repoOn wraps a transaction as a Repo whose reader IS the transaction.
+//
+// ADR-052 T5: a read that runs inside a Transaction closure must see the
+// closure's own uncommitted writes and must hold the writer's connection —
+// routing it onto the pooled reader would be two connections and no
+// transaction, the split the record's invariant forbids. Building the tx Repo
+// with only db set left reader nil, and the ADR-045 relocation's read inside
+// Repo.Update was the first thing to dereference it.
+func repoOn(tx *gorm.DB) *Repo { return &Repo{db: tx, reader: tx} }
 
 // Save upserts drawers by (team_id, id). Re-saving the same id replaces the row,
 // which is exactly what idempotent re-mining needs. An empty slice is a no-op.
@@ -171,7 +196,7 @@ func (r *Repo) PendingDrawers(ctx context.Context, teamID string, limit int) ([]
 		limit = 64
 	}
 	var rows []drawerRow
-	if err := r.db.WithContext(ctx).
+	if err := r.reader.WithContext(ctx).
 		Where("team_id = ? AND embedded_at IS NULL", teamID).
 		Order("filed_at ASC, id ASC").
 		Limit(limit).
@@ -203,7 +228,7 @@ func (r *Repo) MarkDrawersEmbedded(ctx context.Context, teamID string, ids []str
 // drawer, so the worker can round-robin tenants instead of draining one giant
 // migration before touching another's. limit bounds the slice (0 = unbounded).
 func (r *Repo) TeamsWithPendingDrawers(ctx context.Context, limit int) ([]string, error) {
-	q := r.db.WithContext(ctx).
+	q := r.reader.WithContext(ctx).
 		Model(&drawerRow{}).
 		Distinct("team_id").
 		Where("embedded_at IS NULL")
@@ -221,7 +246,7 @@ func (r *Repo) TeamsWithPendingDrawers(ctx context.Context, limit int) ([]string
 // "indexing N in background" signal the importer returns on finalize.
 func (r *Repo) PendingDrawerCount(ctx context.Context, teamID string) (int64, error) {
 	var n int64
-	if err := r.db.WithContext(ctx).
+	if err := r.reader.WithContext(ctx).
 		Model(&drawerRow{}).
 		Where("team_id = ? AND embedded_at IS NULL", teamID).
 		Count(&n).Error; err != nil {
@@ -234,7 +259,7 @@ func (r *Repo) PendingDrawerCount(ctx context.Context, teamID string) (int64, er
 // gorm.ErrRecordNotFound, which the caller translates into a tool-level error.
 func (r *Repo) Get(ctx context.Context, teamID, id string) (Drawer, error) {
 	var row drawerRow
-	if err := r.db.WithContext(ctx).
+	if err := r.reader.WithContext(ctx).
 		Where("team_id = ? AND id = ?", teamID, id).
 		First(&row).Error; err != nil {
 		return Drawer{}, err
@@ -256,7 +281,7 @@ func (r *Repo) Get(ctx context.Context, teamID, id string) (Drawer, error) {
 // can hold 100,000 runes of content nobody asked for.
 func (r *Repo) DrawerExists(ctx context.Context, teamID, id string) (bool, error) {
 	var found []string
-	err := r.db.WithContext(ctx).Model(&drawerRow{}).
+	err := r.reader.WithContext(ctx).Model(&drawerRow{}).
 		Where("team_id = ? AND id = ?", teamID, id).
 		Limit(1).Pluck("id", &found).Error
 	if err != nil {
@@ -271,7 +296,7 @@ func (r *Repo) DrawerExists(ctx context.Context, teamID, id string) (bool, error
 // higher-index chunks behind. Order is unspecified.
 func (r *Repo) IDsBySource(ctx context.Context, teamID, wing, room, source string) ([]string, error) {
 	var ids []string
-	if err := r.db.WithContext(ctx).
+	if err := r.reader.WithContext(ctx).
 		Model(&drawerRow{}).
 		Where("team_id = ? AND wing = ? AND room = ? AND source_file = ?", teamID, wing, room, source).
 		Pluck("id", &ids).Error; err != nil {
@@ -310,7 +335,7 @@ func (r *Repo) GetMany(ctx context.Context, teamID string, ids []string) (map[st
 		return out, nil
 	}
 	var rows []drawerRow
-	if err := r.db.WithContext(ctx).
+	if err := r.reader.WithContext(ctx).
 		Where("team_id = ? AND id IN ?", teamID, ids).
 		Find(&rows).Error; err != nil {
 		return nil, err
@@ -423,7 +448,7 @@ func (c memoryChunkColumns) sql() string {
 // wire. TestMemoryChunkQueriesRefuseToCrossTenants is the gate; delete either
 // predicate and watch it go red.
 func (r *Repo) memoryChunkQuery(ctx context.Context, teamID string, roots []string, columns memoryChunkColumns) *gorm.DB {
-	db := r.db.WithContext(ctx)
+	db := r.reader.WithContext(ctx)
 	byID := db.Select(columns.sql()).Table("drawers").Where("team_id = ? AND id IN ?", teamID, roots)
 	byParent := db.Select(columns.sql()).Table("drawers").Where("team_id = ? AND parent_id IN ?", teamID, roots)
 	// Ordering belongs on the compound result: sorting inside a branch is not
@@ -581,7 +606,7 @@ func (r *Repo) list(ctx context.Context, teamID, wing, room string, limit, offse
 	if offset < 0 {
 		offset = 0
 	}
-	q := r.db.WithContext(ctx).Where("team_id = ?", teamID)
+	q := r.reader.WithContext(ctx).Where("team_id = ?", teamID)
 	if wing != "" {
 		q = q.Where("wing = ?", wing)
 	}
@@ -619,7 +644,7 @@ func (r *Repo) DatedDrawers(ctx context.Context, teamID, wing string, limit int)
 	if limit <= 0 {
 		limit = 50
 	}
-	q := r.db.WithContext(ctx).
+	q := r.reader.WithContext(ctx).
 		Where("team_id = ? AND content_date IS NOT NULL AND content_date <> ''", teamID)
 	if wing != "" {
 		q = q.Where("wing = ?", wing)
@@ -655,7 +680,7 @@ const memoryKeyExpr = "CASE WHEN parent_id = '' THEN id ELSE parent_id END"
 // GROUP BY rides idx_drawers_team_wing, keeping it cheap as the palace grows.
 func (r *Repo) Wings(ctx context.Context, teamID string) ([]WingStat, error) {
 	var stats []WingStat
-	if err := r.db.WithContext(ctx).
+	if err := r.reader.WithContext(ctx).
 		Model(&drawerRow{}).
 		Select("wing, COUNT(*) AS drawers, COUNT(DISTINCT "+memoryKeyExpr+") AS memories, COUNT(DISTINCT room) AS rooms").
 		Where("team_id = ? AND valid_to = ''", teamID).
@@ -670,7 +695,7 @@ func (r *Repo) Wings(ctx context.Context, teamID string) ([]WingStat, error) {
 // Rooms aggregates a team's drawers by room — the list_rooms backend. An empty
 // wing returns every room across the team; a non-empty wing narrows to it.
 func (r *Repo) Rooms(ctx context.Context, teamID, wing string) ([]RoomStat, error) {
-	q := r.db.WithContext(ctx).
+	q := r.reader.WithContext(ctx).
 		Model(&drawerRow{}).
 		Select("wing, room, COUNT(*) AS drawers, COUNT(DISTINCT "+memoryKeyExpr+") AS memories").
 		Where("team_id = ? AND valid_to = ''", teamID)
@@ -711,7 +736,7 @@ func diaryScope(db *gorm.DB, teamID, agent, wing string) *gorm.DB {
 // timestamp — mirroring the frozen tool's reverse-chronological read.
 func (r *Repo) Diary(ctx context.Context, teamID, agent, wing string, limit int) ([]Drawer, error) {
 	var rows []drawerRow
-	if err := diaryScope(r.db.WithContext(ctx), teamID, agent, wing).
+	if err := diaryScope(r.reader.WithContext(ctx), teamID, agent, wing).
 		Order("filed_at DESC, id ASC").
 		Limit(limit).
 		Find(&rows).Error; err != nil {
@@ -730,7 +755,7 @@ func (r *Repo) Diary(ctx context.Context, teamID, agent, wing string, limit int)
 // same total/showing split).
 func (r *Repo) DiaryCount(ctx context.Context, teamID, agent, wing string) (int64, error) {
 	var n int64
-	if err := diaryScope(r.db.WithContext(ctx), teamID, agent, wing).
+	if err := diaryScope(r.reader.WithContext(ctx), teamID, agent, wing).
 		Model(&drawerRow{}).
 		Count(&n).Error; err != nil {
 		return 0, err
@@ -817,7 +842,7 @@ func (r *Repo) ListRandom(ctx context.Context, teamID, wing string, limit int) (
 	if limit <= 0 {
 		limit = 50
 	}
-	q := r.db.WithContext(ctx).Where("team_id = ?", teamID)
+	q := r.reader.WithContext(ctx).Where("team_id = ?", teamID)
 	if wing != "" {
 		q = q.Where("wing = ?", wing)
 	}
@@ -857,7 +882,7 @@ func (r *Repo) ListRandom(ctx context.Context, teamID, wing string, limit int) (
 // search.
 func (r *Repo) MemoryChunks(ctx context.Context, teamID, id string) ([]Drawer, error) {
 	var self drawerRow
-	if err := r.db.WithContext(ctx).Where("team_id = ? AND id = ?", teamID, id).First(&self).Error; err != nil {
+	if err := r.reader.WithContext(ctx).Where("team_id = ? AND id = ?", teamID, id).First(&self).Error; err != nil {
 		return nil, err
 	}
 	root := self.ID
@@ -865,7 +890,7 @@ func (r *Repo) MemoryChunks(ctx context.Context, teamID, id string) ([]Drawer, e
 		root = self.ParentID
 	}
 	var rows []drawerRow
-	if err := r.db.WithContext(ctx).
+	if err := r.reader.WithContext(ctx).
 		Where("team_id = ? AND (id = ? OR parent_id = ?)", teamID, root, root).
 		Order("chunk_index asc").Find(&rows).Error; err != nil {
 		return nil, err
@@ -886,7 +911,7 @@ func (r *Repo) MemoryChunks(ctx context.Context, teamID, id string) ([]Drawer, e
 // drawer in a wing that may hold thousands.
 func (r *Repo) WingIsEmpty(ctx context.Context, teamID, wing string) (bool, error) {
 	var id string
-	err := r.db.WithContext(ctx).
+	err := r.reader.WithContext(ctx).
 		Model(&drawerRow{}).
 		Select("id").
 		Where("team_id = ? AND wing = ?", teamID, wing).
@@ -910,7 +935,7 @@ func (r *Repo) DrawerWings(ctx context.Context, teamID string) (embedded map[str
 		Wing       string
 		EmbeddedAt *string
 	}
-	if err := r.db.WithContext(ctx).
+	if err := r.reader.WithContext(ctx).
 		Model(&drawerRow{}).
 		Select("id", "wing", "embedded_at").
 		Where("team_id = ?", teamID).
@@ -943,7 +968,7 @@ func (r *Repo) ClosetWings(ctx context.Context, teamID string) (map[string]strin
 		ID   string
 		Wing string
 	}
-	if err := r.db.WithContext(ctx).
+	if err := r.reader.WithContext(ctx).
 		Model(&closetRow{}).
 		Select("id", "wing").
 		Where("team_id = ? AND embedded_at IS NOT NULL", teamID).
@@ -961,7 +986,7 @@ func (r *Repo) ClosetWings(ctx context.Context, teamID string) (map[string]strin
 // has to show the caller what exists. Wings() carries counts nobody needs here.
 func (r *Repo) WingNames(ctx context.Context, teamID string) ([]string, error) {
 	var names []string
-	if err := r.db.WithContext(ctx).
+	if err := r.reader.WithContext(ctx).
 		Model(&drawerRow{}).
 		Distinct("wing").
 		Where("team_id = ?", teamID).
@@ -986,7 +1011,7 @@ func (r *Repo) InboxCount(ctx context.Context, teamID, wing, room string) (int, 
 	// every chunk of a memory (InvalidateDrawer and Supersede both do the whole
 	// memory), so a live root implies live siblings and there is no half-ended
 	// memory to miscount.
-	if err := r.db.WithContext(ctx).
+	if err := r.reader.WithContext(ctx).
 		Model(&drawerRow{}).
 		Where("team_id = ? AND wing = ? AND room = ? AND valid_to = '' AND parent_id = ''", teamID, wing, room).
 		Count(&n).Error; err != nil {
@@ -1011,7 +1036,7 @@ func (r *Repo) DrawersByIDs(ctx context.Context, teamID string, ids []string) ([
 	// written when a drawer is written and outlives an ending, so a retracted
 	// record reached this way is a withdrawn claim presented as the thing to read
 	// before doing anything else.
-	if err := currentScope(r.db.WithContext(ctx).
+	if err := currentScope(r.reader.WithContext(ctx).
 		Where("team_id = ? AND id IN ?", teamID, ids)).Find(&rows).Error; err != nil {
 		return nil, err
 	}

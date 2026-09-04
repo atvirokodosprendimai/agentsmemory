@@ -120,6 +120,7 @@ func TestAnchorChunkLookupDoesNotLoadContent(t *testing.T) {
 
 	rec := &sqlRecorder{Interface: logger.Default.LogMode(logger.Silent)}
 	svc.repo.db = svc.repo.db.Session(&gorm.Session{Logger: rec})
+	svc.repo.reader = svc.repo.reader.Session(&gorm.Session{Logger: rec}) // reads run on the reader since ADR-052 T5
 
 	anchors, err := svc.AnchorsForMemories(ctx, "team-beta", []string{root})
 	if err != nil {
@@ -169,7 +170,7 @@ func (r *sqlRecorder) statements() []string {
 func memoryChunkQueryPlan(t *testing.T, svc *Service, ctx context.Context, teamID string, roots []string, columns memoryChunkColumns) string {
 	t.Helper()
 
-	dry := &Repo{db: svc.repo.db.Session(&gorm.Session{DryRun: true})}
+	dry := repoOn(svc.repo.db.Session(&gorm.Session{DryRun: true}))
 	stmt := dry.memoryChunkQuery(ctx, teamID, roots, columns).Find(&[]drawerRow{}).Statement
 	sql := stmt.SQL.String()
 	if sql == "" {

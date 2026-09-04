@@ -64,7 +64,7 @@ func (r *Repo) PredecessorsOf(ctx context.Context, teamID string, ids []string) 
 	out := make(map[string]Drawer, len(ids))
 	for _, batch := range chunkIDs(ids) {
 		var rows []drawerRow
-		if err := r.db.WithContext(ctx).Model(&drawerRow{}).
+		if err := r.reader.WithContext(ctx).Model(&drawerRow{}).
 			Where("team_id = ? AND superseded_by IN ?", teamID, batch).
 			Find(&rows).Error; err != nil {
 			return nil, err

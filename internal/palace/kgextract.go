@@ -54,7 +54,7 @@ type KGReplaceResult struct {
 // batch selection is deterministic across runs.
 func (r *Repo) DrawerSourcesByWing(ctx context.Context, teamID, wing string) ([]KGExtractSource, error) {
 	var rows []KGExtractSource
-	err := r.db.WithContext(ctx).Model(&drawerRow{}).
+	err := r.reader.WithContext(ctx).Model(&drawerRow{}).
 		Select("source_file AS source, COUNT(*) AS drawers").
 		Where("team_id = ? AND wing = ? AND source_file <> ''", teamID, wing).
 		Group("source_file").Order("source_file ASC").
@@ -66,7 +66,7 @@ func (r *Repo) DrawerSourcesByWing(ctx context.Context, teamID, wing string) ([]
 // the pieces mine cut the original document into, ready to be concatenated back.
 func (r *Repo) DrawerContentBySource(ctx context.Context, teamID, wing, source string) ([]string, error) {
 	var out []string
-	err := r.db.WithContext(ctx).Model(&drawerRow{}).
+	err := r.reader.WithContext(ctx).Model(&drawerRow{}).
 		Where("team_id = ? AND wing = ? AND source_file = ?", teamID, wing, source).
 		Order("chunk_index ASC, id ASC").
 		Pluck("content", &out).Error
@@ -87,7 +87,7 @@ func kgExtractOrigin(wing string) string { return "kg-extract:" + wing }
 // Hand-filed triples never match: their source_closet is whatever the agent set.
 func (r *Repo) KGSourceFiles(ctx context.Context, teamID, origin string) ([]string, error) {
 	var out []string
-	err := r.db.WithContext(ctx).Model(&kgTripleRow{}).
+	err := r.reader.WithContext(ctx).Model(&kgTripleRow{}).
 		Where("team_id = ? AND source_closet = ? AND source_file <> ''", teamID, origin).
 		Distinct().Pluck("source_file", &out).Error
 	return out, err
@@ -115,7 +115,7 @@ func (r *Repo) DeleteKGTriplesBySource(ctx context.Context, teamID, origin, sour
 // carries for one source_file.
 func (r *Repo) CountKGTriplesBySource(ctx context.Context, teamID, origin, source string) (int64, error) {
 	var n int64
-	err := r.db.WithContext(ctx).Model(&kgTripleRow{}).
+	err := r.reader.WithContext(ctx).Model(&kgTripleRow{}).
 		Where("team_id = ? AND source_closet = ? AND source_file = ?", teamID, origin, source).
 		Count(&n).Error
 	return n, err

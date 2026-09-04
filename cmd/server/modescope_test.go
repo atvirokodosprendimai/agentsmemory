@@ -282,7 +282,7 @@ func sweepFixture(t *testing.T) (*palace.Service, []string) {
 	if err := goose.Up(sqlDB, "migrations"); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
-	svc := palace.NewService(palace.NewRepo(gdb), sweepEmbedder{}, sqlitevec.New(gdb), sweepDim)
+	svc := palace.NewService(palace.NewRepo(gdb, gdb), sweepEmbedder{}, sqlitevec.New(gdb), sweepDim)
 
 	// Deliberate lexical overlap between documents, so BM25 and vector disagree
 	// and a lexical weight has something to change.

@@ -65,7 +65,7 @@ func (r *Repo) SampleSearchQueries(ctx context.Context, teamID, wing string, lim
 	if limit <= 0 {
 		limit = 20
 	}
-	q := r.db.WithContext(ctx).Model(&searchEventRow{}).
+	q := r.reader.WithContext(ctx).Model(&searchEventRow{}).
 		Where("team_id = ? AND length(query) >= 12", teamID)
 	if wing != "" {
 		q = q.Where("wing = ?", wing)
@@ -213,7 +213,7 @@ func (s *Service) RecallStats(ctx context.Context, teamID, wing string, since ti
 		LastUsed     string
 	}
 	var rows []agg
-	searches := s.repo.db.WithContext(ctx).
+	searches := s.repo.reader.WithContext(ctx).
 		Model(&searchEventRow{}).
 		Select("wing, COUNT(*) AS searches, SUM(CASE WHEN hits > 0 THEN 1 ELSE 0 END) AS answered, "+
 			"SUM(CASE WHEN hits > 0 THEN top_score ELSE 0 END) AS sum_top, "+
@@ -248,7 +248,7 @@ func (s *Service) RecallStats(ctx context.Context, teamID, wing string, since ti
 		N      int
 	}
 	var skipRows []skipAgg
-	skips := s.repo.db.WithContext(ctx).
+	skips := s.repo.reader.WithContext(ctx).
 		Model(&searchEventRow{}).
 		Select("wing, rerank_skip_reason AS reason, COUNT(*) AS n").
 		Where("team_id = ? AND created_at >= ?", teamID, cutoff).
@@ -301,7 +301,7 @@ func (s *Service) RecallStats(ctx context.Context, teamID, wing string, since ti
 		LastFiled string
 	}
 	var counts []wingCount
-	drawers := s.repo.db.WithContext(ctx).
+	drawers := s.repo.reader.WithContext(ctx).
 		Model(&drawerRow{}).
 		Select("wing, COUNT(*) AS drawers, MAX(filed_at) AS last_filed").
 		Where("team_id = ?", teamID)
@@ -324,7 +324,7 @@ func (s *Service) RecallStats(ctx context.Context, teamID, wing string, since ti
 
 	// Writes in the window, across every requested wing.
 	var writes int64
-	writesQuery := s.repo.db.WithContext(ctx).
+	writesQuery := s.repo.reader.WithContext(ctx).
 		Model(&drawerRow{}).
 		Where("team_id = ? AND filed_at >= ?", teamID, cutoff)
 	if wing != "" {
@@ -349,7 +349,7 @@ func (s *Service) RecallStats(ctx context.Context, teamID, wing string, since ti
 	// — a suggestion's count is only honest if the paraphrases beyond the first
 	// page are counted too.
 	var unanswered []searchEventRow
-	unansweredQuery := s.repo.db.WithContext(ctx).
+	unansweredQuery := s.repo.reader.WithContext(ctx).
 		Model(&searchEventRow{}).
 		Where("team_id = ? AND created_at >= ? AND hits = 0 AND query <> ''", teamID, cutoff)
 	if wing != "" {

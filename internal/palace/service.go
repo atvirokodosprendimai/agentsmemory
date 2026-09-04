@@ -1442,7 +1442,7 @@ func (s *Service) moveMemory(ctx context.Context, teamID string, chunks []Drawer
 		ids = append(ids, c.ID)
 	}
 	return s.repo.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		txRepo := &Repo{db: tx}
+		txRepo := repoOn(tx)
 		for _, c := range chunks {
 			w, r := wing, room
 			if _, err := txRepo.Update(ctx, teamID, c.ID, DrawerPatch{Wing: &w, Room: &r}); err != nil {

@@ -63,6 +63,9 @@ go test ./internal/palace/ -run 'TestReadMethodsUseTheReadHandle$|TestEveryTrans
 
 ## Mutation Log
 
+- 2026-09-04 · c344304* · mutant killed · exit 1 · `internal/palace/repo.go` · the constructor ignores the reader: every read still succeeds on the writer, and only the closed-reader check in TestReadMethodsUseTheReadHandle sees that Get keeps answering · acceptance-sha256:7fd908b2a4259192fd39d55d9fbbcd6f147f282edc011be125e96382a5dc8517 · covers:the read methods holding the query_only handle
+- 2026-09-04 · c344304* · mutant killed · exit 1 · `internal/palace/service.go` · moveMemory opens its transaction on the reader: the relocation in TestEveryTransactionUsesTheWriteHandle fails with the readonly error, which is the split the invariant forbids made visible · acceptance-sha256:7fd908b2a4259192fd39d55d9fbbcd6f147f282edc011be125e96382a5dc8517 · covers:the exit code
+
 ## Invariants
 
 - No method reads on the reader and writes on the writer within what used to be one transaction. That would silently drop atomicity, which is worse than the contention this ADR fixes.
@@ -89,3 +92,31 @@ file, and open ADR PRs on that package will conflict.
 - Changing any query, index or schema
 
 ## Verification Log
+- 2026-09-04 · c344304* · exit 1 · `set -o pipefail …` · acceptance-sha256:7fd908b2a4259192fd39d55d9fbbcd6f147f282edc011be125e96382a5dc8517 · ms:475
+  ```
+  --- last 7 line(s) of stdout
+  # github.com/atvirokodosprendimai/agentsmemory/internal/palace [github.com/atvirokodosprendimai/agentsmemory/internal/palace.test]
+  internal/palace/handles_test.go:77:36: too many arguments in call to NewRepo
+  	have (*gorm.DB, *gorm.DB)
+  	want (*gorm.DB)
+  internal/palace/handles_test.go:151:31: svc.repo.reader undefined (type *Repo has no field or method reader)
+  FAIL	github.com/atvirokodosprendimai/agentsmemory/internal/palace [build failed]
+  FAIL
+  ```
+- 2026-09-04 · c344304* · exit 1 · `set -o pipefail …` · acceptance-sha256:7fd908b2a4259192fd39d55d9fbbcd6f147f282edc011be125e96382a5dc8517 · ms:52328
+  ```
+  --- last 10 line(s) of stdout (of 100 after folding 101 raw)
+  2026/09/04 22:55:14 OK   00036_drawer_fetches.sql (639.08µs)
+  2026/09/04 22:55:14 goose: successfully migrated database to version: 36
+  --- FAIL: TestCandidateWideningDoesNotRefetchRows (0.22s)
+      widening_test.go:130: no statement resolved the first chunk; the gate is not watching the right query
+  FAIL
+  FAIL	github.com/atvirokodosprendimai/agentsmemory/internal/palace	30.532s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/mcpserver	14.086s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/mcptest	15.443s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/cmd/server	28.505s
+  FAIL
+  ```
+- 2026-09-04 · c344304* · exit 0 · `set -o pipefail …` · acceptance-sha256:7fd908b2a4259192fd39d55d9fbbcd6f147f282edc011be125e96382a5dc8517 · ms:18096
+- 2026-09-04 · c344304* · exit 0 · `set -o pipefail …` · acceptance-sha256:7fd908b2a4259192fd39d55d9fbbcd6f147f282edc011be125e96382a5dc8517 · ms:16433
+- 2026-09-04 · c344304* · exit 0 · `set -o pipefail …` · acceptance-sha256:7fd908b2a4259192fd39d55d9fbbcd6f147f282edc011be125e96382a5dc8517 · ms:25592

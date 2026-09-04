@@ -94,7 +94,7 @@ func TestSearchResponseCarriesStaleIndexOnTheWire(t *testing.T) {
 	cfg := store.DefaultGateConfig()
 	cfg.CountTTL = 0
 	h := store.NewHybridWithConfig(sqlitevec.New(gdb), idx, cfg)
-	drawers := palace.NewService(palace.NewRepo(gdb), graphTestEmbedder{}, h, budgetDim)
+	drawers := palace.NewService(palace.NewRepo(gdb, gdb), graphTestEmbedder{}, h, budgetDim)
 	ctx := auth.WithTenant(context.Background(), tenant.Tenant{
 		TeamID: budgetTeam, UserID: "u1", Role: tenant.RoleAdmin,
 	})

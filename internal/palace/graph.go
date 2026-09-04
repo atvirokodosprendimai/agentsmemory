@@ -108,7 +108,7 @@ func (r *Repo) ReplaceWingHallways(ctx context.Context, teamID, wing string, hal
 // ListHallways returns a team's hallways, optionally narrowed to one wing,
 // ordered by descending co-occurrence so the strongest links lead.
 func (r *Repo) ListHallways(ctx context.Context, teamID, wing string) ([]Hallway, error) {
-	q := r.db.WithContext(ctx).Where("team_id = ?", teamID)
+	q := r.reader.WithContext(ctx).Where("team_id = ?", teamID)
 	if wing != "" {
 		q = q.Where("wing = ?", wing)
 	}
@@ -203,7 +203,7 @@ func (r *Repo) SaveTunnels(ctx context.Context, tunnels []Tunnel) (int, error) {
 // GetTunnel loads one tunnel by id, or gorm.ErrRecordNotFound if absent.
 func (r *Repo) GetTunnel(ctx context.Context, teamID, id string) (Tunnel, error) {
 	var row tunnelRow
-	if err := r.db.WithContext(ctx).Where("team_id = ? AND id = ?", teamID, id).First(&row).Error; err != nil {
+	if err := r.reader.WithContext(ctx).Where("team_id = ? AND id = ?", teamID, id).First(&row).Error; err != nil {
 		return Tunnel{}, err
 	}
 	return fromTunnelRow(row), nil
@@ -218,7 +218,7 @@ func (r *Repo) DeleteTunnel(ctx context.Context, teamID, id string) (bool, error
 // ListTunnels returns a team's tunnels, optionally filtered to those touching a
 // wing on either endpoint, newest first.
 func (r *Repo) ListTunnels(ctx context.Context, teamID, wing string) ([]Tunnel, error) {
-	q := r.db.WithContext(ctx).Where("team_id = ?", teamID)
+	q := r.reader.WithContext(ctx).Where("team_id = ?", teamID)
 	if wing != "" {
 		q = q.Where("source_wing = ? OR target_wing = ?", wing, wing)
 	}
@@ -259,7 +259,7 @@ type RoomWing struct {
 // navigable ideas), matching the frozen build_graph filter.
 func (r *Repo) GraphRoomWings(ctx context.Context, teamID string) ([]RoomWing, error) {
 	var rows []RoomWing
-	if err := r.db.WithContext(ctx).
+	if err := r.reader.WithContext(ctx).
 		Model(&drawerRow{}).
 		Select("room, wing, COUNT(*) AS count, MAX(content_date) AS recent").
 		Where("team_id = ? AND wing != '' AND room != '' AND room != ?", teamID, "general").
@@ -274,7 +274,7 @@ func (r *Repo) GraphRoomWings(ctx context.Context, teamID string) ([]RoomWing, e
 // recompute_graph iterates and prunes orphan graph records against.
 func (r *Repo) WingsWithDrawers(ctx context.Context, teamID string) ([]string, error) {
 	var wings []string
-	if err := r.db.WithContext(ctx).
+	if err := r.reader.WithContext(ctx).
 		Model(&drawerRow{}).
 		Where("team_id = ? AND wing != ''", teamID).
 		Distinct().
@@ -299,7 +299,7 @@ func (r *Repo) DrawersForHallways(ctx context.Context, teamID, wing string) ([]D
 		Room     string `gorm:"column:room"`
 		Entities string `gorm:"column:entities"`
 	}
-	if err := r.db.WithContext(ctx).
+	if err := r.reader.WithContext(ctx).
 		Model(&drawerRow{}).
 		Select("room, entities").
 		Where("team_id = ? AND wing = ?", teamID, wing).

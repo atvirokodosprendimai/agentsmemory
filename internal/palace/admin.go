@@ -380,7 +380,7 @@ func (r *Repo) RelabelClosetWingReturningIDs(ctx context.Context, teamID string,
 func (r *Repo) CountWing(ctx context.Context, teamID, wing string) (DeleteWingResult, error) {
 	res := DeleteWingResult{Wing: wing}
 	inWing := func(model any, count *int64) error {
-		return r.db.WithContext(ctx).Model(model).
+		return r.reader.WithContext(ctx).Model(model).
 			Where("team_id = ? AND wing = ?", teamID, wing).Count(count).Error
 	}
 	if err := inWing(&drawerRow{}, &res.Drawers); err != nil {
@@ -393,7 +393,7 @@ func (r *Repo) CountWing(ctx context.Context, teamID, wing string) (DeleteWingRe
 		return DeleteWingResult{}, err
 	}
 	// Tunnels are the exception to inWing: they carry two wings, not one.
-	err := r.db.WithContext(ctx).Model(&tunnelRow{}).
+	err := r.reader.WithContext(ctx).Model(&tunnelRow{}).
 		Where("team_id = ? AND (source_wing = ? OR target_wing = ?)", teamID, wing, wing).
 		Count(&res.Tunnels).Error
 	return res, err
@@ -404,7 +404,7 @@ func (r *Repo) CountWing(ctx context.Context, teamID, wing string) (DeleteWingRe
 // delete rather than advancing an offset over a set that is shrinking beneath it.
 func (r *Repo) DrawerIDsByWing(ctx context.Context, teamID, wing string, limit int) ([]string, error) {
 	var ids []string
-	if err := r.db.WithContext(ctx).
+	if err := r.reader.WithContext(ctx).
 		Model(&drawerRow{}).
 		Where("team_id = ? AND wing = ?", teamID, wing).
 		Order("id ASC").Limit(limit).
@@ -429,7 +429,7 @@ func (r *Repo) DeleteDrawersByIDs(ctx context.Context, teamID string, ids []stri
 // ClosetIDsByWing is the closet twin of DrawerIDsByWing.
 func (r *Repo) ClosetIDsByWing(ctx context.Context, teamID, wing string, limit int) ([]string, error) {
 	var ids []string
-	if err := r.db.WithContext(ctx).
+	if err := r.reader.WithContext(ctx).
 		Model(&closetRow{}).
 		Where("team_id = ? AND wing = ?", teamID, wing).
 		Order("id ASC").Limit(limit).
@@ -476,7 +476,7 @@ func (r *Repo) FiledAwaySummary(ctx context.Context, teamID string) (memories, d
 	// here included ENDED rows, so a retracted memory stayed "filed" forever and a
 	// room holding nothing but retractions still read as a place to go and read.
 	base := func() *gorm.DB {
-		return r.db.WithContext(ctx).Model(&drawerRow{}).Where("team_id = ? AND valid_to = ''", teamID)
+		return r.reader.WithContext(ctx).Model(&drawerRow{}).Where("team_id = ? AND valid_to = ''", teamID)
 	}
 	// Counted with an explicit expression rather than Distinct(...).Count():
 	// GORM renders the latter as COUNT(*) over a CASE, which collapses nothing —

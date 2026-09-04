@@ -1175,7 +1175,7 @@ func buildServicesWith(cfg config.Config, prepare bool) (*services, error) {
 		// current rows hashing to one key is a corpus fact somebody must look at,
 		// and a server that starts anyway serves a store whose dedup is silently
 		// wrong for exactly the rows that collided.
-		if err := palace.NewRepo(gdb).BackfillContentKeys(context.Background()); err != nil {
+		if err := palace.NewRepo(gdb, gdb).BackfillContentKeys(context.Background()); err != nil {
 			return nil, fmt.Errorf("backfill content keys: %w", err)
 		}
 		// Give a name to every entry room that has none.
@@ -1199,7 +1199,7 @@ func buildServicesWith(cfg config.Config, prepare bool) (*services, error) {
 		// rather than widened into this change, because the obvious remedy is
 		// wrong for one of them: `mcp` invokes real tools, and a tool call records
 		// telemetry, so it cannot run against query_only(1).
-		if minted, err := palace.NewRepo(gdb).BackfillWingRoots(context.Background()); err != nil {
+		if minted, err := palace.NewRepo(gdb, gdb).BackfillWingRoots(context.Background()); err != nil {
 			return nil, fmt.Errorf("backfill wing roots: %w", err)
 		} else if minted > 0 {
 			log.Printf("minted %d wing root(s) whose entry room predated the by-name address", minted)
@@ -1245,7 +1245,14 @@ func buildServicesWith(cfg config.Config, prepare bool) (*services, error) {
 	// candidates of every search; unconfigured, search is exactly the hybrid
 	// vector+BM25 fusion it has always been. Building it here keeps the
 	// composition root the only place that knows which rerank server is deployed.
-	drawers := palace.NewService(palace.NewRepo(gdb), embedder, vectors, defaultVectorDim)
+	// ADR-052 T5: the line that SELECTS the split. On the inspection path there
+	// is no separate reader — gdb is already query_only end to end — so the one
+	// handle serves both roles rather than a nil deref on the first read.
+	reader := rdb
+	if reader == nil {
+		reader = gdb
+	}
+	drawers := palace.NewService(palace.NewRepo(reader, gdb), embedder, vectors, defaultVectorDim)
 	drawers, rankingLines := configureRanking(drawers, cfg, func(url string, timeout time.Duration) palace.Reranker {
 		return tei.New(url, timeout)
 	})

@@ -224,7 +224,7 @@ func (s *Service) supersedeInto(ctx context.Context, teamID, id, content, reason
 				"Nothing was changed — re-read the memory and correct the record that replaced it",
 				ErrConcurrentCorrection, res.RowsAffected, len(open), short12(id))
 		}
-		return s.persistRows(ctx, &Repo{db: tx}, teamID, prepared)
+		return s.persistRows(ctx, repoOn(tx), teamID, prepared)
 	})
 	if err != nil {
 		return SupersedeResult{}, err
@@ -362,7 +362,7 @@ func (s *Service) KGSupersede(ctx context.Context, teamID, subject, predicate, o
 		// A transaction-bound view of the repo. Every KG write goes through r.db,
 		// so handing the shared add path this copy is what puts the end and the
 		// add under one commit without a second, drifting copy of the sequence.
-		txRepo := &Repo{db: tx}
+		txRepo := repoOn(tx)
 
 		res := tx.Model(&kgTripleRow{}).
 			Where("team_id = ? AND subject = ? AND predicate = ? AND object = ? AND valid_to = ''",

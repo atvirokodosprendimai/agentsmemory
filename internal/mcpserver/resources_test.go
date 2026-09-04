@@ -365,7 +365,7 @@ func TestEveryDrawerViewCarriesItsAddress(t *testing.T) {
 func newResourceServer(t *testing.T) (*client.Client, *palace.Service, string) {
 	t.Helper()
 	gdb := graphTestDB(t)
-	svc := palace.NewService(palace.NewRepo(gdb), graphTestEmbedder{}, sqlitevec.New(gdb), graphTestDim)
+	svc := palace.NewService(palace.NewRepo(gdb, gdb), graphTestEmbedder{}, sqlitevec.New(gdb), graphTestDim)
 	srv := New(Deps{
 		Version: "test",
 		Drawers: svc,
@@ -499,7 +499,7 @@ func TestTheListingAndTheTemplateBothResolve(t *testing.T) {
 // comment in listRecentMemories.
 func TestTheListingNarrowsToADefaultWingWhenThereIsOne(t *testing.T) {
 	gdb := graphTestDB(t)
-	svc := palace.NewService(palace.NewRepo(gdb), graphTestEmbedder{}, sqlitevec.New(gdb), graphTestDim)
+	svc := palace.NewService(palace.NewRepo(gdb, gdb), graphTestEmbedder{}, sqlitevec.New(gdb), graphTestDim)
 	srv := New(Deps{
 		Version: "test", Drawers: svc,
 		Usage:             usage.NewService(usage.NewRepo(gdb), graphTestCaps{}),
