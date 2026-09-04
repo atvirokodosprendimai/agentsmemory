@@ -47,9 +47,12 @@ var readmeRowRE = regexp.MustCompile(`(?m)^\|\s*(T\d+)\s*\|[^|]*\|\s*([^|]*?)\s*
 // the README status that reports each one.
 //
 // The vocabulary is three words rather than two because a run can END WITHOUT
-// DECIDING: ADR-001 T3 ran its gate, found the corpus saturated and therefore
-// unfit to decide, and recorded "neither ship nor withdraw". Its own acceptance
-// hint offered only `decision <ship|withdraw>`, so the real outcome had nowhere to
+// DECIDING: ADR-001 T3 ran its gate on 2026-08-22, found the corpus saturated
+// and therefore unfit to decide, and recorded "neither ship nor withdraw" (a
+// later run on an unsaturated corpus, 2026-09-05, withdrew the record — the
+// third word was needed first). Its own acceptance hint offered only
+// `decision <ship|withdraw>`, so the real outcome had nowhere to
+// go and landed in free text. That is not a one-off — ADR-004's supersession gate
 // go and landed in free text. That is not a one-off — ADR-004's supersession gate
 // reached the same third state on 2026-08-24 ("REFUSED — NOT 'no'; the gate could
 // not answer"), which is what issue #34 is still open about.
