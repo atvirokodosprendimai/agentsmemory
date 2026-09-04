@@ -270,3 +270,41 @@ func TestRecallIsGrantedSoNoTurnStopsToAskForIt(t *testing.T) {
 		}
 	}
 }
+
+// TestEveryRegisteredHookIsAlsoWritten is the rung that was missing, and the one
+// `doctor` found in production.
+//
+// ⚠ MEASURED 2026-09-04: three scripts were added to the embed and to hookPlans()
+// and the installer never wrote them. settings.json then named files that did not
+// exist — the event fired, the agent ran nothing, and EVERY test passed, because
+// each checks one rung: the script parses, the plan registers it, the manifest
+// declares it. Nothing asked whether the install produces the file the
+// registration points at.
+//
+// It derives both sides from source: the plan's script names, and the paths the
+// installer writes. A hook added tomorrow joins this check on the same commit.
+func TestEveryRegisteredHookIsAlsoWritten(t *testing.T) {
+	dir := t.TempDir()
+	inst, _, _ := newTestInstaller(t, false)
+	inst.targetDir = dir
+	if err := inst.writeAssets(); err != nil {
+		t.Fatalf("writeAssets: %v", err)
+	}
+	plans := inst.hookPlans()
+	if len(plans) == 0 {
+		t.Fatal("no plans — this check would pass vacuously")
+	}
+	for _, p := range plans {
+		if p.retire {
+			continue
+		}
+		script := p.cmd
+		if i := strings.LastIndex(script, "/"); i >= 0 {
+			script = script[i+1:]
+		}
+		script = strings.Trim(script, "'\"")
+		if _, err := os.Stat(filepath.Join(dir, script)); err != nil {
+			t.Errorf("%s is registered on %s but the install writes no such file: the agent runs nothing for that event", script, p.event)
+		}
+	}
+}

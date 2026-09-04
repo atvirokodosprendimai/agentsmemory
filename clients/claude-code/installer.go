@@ -763,6 +763,30 @@ func (i *Installer) writeAssets() error {
 			return err
 		}
 		i.ok("hook %s", filepath.Base(i.taskRecallHookPath()))
+
+		// ADR-051 T2, T3, T7. ⚠ THESE THREE WERE REGISTERED BEFORE THEY WERE
+		// WRITTEN, AND `doctor` IS WHAT CAUGHT IT. Adding a script to the embed and
+		// to hookPlans() makes settings.json name a file the installer never
+		// created: the event fires, the agent runs nothing, and every test passed
+		// because each checks one rung. NOT-INSTALLED is the verdict doctor exists
+		// to produce and this is the first time it produced a true one.
+		for _, w := range []struct {
+			asset string
+			path  string
+		}{
+			{anchorCueHookAsset, i.anchorCueHookPath()},
+			{touchedHookAsset, i.touchedHookPath()},
+			{statusLineAsset, i.statusLinePath()},
+		} {
+			body, err := i.source().ReadFile(w.asset)
+			if err != nil {
+				return err
+			}
+			if err := i.writeFile(w.path, body, 0o755); err != nil {
+				return err
+			}
+			i.ok("hook %s", filepath.Base(w.path))
+		}
 	}
 	// Only a hook-owning kit relocates the script: it is the one that also
 	// re-registers the new path, so no agent is left pointing at a deleted file.
