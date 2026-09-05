@@ -1,4 +1,4 @@
-# Task ADR-056-T2: `doctor --corpus` counts an unlabelled anchor as a finding
+# Task ADR-056-T2: `doctor --corpus` reports unlabelled anchors as a population, not a verdict
 
 **Depends-on:** none
 **Covers:** none — no spec
@@ -8,26 +8,26 @@
 **Consumes:** none
 **Data dependency:** hermetic
 **Proof map:** v1
-**Rests-on:** `the walk selects anchors with an empty repo`, `clean() includes the new population`
+**Rests-on:** `the walk selects anchors with an empty repo`, `the report prints the population and the exit code ignores it`
 
 ## Goal
 
-An operator running `doctor --corpus` learns how many anchors in the palace can never be attributed to a tree, with a sample of their ids, and the exit code says so.
+An operator running `doctor --corpus` learns how many anchors in the palace can never be attributed to a tree, with a sample of their ids and the call that labels them, and the exit code means exactly what it meant before.
 
 ## Affected Files
 
 | File | Change | Why |
 |------|--------|-----|
-| `cmd/server/doctorcorpus.go` | edit | `corpusFindings` gains `UnlabelledAnchors []string`; `walkCorpus` selects anchors whose `repo` is empty; `clean()` gains the term; `reportCorpus` prints the population with the same sample rendering as the three lost-reference classes, with one line saying why it is a finding (no tree can verify it) and the remedy (`am_update_drawer(code_anchors:)` with `repo`) |
-| `cmd/server/doctorcorpus_test.go` | edit | `TestDoctorCorpusReportsUnlabelledAnchors`: the rendering half over a `corpusFindings` with one unlabelled anchor, and the walk half over a migrated SQLite palace seeded with one labelled and one unlabelled anchor, the way `TestDoctorCorpusFindsRealDriftInARealDatabase` already drives it |
+| `cmd/server/doctorcorpus.go` | edit | `corpusFindings` gains `UnlabelledAnchors []string`; `walkCorpus` selects anchors whose `repo` is empty; `reportCorpus` prints the population at every run, including zero, the way it prints `EndedFactSources` — one line saying why it matters (no tree can verify them) and the remedy (`am_update_drawer(code_anchors:)` with `repo`), then a `shortSample` of ids when there are any; `clean()` is NOT touched |
+| `cmd/server/doctorcorpus_test.go` | edit | `TestDoctorCorpusReportsUnlabelledAnchors`: the walk half over a migrated SQLite palace seeded with one labelled and one unlabelled anchor, the way `TestDoctorCorpusFindsRealDriftInARealDatabase` already drives it, and the rendering half over a `corpusFindings` value |
 
-`clean()` is the selecting line: a population counted by the walk and left out of `clean()` is printed and never changes the exit code, which is the finding this repository's §Reachability section keeps recording. The mutant is removing the term from `clean()`.
+The selecting line is the print in `reportCorpus`: a population the walk counts and the report never prints is invisible, and a population the report prints and `clean()` consults is a verdict on a legal state — the review of `2344964` is why the second is wrong here (ADR-056 §Decision, "the population does not own the exit code"). The mutant is on the walk's predicate: with `repo = ''` removed the walk selects every anchor or none, and the exact-id assertion goes red.
 
 ## Ordered Steps
 
-1. [S1] Write `TestDoctorCorpusReportsUnlabelledAnchors` and run it red: seed a palace with one memory carrying two anchors (one with `repo`, one with `repo: ""`), run `walkCorpus`, assert `UnlabelledAnchors` holds exactly the unlabelled one's id and `clean()` is false; then `reportCorpus` over the findings, assert the id and the word `repo` appear in the output and the error is non-nil; then a findings value with every anchor labelled reports clean. Today the field does not exist, so this is red at compile time.
-2. [S2] Add the field, the query, the `clean()` term and the report block. `[proof: mutation]`
-3. [S3] Run the fence green, including the existing corpus tests, so the three original populations still report as they did. `[proof: acceptance]`
+1. [S1] Write `TestDoctorCorpusReportsUnlabelledAnchors` and run it red: seed a palace with one memory carrying two anchors (one with `repo`, one with `repo: ""`), run `walkCorpus`, assert `UnlabelledAnchors` holds exactly the unlabelled one's id and `clean()` is still true; then `reportCorpus` over the findings, assert the id, the word `repo` and `am_update_drawer` appear in the output and the error is nil; then a findings value with no unlabelled anchor still prints the population line with a zero count. Today the field does not exist, so this is red at compile time.
+2. [S2] Add the field, the query and the report block; leave `clean()` as it is. `[proof: mutation]`
+3. [S3] Run the fence green, including the existing corpus tests, so the three original populations and the exit code report as they did. `[proof: acceptance]`
 
 ## Acceptance
 
@@ -41,27 +41,29 @@ go test ./cmd/server/ -run 'TestDoctorCorpus' -count=1
 
 | Test name | File | Verifies | Covers | Steps |
 |-----------|------|----------|--------|-------|
-| `TestDoctorCorpusReportsUnlabelledAnchors` | `cmd/server/doctorcorpus_test.go` | the walk selects exactly the anchors with an empty `repo`, the report names them and the remedy, and the verdict is non-zero for one and zero for none | — | S1, S2 |
+| `TestDoctorCorpusReportsUnlabelledAnchors` | `cmd/server/doctorcorpus_test.go` | the walk selects exactly the anchors with an empty `repo`, the report names them and the remedy at every run including zero, and the verdict is unchanged by them | — | S1, S2 |
 
 ## Reachability
 
 | Rung | How this task shows it |
 |------|------------------------|
 | 1 — exists | the field and the query |
-| 2 — something selects it | `clean()` reads it; the mutant is deleting that term, which leaves the report printing the id while `reportCorpus` returns nil — the test's error assertion goes red |
-| 3 — the caller can discover it | `doctor --corpus` is already advertised in help (`TestDoctorCorpusIsAdvertisedInHelp`); the report's own line says what the population is and how to clear it |
+| 2 — something selects it | `reportCorpus` prints it; the mutant is deleting the walk's `repo = ''` predicate, which turns the exact-id assertion red |
+| 3 — the caller can discover it | `doctor --corpus` is already advertised in help (`TestDoctorCorpusIsAdvertisedInHelp`); the population line is printed even at zero, so an operator learns the check exists from a clean run |
 | 4 — it is used | a run against the local palace after the change; the seven measured on 2026-09-04 were labelled by hand that day, so the expected reading is zero and a non-zero one is a new finding |
 
 ## Mutation Log
 
 ## Invariants
 
+- `clean()` and the exit code are unchanged: an unlabelled anchor is a legal write and never a corpus failure.
 - The three existing populations and `EndedFactSources` report exactly as before; the new block is additive.
 - A read-only run: `doctor --corpus` repairs nothing (`TestTheReadOnlyPathMintsNothing` stands).
 
 ## Risks
 
-- A palace with many unlabelled anchors floods the report — mitigated by reusing `shortSample`, which already bounds the other three lists.
+- A palace with many unlabelled anchors floods the report — mitigated by reusing `shortSample`, which already bounds the other lists.
+- An operator reads a zero exit as "nothing to do" and never sees the line — accepted by the ADR as the cost of not going red on a legal state; the line is printed at every run so it is at least always there.
 
 ## Stop Condition
 
@@ -70,6 +72,7 @@ Stop if the anchors table has no `repo` column on the walk's read model (it is `
 ## Out of Scope
 
 - Labelling the anchors it finds — the remedy is named in the report and belongs to the session that owns the memory.
+- Making the population fail the check, bounded or not — rejected in the ADR's Alternatives.
 - The write-side report — T1's job.
 
 ## Verification Log

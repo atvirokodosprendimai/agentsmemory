@@ -18,7 +18,7 @@ README must be regenerated.
 | ID | Title | Status | Covers | Acceptance |
 |----|-------|--------|--------|------------|
 | T1 | Both write tools report an anchor accepted without a label | pending | — | `go test ./internal/mcptest/... -run 'TestAnUnlabelledAnchorIsReportedAtWrite$' …` |
-| T2 | `doctor --corpus` counts an unlabelled anchor as a finding | pending | — | `go test ./cmd/server/ -run 'TestDoctorCorpusReportsUnlabelledAnchors$' …` |
+| T2 | `doctor --corpus` reports unlabelled anchors as a population, not a verdict | pending | — | `go test ./cmd/server/ -run 'TestDoctorCorpusReportsUnlabelledAnchors$' …` |
 
 Status: `pending` | `partial` | `blocked` | `done`.
 
@@ -29,5 +29,6 @@ None — the tasks are independent.
 ## Notes
 
 - Both tasks are hermetic. The seven unlabelled anchors measured on the local palace on 2026-09-04
-  were labelled by hand that day, so a `doctor --corpus` run against it after T2 is expected to be
-  clean; a red run there is a new finding, not a test of T2.
+  were labelled by hand that day, so a `doctor --corpus` run against it after T2 is expected to
+  print zero for the population; a non-zero reading there is a new finding, not a test of T2, and
+  it does not change the exit code either way.
