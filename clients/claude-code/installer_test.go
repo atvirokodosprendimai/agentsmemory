@@ -259,8 +259,9 @@ func TestInstallRecommendedSequence(t *testing.T) {
 		"mcp add --transport http --scope user agentsmemory " + defaultMCPURL + " --header Authorization: Bearer TESTTOK",
 		// recommended: codebase-memory installer + registration
 		"SHELL: " + codebaseMemoryInstall,
-		"mcp remove --scope user codebasememory",
-		"mcp add --transport stdio --scope user codebasememory -- " + bin,
+		"mcp remove --scope user " + retiredCodebaseMemoryName,
+		"mcp remove --scope user " + codebaseMemoryMCPName,
+		"mcp add --transport stdio --scope user " + codebaseMemoryMCPName + " -- " + bin,
 		// recommended: review plugin
 		"plugin marketplace add openai/codex-plugin-cc",
 		"plugin install codex@openai-codex",
@@ -662,8 +663,9 @@ func TestInstallCodexRecommended(t *testing.T) {
 		"mcp remove agentsmemory",
 		"mcp add agentsmemory --url " + defaultMCPURL + " --bearer-token-env-var " + tokenEnvVar,
 		"SHELL: " + codebaseMemoryInstall,
-		"mcp remove codebasememory",
-		"mcp add codebasememory -- " + expandTilde(codebaseMemoryBin),
+		"mcp remove " + retiredCodebaseMemoryName,
+		"mcp remove " + codebaseMemoryMCPName,
+		"mcp add " + codebaseMemoryMCPName + " -- " + expandTilde(codebaseMemoryBin),
 	}
 	if got := renderAll(rr.calls); !equalStrings(got, want) {
 		t.Errorf("recommended sequence mismatch\n got: %v\nwant: %v", got, want)
@@ -2025,4 +2027,58 @@ func TestKitWithNoCLINeedsNoCLI(t *testing.T) {
 	if _, err := resolveKitBin(missing, "", "AIAGENTMEMORY_NOSUCH_BIN"); err == nil {
 		t.Error("a kit that names a CLI was allowed to proceed without it")
 	}
+}
+
+// TestRecommendedRegistersThePeerOnceUnderUpstreamsName is ADR-057 T2's
+// installer half. Upstream's install.sh registers the peer as
+// codebase-memory-mcp; the kit used to register the same binary AGAIN as
+// codebasememory, so a --recommended machine ran two daemons and the
+// protocol's tool prefix named only one of them. Now: the retired name is
+// removed, and codebase-memory-mcp is registered only when the registry
+// Claude reads does not already carry it.
+func TestRecommendedRegistersThePeerOnceUnderUpstreamsName(t *testing.T) {
+	t.Run("upstream already registered it: retire ours, add nothing", func(t *testing.T) {
+		inst, rr, dir := newTestInstaller(t, true)
+		raw, _ := json.Marshal(map[string]any{"mcpServers": map[string]any{
+			codebaseMemoryMCPName: map[string]any{"command": expandTilde(codebaseMemoryBin)},
+		}})
+		if err := os.WriteFile(filepath.Join(dir, ".claude.json"), raw, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := inst.run(); err != nil {
+			t.Fatalf("install: %v", err)
+		}
+		got := renderAll(rr.calls)
+		if !containsString(got, "mcp remove --scope user "+retiredCodebaseMemoryName) {
+			t.Errorf("the retired name %q was not removed:\n%v", retiredCodebaseMemoryName, got)
+		}
+		for _, call := range got {
+			if strings.Contains(call, "mcp add") && strings.Contains(call, codebaseMemoryMCPName) {
+				t.Errorf("registered %q a second time over upstream's registration:\n%v", codebaseMemoryMCPName, got)
+			}
+			if strings.Contains(call, "mcp add") && strings.Contains(call, retiredCodebaseMemoryName) {
+				t.Errorf("registered the retired name %q:\n%v", retiredCodebaseMemoryName, got)
+			}
+		}
+	})
+
+	t.Run("nothing registered yet: register upstream's name once", func(t *testing.T) {
+		inst, rr, _ := newTestInstaller(t, true)
+		if err := inst.run(); err != nil {
+			t.Fatalf("install: %v", err)
+		}
+		got := renderAll(rr.calls)
+		adds := 0
+		for _, call := range got {
+			if strings.Contains(call, "mcp add") && strings.Contains(call, "codebase") {
+				adds++
+				if !strings.Contains(call, codebaseMemoryMCPName+" -- ") {
+					t.Errorf("registered the peer under a name other than %q: %s", codebaseMemoryMCPName, call)
+				}
+			}
+		}
+		if adds != 1 {
+			t.Errorf("peer registrations = %d, want exactly 1:\n%v", adds, got)
+		}
+	})
 }
