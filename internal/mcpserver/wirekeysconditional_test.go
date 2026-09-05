@@ -65,10 +65,108 @@ const responseMapIdent = "out"
 func TestEveryConditionalWireKeyIsDescribedByItsOwnTool(t *testing.T) {
 	pkg := parsePackage(t)
 
+	// ⚠ A KEY BEYOND ONE HOP WOULD GO UNCHECKED SILENTLY, so it is counted rather
+	// than left to the comment above. A helper that renders a conditional key and
+	// is called by no registration attributes to no tool, so every key in it
+	// disappears from this gate without anything going red. That set is empty
+	// today; a helper-of-a-helper added tomorrow would otherwise make the gate
+	// quietly narrower than its name.
+	if orphans := pkg.unattributedHelpers(); len(orphans) > 0 {
+		sort.Strings(orphans)
+		t.Errorf("conditional response keys render in %v, which no tool registration calls "+
+			"directly.\n  They are attributed to no tool, so nothing checks whether a caller can "+
+			"discover them. Either call the helper from the registration, or widen the attribution "+
+			"past one hop — do not leave the gate narrower than its name.", orphans)
+	}
+
+	msgs := pkg.undescribed()
+
+	// A universe of zero is a gate that cannot fail. This package renders dozens of
+	// conditional keys; zero means the shape changed and the check went quiet.
+	if pkg.conditionalKeyCount == 0 {
+		t.Fatal("no conditional response-map key found in this package — it renders dozens, " +
+			"so the pattern stopped matching and this check is passing vacuously")
+	}
+	if len(pkg.registrations) == 0 {
+		t.Fatal("no tool registration found — the newTool matcher broke, and with no tool to " +
+			"attribute a key to every finding would silently disappear")
+	}
+
+	for _, m := range msgs {
+		t.Errorf("%s is rendered only when its case occurs and is named in no description of "+
+			"that tool.\n  A caller who has not hit that case cannot learn the key exists. Name it "+
+			"in the tool's own prose, or add \"tool.key\" to conditionalUndescribedOnPurpose with "+
+			"the reason.", m)
+	}
+
+	// ⚠ A CORPUS WITH ZERO OFFENDERS CANNOT EXERCISE THE BRANCH THAT REPORTS ONE,
+	// so the half above passing proves only that the tree is clean — never that the
+	// gate can still see dirt. This drives the SAME analyze() over a fixture that IS
+	// an offender. It is a SUBTEST rather than a sibling so one -run filter covers
+	// both, and it shares the extractor rather than copying it: this repo has
+	// shipped a falsifiability half that reimplemented the check twice, and
+	// severing the real one left both green.
+	t.Run("catches an offender", func(t *testing.T) {
+		pkg := analyze(t, map[string]string{"fixture.go": offenderFixture})
+		got := map[string]bool{}
+		for _, m := range pkg.undescribed() {
+			got[strings.SplitN(m, " ", 2)[0]] = true
+		}
+
+		// Undescribed and conditional, in the handler and one hop out.
+		for _, want := range []string{"fixture_tool.undescribed_key", "fixture_tool.helper_key"} {
+			if !got[want] {
+				t.Errorf("the extractor did not report %s; with the fixture unchanged that means "+
+					"this gate has stopped finding the defect it exists for, and the clean run "+
+					"above proves nothing", want)
+			}
+		}
+		// Described, so discoverable; and unconditional, so present in every answer.
+		for _, unwanted := range []string{"fixture_tool.described_key", "fixture_tool.always"} {
+			if got[unwanted] {
+				t.Errorf("the extractor reported %s, which is not the class: a key named in the "+
+					"tool's own prose, or set unconditionally, is discoverable from one call", unwanted)
+			}
+		}
+	})
+}
+
+// offenderFixture is a registration that IS the defect: one conditional key named
+// in its prose, one that is not, one rendered a hop out in a helper, and one set
+// unconditionally. It is source text rather than a testdata file so the shape the
+// gate must catch is readable beside the assertions about it.
+const offenderFixture = `package fixture
+
+func registerFixture(reg *registrar) {
+	tool := newTool("fixture_tool",
+		mcp.WithDescription("Prose naming described_key and nothing else."),
+	)
+	reg.add(tool, func() any {
+		out := map[string]any{}
+		out["always"] = 1
+		if cond {
+			out["described_key"] = 2
+			out["undescribed_key"] = 3
+		}
+		fixtureHelper(out)
+		return out
+	})
+}
+
+func fixtureHelper(out map[string]any) {
+	if cond {
+		out["helper_key"] = 4
+	}
+}
+`
+
+// undescribed returns "tool.key (where)" for every conditional key a tool renders
+// and its own prose does not name, exemptions removed, sorted.
+func (p *packageView) undescribed() []string {
 	var msgs []string
 	seen := map[string]bool{}
-	for _, reg := range pkg.registrations {
-		for key, where := range pkg.keysFor(reg) {
+	for _, reg := range p.registrations {
+		for key, where := range p.keysFor(reg) {
 			id := reg.tool + "." + key
 			if seen[id] {
 				continue
@@ -83,25 +181,8 @@ func TestEveryConditionalWireKeyIsDescribedByItsOwnTool(t *testing.T) {
 			msgs = append(msgs, id+" ("+where+")")
 		}
 	}
-
-	// A universe of zero is a gate that cannot fail. This package renders dozens of
-	// conditional keys; zero means the shape changed and the check went quiet.
-	if pkg.conditionalKeyCount == 0 {
-		t.Fatal("no conditional response-map key found in this package — it renders dozens, " +
-			"so the pattern stopped matching and this check is passing vacuously")
-	}
-	if len(pkg.registrations) == 0 {
-		t.Fatal("no tool registration found — the newTool matcher broke, and with no tool to " +
-			"attribute a key to every finding would silently disappear")
-	}
-
 	sort.Strings(msgs)
-	for _, m := range msgs {
-		t.Errorf("%s is rendered only when its case occurs and is named in no description of "+
-			"that tool.\n  A caller who has not hit that case cannot learn the key exists. Name it "+
-			"in the tool's own prose, or add \"tool.key\" to conditionalUndescribedOnPurpose with "+
-			"the reason.", m)
-	}
+	return msgs
 }
 
 // TestConditionalUndescribedOnPurposeIsJustified refuses an entry with no reason,
@@ -152,6 +233,7 @@ func TestConditionalUndescribedOnPurposeIsJustified(t *testing.T) {
 // calls.
 type registration struct {
 	tool        string
+	fn          string
 	file        string
 	description string
 	calls       map[string]bool
@@ -191,10 +273,46 @@ func (p *packageView) keysFor(reg *registration) map[string]string {
 
 var newToolCall = regexp.MustCompile(`newTool\(\s*"([a-z_]+)"`)
 
-// parsePackage reads this package's non-test sources and indexes, per function,
-// the conditional response keys it renders and the package-local functions it
-// calls; then binds each tool registration to the function that declares it.
+// unattributedHelpers names functions that render a conditional response key but
+// are called by no registration, so their keys reach no tool's prose check.
+//
+// A registration renders its own keys, so it is never its own orphan.
+func (p *packageView) unattributedHelpers() []string {
+	called := map[string]bool{}
+	isRegistration := map[string]bool{}
+	for _, reg := range p.registrations {
+		isRegistration[reg.fn] = true
+		for callee := range reg.calls {
+			called[callee] = true
+		}
+	}
+	var orphans []string
+	for fn := range p.helperKeys {
+		if isRegistration[fn] || called[fn] {
+			continue
+		}
+		orphans = append(orphans, fn)
+	}
+	return orphans
+}
+
+// parsePackage reads this package's non-test sources and hands them to analyze.
 func parsePackage(t *testing.T) *packageView {
+	t.Helper()
+	return analyze(t, packageSources(t))
+}
+
+// analyze indexes, per function, the conditional response keys it renders and the
+// package-local functions it calls; then binds each tool registration to the
+// function that declares it.
+//
+// It takes sources rather than reading them so the falsifiability subtest can
+// drive THIS function — not a copy of it — over a fixture that is an offender. A
+// falsifiability half that reimplements the extraction pins nothing: this repo
+// has shipped that mistake twice (TestASpecBindingThatNamesNothingIsCaught and
+// TestAHumanObservedSignOffAgreesWithTheIndex both record it), and severing the
+// real check left both green.
+func analyze(t *testing.T, sources map[string]string) *packageView {
 	t.Helper()
 	view := &packageView{
 		helperKeys: map[string]map[string]bool{},
@@ -202,7 +320,7 @@ func parsePackage(t *testing.T) *packageView {
 	}
 	fset := token.NewFileSet()
 
-	for path, src := range packageSources(t) {
+	for path, src := range sources {
 		file, err := parser.ParseFile(fset, path, src, 0)
 		if err != nil {
 			t.Fatalf("parse %s: %v", path, err)
@@ -229,13 +347,12 @@ func parsePackage(t *testing.T) *packageView {
 			}
 			reg := &registration{
 				tool:  m[1],
+				fn:    fn.Name.Name,
 				file:  path,
 				keys:  keys,
 				calls: calleesIn(fn),
 			}
-			for _, d := range descriptionText.FindAllStringSubmatch(body, -1) {
-				reg.description += d[1] + "\n"
-			}
+			reg.description = descriptionsIn(fn)
 			view.registrations = append(view.registrations, reg)
 		}
 	}
@@ -267,6 +384,49 @@ func conditionalKeysIn(fn *ast.FuncDecl) map[string]bool {
 		return true
 	})
 	return keys
+}
+
+// descriptionsIn returns the prose an agent reads at this tool's call: every
+// string literal inside a Description or WithDescription argument, tool-level and
+// per-parameter alike, since the older gate's rule is that either counts.
+//
+// ⚠ IT READS THE AST RATHER THAN REUSING descriptionText, AND THE FALSIFIABILITY
+// SUBTEST IS WHAT FORCED THAT. The shared regexp ends at a literal `))`, which
+// holds for `mcp.WithString(name, mcp.Description(…))` and fails for a
+// tool-level `mcp.WithDescription(…)` that no second paren follows — it matches
+// nothing, the tool reads as having no prose, and every key it renders reports as
+// undescribed. On the real tree that never fired, because a later `))` always
+// exists to close on and the over-capture happens to include the text; on the
+// fixture it fired immediately. Walking the call is exact, needs no closing-paren
+// coincidence, and handles a concatenated or fmt.Sprintf'd description, which the
+// registrations here use.
+func descriptionsIn(fn *ast.FuncDecl) string {
+	var prose strings.Builder
+	ast.Inspect(fn, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		sel, ok := call.Fun.(*ast.SelectorExpr)
+		if !ok || (sel.Sel.Name != "Description" && sel.Sel.Name != "WithDescription") {
+			return true
+		}
+		for _, arg := range call.Args {
+			ast.Inspect(arg, func(inner ast.Node) bool {
+				lit, ok := inner.(*ast.BasicLit)
+				if !ok || lit.Kind != token.STRING {
+					return true
+				}
+				if text, err := strconv.Unquote(lit.Value); err == nil {
+					prose.WriteString(text)
+					prose.WriteString("\n")
+				}
+				return true
+			})
+		}
+		return true
+	})
+	return prose.String()
 }
 
 // calleesIn returns the names of package-local functions this function calls.
