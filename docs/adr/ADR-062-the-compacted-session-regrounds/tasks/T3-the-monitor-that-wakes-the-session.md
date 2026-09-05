@@ -5,7 +5,7 @@
 **Produces:** the `agentsmemory-reground/<session>` marker, `/am` Step 1d
 **Consumes:** T1's `prompt=` note field and `source=compact` block
 **Proof map:** v1
-**Rests-on:** `the marker is written on a compaction`, `only on a compaction`, `the two halves resolve one directory`, `the wake names the task`, `a slash command is not the task`
+**Rests-on:** `the marker is written on a compaction`, `only on a compaction`, `the two halves resolve one directory`, `the wake names the task`, `a slash command is not the task`, `a marker already on disk is not an event`, `both protocol copies name the wake`
 **Covers:** —
 
 ## Goal
@@ -48,20 +48,25 @@ event. Those are two mechanisms and the record collapsed them into one.
 6. [S6] Drop a leading-`/` turn in the PreCompact extraction, with `TestASlashCommandIsNotTheTaskInFlight`.
 7. [S7] Mutants, one per Rests-on mechanism. [proof: mutation]
 8. [S8] Record one real compaction in which the monitor fires and the session re-grounds. [proof: human: no test can observe a notification arriving in a live session; only a transcript shows the wake changed what the session did next]
+9. [S9] Pin `am.md` and `bootstrap.md` equal on the wake and on its Claude-only caveat, with `TestBothProtocolsNameTheRegroundWake`. Two copies of one protocol is this repository's recorded hazard, and `Monitor` is a Claude Code tool — codex and pi run the same bootstrap and can arm nothing.
 
 ## Acceptance
 
 ```bash
-gofmt -l clients/claude-code | grep -q . && exit 1; go vet ./clients/... && go test ./clients/claude-code/ -run 'TestACompactionWakesTheSessionThroughTheMonitor|TestOnlyACompactionArmsTheWake|TestASlashCommandIsNotTheTaskInFlight' -count=1
+gofmt -l clients/claude-code | grep -q . && exit 1
+go vet ./clients/... || exit 1
+go test ./clients/claude-code/ -run '^(TestACompactionWakesTheSessionThroughTheMonitor|TestOnlyACompactionArmsTheWake|TestASlashCommandIsNotTheTaskInFlight|TestBothProtocolsNameTheRegroundWake)$' -count=1 -v 2>&1 | tee /tmp/a62t3.out
+if grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/a62t3.out; then echo "vacuous or failing"; exit 1; fi
 ```
 
 ## Tests
 
 | Test name | File | Verifies | Covers | Steps |
 |---|---|---|---|---|
-| `TestACompactionWakesTheSessionThroughTheMonitor` | `clients/claude-code/regroundwake_test.go` | the shipped monitor script emits a line naming the task for the marker the real hook wrote, under both addressing modes | — | S1, S3, S4, S5 |
+| `TestACompactionWakesTheSessionThroughTheMonitor` | `clients/claude-code/regroundwake_test.go` | armed over a directory already holding a stale marker and a subdirectory, the shipped script emits the NEW task and never a replayed or empty one, under both addressing modes | — | S1, S3, S4, S5, S7 |
 | `TestOnlyACompactionArmsTheWake` | `clients/claude-code/regroundwake_test.go` | startup/resume/clear write no marker | — | S2 |
 | `TestASlashCommandIsNotTheTaskInFlight` | `clients/claude-code/regroundwake_test.go` | the compaction command is not recorded as the task | — | S6 |
+| `TestBothProtocolsNameTheRegroundWake` | `clients/claude-code/regroundwake_test.go` | `am.md` and `bootstrap.md` agree on the wake and on its Claude-only caveat | — | S9 |
 
 ## Invariants
 
