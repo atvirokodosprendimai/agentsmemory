@@ -3801,3 +3801,19 @@ what such a start hands back, because two changes writing the same injection is 
 line is that deferral's receipt in the file it points at — `adr-debt` reported it UNRECEIPTED
 (the destination existed and never named the source ADR), which defeats the sweep that justified
 punting the question in the first place.
+
+## `SessionStart` has a fifth source, `fork`, and the wake-up ignores it — 2026-09-05
+
+The recall hook branches on `source`: `compact` reads the PreCompact note, `startup` and `resume` read
+the last-turn note, and anything else falls through to the plain branch-work recall with `wing_craft`
+second. Claude Code's hooks reference lists **five** SessionStart matcher values — `startup`,
+`resume`, `clear`, `compact`, `fork` — and `fork` is not one the hook has ever handled. Measured
+2026-09-05 with a real last-turn note on disk: `source=startup` opens with the `Last turn (…)` block,
+`source=fork` does not, and falls straight to the recalled memories. A forked session is a context
+that continues work someone else was doing, so it is arguably the case that most wants the note. Not
+changed on discovery because which note a fork should read is a design question, not a typo: it
+inherits the parent's transcript but is a different session id, so the per-session marker and note
+keys do not resolve to the parent's. `clear` is deliberately excluded and stays so — a cleared
+context is a deliberate reset, and handing back what was cleared would defeat the user's own action.
+Found while checking M's collected references (Reddit, claudikins, anthropics/claude-code#32407)
+against what this kit already ships.
