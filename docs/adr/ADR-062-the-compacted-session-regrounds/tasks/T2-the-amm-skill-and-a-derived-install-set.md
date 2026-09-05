@@ -1,6 +1,6 @@
 # Task ADR-062-T2: The `amm` skill, and an install set derived from the embed
 
-**Status:** partial
+**Status:** done
 **Depends-on:** none
 **Produces:** `skills/amm/SKILL.md`, `nativeSkillAssets()` derived from the embed
 **Consumes:** the `PAUSE … /amm <task>` line (T1)
@@ -63,4 +63,9 @@ be installed and unreachable, which is the defect this record's own audit names.
 
 ## Mutation Log
 
+- 2026-09-05 · 2df85cb* · mutant killed · exit 1 · `clients/claude-code/assets.go` · Restores the hand-kept list this function replaced. The embed is a GLOB, so amm still ships INSIDE the binary; it is simply installed by nothing and discovered by nobody — present in the executable, absent from every config dir, reported by no other check. That is the exact silent direction the derivation exists to close, and the state the tree was in the moment ADR-062 added a second skill. · acceptance-sha256:072702833ca4759377d4205336aa33746fee2e6f7c2453237b26fed7a58dfa1e · covers:every embedded skill is installed
+
 ## Verification Log
+- 2026-09-05 · 2df85cb · exit 0 · `gofmt -l clients/claude-code | grep -q . && exit 1; go vet ./clients/... && go test ./clients/claude-code/ -run 'TestEverySkillEmbeddedIsInstalled' -count=1` · acceptance-sha256:072702833ca4759377d4205336aa33746fee2e6f7c2453237b26fed7a58dfa1e · ms:2880
+- 2026-09-05 · 2df85cb* · exit 0 · `gofmt -l clients/claude-code | grep -q . && exit 1; go vet ./clients/... && go test ./clients/claude-code/ -run 'TestEverySkillEmbeddedIsInstalled' -count=1` · acceptance-sha256:072702833ca4759377d4205336aa33746fee2e6f7c2453237b26fed7a58dfa1e · ms:2552
+- 2026-09-05 · human-observed · S2 and the Stop Condition, both answered by this session's own harness. The Stop Condition asks whether Claude Code still discovers skills/<name>/SKILL.md: it does — /amm appears in THIS session's available-skills list, described as 'Re-ground a session that lost its context — after a compaction, a resume, or any point where the work continues but the reasoning behind it is gone', which is the SKILL.md front matter reaching the model. So the skill is installed AND reachable, which is the pair this record's own audit says nothing else checks. S2's body is prose no test can judge (a word-count gate would measure padding, the reason internal/doclint refuses one); what is checkable is that it POINTS at /am's steps rather than restating them, and it does.
