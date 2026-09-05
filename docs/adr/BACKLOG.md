@@ -3712,3 +3712,11 @@ kills the hook at that bound; whether it reaps the hook's grandchildren is the h
 not something this tree can gate. NOT covered: the four
 non-test `exec.Command` sites in `clients/claude-code` (`installer.go` running install scripts,
 `mineclaude.go` and `verify.go` reading a git remote) — production code, a different change.
+
+## `doctor` could ask codebase-memory for `index_status` over stdio — 2026-09-05
+
+Deferred from `docs/adr/ADR-057-codebase-memory-is-a-checked-peer.md` (Out of Scope). The strongest
+check of the peer is to spawn it and ask whether this repository's index is ready; T1 stops at the
+files because a diagnostic that starts a daemon inherits that daemon's stale-IPC start (recorded
+2026-08-31: a leftover socket makes start poll to a 30 s timeout). Worth doing once that start is
+bounded upstream.
