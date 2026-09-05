@@ -18,7 +18,7 @@ import (
 // repository has already fixed at the read end; this is it at the write end.
 func TestParseAnchorListSeparatesEmptyFromUnreadable(t *testing.T) {
 	deliberate := []any{}
-	if got, readable, sent := parseAnchorList(deliberate); !readable || len(got) != 0 || sent != 0 {
+	if got, readable, sent, _ := parseAnchorList(deliberate); !readable || len(got) != 0 || sent != 0 {
 		t.Errorf("a genuine empty list must read as readable, empty and sent=0, got readable=%v "+
 			"len=%d sent=%d — otherwise a deliberate clear becomes impossible", readable, len(got), sent)
 	}
@@ -33,7 +33,7 @@ func TestParseAnchorListSeparatesEmptyFromUnreadable(t *testing.T) {
 		"one entry, no snippet":   []any{map[string]any{"path": "a.go"}},
 		"several, all unreadable": []any{map[string]any{"paht": "a.go"}, "not an object"},
 	} {
-		got, readable, sent := parseAnchorList(raw)
+		got, readable, sent, _ := parseAnchorList(raw)
 		if !readable {
 			t.Errorf("%s: a list is still a list", name)
 		}
@@ -51,7 +51,7 @@ func TestParseAnchorListSeparatesEmptyFromUnreadable(t *testing.T) {
 		"nil":                      nil,
 		"number":                   float64(3),
 	} {
-		if _, readable, _ := parseAnchorList(raw); readable {
+		if _, readable, _, _ := parseAnchorList(raw); readable {
 			t.Errorf("%s read as a valid list — at the replace site that clears the memory's "+
 				"anchors and reports success", name)
 		}
@@ -64,7 +64,7 @@ func TestParseAnchorListSeparatesEmptyFromUnreadable(t *testing.T) {
 		map[string]any{"path": "", "snippet": "no path"},
 		"not an object",
 	}
-	got, readable, sent := parseAnchorList(mixed)
+	got, readable, sent, _ := parseAnchorList(mixed)
 	if sent != 3 {
 		t.Errorf("sent=%d, want 3", sent)
 	}
@@ -92,7 +92,7 @@ func TestAnchorReplacementRefusesRatherThanClears(t *testing.T) {
 		"one entry, no snippet":          []any{map[string]any{"path": "a.go"}},
 		"several, all unreadable":        []any{map[string]any{"paht": "a.go"}, "not an object"},
 	} {
-		anchors, refusal := anchorReplacement(raw)
+		anchors, _, refusal := anchorReplacement(raw)
 		if refusal == "" {
 			t.Errorf("%s: accepted, and would REPLACE the memory's anchors with %d — a caller who "+
 				"got the argument wrong must not lose the anchors they already had", name, len(anchors))
@@ -100,7 +100,7 @@ func TestAnchorReplacementRefusesRatherThanClears(t *testing.T) {
 	}
 
 	// A deliberate clear must still work, or the anchors become unremovable.
-	if anchors, refusal := anchorReplacement([]any{}); refusal != "" || len(anchors) != 0 {
+	if anchors, _, refusal := anchorReplacement([]any{}); refusal != "" || len(anchors) != 0 {
 		t.Errorf("[] must clear: refusal=%q len=%d", refusal, len(anchors))
 	}
 
@@ -109,7 +109,7 @@ func TestAnchorReplacementRefusesRatherThanClears(t *testing.T) {
 		map[string]any{"path": "a.go", "snippet": "func A() {}"},
 		map[string]any{"path": "", "snippet": "no path"},
 	}
-	if anchors, refusal := anchorReplacement(mixed); refusal != "" || len(anchors) != 1 {
+	if anchors, _, refusal := anchorReplacement(mixed); refusal != "" || len(anchors) != 1 {
 		t.Errorf("a list with one good row must succeed and drop the bad one: refusal=%q len=%d",
 			refusal, len(anchors))
 	}

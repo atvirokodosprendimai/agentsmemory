@@ -57,6 +57,8 @@ go test ./internal/mcpserver/ ./internal/mcptest/ -count=1
 
 ## Mutation Log
 
+- 2026-09-05 · 1a2287d* · mutant killed · exit 1 · `internal/mcpserver/drawers.go` · parseAnchorList stops counting anchors with no repo, so neither write tool reports one; both positive cases of TestAnUnlabelledAnchorIsReportedAtWrite must go red · acceptance-sha256:4d854a7117e87acd860074ed21111ccc09fbd3ea073d55bfb46f06b9619e15d3
+
 ## Invariants
 
 - No write is refused for a missing label; `AddAnchors` and `ReplaceAnchors` store exactly what they store today.
@@ -77,3 +79,18 @@ Stop if `am_update_drawer`'s `code_anchors` branch turns out not to run through 
 - Anchors carried forward by `carryAnchors` — the ADR's Out of Scope, permanent.
 
 ## Verification Log
+- 2026-09-05 · 1a2287d* · exit 1 · `set -o pipefail …` · acceptance-sha256:4d854a7117e87acd860074ed21111ccc09fbd3ea073d55bfb46f06b9619e15d3 · ms:2119
+  ```
+  --- last 10 line(s) of stdout (of 45 after folding 45 raw)
+  2026/09/05 09:23:03 OK   00037_search_events_origin.sql (316.42µs)
+  2026/09/05 09:23:03 goose: successfully migrated database to version: 37
+  --- FAIL: TestAnUnlabelledAnchorIsReportedAtWrite (0.04s)
+      --- FAIL: TestAnUnlabelledAnchorIsReportedAtWrite/am_add_drawer_reports_the_count_and_the_remedy (0.00s)
+          anchorlabel_test.go:27: anchors_unlabelled = <nil>, want 1: map[chunks:1 code_anchors:2 drawers:[map[chunk_index:0 content:the retry budget is three attempts filed_at:2026-09-05T06:23:03Z id:e3849f25b1fc114d7bb33a560b5de0dcb25fa0074cfe42c2a13c513424cfb4c9 room:decisions source_file: uri:agentsmemory://wing/wing_anchor/room/decisions/drawer/e3849f25b1fc114d7bb33a560b5de0dcb25fa0074cfe42c2a13c513424cfb4c9 wing:wing_anchor]] edge_derived:true has_edge:true ok:true]
+      --- FAIL: TestAnUnlabelledAnchorIsReportedAtWrite/am_update_drawer_with_code_anchors_reports_the_same (0.00s)
+          anchorlabel_test.go:43: anchors_unlabelled = <nil>, want 1: map[code_anchors:1 drawer:map[chunk_index:0 content:the retry budget is four attempts filed_at:2026-09-05T06:23:03Z id:46e00657a521ee3d14e73aaaab2ef813407b28484ee0638365f1c765d4c23854 room:decisions source_file: uri:agentsmemory://wing/wing_anchor/room/decisions/drawer/46e00657a521ee3d14e73aaaab2ef813407b28484ee0638365f1c765d4c23854 wing:wing_anchor]]
+  FAIL
+  FAIL	github.com/atvirokodosprendimai/agentsmemory/internal/mcptest	0.392s
+  FAIL
+  ```
+- 2026-09-05 · 1a2287d* · exit 0 · `set -o pipefail …` · acceptance-sha256:4d854a7117e87acd860074ed21111ccc09fbd3ea073d55bfb46f06b9619e15d3 · ms:9133
