@@ -3740,3 +3740,21 @@ the summary (a `PreCompact` hook, T1) and a post-compaction recall that asks for
 `llm_open_threads` checkpoint instead of the cold-start question (T2). Still deferred under
 ADR-059's name: reading the note on `resume`, where a note from the same session id may be hours
 old and the tree may have moved under it.
+
+## The `wing_craft` call sits just above the floor for most prompts — 2026-09-05
+
+Found by review of #274 (ADR-059), from the same hand-run method that caught the inert checkpoint
+recall, and measured the same day against the local palace with six real prompt shapes: five of
+six returned ZERO `wing_craft` hits under the hooks' `max_distance=0.42`, with the nearest craft
+memories at 0.439–0.454 — just above the floor — and only the craft-shaped question ("the mutant
+survived, what does that mean for the test") cleared it, at 0.342–0.395. So the `craft:` block in
+both recall hooks (`agentsmemory-recall-hook.sh`, `agentsmemory-task-recall-hook.sh`) is mostly
+silent on task prompts, and ADR-058's own T2 sign-off recorded one such silence as an aside.
+Facts still flow (the digest's fact lines carry no floor), which is why the block is not entirely
+mute. Whether 0.42 is doing real work there — keeping weakly related craft out — or losing
+near-misses at 0.439 cannot be decided from six prompts: 0.42 was calibrated for in-wing `diary`
+recall (ADR-041 T4), and a different wing sits just above it more often than not. Needs a
+measurement over a day of real prompts with hit QUALITY judged, not hit count, before the floor on
+that one call moves; ADR-054's `am_recall_stats` is the instrument. Not changed in ADR-059 because
+`wing_craft` is a whole wing of mixed material, unlike `llm_open_threads`, where the room is the
+scope and the floor guarded against nothing.
