@@ -547,6 +547,12 @@ func runHookDoctor(ctx context.Context, c *cli.Command, out io.Writer) error {
 	if srv.detail != "" {
 		fmt.Fprintf(out, "      | %s\n", srv.detail)
 	}
+	// ADR-057: the peer the protocol depends on, judged from the files above.
+	// This call is what SELECTS the rung; TestDoctorReportsTheCodebaseMemoryPeer
+	// drives the real CLI, so deleting it leaves no row and the test goes red.
+	if reportCodebaseMemory(out, kit, dir) {
+		bad++
+	}
 	return reportServerBin(out, kit, dir, bad, len(verdicts), srv)
 }
 

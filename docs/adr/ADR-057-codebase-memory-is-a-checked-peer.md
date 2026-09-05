@@ -6,7 +6,7 @@
 **Spec:** None — no spec stage
 **Cross-references:** ADR-041 (recall that does not depend on remembering), ADR-051 (the session that grounds itself), clients/claude-code/README.md, clients/claude-code/commands/am.md
 **Governs:** clients/claude-code/doctor.go, clients/claude-code/installer.go, clients/claude-code/settings.go, clients/claude-code/main.go, clients/claude-code/README.md, clients/claude-code/commands/am.md
-**Enforced-by:** `clients/claude-code/doctor_test.go::TestDoctorReportsTheCodebaseMemoryPeer`
+**Enforced-by:** `clients/claude-code/doctorpeer_test.go::TestDoctorReportsTheCodebaseMemoryPeer`
 **Invalidates:** none — checked
 **Served-path change:** `aiagentmemory doctor` prints one more row, `codebase-memory`, and exits non-zero when that peer's hooks or MCP entry are registered more than once; `aiagentmemory install --recommended` stops registering the peer under a second name and removes duplicate peer hook registrations it finds.
 
