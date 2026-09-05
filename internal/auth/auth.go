@@ -160,7 +160,38 @@ func Bridge(ctx context.Context, r *http.Request) context.Context {
 	if wing := requestWing(r); wing != "" {
 		ctx = WithDefaultWing(ctx, wing)
 	}
+	if origin := requestOrigin(r); origin != "" {
+		ctx = WithOrigin(ctx, origin)
+	}
 	return ctx
+}
+
+// requestOrigin reads the origin a client declared (ADR-054). Header ONLY — the
+// wing's query-parameter form exists for a registration channel (Cursor's URL)
+// that carries no origin by construction, and an origin in a URL would be
+// something an agent could see and type.
+func requestOrigin(r *http.Request) string {
+	return strings.TrimSpace(r.Header.Get(mcpprotocol.OriginHeader))
+}
+
+// originKeyType / originKey carry the connection's declared ORIGIN — who is
+// asking, as opposed to which project (the wing). A search records it so the
+// to-write list can be built from the searches nobody's hook made (ADR-054).
+type originKeyType struct{}
+
+var originKey = originKeyType{}
+
+// WithOrigin returns a context carrying the caller's declared origin.
+func WithOrigin(ctx context.Context, origin string) context.Context {
+	return context.WithValue(ctx, originKey, origin)
+}
+
+// OriginFrom returns the origin this connection declared, or "" when it declared
+// none — which is what a person's search, and every search made before the kit
+// learned to declare one, looks like.
+func OriginFrom(ctx context.Context) string {
+	origin, _ := ctx.Value(originKey).(string)
+	return origin
 }
 
 // requestWing reads the default wing a registration declared, header first and

@@ -90,6 +90,13 @@ func runMCP(ctx context.Context, c *cli.Command, def config.Config) error {
 			if wing := c.String("wing"); wing != "" {
 				callCtx = auth.WithDefaultWing(callCtx, wing)
 			}
+			// The in-process path never passes auth.Bridge, so the origin the
+			// environment declares is set here, beside the wing (ADR-054 T1). The
+			// shipped hooks do not come this way — they call the kit's
+			// `aiagentmemory mcp`, which speaks HTTP and sends the header (T2).
+			if origin := os.Getenv(mcpprotocol.OriginEnvVar); origin != "" {
+				callCtx = auth.WithOrigin(callCtx, origin)
+			}
 			if unmetered {
 				callCtx = mcpserver.WithUnmeteredLocalOperator(callCtx)
 			}
