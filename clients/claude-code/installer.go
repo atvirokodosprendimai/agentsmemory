@@ -1,10 +1,16 @@
 package main
 
 import (
+	"archive/tar"
+	"archive/zip"
 	"bufio"
+	"compress/gzip"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
+	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
@@ -2184,7 +2190,7 @@ func (i *Installer) registerClaudeDesktopMCP(token string) error {
 // placeServerBin to copy into place. In a dry-run it downloads nothing and
 // returns the URL it would have fetched, so the rehearsal names the asset.
 func (i *Installer) fetchServerBin() (string, error) {
-	asset, err := serverAssetName(runtime.GOOS, runtime.GOARCH)
+	asset, err := serverArchiveName(runtime.GOOS, runtime.GOARCH)
 	if err != nil {
 		return "", err
 	}
@@ -2206,7 +2212,19 @@ func (i *Installer) fetchServerBin() (string, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
 	}
-	tmp, err := downloadBinary(ctx, url, dir)
+	archive, err := downloadBinary(ctx, url, dir)
+	if err != nil {
+		return "", fmt.Errorf("%s: %w", asset, err)
+	}
+	defer os.Remove(archive)
+	// An executable fetched over the network and registered to be SPAWNED is
+	// checked against the release's own SHA256SUMS before it runs once. A
+	// truncated or substituted download would otherwise reach verifyBinary,
+	// which only asks whether it runs — and a wrong binary runs fine.
+	if err := verifyReleaseChecksum(ctx, tag, asset, archive); err != nil {
+		return "", fmt.Errorf("%s: %w", asset, err)
+	}
+	tmp, err := extractServerBin(archive, dir)
 	if err != nil {
 		return "", fmt.Errorf("%s: %w", asset, err)
 	}
@@ -2214,8 +2232,135 @@ func (i *Installer) fetchServerBin() (string, error) {
 		os.Remove(tmp)
 		return "", fmt.Errorf("%s: %w", asset, err)
 	}
-	i.ok("downloaded %s from release %s", asset, tag)
+	// Identity, not integrity: the sum above proves the bytes are the release's;
+	// this proves the release's bytes name the tag they were published under, so
+	// a rebuilt or unstamped asset cannot land under a tag the report then names.
+	if out, err := exec.CommandContext(ctx, tmp, "--version").CombinedOutput(); err == nil &&
+		!strings.Contains(string(out), tag) {
+		os.Remove(tmp)
+		return "", fmt.Errorf("%s: the extracted server reports %q, not release %s — the package does not name the release it was published under",
+			asset, strings.TrimSpace(string(out)), tag)
+	}
+	i.ok("downloaded %s from release %s (sha256 verified, --version names %s)", asset, tag, tag)
 	return tmp, nil
+}
+
+// extractServerBin pulls the server binary out of the release package into a
+// staged file in dir — `agentsmemory` from the tar.gz, `agentsmemory.exe` from
+// the zip — and returns its path. Only that member is read; the package's other
+// contents never touch the filesystem.
+func extractServerBin(archive, dir string) (string, error) {
+	want := "agentsmemory"
+	if runtime.GOOS == "windows" {
+		want += ".exe"
+	}
+	var member io.ReadCloser
+	if strings.HasSuffix(archive, ".zip") {
+		zr, err := zip.OpenReader(archive)
+		if err != nil {
+			return "", err
+		}
+		defer zr.Close()
+		for _, f := range zr.File {
+			if filepath.Base(f.Name) == want {
+				rc, err := f.Open()
+				if err != nil {
+					return "", err
+				}
+				member = rc
+				break
+			}
+		}
+	} else {
+		f, err := os.Open(archive)
+		if err != nil {
+			return "", err
+		}
+		defer f.Close()
+		gz, err := gzip.NewReader(f)
+		if err != nil {
+			return "", fmt.Errorf("not a gzip archive: %w", err)
+		}
+		defer gz.Close()
+		tr := tar.NewReader(gz)
+		for {
+			h, err := tr.Next()
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				return "", err
+			}
+			if h.Typeflag == tar.TypeReg && filepath.Base(h.Name) == want {
+				member = io.NopCloser(tr)
+				break
+			}
+		}
+	}
+	if member == nil {
+		return "", fmt.Errorf("the package holds no %s", want)
+	}
+	defer member.Close()
+	out, err := os.CreateTemp(dir, ".aiagentmemory-server-*")
+	if err != nil {
+		return "", err
+	}
+	if _, err := io.Copy(out, member); err != nil {
+		out.Close()
+		os.Remove(out.Name())
+		return "", err
+	}
+	if err := out.Close(); err != nil {
+		os.Remove(out.Name())
+		return "", err
+	}
+	return out.Name(), nil
+}
+
+// verifyReleaseChecksum compares the file's SHA-256 with the entry for asset in
+// the release's SHA256SUMS.txt, fetched from the same release. A release with no
+// sums file, or one that does not list the asset, is refused: an unverifiable
+// executable is not installed, and the message says which half is missing.
+func verifyReleaseChecksum(ctx context.Context, tag, asset, path string) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, releaseAssetURL(tag, "SHA256SUMS.txt"), nil)
+	if err != nil {
+		return err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("cannot fetch SHA256SUMS.txt for release %s: %w", tag, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("release %s publishes no SHA256SUMS.txt (%s), so the download cannot be verified", tag, resp.Status)
+	}
+	sums, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return err
+	}
+	want := ""
+	for _, line := range strings.Split(string(sums), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) == 2 && strings.TrimPrefix(fields[1], "*") == asset {
+			want = strings.ToLower(fields[0])
+		}
+	}
+	if want == "" {
+		return fmt.Errorf("release %s's SHA256SUMS.txt does not list %s, so the download cannot be verified", tag, asset)
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return err
+	}
+	if got := hex.EncodeToString(h.Sum(nil)); got != want {
+		return fmt.Errorf("sha256 mismatch for %s: release lists %s, download is %s — the file is not the one the release published", asset, want[:12], got[:12])
+	}
+	return nil
 }
 
 // renderBridgeArgs prints the bridge's argument list as the registration will

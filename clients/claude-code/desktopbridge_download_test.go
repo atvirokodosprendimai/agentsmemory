@@ -1,6 +1,11 @@
 package main
 
 import (
+	"archive/tar"
+	"bytes"
+	"compress/gzip"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -24,18 +29,37 @@ func TestClaudeDesktopInstallDownloadsTheBridgeWhenNoHostBinaryExists(t *testing
 		t.Skip("the fixture bridge is a shell script; verifyBinary runs it")
 	}
 	const tag = "v0.0.0-test"
-	asset, err := serverAssetName(runtime.GOOS, runtime.GOARCH)
+	asset, err := serverArchiveName(runtime.GOOS, runtime.GOARCH)
 	if err != nil {
 		t.Skip(err)
 	}
+	// The release package as goreleaser ships it: a tar.gz holding `agentsmemory`.
+	pack := func(script string) []byte {
+		var buf bytes.Buffer
+		gz := gzip.NewWriter(&buf)
+		tw := tar.NewWriter(gz)
+		if err := tw.WriteHeader(&tar.Header{Name: "agentsmemory", Mode: 0o755, Size: int64(len(script)), Typeflag: tar.TypeReg}); err != nil {
+			t.Fatal(err)
+		}
+		tw.Write([]byte(script))
+		tw.Close()
+		gz.Close()
+		return buf.Bytes()
+	}
+	archive := pack("#!/bin/sh\necho agentsmemory version " + tag + "\n")
+	sum := sha256.Sum256(archive)
+	sums := hex.EncodeToString(sum[:]) + "  " + asset + "\n" + strings.Repeat("0", 64) + "  other-asset\n"
 	served := 0
+	serve := archive // swapped by the subtests that want a wrong package
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/releases/latest":
 			http.Redirect(w, r, srv0(r)+"/releases/tag/"+tag, http.StatusFound)
 		case "/releases/download/" + tag + "/" + asset:
 			served++
-			w.Write([]byte("#!/bin/sh\necho agentsmemory version " + tag + "\n"))
+			w.Write(serve)
+		case "/releases/download/" + tag + "/SHA256SUMS.txt":
+			w.Write([]byte(sums))
 		default:
 			http.NotFound(w, r)
 		}
@@ -91,6 +115,37 @@ func TestClaudeDesktopInstallDownloadsTheBridgeWhenNoHostBinaryExists(t *testing
 			if !strings.Contains(err.Error(), want) {
 				t.Errorf("the refusal lost %q — an operator needs both the cause and the hand remedy:\n%v", want, err)
 			}
+		}
+	})
+
+	t.Run("a package whose server names another release is refused", func(t *testing.T) {
+		// Bytes the release DID publish (the sum matches) but whose server reports a
+		// different version: a rebuilt or unstamped asset under this tag. The sum
+		// cannot catch it; the --version comparison does.
+		wrong := pack("#!/bin/sh\necho agentsmemory version v9.9.9\n")
+		w := sha256.Sum256(wrong)
+		prevServe, prevSums := serve, sums
+		serve, sums = wrong, hex.EncodeToString(w[:])+"  "+asset+"\n"
+		t.Cleanup(func() { serve, sums = prevServe, prevSums })
+		inst, _, _ := newTestInstallerFor(t, claudeDesktopKit, false)
+		inst.serverBin = ""
+		err := inst.run()
+		if err == nil || !strings.Contains(err.Error(), "v9.9.9") || !strings.Contains(err.Error(), tag) {
+			t.Fatalf("a package naming another release was accepted (err=%v)", err)
+		}
+	})
+
+	t.Run("a download that does not match the release's sums is refused", func(t *testing.T) {
+		serve = pack("#!/bin/sh\necho not the release\n")
+		t.Cleanup(func() { serve = archive })
+		inst, _, dir := newTestInstallerFor(t, claudeDesktopKit, false)
+		inst.serverBin = ""
+		err := inst.run()
+		if err == nil || !strings.Contains(err.Error(), "sha256 mismatch") {
+			t.Fatalf("a tampered bridge was accepted (err=%v)", err)
+		}
+		if _, statErr := os.Stat(filepath.Join(dir, "bin", installedServerBinFile())); statErr == nil {
+			t.Error("the tampered download was placed anyway")
 		}
 	})
 

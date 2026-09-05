@@ -161,6 +161,23 @@ func serverAssetName(goos, goarch string) (string, error) {
 	return name, nil
 }
 
+// serverArchiveName is the versioned package the release publishes for the
+// server — `agentsmemory_<os>_<arch>.tar.gz` (`.zip` on Windows) — which is the
+// form SHA256SUMS.txt lists. The bare aiagentmemory-server-<os>-<arch> asset is
+// uploaded by a separate job with no sum beside it (measured on v0.0.115's
+// SHA256SUMS.txt, five archive lines and nothing else), so a fetch that wants to
+// verify what it runs takes the archive and extracts the binary.
+func serverArchiveName(goos, goarch string) (string, error) {
+	if !publishedPlatforms[goos+"/"+goarch] {
+		return "", fmt.Errorf("no published agentsmemory package for %s/%s — build it from source with `go build ./cmd/server`", goos, goarch)
+	}
+	ext := ".tar.gz"
+	if goos == "windows" {
+		ext = ".zip"
+	}
+	return fmt.Sprintf("agentsmemory_%s_%s%s", goos, goarch, ext), nil
+}
+
 // publishedPlatforms is exactly the set release.yml's `binaries` matrix builds.
 //
 // ⚠ IT IS A SET OF PAIRS, NOT TWO INDEPENDENT SWITCHES, and that is the whole
