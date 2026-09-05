@@ -1,56 +1,61 @@
-/* agentsmemory dashboard — light, cool, documentation-grade.
-   A near-white page lit by two soft cyan/indigo washes, white cards on hairline
-   borders, a cyan primary and an indigo secondary. Fraunces for display, IBM
-   Plex Sans/Mono for text and figures; monospaced tabular figures for keys and
-   usage so numbers never reflow.
+/* agentsmemory dashboard — deep navy, cyan-lit.
+   Palette taken from wgmesh.dev (read from the served page, 2026-09-05): a very
+   dark blue page lit by a cyan glow at the top, navy cards a step above it,
+   bright cyan as the primary and a steel blue as the secondary, with that site's
+   own traffic-light trio for status. Fraunces for display, IBM Plex Sans/Mono for
+   text and figures; monospaced tabular figures for keys and usage so numbers
+   never reflow.
 
-   ⚠ THE TOKENS ARE NAMED BY ROLE, NOT BY COLOUR, and that is the point. The
-   previous palette named them for what they looked like — --ink, --bone,
-   --ember, --brass — which read correctly while the theme was warm and dark and
-   would have gone actively misleading the moment it was not: a token called
-   --ink holding a near-white is worse than an unnamed one, because it still
-   reads as information. Role names survive a retheme; colour names have to be
-   renamed with it or they start lying.
+   ⚠ THE TOKENS ARE NAMED BY ROLE, NOT BY COLOUR, and this palette is the second
+   proof of it in one day. They were once --ink, --bone, --ember, --brass — names
+   describing how the colours LOOKED. That reads correctly until the theme moves,
+   and it has now moved twice: warm-dark → light-cool → this. Under colour names
+   every one of those steps would have needed a rename across ~150 call sites, or
+   the tree would carry an --ink holding a near-white, which is worse than an
+   unnamed token because it still reads as information. Under role names the two
+   retheme steps touched this block and the derived tints, and nothing else.
 
-   Contrast was chosen rather than inherited, and COMPUTED rather than estimated
-   (WCAG 2.x relative luminance, 2026-09-05). Against --surface (#fff): --fg
-   17.85:1, --muted 7.58:1, --faint 4.76:1, --accent 5.36:1, --accent-2 7.90:1,
-   --danger 6.47:1, --ok 5.48:1, --warn 5.02:1; --accent-fg on --accent 5.36:1
-   and on the darker hover 7.46:1. Every pair clears AA (4.5:1) for body text —
-   --faint is the closest at 4.76, so it is the one to re-check if it ever moves.
+   Contrast is COMPUTED, not estimated (WCAG 2.x relative luminance, 2026-09-05).
+   Against --surface (#0d1630): --fg 15.61:1, --muted 12.38:1, --accent 10.10:1,
+   --warn 10.70:1, --ok 8.10:1, --accent-2 7.05:1, --danger 5.98:1, --faint
+   4.91:1; --accent-fg on --accent 11.03:1. Against the raised --surface-2
+   (#111d3c) every one drops by roughly half a point and --faint is the floor at
+   4.56:1 — still over AA (4.5), and the value to re-check first if any of these
+   move, because it has the least room.
 
-   ⚠ The first draft of this comment carried ESTIMATES (7.0, 4.8, 4.9, 7.5) that
-   were each wrong by up to 0.5 against the arithmetic. They were close enough to
-   look measured, which is the failure worth naming: a ratio nobody computed reads
+   ⚠ An earlier draft of this comment carried ESTIMATED ratios that were each
+   wrong by up to 0.5 against the arithmetic. They were close enough to look
+   measured, which is the failure worth naming: a ratio nobody computed reads
    exactly like one somebody did. */
 
 :root {
-  color-scheme: light;
-  --bg:        #f6f8fb;
-  --bg-2:      #eef2f7;
-  --surface:   #ffffff;
-  --surface-2: #fbfcfe;
-  --line:      #e2e8f0;
-  --line-2:    #cbd5e1;
-  --fg:        #0f172a;
-  --muted:     #475569;
-  --faint:     #64748b;
-  --accent:    #0e7490;
-  --accent-fg: #ffffff;
-  --accent-2:  #4338ca;
-  --danger:    #b91c1c;
-  --warn:      #b45309;
-  --ok:        #047857;
+  color-scheme: dark;
+  --bg:        #0a0f1e;   /* wgmesh --bg   */
+  --bg-2:      #060c1a;   /* deeper than the page: inputs and code wells sit UNDER it */
+  --surface:   #0d1630;   /* wgmesh --bg2  */
+  --surface-2: #111d3c;   /* wgmesh --bg3, the raised end of a card's gradient */
+  --line:      #1a2d5a;   /* wgmesh --border */
+  --line-2:    #3a5a7a;
+  --fg:        #e8f0ff;   /* wgmesh --white, for headings and emphasis */
+  --muted:     #c8d8f0;   /* wgmesh --text, the body colour */
+  --faint:     #6e88aa;   /* wgmesh --text-dim */
+  --accent:    #00d4ff;   /* wgmesh --cyan */
+  --accent-fg: #060c1a;   /* dark ink ON the cyan: at 11.03:1 the fill carries text */
+  --accent-2:  #7ea8c4;   /* a steel blue rather than a dimmer cyan — a second ROLE
+                             needs a second colour, and --cyan-dim beside --cyan
+                             reads as the same thing faded, not as a distinction */
+  --danger:    #ff5f56;
+  --warn:      #ffbd2e;
+  --ok:        #27c93f;   /* the three above are wgmesh's own traffic-light trio */
   --radius:    14px;
   --card-pad:  1.6rem;   /* one canonical inset for content cards — every .card variant inherits this
                             unless it deliberately overrides (compact rows, centered empty state).
                             Shrinks on narrow phones via a :root override in the mobile media query. */
   --maxw:      72rem;
-  /* Two layers, because one cannot do both jobs on a light ground: a hairline
-     that separates a white card from a near-white page, and a wide soft drop
-     that gives it height without a grey haze. Tinted with the foreground's blue
-     rather than neutral black — a black shadow on a cool page reads as dirt. */
-  --shadow:    0 1px 2px rgba(15,23,42,.05), 0 12px 32px -18px rgba(15,23,42,.25);
+  /* On a dark ground the drop shadow does little — there is nothing lighter for
+     it to fall on — so the top inset hairline is what actually separates a card
+     from the page, and the drop only deepens the edge. */
+  --shadow:    0 1px 0 rgba(255,255,255,.04) inset, 0 18px 40px -24px rgba(0,0,0,.85);
 }
 
 * { box-sizing: border-box; }
@@ -65,15 +70,14 @@ body {
   line-height: 1.6;
   color: var(--fg);
   background-color: var(--bg);
-  /* The reference's signature: two wide, very low-opacity washes — cyan top
-     right, indigo bottom left — that give a flat near-white page depth without
-     drawing a single edge. Kept under .07 because on a light ground a wash is
-     legible far sooner than on a dark one; at the dark theme's .10 these read
-     as stains rather than light. Fixed, so they belong to the page and not to
-     the scroll. */
+  /* wgmesh.dev's signature, in its own proportions: a wide cyan ellipse centred
+     on the top edge, with a deeper blue one off to the right. On a dark ground a
+     wash reads as LIGHT rather than as a stain, so these carry the site's .12 and
+     .15 rather than the sub-.07 a light page needs. Fixed, so they belong to the
+     page and not to the scroll. */
   background-image:
-    radial-gradient(1100px 560px at 88% -12%, rgba(14,116,144,.07), transparent 60%),
-    radial-gradient(900px 520px at -8% 108%, rgba(67,56,202,.06), transparent 55%);
+    radial-gradient(ellipse 60% 40% at 50% 0%, rgba(0,212,255,.12), transparent 70%),
+    radial-gradient(ellipse 40% 30% at 80% 50%, rgba(0,80,150,.15), transparent 70%);
   background-attachment: fixed;
 }
 
@@ -95,10 +99,10 @@ a:hover { text-decoration: underline; }
 /* ---- top bar ---- */
 .topbar {
   border-bottom: 1px solid var(--line);
-  /* Translucent so the page washes show through as the bar passes over them,
-     and white-over-page rather than dark-over-page: on a light ground the bar
-     has to be LIGHTER than what scrolls beneath it to read as glass. */
-  background: linear-gradient(180deg, rgba(255,255,255,.72), rgba(246,248,251,.55));
+  /* Translucent so the page's cyan glow shows through as the bar passes over it,
+     and darker than the page rather than lighter: on a dark ground the bar reads
+     as glass by deepening what is behind it, not by lifting it. */
+  background: linear-gradient(180deg, rgba(13,22,48,.78), rgba(10,15,30,.55));
   backdrop-filter: blur(6px);
   position: sticky; top: 0; z-index: 20;
 }
@@ -146,7 +150,7 @@ h1, h2, h3 { font-family: "Fraunces", Georgia, serif; font-weight: 600; letter-s
   transition: border-color .15s ease, box-shadow .15s ease;
 }
 .input::placeholder { color: var(--faint); }
-.input:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(14,116,144,.25); }
+.input:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(0,212,255,.25); }
 
 .btn {
   display: inline-flex; align-items: center; justify-content: center; gap: .5rem;
@@ -157,12 +161,12 @@ h1, h2, h3 { font-family: "Fraunces", Georgia, serif; font-weight: 600; letter-s
   transition: transform .08s ease, background-color .15s ease, border-color .15s ease, opacity .15s ease;
 }
 .btn:active { transform: translateY(1px); }
-.btn:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(14,116,144,.35); }
+.btn:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(0,212,255,.35); }
 .btn-primary { background: var(--accent); color: var(--accent-fg); }
-/* Hover DARKENS here, where the dark theme's lightened. A filled button on a
-   light page is already the darkest thing in its row, so lifting it toward the
-   page loses the affordance; going deeper keeps the contrast with --accent-fg. */
-.btn-primary:hover { background: #0b5d70; }
+/* Hover LIGHTENS: the fill is the brightest thing in its row on this ground, so
+   it lifts toward wgmesh's brighter cyan rather than dimming, which would read as
+   disabled. --accent-fg stays legible on it (12.12:1). */
+.btn-primary:hover { background: #33deff; }
 .btn-primary[disabled], .btn-primary:disabled { opacity: .5; cursor: not-allowed; transform: none; }
 .btn-ghost { background: transparent; color: var(--fg); border-color: var(--line-2); }
 .btn-ghost:hover { border-color: var(--accent); color: var(--accent); }
@@ -216,7 +220,7 @@ h1, h2, h3 { font-family: "Fraunces", Georgia, serif; font-weight: 600; letter-s
 }
 .slug-chip:hover { border-color: var(--accent); }
 .slug-chip:active { transform: translateY(1px); }
-.slug-chip:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(14,116,144,.35); }
+.slug-chip:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(0,212,255,.35); }
 .project-top .slug-chip { margin-top: .4rem; } /* sit just under the project name */
 .slug-chip-tag { font-size: .6rem; font-weight: 600; text-transform: uppercase; letter-spacing: .14em; color: var(--faint); }
 .slug-chip-val {
@@ -254,7 +258,7 @@ h1, h2, h3 { font-family: "Fraunces", Georgia, serif; font-weight: 600; letter-s
 .keybox code.token { display: block; }
 .key-actions { display: flex; gap: .5rem; flex-wrap: wrap; }
 .key-error { color: var(--danger); font-size: .8rem; line-height: 1.45; }
-.key-warn { color: var(--fg); font-size: .8rem; line-height: 1.45; padding: .55rem .65rem; border: 1px solid rgba(185,28,28,.45); background: rgba(185,28,28,.10); border-radius: 8px; }
+.key-warn { color: var(--fg); font-size: .8rem; line-height: 1.45; padding: .55rem .65rem; border: 1px solid rgba(255,95,86,.45); background: rgba(255,95,86,.10); border-radius: 8px; }
 .key-warn b { color: var(--danger); }
 .key-note { color: var(--accent-2); font-size: .78rem; line-height: 1.45; }
 
@@ -269,9 +273,9 @@ h1, h2, h3 { font-family: "Fraunces", Georgia, serif; font-weight: 600; letter-s
 
 /* ---- flash ---- */
 .flash { border-radius: var(--radius); padding: 1rem 1.15rem; margin: 0 0 1.2rem; border: 1px solid var(--line-2); }
-.flash.success { background: rgba(4,120,87,.10); border-color: rgba(4,120,87,.4); }
-.flash.error { background: rgba(185,28,28,.10); border-color: rgba(185,28,28,.45); }
-.flash.note { background: rgba(67,56,202,.08); border-color: rgba(67,56,202,.38); }
+.flash.success { background: rgba(39,201,63,.10); border-color: rgba(39,201,63,.4); }
+.flash.error { background: rgba(255,95,86,.10); border-color: rgba(255,95,86,.45); }
+.flash.note { background: rgba(126,168,196,.08); border-color: rgba(126,168,196,.38); }
 .flash .ttl { font-weight: 600; }
 .flash .token { margin-top: .6rem; }
 
@@ -317,7 +321,7 @@ footer { color: var(--faint); font-size: .8rem; padding: 2rem 0 3rem; border-top
   transition: border-color .15s ease, box-shadow .15s ease;
 }
 .textarea::placeholder { color: var(--faint); }
-.textarea:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(14,116,144,.25); }
+.textarea:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(0,212,255,.25); }
 .editor-actions { display: flex; align-items: center; gap: .7rem; flex-wrap: wrap; margin-top: .3rem; }
 .editor-actions .hint { color: var(--accent-2); font-size: .82rem; }
 .editor-actions .hint .mono { color: var(--fg); }
@@ -551,13 +555,13 @@ select.input option { color: var(--fg); background: var(--bg-2); }
 .lp-nav {
   position: sticky; top: 0; z-index: 30;
   border-bottom: 1px solid var(--line);
-  background: linear-gradient(180deg, rgba(255,255,255,.85), rgba(246,248,251,.7));
+  background: linear-gradient(180deg, rgba(13,22,48,.85), rgba(10,15,30,.7));
   backdrop-filter: blur(8px);
 }
 .lp-nav-inner { display: flex; align-items: center; justify-content: space-between; min-height: 64px; gap: 1rem; position: relative; }
 .lp-links a { color: var(--fg); font-weight: 500; white-space: nowrap; }
 .lp-links a:hover { color: var(--accent); text-decoration: none; }
-.lp-links a:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(14,116,144,.35); border-radius: 6px; }
+.lp-links a:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(0,212,255,.35); border-radius: 6px; }
 .lp-ext { color: var(--muted) !important; }
 
 .lp-burger {
@@ -569,7 +573,7 @@ select.input option { color: var(--fg); background: var(--bg-2); }
 .lp-burger[aria-expanded="true"] span:nth-child(1) { transform: translateY(7px) rotate(45deg); }
 .lp-burger[aria-expanded="true"] span:nth-child(2) { opacity: 0; }
 .lp-burger[aria-expanded="true"] span:nth-child(3) { transform: translateY(-7px) rotate(-45deg); }
-.lp-burger:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(14,116,144,.35); }
+.lp-burger:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(0,212,255,.35); }
 
 /* mobile: links collapse into a toggled dropdown panel */
 @media (max-width: 859.98px) {
@@ -606,7 +610,7 @@ select.input option { color: var(--fg); background: var(--bg-2); }
   background: linear-gradient(180deg, var(--bg-2), var(--bg));
   box-shadow: var(--shadow); overflow: hidden;
 }
-.lp-peek-bar { display: flex; align-items: center; gap: .45rem; padding: .7rem .9rem; border-bottom: 1px solid var(--line); background: rgba(15,23,42,.05); }
+.lp-peek-bar { display: flex; align-items: center; gap: .45rem; padding: .7rem .9rem; border-bottom: 1px solid var(--line); background: rgba(0,0,0,.22); }
 .lp-dot { width: 11px; height: 11px; border-radius: 50%; background: var(--line-2); }
 .lp-dot:nth-child(1) { background: var(--danger); }
 .lp-dot:nth-child(2) { background: var(--accent-2); }
@@ -623,7 +627,7 @@ select.input option { color: var(--fg); background: var(--bg-2); }
 .c-quote { color: var(--fg); }
 
 /* ---- stat strip ---- */
-.lp-stats { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); background: rgba(15,23,42,.04); }
+.lp-stats { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); background: rgba(0,0,0,.16); }
 .lp-stats-grid { display: grid; grid-template-columns: repeat(2, 1fr); }
 @media (min-width: 760px) { .lp-stats-grid { grid-template-columns: repeat(4, 1fr); } }
 .lp-stat { padding: 1.6rem 1rem; text-align: center; }
@@ -635,7 +639,7 @@ select.input option { color: var(--fg); background: var(--bg-2); }
 
 /* ---- generic section ---- */
 .lp-section { padding: clamp(3rem, 7vw, 6rem) 0; }
-.lp-section-alt { background: rgba(15,23,42,.045); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.lp-section-alt { background: rgba(0,0,0,.18); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
 .lp-head { max-width: 54ch; margin: 0 0 2.4rem; }
 .lp-section h2, .lp-head h2 { font-size: clamp(1.8rem, 3.4vw, 2.6rem); line-height: 1.1; }
 .lp-head-sub { color: var(--muted); margin: .7rem 0 0; font-size: 1.02rem; line-height: 1.6; }
@@ -708,7 +712,7 @@ select.input option { color: var(--fg); background: var(--bg-2); }
 @media (min-width: 860px) { .lp-start-grid { grid-template-columns: 1fr 1.1fr; gap: 3rem; } }
 .lp-start-links { margin-top: 1.2rem; }
 .lp-code { overflow: hidden; }
-.lp-code-head { display: flex; align-items: center; justify-content: space-between; padding: .55rem .7rem .55rem 1rem; border-bottom: 1px solid var(--line); background: rgba(15,23,42,.05); }
+.lp-code-head { display: flex; align-items: center; justify-content: space-between; padding: .55rem .7rem .55rem 1rem; border-bottom: 1px solid var(--line); background: rgba(0,0,0,.22); }
 .lp-code .cmd { margin: 0; border: 0; border-left: 0; border-radius: 0; }
 
 /* ---- install (Claude Code kit) ---- */
@@ -717,7 +721,7 @@ select.input option { color: var(--fg); background: var(--bg-2); }
 .lp-cmd-ref { margin: 2rem 0 0; display: grid; gap: .5rem; }
 .lp-cmd-row {
   display: grid; gap: .1rem .9rem;
-  padding: .7rem .9rem; border: 1px solid var(--line); border-radius: 10px; background: rgba(15,23,42,.035);
+  padding: .7rem .9rem; border: 1px solid var(--line); border-radius: 10px; background: rgba(0,0,0,.14);
 }
 @media (min-width: 680px) { .lp-cmd-row { grid-template-columns: minmax(0, 23rem) 1fr; align-items: baseline; } }
 .lp-cmd-row dt { margin: 0; }
@@ -753,14 +757,14 @@ select.input option { color: var(--fg); background: var(--bg-2); }
 .lp-check {
   display: grid; grid-template-columns: auto minmax(0, 1fr); gap: .1rem .7rem; align-items: start;
   min-height: 44px; padding: .7rem .85rem; margin-bottom: .5rem;
-  border: 1px solid var(--line); border-radius: 10px; background: rgba(15,23,42,.035);
+  border: 1px solid var(--line); border-radius: 10px; background: rgba(0,0,0,.14);
   cursor: pointer; transition: border-color .15s ease, background .15s ease;
 }
 .lp-check:last-child { margin-bottom: 0; }
-.lp-check:hover { border-color: var(--line-2); background: rgba(15,23,42,.055); }
+.lp-check:hover { border-color: var(--line-2); background: rgba(0,0,0,.2); }
 /* The native checkbox keeps its own focus ring, so lift the row with it — a
    keyboard user needs to see which row the ring belongs to. */
-.lp-check:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(14,116,144,.2); }
+.lp-check:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(0,212,255,.2); }
 .lp-check-box { inline-size: 1.15rem; block-size: 1.15rem; margin: .15rem 0 0; accent-color: var(--accent); cursor: pointer; }
 .lp-check-text { display: grid; gap: .2rem; }
 .lp-check-flag { font-family: "IBM Plex Mono", monospace; font-size: .86rem; color: var(--accent-2); }
@@ -873,7 +877,7 @@ select.input option { color: var(--fg); background: var(--bg-2); }
   color: var(--fg); font-family: "Fraunces", Georgia, serif; font-weight: 500; font-size: 1.08rem;
 }
 .lp-faq-q:hover { color: var(--accent); }
-.lp-faq-q:focus-visible { outline: none; box-shadow: inset 0 0 0 2px rgba(14,116,144,.55); }
+.lp-faq-q:focus-visible { outline: none; box-shadow: inset 0 0 0 2px rgba(0,212,255,.55); }
 .lp-faq-mark { color: var(--accent-2); font-size: 1.5rem; line-height: 1; flex-shrink: 0; transition: transform .2s ease; }
 .lp-faq-mark.open { transform: rotate(45deg); }
 .lp-faq-a { padding: 0 1.2rem 1.2rem; }
@@ -883,7 +887,7 @@ select.input option { color: var(--fg); background: var(--bg-2); }
 .lp-final {
   padding: clamp(3.5rem, 7vw, 6rem) 0; text-align: center;
   border-top: 1px solid var(--line);
-  background: radial-gradient(720px 320px at 50% 0, rgba(14,116,144,.13), transparent 70%);
+  background: radial-gradient(720px 320px at 50% 0, rgba(0,212,255,.13), transparent 70%);
 }
 .lp-final-inner { max-width: 40rem; margin: 0 auto; }
 .lp-final h2 { font-size: clamp(2rem, 4vw, 3rem); line-height: 1.05; }
@@ -905,7 +909,7 @@ select.input option { color: var(--fg); background: var(--bg-2); }
 .upgrade-card { margin-bottom: 1.6rem; border-color: color-mix(in srgb, var(--accent) 32%, var(--line)); }
 .upgrade-lede { color: var(--muted); margin: 0 0 1.2rem; max-width: 52ch; line-height: 1.55; }
 /* segmented monthly/annual control */
-.seg { display: inline-flex; gap: .25rem; padding: .25rem; border: 1px solid var(--line-2); border-radius: 999px; background: rgba(15,23,42,.05); }
+.seg { display: inline-flex; gap: .25rem; padding: .25rem; border: 1px solid var(--line-2); border-radius: 999px; background: rgba(0,0,0,.22); }
 .seg-btn {
   display: inline-flex; align-items: center; gap: .5rem;
   min-height: 40px; padding: .4rem 1rem; border: 0; border-radius: 999px;
@@ -919,11 +923,12 @@ select.input option { color: var(--fg); background: var(--bg-2); }
 .seg-save {
   font-family: "IBM Plex Mono", monospace; font-size: .6rem; text-transform: uppercase; letter-spacing: .08em;
   padding: .12rem .4rem; border-radius: 999px;
-  background: rgba(67,56,202,.16); color: var(--accent-2);
+  background: rgba(126,168,196,.16); color: var(--accent-2);
 }
-/* On the active (accent-filled) pill this badge sits on --accent, so it lightens
-   rather than darkens — the dark theme's near-black overlay would now be a hole. */
-.seg-btn.active .seg-save { background: rgba(255,255,255,.22); color: var(--accent-fg); }
+/* On the active pill this badge sits on --accent, which is the BRIGHTEST surface
+   in the page — so it darkens, the one place in this theme where an overlay goes
+   down rather than up. */
+.seg-btn.active .seg-save { background: rgba(6,12,26,.22); color: var(--accent-fg); }
 /* price */
 .upgrade-price { margin: 1.3rem 0 .2rem; min-height: 3rem; display: flex; align-items: baseline; flex-wrap: wrap; gap: .5rem; }
 .upgrade-amt { font-family: "Fraunces", Georgia, serif; font-weight: 700; font-size: 2.6rem; color: var(--fg); line-height: 1; }
@@ -985,8 +990,8 @@ select.input option { color: var(--fg); background: var(--bg-2); }
 .totp-qr {
   display: block; width: 220px; height: 220px; border-radius: 12px;
   background: #fff; padding: 10px; /* the QR's own quiet zone — required by the format
-                                      regardless of what the card behind it looks like, so
-                                      it stays white now the card is white too */
+                                      regardless of the card behind it, and on this dark
+                                      card it is also what lets a scanner lock on */
   border: 1px solid var(--line-2);
 }
 .tfa-manual summary { cursor: pointer; color: var(--muted); font-size: .85rem; }
@@ -999,7 +1004,7 @@ select.input option { color: var(--fg); background: var(--bg-2); }
 .tfa-recovery {
   margin: 0 0 1.6rem; padding: 1.2rem;
   border: 1px solid color-mix(in srgb, var(--accent-2) 40%, var(--line));
-  border-radius: 12px; background: rgba(67,56,202,.06);
+  border-radius: 12px; background: rgba(126,168,196,.06);
 }
 .tfa-recovery-warn { color: var(--fg); font-size: .9rem; margin: .3rem 0 1rem; line-height: 1.55; }
 .tfa-recovery-warn b { color: var(--accent-2); }
@@ -1028,7 +1033,7 @@ select.input option { color: var(--fg); background: var(--bg-2); }
 .pk-row {
   display: flex; align-items: center; justify-content: space-between; gap: 1rem;
   padding: .8rem 1rem; border: 1px solid var(--line); border-radius: 10px;
-  background: rgba(15,23,42,.035);
+  background: rgba(0,0,0,.14);
 }
 .pk-row-main { display: flex; flex-direction: column; gap: .15rem; min-width: 0; }
 .pk-name { color: var(--fg); font-weight: 600; font-size: .95rem; }
@@ -1054,7 +1059,7 @@ select.input option { color: var(--fg); background: var(--bg-2); }
 .sb-switch-btn {
   font: 500 .92rem/1 "IBM Plex Sans", sans-serif;
   min-height: 44px; padding: .7rem 1.15rem;
-  color: var(--muted); background: rgba(15,23,42,.055);
+  color: var(--muted); background: rgba(0,0,0,.2);
   border: 1px solid var(--line); border-radius: 999px;
   cursor: pointer; transition: color .16s ease, border-color .16s ease, background .16s ease;
 }
@@ -1079,14 +1084,14 @@ select.input option { color: var(--fg); background: var(--bg-2); }
 }
 .sb-notes li::before { content: "—"; position: absolute; left: 0; color: var(--accent-2); }
 
-.sb-table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius); background: rgba(15,23,42,.035); }
+.sb-table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius); background: rgba(0,0,0,.14); }
 .sb-table { width: 100%; border-collapse: collapse; min-width: 46rem; }
 .sb-table-cap { text-align: left; padding: .9rem 1rem; color: var(--faint); font-size: .78rem; letter-spacing: .06em; text-transform: uppercase; }
 .sb-table th, .sb-table td { text-align: left; padding: .85rem 1rem; border-top: 1px solid var(--line); vertical-align: top; }
-.sb-table thead th { color: var(--fg); font-weight: 600; font-size: .92rem; background: rgba(15,23,42,.05); }
+.sb-table thead th { color: var(--fg); font-weight: 600; font-size: .92rem; background: rgba(0,0,0,.22); }
 .sb-table tbody th { color: var(--accent-2); font-weight: 500; font-size: .88rem; white-space: nowrap; }
 .sb-table td { color: var(--muted); font-size: .88rem; line-height: 1.5; }
-.sb-table tbody tr:hover td, .sb-table tbody tr:hover th { background: rgba(15,23,42,.028); }
+.sb-table tbody tr:hover td, .sb-table tbody tr:hover th { background: rgba(255,255,255,.02); }
 
 /* A runnable command inside a card. Deliberately NOT .lp-def-k: that style
    uppercases its text, which is fine for a label but wrong for something the
