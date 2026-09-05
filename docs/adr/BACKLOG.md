@@ -3669,3 +3669,28 @@ description is read once, a session line is read before the first write, a proxy
 that does not exist), and none removes the need for the server-side report, because Codex, pi and a
 raw MCP client do not run the kit. Worth a record once T1 has shipped and the population `doctor
 --corpus` reports is measured to be still growing.
+
+## Tests spawn children with no deadline, and a killed runner leaves them to launchd — 2026-09-05
+
+Standing rule from the owner, relayed by another session on 2026-09-05: every child a test, hook
+or script spawns carries a timeout, and the runner reaps its children before it exits. The
+incident behind it was in another project — two hook children from a mutation run hung in regex
+backtracking after their test had already recorded FAILED, were reparented to launchd, and burned
+most of a core each for fifteen hours; the owner found out from the fan noise.
+
+This tree has the same shape. Counted 2026-09-05 with
+`grep -rn --include='*_test.go' 'exec\.Command(' . | grep -v CommandContext`: 41 sites, most of
+them `exec.Command("bash", hook)` in `clients/claude-code` (`recall_test.go`, `hooks_test.go`,
+`anchorcue_test.go`, `plugin_test.go`, `verify_test.go`, `recall_mergesubjects_test.go`), plus
+one each in `internal/repohygiene` (two files), `internal/importer` and `internal/contractaxis`.
+The hook the tests run shells out to `aiagentmemory mcp search`, whose HTTP call carries a client
+timeout (`clients/claude-code/mcpcall.go`), so a hang in the SERVER call is bounded — but the
+`bash` child itself has no deadline, and `go test`'s package timeout kills the test binary without
+its grandchildren, which is exactly the reparenting the rule exists to stop. Of the shipped hooks,
+only the session-end and verify hooks wrap their work in `timeout`; the two recall hooks do not.
+
+Not measured: whether any child has actually leaked here. `ps -Ao pid,ppid,%cpu,etime,comm -r`
+on the development machine that day showed nothing reparented from a test. The fix is mechanical
+(`exec.CommandContext` with a deadline at every site, `timeout` around the recall hooks' one
+call) and belongs in its own PR, with a gate that greps the universe so a 42nd site joins the
+check on the same commit.
