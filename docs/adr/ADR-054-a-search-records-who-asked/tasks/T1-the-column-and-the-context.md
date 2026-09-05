@@ -70,6 +70,7 @@ go test ./internal/palace/ ./internal/auth/ ./cmd/server/ ./internal/archguard/ 
   ```
 - 2026-09-05 · 7f42bce* · mutant killed · exit 1 · `internal/palace/service.go` · the row literal reads the origin off an empty context instead of the request context, so a hook search records a person; TestASearchRecordsTheOriginItsContextCarries must see the hook origin missing · acceptance-sha256:9f3094b79dc4bfdcb1c963d639e098c49d6e19771bf0cfd5bd9bd09955c75245
 - 2026-09-05 · 71455db* · mutant killed · exit 1 · `internal/palace/service.go` · the row literal reads the origin off an empty context instead of the request context, so a hook search records a person; TestASearchRecordsTheOriginItsContextCarries must see the hook origin missing · acceptance-sha256:a4fba65b76b925c620471f28ef2a7d5962da989ca0d6ec330705e02bce5f8621
+- 2026-09-05 · 5c0fd56* · mutant killed · exit 1 · `internal/palace/service.go` · the row literal reads the origin off an empty context instead of the request context, so a hook search records a person; TestASearchRecordsTheOriginItsContextCarries must see the hook origin missing — re-recorded with no embedder reachable on the host · acceptance-sha256:a4fba65b76b925c620471f28ef2a7d5962da989ca0d6ec330705e02bce5f8621
 
 ## Invariants
 
@@ -104,3 +105,4 @@ Stop if `internal/palace` cannot read the context's origin without importing a s
 - 2026-09-05 · 7f42bce* · exit 0 · `set -o pipefail …` · acceptance-sha256:9f3094b79dc4bfdcb1c963d639e098c49d6e19771bf0cfd5bd9bd09955c75245 · ms:16358
 - 2026-09-05 · 7f42bce* · exit 0 · `set -o pipefail …` · acceptance-sha256:9f3094b79dc4bfdcb1c963d639e098c49d6e19771bf0cfd5bd9bd09955c75245 · ms:17909
 - 2026-09-05 · 71455db* · exit 0 · `set -o pipefail …` · acceptance-sha256:a4fba65b76b925c620471f28ef2a7d5962da989ca0d6ec330705e02bce5f8621 · ms:19098
+- 2026-09-05 · 5c0fd56* · exit 0 · `set -o pipefail …` · acceptance-sha256:a4fba65b76b925c620471f28ef2a7d5962da989ca0d6ec330705e02bce5f8621 · ms:18843
