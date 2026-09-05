@@ -68,9 +68,17 @@ a prompt is a question, and the palace's answer to it was already injected when 
 `Last turn` and `checkpoint:` blocks before planning; when neither is present, ask
 `llm_open_threads` in your wing yourself.
 
+**What is stored, and where.** The note holds the user's own prompt text, verbatim, on LOCAL
+disk — `${AGENTSMEMORY_STATE_DIR:-${TMPDIR:-/tmp}}`, so `/tmp` when nothing is set — in a 0700
+directory as a 0600 file, both modes set explicitly and asserted by T1's test; nothing leaves the
+machine and nothing is redacted: a prompt is the user's text handed back to the user's own next
+session, and scanning it for secrets is a worse problem than the one it solves (review of #278).
+An operator who does not want prompt text on disk sets `AGENTSMEMORY_LAST_TURN_PROMPTS=0` (the
+rest of the note is still written) or `AGENTSMEMORY_LAST_TURN=off` (nothing is).
+
 **Config.** Two knobs, in the hook environment like the others: `AGENTSMEMORY_LAST_TURN` (`on`
 default, `off`), `AGENTSMEMORY_LAST_TURN_PROMPTS` (0–10, default 3; 0 records no prompts). Both
-documented in the kit README's knob list.
+documented in the kit README's knob list, with what each turns off.
 
 **What would make this wrong:** if the `Last turn` block on a real `startup` in this checkout does
 not name the branch and prompts of the previous session, or names another checkout's. T2's sign-off
