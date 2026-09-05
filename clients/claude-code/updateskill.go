@@ -71,7 +71,7 @@ func updateSkillCommand() *cli.Command {
 			&cli.StringFlag{
 				Name:  "agent",
 				Value: agentClaude,
-				Usage: "agent CLI to refresh: claude | codex | pi | both (claude+codex) | all",
+				Usage: "agent CLI to refresh: claude | codex | pi | cursor | claude-desktop | both (claude+codex) | all (every one)",
 			},
 			&cli.StringFlag{
 				Name:  "sandbox",

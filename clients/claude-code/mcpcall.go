@@ -24,6 +24,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/atvirokodosprendimai/agentsmemory/internal/mcpprotocol"
 	"io"
 	"net"
 	"net/http"
@@ -163,6 +164,15 @@ func runRemoteMCP(ctx context.Context, c *cli.Command, out io.Writer) error {
 // authenticated with the workspace bearer token — the same handshake the pi
 // bridge extension performs (clients/claude-code/extensions/agentsmemory.ts).
 func dialMCP(ctx context.Context, url, token string, timeout time.Duration) (*client.Client, error) {
+	c, _, err := dialMCPInit(ctx, url, token, timeout)
+	return c, err
+}
+
+// dialMCPInit is dialMCP keeping the initialize result, for the one caller that
+// reads it: doctor's server rung wants serverInfo.version, which is the string
+// am_status and --version also carry (issue #70), and a second handshake just to
+// read it would be a second connection for nothing.
+func dialMCPInit(ctx context.Context, url, token string, timeout time.Duration) (*client.Client, *mcp.InitializeResult, error) {
 	// ⚠ NO TOKEN MEANS NO HEADER, not an empty one. `Authorization: Bearer ` with
 	// nothing after it is a credential that was offered and is blank — a server is
 	// entitled to reject it, and neither ours nor the hosted one is tested against
@@ -171,6 +181,15 @@ func dialMCP(ctx context.Context, url, token string, timeout time.Duration) (*cl
 	headers := map[string]string{}
 	if token != "" {
 		headers["Authorization"] = "Bearer " + token
+	}
+	// WHO is calling, for the search_events row (ADR-054 T2). A shipped hook
+	// exports AGENTSMEMORY_ORIGIN=hook:<its name> before calling this client, and
+	// this is the ONE client every hook goes through, so the origin is set here
+	// and never by anything an agent types. An empty variable sends no header at
+	// all: an empty value would be an origin of '' claimed explicitly, which is
+	// indistinguishable from the absent case and a byte on every call.
+	if origin := os.Getenv(mcpprotocol.OriginEnvVar); origin != "" {
+		headers[mcpprotocol.OriginHeader] = origin
 	}
 
 	// ⚠ A REDIRECT CAN MOVE THE REQUEST OFF THE HOST THE AUTH DECISION WAS MADE
@@ -199,21 +218,22 @@ func dialMCP(ctx context.Context, url, token string, timeout time.Duration) (*cl
 		transport.WithHTTPBasicClient(httpClient),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("connect %s: %w", url, err)
+		return nil, nil, fmt.Errorf("connect %s: %w", url, err)
 	}
 	if err := c.Start(ctx); err != nil {
-		return nil, fmt.Errorf("connect %s: %w", url, err)
+		return nil, nil, fmt.Errorf("connect %s: %w", url, err)
 	}
 
 	init := mcp.InitializeRequest{}
 	init.Params.ProtocolVersion = mcp.LATEST_PROTOCOL_VERSION
 	init.Params.ClientInfo = mcp.Implementation{Name: "aiagentmemory-cli", Version: version}
-	if _, err := c.Initialize(ctx, init); err != nil {
+	res, err := c.Initialize(ctx, init)
+	if err != nil {
 		c.Close()
 		// A bad or revoked token surfaces here as an HTTP 401 from the endpoint.
-		return nil, fmt.Errorf("initialize %s: %w", url, err)
+		return nil, nil, fmt.Errorf("initialize %s: %w", url, err)
 	}
-	return c, nil
+	return c, res, nil
 }
 
 // resolveWorkspaceToken finds the token to authenticate with and describes where

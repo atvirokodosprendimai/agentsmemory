@@ -411,9 +411,22 @@ func Pair(t *testing.T, wingA, wingB string) (*Harness, *Harness) {
 	return p[0], p[1]
 }
 
+// openDB opens a migrated SQLite file with the pragmas the server ships and the
+// two teams every harness identity names.
+//
+// The DSN is db.WriterPragmas rather than a copy, so a scenario here measures
+// the database an operator runs (ADR-052 T3) — WAL, a busy timeout, and
+// foreign keys ON. That last one is why the teams are seeded: newServer admits
+// TeamID and OtherTeamID from a request header, the way the real gate admits a
+// resolved bearer, and in production a resolved tenant always has a teams row
+// behind it. With foreign keys off the harness never needed one; the moment
+// they were enforced, every scenario's first write failed at usage metering on
+// `usage.team_id REFERENCES teams(id)`. Seeding the rows is what makes the
+// fixture match the admission it imitates. Turning the pragma back off would
+// have hidden the gap again.
 func openDB(t *testing.T, path string) *gorm.DB {
 	t.Helper()
-	gdb, err := gorm.Open(sqlite.Open(path), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+	gdb, err := gorm.Open(sqlite.Open(path+db.WriterPragmas), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
@@ -427,6 +440,14 @@ func openDB(t *testing.T, path string) *gorm.DB {
 	}
 	if err := goose.Up(sqlDB, "migrations"); err != nil {
 		t.Fatalf("migrate: %v", err)
+	}
+	for _, team := range []tenant.Team{
+		{ID: TeamID, Name: TeamID, Slug: "mcptest", Kind: "personal", CreatedAt: "2026-01-01T00:00:00Z"},
+		{ID: OtherTeamID, Name: OtherTeamID, Slug: "mcptest-other", Kind: "personal", CreatedAt: "2026-01-01T00:00:00Z"},
+	} {
+		if err := gdb.Create(&team).Error; err != nil {
+			t.Fatalf("seed team %s: %v", team.ID, err)
+		}
 	}
 	return gdb
 }
@@ -490,7 +511,7 @@ func newStream(gdb *gorm.DB) (http.Handler, *palace.Service) {
 // the deployment's real usage policy and local/hosted surface selection.
 func newStreamWith(gdb *gorm.DB, usageSvc *usage.Service, local bool) (http.Handler, *palace.Service) {
 
-	drawers := palace.NewService(palace.NewRepo(gdb), fakeEmbedder{}, sqlitevec.New(gdb), fakeDim)
+	drawers := palace.NewService(palace.NewRepo(gdb, gdb), fakeEmbedder{}, sqlitevec.New(gdb), fakeDim)
 	mcpSrv := mcpserver.Compose(mcpserver.Deps{
 		Skills:   skill.NewService(skill.NewRepo(gdb)),
 		Skillset: skillset.NewService(skillset.NewRepo(gdb)),

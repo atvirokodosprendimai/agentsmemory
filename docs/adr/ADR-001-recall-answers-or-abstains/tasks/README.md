@@ -30,7 +30,7 @@ premise had failed.
 |----|-------|--------|--------|------------|
 | T1 | Generate hard negatives, verify absence at retrieval depth, label the three populations | pending | — | `go test ./internal/palace/ ./cmd/server/ -run "TestPopulation\|TestAbsentPrompt\|TestVerifyAbsent\|TestEvaluate"` |
 | T2 | Build the risk–coverage curve, the calibration file, and the go/no-go gate | pending | — | `go test ./internal/palace/ ./cmd/server/ -run "TestRiskCoverage\|TestGate\|TestCalibrat"` |
-| T3 | Run the gate on the real corpus and decide whether the rest is built | blocked | — | human-observed: `adr-verify --human "…exit <0\|1>… decision <ship\|withdraw\|blocked>"` |
+| T3 | Run the gate on the real corpus and decide whether the rest is built | failed | — | human-observed: `adr-verify --human "…exit <0\|1>… decision <ship\|withdraw\|blocked>"` |
 | T4 | Load the calibration file and validate its fingerprint at startup | pending | — | `go test ./cmd/server/ ./internal/palace/ ./internal/config/ -run "TestAbstain"` |
 | T5 | Derive the confidence verdict inside Search | pending | — | `go test ./internal/palace/ -run "TestConfidence"` |
 | T6 | Return the verdict over MCP and record what it was derived from | pending | — | `go test ./internal/mcpserver/ ./internal/palace/ -run "TestSearchResultCarriesConfidence\|TestSearchEventRecordsVerdict\|TestRecallStats"` |

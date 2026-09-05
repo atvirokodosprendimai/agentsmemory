@@ -21,6 +21,7 @@ convention.
 | File | Change | Why |
 |------|--------|-----|
 | `internal/palace/repo.go` | edit | `Repo` gains a second field; `NewRepo` takes a reader and a writer; read methods use the reader, write methods and any `Transaction` use the writer |
+| `internal/palace/service.go`, `internal/palace/writepath_test.go` | edit, add | Amended at execution after review of PR #233. Repo-level routing alone violated the record's Decision — "the write path validates against its own reads, never against the read model": a read method is correctly on the reader, and a write path that calls it before its transaction takes its lookup on a different snapshot (`supersedeInto` and `InvalidateDrawer` selected the rows to end that way). The Service gains `writer`, a view of the Repo with the writer in both seats, and every write-path lookup reads through it: `supersedeInto`, `Supersede`, `InvalidateDrawer`, `EndDrawer`, `Update`, `Delete`, `DeleteWing`, `Mine`, `purgeClosetSourceExcept`, `CopyWing`, `copyDrawerBatch`, `RecomputeGraph`, `computeHallwaysForWing`, `BackfillEntityLabels`, `CreateTunnel`, `roomExists`, `KGInvalidate`, `KGReplaceSource`, `KGAdd`, `AbsorbDrawers`, `prepareWrite`, `attachDerivedEdge`, `attachWingRootEdge`, `embedPendingDrawers`, `embedPendingClosets`, `DropContextualIndex`; `Get` and `GetAnyVersion` serve both paths through view-taking variants. `TestNoWritePathReadsTheReadModel` derives the class from the AST so the next site is found by the gate rather than by a reviewer; `recordSearch` and `recordFetch` are named append-only logs, with `TestAppendOnlyLogsAreJustified` holding them to that |
 | every other `internal/palace` file that reaches a `*gorm.DB` directly | edit | **fourteen** files do, not the five an earlier draft listed — derive the set with `grep -rln 'r\.db\|s\.repo\.db\|\.db\.WithContext' --include='*.go' internal/palace/ \| grep -v _test`, which today returns `admin.go`, `anchors.go`, `closet.go`, `contentkey.go`, `currentonly.go`, `fetchlog.go`, `graph.go`, `kg.go`, `kgextract.go`, `recallstats.go`, `repo.go`, `service.go`, `supersede.go`, `validity.go`. `anchors.go`, `closet.go`, `graph.go`, `kg.go` and `recallstats.go` carry pure-read surfaces the earlier list omitted |
 | `cmd/server/main.go` | edit | pass both handles to `NewRepo` — the line that SELECTS the split |
 | `internal/mcpserver/*_test.go`, `internal/mcptest`, `cmd/server/*_test.go` | edit | **thirteen** constructions of `palace.NewRepo`/`NewService` live in `internal/mcpserver` alone; the signature change does not compile without them |
@@ -39,7 +40,7 @@ convention.
 
 ```bash
 set -o pipefail
-go test ./internal/palace/ -run 'TestReadMethodsUseTheReadHandle$|TestEveryTransactionUsesTheWriteHandle$' -count=1 2>&1 | tee /tmp/adr052-t5a.out \
+go test ./internal/palace/ -run 'TestReadMethodsUseTheReadHandle$|TestEveryTransactionUsesTheWriteHandle$|TestNoWritePathReadsTheReadModel$|TestAppendOnlyLogsAreJustified$' -count=1 2>&1 | tee /tmp/adr052-t5a.out \
   && ! grep -qE "no tests to run|^FAIL|^--- FAIL|\[build failed\]" /tmp/adr052-t5a.out \
   && go test ./internal/palace/... ./internal/mcpserver/... ./internal/mcptest/... ./cmd/server/... -count=1 2>&1 | tee /tmp/adr052-t5b.out \
   && ! grep -qE "^FAIL|^--- FAIL|\[build failed\]" /tmp/adr052-t5b.out
@@ -51,6 +52,8 @@ go test ./internal/palace/ -run 'TestReadMethodsUseTheReadHandle$|TestEveryTrans
 |-----------|------|----------|--------|-------|
 | `TestReadMethodsUseTheReadHandle` | `internal/palace/handles_test.go` | every read method succeeds against a `query_only` reader, so none of them writes | — | S1, S2, S3 |
 | `TestEveryTransactionUsesTheWriteHandle` | `internal/palace/handles_test.go` | a `Repo` whose reader is `query_only` completes every write transaction, so no transaction is running on the reader | — | S4, S5 |
+| `TestNoWritePathReadsTheReadModel` | `internal/palace/writepath_test.go` | no Service method on the write path — one that writes, calls a Repo writer other than an append-only log, reads through `s.writer`, or calls a method that does — reads through `s.repo` or calls a helper that does; derived from the AST, with a falsifiability subtest over a fixture that is an offender | — | S3 |
+| `TestAppendOnlyLogsAreJustified` | `internal/palace/writepath_test.go` | every append-only-log exemption names a reason and a Repo method that is still Create-only | — | S3 |
 
 ## Reachability
 
@@ -62,6 +65,12 @@ go test ./internal/palace/ -run 'TestReadMethodsUseTheReadHandle$|TestEveryTrans
 | 4 — it is used | every MCP read tool goes through these methods; nothing counts the split yet |
 
 ## Mutation Log
+
+- 2026-09-04 · c344304* · mutant killed · exit 1 · `internal/palace/repo.go` · the constructor ignores the reader: every read still succeeds on the writer, and only the closed-reader check in TestReadMethodsUseTheReadHandle sees that Get keeps answering · acceptance-sha256:7fd908b2a4259192fd39d55d9fbbcd6f147f282edc011be125e96382a5dc8517 · covers:the read methods holding the query_only handle
+- 2026-09-04 · c344304* · mutant killed · exit 1 · `internal/palace/service.go` · moveMemory opens its transaction on the reader: the relocation in TestEveryTransactionUsesTheWriteHandle fails with the readonly error, which is the split the invariant forbids made visible · acceptance-sha256:7fd908b2a4259192fd39d55d9fbbcd6f147f282edc011be125e96382a5dc8517 · covers:the exit code
+- 2026-09-04 · 1c0e134* · mutant killed · exit 1 · `internal/palace/repo.go` · the constructor ignores the reader: every read still succeeds on the writer, and only the closed-reader check in TestReadMethodsUseTheReadHandle sees that Get keeps answering · acceptance-sha256:e7851aa3e346c4983dd83ec4658474c9eee2c73263f592efd4b261bc27de39ad · covers:the read methods holding the query_only handle
+- 2026-09-04 · 1c0e134* · mutant killed · exit 1 · `internal/palace/service.go` · moveMemory opens its transaction on the reader: the relocation in TestEveryTransactionUsesTheWriteHandle fails with the readonly error · acceptance-sha256:e7851aa3e346c4983dd83ec4658474c9eee2c73263f592efd4b261bc27de39ad · covers:the exit code
+- 2026-09-04 · 1c0e134* · mutant killed · exit 1 · `internal/palace/import.go` · AbsorbDrawers takes its dedupe lookup — the read that decides which rows it writes — on the read model again: every behavioural test stays green because the snapshot is right in a quiet test, and only TestNoWritePathReadsTheReadModel, reading the source, sees the write path validating against the reader · acceptance-sha256:e7851aa3e346c4983dd83ec4658474c9eee2c73263f592efd4b261bc27de39ad · covers:the exit code
 
 ## Invariants
 
@@ -89,3 +98,34 @@ file, and open ADR PRs on that package will conflict.
 - Changing any query, index or schema
 
 ## Verification Log
+- 2026-09-04 · c344304* · exit 1 · `set -o pipefail …` · acceptance-sha256:7fd908b2a4259192fd39d55d9fbbcd6f147f282edc011be125e96382a5dc8517 · ms:475
+  ```
+  --- last 7 line(s) of stdout
+  # github.com/atvirokodosprendimai/agentsmemory/internal/palace [github.com/atvirokodosprendimai/agentsmemory/internal/palace.test]
+  internal/palace/handles_test.go:77:36: too many arguments in call to NewRepo
+  	have (*gorm.DB, *gorm.DB)
+  	want (*gorm.DB)
+  internal/palace/handles_test.go:151:31: svc.repo.reader undefined (type *Repo has no field or method reader)
+  FAIL	github.com/atvirokodosprendimai/agentsmemory/internal/palace [build failed]
+  FAIL
+  ```
+- 2026-09-04 · c344304* · exit 1 · `set -o pipefail …` · acceptance-sha256:7fd908b2a4259192fd39d55d9fbbcd6f147f282edc011be125e96382a5dc8517 · ms:52328
+  ```
+  --- last 10 line(s) of stdout (of 100 after folding 101 raw)
+  2026/09/04 22:55:14 OK   00036_drawer_fetches.sql (639.08µs)
+  2026/09/04 22:55:14 goose: successfully migrated database to version: 36
+  --- FAIL: TestCandidateWideningDoesNotRefetchRows (0.22s)
+      widening_test.go:130: no statement resolved the first chunk; the gate is not watching the right query
+  FAIL
+  FAIL	github.com/atvirokodosprendimai/agentsmemory/internal/palace	30.532s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/mcpserver	14.086s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/mcptest	15.443s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/cmd/server	28.505s
+  FAIL
+  ```
+- 2026-09-04 · c344304* · exit 0 · `set -o pipefail …` · acceptance-sha256:7fd908b2a4259192fd39d55d9fbbcd6f147f282edc011be125e96382a5dc8517 · ms:18096
+- 2026-09-04 · c344304* · exit 0 · `set -o pipefail …` · acceptance-sha256:7fd908b2a4259192fd39d55d9fbbcd6f147f282edc011be125e96382a5dc8517 · ms:16433
+- 2026-09-04 · c344304* · exit 0 · `set -o pipefail …` · acceptance-sha256:7fd908b2a4259192fd39d55d9fbbcd6f147f282edc011be125e96382a5dc8517 · ms:25592
+- 2026-09-04 · 1c0e134* · exit 0 · `set -o pipefail …` · acceptance-sha256:e7851aa3e346c4983dd83ec4658474c9eee2c73263f592efd4b261bc27de39ad · ms:16594
+- 2026-09-04 · 1c0e134* · exit 0 · `set -o pipefail …` · acceptance-sha256:e7851aa3e346c4983dd83ec4658474c9eee2c73263f592efd4b261bc27de39ad · ms:15265
+- 2026-09-04 · 1c0e134* · exit 0 · `set -o pipefail …` · acceptance-sha256:e7851aa3e346c4983dd83ec4658474c9eee2c73263f592efd4b261bc27de39ad · ms:14736

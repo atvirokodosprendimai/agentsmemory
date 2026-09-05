@@ -23,11 +23,15 @@ import (
 
 // searchEventRow is the gorm view of one recorded recall.
 type searchEventRow struct {
-	ID         string  `gorm:"column:id;primaryKey"`
-	TeamID     string  `gorm:"column:team_id"`
-	Wing       string  `gorm:"column:wing"`
-	Room       string  `gorm:"column:room"`
-	Query      string  `gorm:"column:query"`
+	ID     string `gorm:"column:id;primaryKey"`
+	TeamID string `gorm:"column:team_id"`
+	Wing   string `gorm:"column:wing"`
+	Room   string `gorm:"column:room"`
+	Query  string `gorm:"column:query"`
+	// Origin is WHO asked: '' for a person or an agent acting on its own
+	// judgement, `hook:<script>` for the kit's automatic recalls (ADR-054). The
+	// to-write list is built from the rows where it is empty.
+	Origin     string  `gorm:"column:origin"`
 	Candidates int     `gorm:"column:candidates"`
 	Hits       int     `gorm:"column:hits"`
 	TopScore   float64 `gorm:"column:top_score"`
@@ -65,7 +69,7 @@ func (r *Repo) SampleSearchQueries(ctx context.Context, teamID, wing string, lim
 	if limit <= 0 {
 		limit = 20
 	}
-	q := r.db.WithContext(ctx).Model(&searchEventRow{}).
+	q := r.reader.WithContext(ctx).Model(&searchEventRow{}).
 		Where("team_id = ? AND length(query) >= 12", teamID)
 	if wing != "" {
 		q = q.Where("wing = ?", wing)
@@ -87,6 +91,11 @@ type WingRecall struct {
 	Wing     string
 	Searches int
 	Answered int
+	// HookSearches is how many of Searches a shipped hook made on its own —
+	// origin `hook:<script>` (ADR-054). Searches keeps every row, so a reader can
+	// see the machine share; `0` beside a polluted Unanswered list is the tell
+	// for a kit that has not learned to declare itself.
+	HookSearches int
 	// AvgTop is the mean top-hit FUSED score across ANSWERED searches. Under
 	// FUSION=rrf the fused score is a rank encoding, so its top-1 value is nearly
 	// constant and this says almost nothing about match quality. Kept for
@@ -207,15 +216,20 @@ func (s *Service) RecallStats(ctx context.Context, teamID, wing string, since ti
 		Wing         string
 		Searches     int
 		Answered     int
+		HookSearches int
 		SumTop       float64
 		SumTopRerank float64
 		Reranked     int
 		LastUsed     string
 	}
 	var rows []agg
-	searches := s.repo.db.WithContext(ctx).
+	searches := s.repo.reader.WithContext(ctx).
 		Model(&searchEventRow{}).
 		Select("wing, COUNT(*) AS searches, SUM(CASE WHEN hits > 0 THEN 1 ELSE 0 END) AS answered, "+
+			// How many a hook made (ADR-054). Counted, never excluded: ADR-001
+			// calibrates on every row and this aggregate is where the machine share
+			// becomes visible.
+			"SUM(CASE WHEN origin LIKE 'hook:%' THEN 1 ELSE 0 END) AS hook_searches, "+
 			"SUM(CASE WHEN hits > 0 THEN top_score ELSE 0 END) AS sum_top, "+
 			// Averaged over RERANKED answered searches only. Folding in rows where no
 			// cross-encoder ran would divide a sum of real logits by a count that
@@ -248,7 +262,7 @@ func (s *Service) RecallStats(ctx context.Context, teamID, wing string, since ti
 		N      int
 	}
 	var skipRows []skipAgg
-	skips := s.repo.db.WithContext(ctx).
+	skips := s.repo.reader.WithContext(ctx).
 		Model(&searchEventRow{}).
 		Select("wing, rerank_skip_reason AS reason, COUNT(*) AS n").
 		Where("team_id = ? AND created_at >= ?", teamID, cutoff).
@@ -279,7 +293,7 @@ func (s *Service) RecallStats(ctx context.Context, teamID, wing string, since ti
 			// totals below, and named so the report does not silently drop it.
 			wing = "(unscoped)"
 		}
-		w := &WingRecall{Wing: wing, Searches: a.Searches, Answered: a.Answered, LastUsed: a.LastUsed}
+		w := &WingRecall{Wing: wing, Searches: a.Searches, Answered: a.Answered, HookSearches: a.HookSearches, LastUsed: a.LastUsed}
 		if a.Answered > 0 {
 			w.AvgTop = a.SumTop / float64(a.Answered)
 		}
@@ -301,7 +315,7 @@ func (s *Service) RecallStats(ctx context.Context, teamID, wing string, since ti
 		LastFiled string
 	}
 	var counts []wingCount
-	drawers := s.repo.db.WithContext(ctx).
+	drawers := s.repo.reader.WithContext(ctx).
 		Model(&drawerRow{}).
 		Select("wing, COUNT(*) AS drawers, MAX(filed_at) AS last_filed").
 		Where("team_id = ?", teamID)
@@ -324,7 +338,7 @@ func (s *Service) RecallStats(ctx context.Context, teamID, wing string, since ti
 
 	// Writes in the window, across every requested wing.
 	var writes int64
-	writesQuery := s.repo.db.WithContext(ctx).
+	writesQuery := s.repo.reader.WithContext(ctx).
 		Model(&drawerRow{}).
 		Where("team_id = ? AND filed_at >= ?", teamID, cutoff)
 	if wing != "" {
@@ -349,9 +363,12 @@ func (s *Service) RecallStats(ctx context.Context, teamID, wing string, since ti
 	// — a suggestion's count is only honest if the paraphrases beyond the first
 	// page are counted too.
 	var unanswered []searchEventRow
-	unansweredQuery := s.repo.db.WithContext(ctx).
+	unansweredQuery := s.repo.reader.WithContext(ctx).
 		Model(&searchEventRow{}).
-		Where("team_id = ? AND created_at >= ? AND hits = 0 AND query <> ''", teamID, cutoff)
+		// The to-write list is built from the searches nobody's hook made
+		// (ADR-054): a hook's recall that found nothing is a fact about the palace,
+		// not a memory to write. Rows from before the column read as '' and stay.
+		Where("team_id = ? AND created_at >= ? AND hits = 0 AND query <> '' AND origin NOT LIKE 'hook:%'", teamID, cutoff)
 	if wing != "" {
 		unansweredQuery = unansweredQuery.Where("wing = ?", wing)
 	}

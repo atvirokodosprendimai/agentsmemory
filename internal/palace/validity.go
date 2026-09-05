@@ -40,7 +40,7 @@ func currentScope(dbq *gorm.DB) *gorm.DB { return dbq.Where("valid_to = ''") }
 // those needs the predicate inside its own query rather than a second whole-wing
 // read. This stays as the wing-wide enumeration the corpus checks use.
 func (r *Repo) CurrentDrawers(ctx context.Context, teamID, wing string) ([]Drawer, error) {
-	q := r.db.WithContext(ctx).Model(&drawerRow{}).Where("team_id = ?", teamID)
+	q := r.reader.WithContext(ctx).Model(&drawerRow{}).Where("team_id = ?", teamID)
 	if strings.TrimSpace(wing) != "" {
 		q = q.Where("wing = ?", wing)
 	}
@@ -87,7 +87,7 @@ func (s *Service) EndDrawer(ctx context.Context, teamID, id, reason string) erro
 	// GetAnyVersion, not Get: the refusal below is ABOUT an ended record, and the
 	// current-only route answers "not found" for one — turning a precise "already
 	// ended on X, and here is the reason" into a bare miss for a row that exists.
-	current, err := s.GetAnyVersion(ctx, teamID, id) // also maps an unknown id to ErrNotFound
+	current, err := s.getAnyVersionOn(ctx, s.writer, teamID, id) // the writer's own read (ADR-052); also maps an unknown id to ErrNotFound
 	if err != nil {
 		return err
 	}

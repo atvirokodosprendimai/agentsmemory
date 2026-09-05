@@ -245,7 +245,13 @@ func registerAddDrawer(reg *registrar, drawers *palace.Service, usageSvc *usage.
 				"spine that POINTS at ordinary memories because that is cheaper for every reader, not "+
 				"because the server will stop you. ⚠ONE THING IS STILL REFUSED: an ENDED record "+
 				"cannot be relocated at all, because the first ending is the one that is true and "+
-				"moving it rewrites where a decision was taken.",
+				"moving it rewrites where a decision was taken. The response says what the write "+
+				"actually achieved, in fields that appear only when they apply: has_edge and "+
+				"edge_derived report whether the memory is REACHABLE by traversal rather than merely "+
+				"stored; code_anchors counts the anchors kept, or anchor_error says why they were "+
+				"not, beside a memory that filed successfully either way; and pending_embedding with "+
+				"warning arrive when the row is stored but not yet searchable, which looks identical "+
+				"to a healthy write from here and only an operator can fix.",
 			palace.ChunkSize, palace.EntryRoom)),
 		mcp.WithString("wing", mcp.Description("Project namespace the memory belongs to. Optional when this MCP was registered for a project — then it defaults to that project's wing.")),
 		mcp.WithString("room", mcp.Required(), mcp.Description(fmt.Sprintf(
@@ -266,7 +272,10 @@ func registerAddDrawer(reg *registrar, drawers *palace.Service, usageSvc *usage.
 				"one checkout, so repo is the only thing that tells a verifying session whether an anchor is even about "+
 				"the tree in front of it. Without it the anchor can never report drift from anywhere: a path like "+
 				"internal/x/y.go looks checkable from any directory, so an unlabelled anchor is left UNCHECKED rather "+
-				"than reported missing — the safe reading, and a permanently silent one.")),
+				"than reported missing — the safe reading, and a permanently silent one. The write is never refused for "+
+				"a missing repo and the label is never guessed: when any anchor arrives without one, the response carries "+
+				"anchors_unlabelled (how many) and anchors_advice (the one am_update_drawer call that labels them), and "+
+				"neither key appears when every anchor carried repo.")),
 		mcp.WithBoolean("confirm_new_wing", mcp.Description(
 			"Set true to file an inbox item into a wing that holds no memories yet. Without it that "+
 				"combination is refused, because it is what an undeliverable handoff looks like: a "+
@@ -324,7 +333,7 @@ func registerAddDrawer(reg *registrar, drawers *palace.Service, usageSvc *usage.
 
 		// Anchors pin the FIRST chunk: it is the parent handle for a multi-chunk
 		// write, and the one search returns as the memory's identity.
-		if anchors := parseAnchors(req.GetArguments()["code_anchors"]); len(anchors) > 0 && len(created.Drawers) > 0 {
+		if anchors, _, _, unlabelled := parseAnchorList(req.GetArguments()["code_anchors"]); len(anchors) > 0 && len(created.Drawers) > 0 {
 			n, err := drawers.AddAnchors(ctx, t.TeamID, created.Drawers[0].ID, anchors)
 			if err != nil {
 				// The memory is already filed; an anchor failure must not present
@@ -332,6 +341,12 @@ func registerAddDrawer(reg *registrar, drawers *palace.Service, usageSvc *usage.
 				out["anchor_error"] = err.Error()
 			} else {
 				out["code_anchors"] = n
+				// Accepted and reported, never refused or guessed (ADR-056). Absent
+				// when every anchor carried repo, so presence is the whole signal.
+				if unlabelled > 0 {
+					out["anchors_unlabelled"] = unlabelled
+					out["anchors_advice"] = unlabelledAnchorAdvice(created.Drawers[0].ID, unlabelled)
+				}
 			}
 		}
 		if created.PendingEmbedding {
@@ -350,7 +365,7 @@ func registerAddDrawer(reg *registrar, drawers *palace.Service, usageSvc *usage.
 // objects. It is tolerant by design — an unparseable entry is skipped rather than
 // failing the write, because the memory itself is worth more than its anchor.
 func parseAnchors(raw any) []palace.AnchorInput {
-	out, _, _ := parseAnchorList(raw)
+	out, _, _, _ := parseAnchorList(raw)
 	return out
 }
 
@@ -375,12 +390,13 @@ func parseAnchors(raw any) []palace.AnchorInput {
 // "the one anchor I sent had a typo", the likeliest way to get an entry wrong at
 // all. The caller asked to SET anchors, none could be read, and deleting the
 // existing ones is the opposite of the intent.
-func parseAnchorList(raw any) ([]palace.AnchorInput, bool, int) {
+func parseAnchorList(raw any) ([]palace.AnchorInput, bool, int, int) {
 	list, ok := raw.([]any)
 	if !ok {
-		return nil, false, 0
+		return nil, false, 0, 0
 	}
 	out := make([]palace.AnchorInput, 0, len(list))
+	unlabelled := 0
 	for _, item := range list {
 		m, ok := item.(map[string]any)
 		if !ok {
@@ -392,9 +408,25 @@ func parseAnchorList(raw any) ([]palace.AnchorInput, bool, int) {
 		if strings.TrimSpace(path) == "" || strings.TrimSpace(snippet) == "" {
 			continue
 		}
+		// Counted here, the ONE builder fed from a request (ADR-056): an anchor
+		// with no repo can never be attributed to a tree, so it is accepted as
+		// today and REPORTED — a skipped entry above is not an unlabelled one.
+		if strings.TrimSpace(repo) == "" {
+			unlabelled++
+		}
 		out = append(out, palace.AnchorInput{Repo: repo, Path: path, Snippet: snippet})
 	}
-	return out, true, len(list)
+	return out, true, len(list), unlabelled
+}
+
+// unlabelledAnchorAdvice is the one call that labels an anchor filed without a
+// repository, put on the write's response beside the count (ADR-056). The write
+// is never refused for a missing label — the memory is worth more than its
+// anchor, parseAnchors' own rule — and never guessed, because a wrong label is
+// a positive claim the read side attributes and checks in the wrong tree.
+func unlabelledAnchorAdvice(id string, n int) string {
+	return fmt.Sprintf("%d anchor(s) carry no repo and can never be verified against any tree: send "+
+		"am_update_drawer(id: %q, code_anchors: [...]) with \"repo\" — the basename of your git remote — on every entry", n, id)
 }
 
 // anchorReplacement decides what a code_anchors argument means at a REPLACE,
@@ -413,21 +445,21 @@ func parseAnchorList(raw any) ([]palace.AnchorInput, bool, int) {
 // nothing is indistinguishable from a deliberate []. A list with one bad row
 // among several is not this case: it is readable, something survived, and the
 // bad row is dropped.
-func anchorReplacement(raw any) ([]palace.AnchorInput, string) {
-	anchors, readable, sent := parseAnchorList(raw)
+func anchorReplacement(raw any) ([]palace.AnchorInput, int, string) {
+	anchors, readable, sent, unlabelled := parseAnchorList(raw)
 	if !readable {
-		return nil, "code_anchors must be a LIST of {path, snippet, repo?} objects; the value sent could not be " +
+		return nil, 0, "code_anchors must be a LIST of {path, snippet, repo?} objects; the value sent could not be " +
 			"read as one. Refusing rather than clearing, because an unreadable argument and a " +
 			"deliberate \"remove the anchors\" look identical once parsed — send [] if you meant to clear them"
 	}
 	if sent > 0 && len(anchors) == 0 {
-		return nil, fmt.Sprintf(
+		return nil, 0, fmt.Sprintf(
 			"code_anchors carried %d entr(ies) and none could be read — each needs a non-empty "+
 				"\"path\" and \"snippet\". Refusing rather than clearing: you asked to set anchors, "+
 				"so deleting the ones this memory has would be the opposite of that. Send [] if you "+
 				"meant to remove them", sent)
 	}
-	return anchors, ""
+	return anchors, unlabelled, ""
 }
 
 // pendingEmbeddingWarning is the one sentence a caller must pass on when a write
@@ -488,7 +520,7 @@ func recordFetchJoin(ctx context.Context, drawers *palace.Service, teamID string
 // registerGetDrawer: fetch one drawer by id.
 func registerGetDrawer(reg *registrar, drawers *palace.Service, usageSvc *usage.Service) {
 	tool := newTool("get_drawer",
-		mcp.WithDescription("Fetch a drawer by its id. A memory longer than ~1600 characters is stored as several chunks and a search returns the ONE that matched; pass whole=true to get every chunk of that memory, in order, so you can read the note as it was written. A response you did NOT ask to be whole says whether it is one: content_truncated is set with content_length, the whole memory's rune count, whenever the drawer you asked for is a chunk of a longer memory — so a fragment is never mistakable for a complete short memory. Complete it by calling this tool again with the same id and whole=true; that is the only completion path, and no cursor or offset exists. A `facts` block arrives beside the memory when the graph holds any edge naming this drawer — ⚠INCLUDING THE INCOMING ONES, which is where a correction lives: retracts, supersedes and qualifies all point AT the record they correct, so this is the check you would otherwise have to know to make separately. It is bounded by the same response budget as everything else and says so under `withheld`; a fact tied to the drawer only by source_drawer_id is provenance rather than a reference and does NOT appear here."),
+		mcp.WithDescription("Fetch a drawer by its id. A memory longer than ~1600 characters is stored as several chunks and a search returns the ONE that matched; pass whole=true to get every chunk of that memory, in order, so you can read the note as it was written. A response you did NOT ask to be whole says whether it is one: content_truncated is set with content_length, the whole memory's rune count, whenever the drawer you asked for is a chunk of a longer memory — so a fragment is never mistakable for a complete short memory. Complete it by calling this tool again with the same id and whole=true; that is the only completion path, and no cursor or offset exists. A `facts` block arrives beside the memory when the graph holds any edge naming this drawer — ⚠INCLUDING THE INCOMING ONES, which is where a correction lives: retracts, supersedes and qualifies all point AT the record they correct, so this is the check you would otherwise have to know to make separately. It is bounded by the same response budget as everything else and says so under `withheld`; a fact tied to the drawer only by source_drawer_id is provenance rather than a reference and does NOT appear here. When that budget does cut the fact page, next_cursor arrives with withheld and is what continues it — without it the count would say facts were lost and nothing would say how to reach them."),
 		mcp.WithString("id", mcp.Required(), mcp.Description("The drawer id returned by am_add_drawer or am_search.")),
 		mcp.WithBoolean("whole", mcp.Description("Return every chunk of the memory this drawer belongs to, in order, instead of just this one. Any chunk's id works — you do not need the first.")),
 		mcp.WithString("search_id", mcp.Description("Optional: the search_id of the am_search page that led you to this memory. It is recorded on the request's trace span AND, since ADR-028 T3, durably against the drawer this call returned — so the recall that sent you here becomes a relevance signal. Nothing changes in what you get back. A fetch that does not resolve records nothing, and an id that is not the shape am_search mints is refused rather than stored.")),
@@ -590,7 +622,7 @@ func registerGetDrawer(reg *registrar, drawers *palace.Service, usageSvc *usage.
 // at it in exchange for nothing.
 func registerUpdateDrawer(reg *registrar, drawers *palace.Service, usageSvc *usage.Service) {
 	tool := newTool("update_drawer",
-		mcp.WithDescription("Correct or relocate a memory. Sending content is a CORRECTION: it writes a NEW record, ends the old one with your reason, and links them — so the id changes and the old text stays readable by its own id, because the version that was replaced is the thing nothing else can recover. Sending only wing/room is a relocation and keeps the id. Only supplied fields are modified. A correction and its predecessor's ending commit together, so a failure leaves the memory exactly as it was rather than leaving two current records on one subject. ⚠A SECOND CORRECTION OF THE SAME MEMORY IS REFUSED, not queued: if another writer corrected it between your read and your write, this returns a concurrent-correction error and changes NOTHING. Do not retry the same call — it will be refused again for a different reason. Re-read the memory and correct the record that replaced it, which the error names."),
+		mcp.WithDescription("Correct or relocate a memory. Sending content is a CORRECTION: it writes a NEW record, ends the old one with your reason, and links them — so the id changes and the old text stays readable by its own id, because the version that was replaced is the thing nothing else can recover. Sending only wing/room is a relocation and keeps the id. Only supplied fields are modified. A correction and its predecessor's ending commit together, so a failure leaves the memory exactly as it was rather than leaving two current records on one subject. ⚠A SECOND CORRECTION OF THE SAME MEMORY IS REFUSED, not queued: if another writer corrected it between your read and your write, this returns a concurrent-correction error and changes NOTHING. Do not retry the same call — it will be refused again for a different reason. Re-read the memory and correct the record that replaced it, which the error names. Fields that appear only when they apply: on a CORRECTION, supersedes names the record this one replaced, reason repeats why it stopped applying, and ended_at is when it was ended — a relocation carries none of the three, which is how the answer tells the two operations apart; and code_anchors counts the anchors now pinned to the record you got back."),
 		mcp.WithString("id", mcp.Required(), mcp.Description("The drawer id to correct or move. Any chunk's id: a correction replaces the WHOLE memory.")),
 		mcp.WithString("content", mcp.Description(fmt.Sprintf(
 			"New verbatim content, at most %d characters, which SUPERSEDES the record rather than editing it: "+
@@ -604,6 +636,7 @@ func registerUpdateDrawer(reg *registrar, drawers *palace.Service, usageSvc *usa
 		mcp.WithArray("code_anchors", mcp.Description(
 			"REPLACE this memory's code anchors, as [{\"path\":\"internal/x/y.go\",\"snippet\":\"<verbatim lines>\",\"repo\":\"<repository name>\"}]. "+
 				"Send repo — the basename of your git remote; an anchor without it is left unchecked forever, because nothing can confirm which tree it belongs to. "+
+				"An entry sent without repo is accepted and reported back: anchors_unlabelled counts them and anchors_advice names the call that labels them; both are absent when every entry carried repo. "+
 				"Send [] to remove them all. Omit the field to leave them untouched. "+
 				"With content, these are applied to the CORRECTING record, not the one being ended. "+
 				"A correction carries the old record's anchors forward as unchecked, so send this only "+
@@ -649,9 +682,10 @@ func registerUpdateDrawer(reg *registrar, drawers *palace.Service, usageSvc *usa
 		// wrong must leave the memory as it found it.
 		raw, wantsAnchors := args["code_anchors"]
 		var anchors []palace.AnchorInput
+		var unlabelled int
 		if wantsAnchors {
 			var refusal string
-			if anchors, refusal = anchorReplacement(raw); refusal != "" {
+			if anchors, unlabelled, refusal = anchorReplacement(raw); refusal != "" {
 				return mcp.NewToolResultError(refusal), nil
 			}
 		}
@@ -677,6 +711,12 @@ func registerUpdateDrawer(reg *registrar, drawers *palace.Service, usageSvc *usa
 				return mcp.NewToolResultError(aerr.Error()), nil
 			}
 			out["code_anchors"] = n
+			// Same report as am_add_drawer's (ADR-056): the anchors were written,
+			// and the ones with no repo are named so the caller can label them.
+			if unlabelled > 0 {
+				out["anchors_unlabelled"] = unlabelled
+				out["anchors_advice"] = unlabelledAnchorAdvice(res.Drawer.ID, unlabelled)
+			}
 		}
 		return jsonResult(out), nil
 	})
@@ -915,7 +955,7 @@ type anchorView struct {
 // re-ranked by a vector+BM25 blend (closet boost joins with the mining phase).
 func registerSearch(reg *registrar, drawers *palace.Service, usageSvc *usage.Service, scopeSearchToWing bool) {
 	tool := newTool("search",
-		mcp.WithDescription("Semantically recall distinct memories most similar to a query. Optionally filter by wing/room and a max cosine distance. Each hit carries blended_score: the value the page was actually ordered by, combining the cross-encoder and the fused lexical/vector score. It is POOL-RELATIVE — comparable between hits on one page, meaningless across pages, and not to be averaged. A page is often not monotonic in rerank_score, which is the blend working rather than a reranker that failed. content_coverage is always present and reports how much of the memory you are seeing: the primary window AND every region rendered beside it, counted once where they overlap. It changed meaning on 2026-08-29 — it used to count the window alone and under-reported, so a threshold calibrated before then is comparing against a different number. Fields that appear only when they apply: content_truncated with content_length when a memory was trimmed; regions, the other windows of the same memory that matched, when more than one did; chunks_matched, how many of its chunks did; content_date when the memory is about a different day than it was filed; code_anchors with a status when the memory pins source that may have drifted; stale on a hit whose code anchors no longer match the code they pin — the one summary to branch on, because a recalled sentence about changed code reads as knowledge either way; and stale_index on the page when the search index is behind the store, which means the answer may be missing recent writes rather than that nothing was written. A page cut short by the response budget reports withheld: how many of its hits arrived carrying NO content at all, keyed by what withheld them. There is no cursor, so that count is the only evidence such a hit existed — a page without it is indistinguishable from an exhausted corpus — and each one is still completed by am_get_drawer with its own id."),
+		mcp.WithDescription("Semantically recall distinct memories most similar to a query. Optionally filter by wing/room and a max cosine distance. Each hit carries blended_score: the value the page was actually ordered by, combining the cross-encoder and the fused lexical/vector score. It is POOL-RELATIVE — comparable between hits on one page, meaningless across pages, and not to be averaged. A page is often not monotonic in rerank_score, which is the blend working rather than a reranker that failed. content_coverage is always present and reports how much of the memory you are seeing: the primary window AND every region rendered beside it, counted once where they overlap. It changed meaning on 2026-08-29 — it used to count the window alone and under-reported, so a threshold calibrated before then is comparing against a different number. Fields that appear only when they apply: content_truncated with content_length when a memory was trimmed; regions, the other windows of the same memory that matched, when more than one did; chunks_matched, how many of its chunks did; content_date when the memory is about a different day than it was filed; code_anchors with a status when the memory pins source that may have drifted; stale on a hit whose code anchors no longer match the code they pin — the one summary to branch on, because a recalled sentence about changed code reads as knowledge either way; stale_index on the page when the search index is behind the store, which means the answer may be missing recent writes rather than that nothing was written; stale_hits, how many of the page's hits are stale; and facts, with elsewhere_wings and unlocatable_facts, when the graph answered as well — the triples that matched, the wings holding facts this scope did not search, and a COUNT of matched triples whose provenance no longer resolves to a drawer, reported as a number precisely so the gap is never silence. A note explains an answer that would otherwise be ambiguous — an empty page from a wing that holds nothing at all, which is byte-identical to a miss, or hits that arrived carrying none of their content — and a warning arrives beside stale hits telling you to re-read that code before acting on the memory. A page cut short by the response budget reports withheld: how many of its hits arrived carrying NO content at all, keyed by what withheld them. There is no cursor, so that count is the only evidence such a hit existed — a page without it is indistinguishable from an exhausted corpus — and each one is still completed by am_get_drawer with its own id."),
 		// ⚠ THIS SAID "max 250 chars" AND NOTHING ENFORCED IT. Measured 2026-09-03:
 		// a 9.5 MB query was accepted and answered 200 after 11.7 seconds; the
 		// string 250 appeared in this package exactly once, in the sentence
@@ -1269,7 +1309,7 @@ func registerListWings(reg *registrar, drawers *palace.Service, usageSvc *usage.
 func registerListRooms(reg *registrar, drawers *palace.Service, usageSvc *usage.Service, scopeSearchToWing bool) {
 	tool := newTool("list_rooms",
 		mcp.WithOutputSchema[roomsResult](),
-		mcp.WithDescription("List the team's rooms with drawer counts, optionally restricted to one wing. Omitted, scoped to this registration's default_wing only when one is configured and SEARCH_SCOPE is not workspace; otherwise omission lists every wing. Pass \"*\" to list every wing deliberately."),
+		mcp.WithDescription("List the team's rooms with drawer counts, optionally restricted to one wing. A room exists while it holds a live memory and not otherwise — there is no create or delete: filing into a name creates it, and a mistyped room disappears from every listing once its last memory is retracted (am_invalidate_drawer) or relocated (am_update_drawer with room) (ADR-055). Omitted, scoped to this registration's default_wing only when one is configured and SEARCH_SCOPE is not workspace; otherwise omission lists every wing. Pass \"*\" to list every wing deliberately."),
 		mcp.WithString("wing", mcp.Description("Only rooms within this wing. Omitted, scoped to this registration's default_wing only when one is configured and SEARCH_SCOPE is not workspace; otherwise every wing. Pass \"*\" for every wing deliberately."), searchWingProperty()),
 	)
 	reg.add(tool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {

@@ -105,6 +105,7 @@ func TestCandidateWideningDoesNotRefetchRows(t *testing.T) {
 
 	rec := &sqlRecorder{Interface: logger.Default.LogMode(logger.Silent)}
 	svc.repo.db = svc.repo.db.Session(&gorm.Session{Logger: rec})
+	svc.repo.reader = svc.repo.reader.Session(&gorm.Session{Logger: rec}) // reads run on the reader since ADR-052 T5
 
 	if _, err := svc.Search(ctx, "team-widen", SearchQuery{Query: "NEEDLE", Limit: 5}); err != nil {
 		t.Fatalf("search: %v", err)

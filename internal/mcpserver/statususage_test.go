@@ -27,7 +27,7 @@ func (c cappedAt) MonthlyCap(_ context.Context, _ string) (int, error) { return 
 func servedRemaining(t *testing.T, caps usage.CapLookup, team string) string {
 	t.Helper()
 	gdb := graphTestDB(t)
-	drawers := palace.NewService(palace.NewRepo(gdb), graphTestEmbedder{}, sqlitevec.New(gdb), graphTestDim)
+	drawers := palace.NewService(palace.NewRepo(gdb, gdb), graphTestEmbedder{}, sqlitevec.New(gdb), graphTestDim)
 	srv := New(Deps{
 		Drawers: drawers,
 		Skills:  skill.NewService(skill.NewRepo(gdb)),

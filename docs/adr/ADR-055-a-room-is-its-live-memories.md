@@ -1,6 +1,6 @@
 # ADR-055: A room is the set of its live memories, and every surface that lists rooms says so
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-09-04
 **Owner:** unassigned
 **Spec:** None — no spec stage. The requirement is one sentence; the measurement that motivates it is in Context.

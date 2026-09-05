@@ -120,7 +120,7 @@ const (
 func budgetTestServer(t *testing.T) (*server.MCPServer, context.Context) {
 	t.Helper()
 	gdb := graphTestDB(t)
-	drawers := palace.NewService(palace.NewRepo(gdb), graphTestEmbedder{}, sqlitevec.New(gdb), budgetDim)
+	drawers := palace.NewService(palace.NewRepo(gdb, gdb), graphTestEmbedder{}, sqlitevec.New(gdb), budgetDim)
 
 	// Six memories of ~12k runes each: ~72k total, comfortably past the budget,
 	// while each one on its own is an ordinary long note.

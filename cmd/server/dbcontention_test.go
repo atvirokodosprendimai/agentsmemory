@@ -7,6 +7,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/atvirokodosprendimai/agentsmemory/db"
 	"gorm.io/gorm"
 )
 
@@ -47,7 +48,7 @@ func bumpThroughAHelper(tx *gorm.DB, id uint) error {
 // five runs, every one "database is locked". The mechanism is a deferred
 // transaction's lock UPGRADE: SQLite grants the write lock on the first write
 // statement, and on an upgrade conflict it returns SQLITE_BUSY IMMEDIATELY
-// rather than invoking the busy handler — so `busy_timeout(5000)` in dbPragmas
+// rather than invoking the busy handler — so `busy_timeout(5000)` in db.WriterPragmas
 // does not cover this case however large it is set. In WAL that covers two
 // distinct returns, a held writer lock and a stale snapshot (BUSY_SNAPSHOT),
 // and no amount of waiting fixes the second.
@@ -203,14 +204,14 @@ func TestServingConnectionsCarryTheirPragmas(t *testing.T) {
 func TestTheReaderPragmasAreTheWritersPlusQueryOnly(t *testing.T) {
 	t.Parallel()
 
-	if !strings.HasPrefix(readerDBPragmas, dbPragmas) {
-		t.Fatalf("readerDBPragmas %q does not start with dbPragmas %q", readerDBPragmas, dbPragmas)
+	if !strings.HasPrefix(readerDBPragmas, db.WriterPragmas) {
+		t.Fatalf("readerDBPragmas %q does not start with db.WriterPragmas %q", readerDBPragmas, db.WriterPragmas)
 	}
-	if got := strings.TrimPrefix(readerDBPragmas, dbPragmas); got != "&_pragma=query_only(1)" {
+	if got := strings.TrimPrefix(readerDBPragmas, db.WriterPragmas); got != "&_pragma=query_only(1)" {
 		t.Errorf("readerDBPragmas adds %q; want only query_only(1) — anything else is "+
 			"a second decision hiding in a constant", got)
 	}
-	if strings.Contains(dbPragmas, "_txlock") || strings.Contains(readerDBPragmas, "_txlock") {
+	if strings.Contains(db.WriterPragmas, "_txlock") || strings.Contains(readerDBPragmas, "_txlock") {
 		t.Error("a _txlock pragma appeared: ADR-052 removes the second writer rather than " +
 			"serialising in front of one, so its presence means the writer count stopped being one")
 	}

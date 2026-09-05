@@ -120,7 +120,7 @@ jobs:
       - name: Test
         run: |
           log="${RUNNER_TEMP}/test.log"
-          go test ./... > "$log" 2>&1; code=$?
+          code=0; go test ./... > "$log" 2>&1 || code=$?   # || not ;: this shell runs -e, and a bare failing go test aborted the step before cat ever ran
           cat "$log"
           echo "::notice title=cache::$(grep -c '(cached)' "$log") of $(grep -cE '^(ok|FAIL)' "$log") packages served from cache"
           exit $code
@@ -208,7 +208,7 @@ jobs:
       - name: Race
         run: |
           log="${RUNNER_TEMP}/race.log"
-          go test -race -timeout=30m ./... > "$log" 2>&1; code=$?
+          code=0; go test -race -timeout=30m ./... > "$log" 2>&1 || code=$?   # || not ;: see the Test step
           cat "$log"
           echo "::notice title=cache::$(grep -c '(cached)' "$log") of $(grep -cE '^(ok|FAIL)' "$log") packages served from cache"
           exit $code

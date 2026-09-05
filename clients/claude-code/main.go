@@ -107,7 +107,7 @@ func installCommand() *cli.Command {
 			&cli.StringFlag{
 				Name:  "agent",
 				Value: agentClaude,
-				Usage: "agent CLI to install for: claude | codex | pi | both (claude+codex) | all",
+				Usage: "agent CLI to install for: claude | codex | pi | cursor | claude-desktop | both (claude+codex) | all (every one)",
 			},
 			&cli.BoolFlag{
 				Name:  "global",

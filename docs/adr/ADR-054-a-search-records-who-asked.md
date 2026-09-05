@@ -1,6 +1,6 @@
 # ADR-054: A search records who asked, so a to-write list holds only questions
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-09-04
 **Owner:** unassigned
 **Spec:** None — no spec stage. The requirement is one sentence and the inbox finding that carries it is quoted in Context.
@@ -186,4 +186,10 @@ and reads `''`; `RecallStats` with no `hook:` rows behaves exactly as today. No 
 ## Follow-ups
 
 - [ ] After two default windows have passed on the local palace, re-measure `suggestions` and record
-  in this ADR whether a shape rule is still wanted for what the hooks could not label.
+  in this ADR whether a shape rule is still wanted for what the hooks could not label. The clock
+  starts when the local KIT began sending the origin, not when the server began recording it: a
+  v0.0.117 server under an older kit still stores no origin. Measured on 2026-09-05: the container
+  started serving v0.0.117 at 06:59:28 UTC and the kit was reinstalled at 07:00:13 UTC, so the
+  earliest honest reading is 2026-09-07 07:00 UTC. The check that the window is clean is
+  `hook_searches` being non-zero beside the list — `hook_searches: 0` next to a machine-shaped
+  list means a kit that has not learned to declare itself.

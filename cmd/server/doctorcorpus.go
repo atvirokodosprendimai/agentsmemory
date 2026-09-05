@@ -50,6 +50,14 @@ type corpusFindings struct {
 	LostAnchors []string
 	LostFacts   []string
 
+	// UnlabelledAnchors are drawers carrying an anchor with no repo (ADR-056). NOT
+	// a finding: an anchor without a label is a legal write — the write side
+	// accepts and reports it by design — so it is counted and printed at every
+	// run, including zero, and kept out of clean(). A term there would go red on
+	// a permitted state and stay red until every caller labels its anchors, and a
+	// permanently failing check stops being read, taking the three real
+	// populations above with it. The remedy is printed beside the count.
+	UnlabelledAnchors []string
 	// EndedFactSources are facts whose source drawer was retracted or superseded.
 	// NOT a finding: counted so a reader can tell this population from LostFacts,
 	// which is the distinction the ad-hoc queries could not make because endings
@@ -148,6 +156,17 @@ func walkCorpus(ctx context.Context, svc *services, teamID string) (corpusFindin
 			f.LostAnchors = append(f.LostAnchors, id)
 		}
 	}
+	// Anchors no tree can ever attribute (ADR-056): repo is the only field that
+	// says which checkout a path is in, and the read side sorts an empty one into
+	// `unattributable` rather than checking it — so it is verified by nothing and
+	// reports nothing forever. Selected on the column, not on ListAnchors, whose
+	// empty Repo filter means "any".
+	var unlabelled []string
+	if err := svc.gdb.WithContext(ctx).Table("drawer_anchors").
+		Where("team_id = ? AND repo = ''", teamID).Pluck("drawer_id", &unlabelled).Error; err != nil {
+		return f, fmt.Errorf("walk unlabelled anchors: %w", err)
+	}
+	f.UnlabelledAnchors = unlabelled
 
 	var factSources []string
 	if err := svc.gdb.WithContext(ctx).Table("kg_triples").
@@ -171,6 +190,7 @@ func walkCorpus(ctx context.Context, svc *services, teamID string) (corpusFindin
 	sort.Strings(f.DriftedKeys)
 	sort.Strings(f.LostParents)
 	sort.Strings(f.LostAnchors)
+	sort.Strings(f.UnlabelledAnchors)
 	sort.Strings(f.LostFacts)
 	return f, nil
 }
@@ -196,6 +216,13 @@ func reportCorpus(out io.Writer, slug string, f corpusFindings) error {
 	// reassuring.
 	fmt.Fprintf(out, "  %d fact(s) cite a retracted or superseded drawer — expected: provenance is historical\n",
 		f.EndedFactSources)
+	// Printed at every run, including zero, and never a verdict (ADR-056): the
+	// population is refilled by legal writes and drained only by labelling.
+	fmt.Fprintf(out, "  %d anchor(s) carry no repo — no tree can verify them; label each with "+
+		"am_update_drawer(id, code_anchors: [...]) sending repo on every entry\n", len(f.UnlabelledAnchors))
+	for _, id := range shortSample(f.UnlabelledAnchors) {
+		fmt.Fprintf(out, "    %s\n", id)
+	}
 
 	if f.clean() {
 		fmt.Fprintln(out, "  no drift and no lost references")

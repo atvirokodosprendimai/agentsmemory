@@ -28,7 +28,7 @@ const kgQueryTestTeam = "team-kgquery"
 func kgToolServer(t *testing.T) *server.MCPServer {
 	t.Helper()
 	gdb := graphTestDB(t)
-	drawers := palace.NewService(palace.NewRepo(gdb), graphTestEmbedder{}, sqlitevec.New(gdb), graphTestDim)
+	drawers := palace.NewService(palace.NewRepo(gdb, gdb), graphTestEmbedder{}, sqlitevec.New(gdb), graphTestDim)
 	ctx := context.Background()
 
 	if _, err := drawers.KGAdd(ctx, kgQueryTestTeam, "Alice", "works at", "Acme", "2024-01-01", "", "", "", ""); err != nil {

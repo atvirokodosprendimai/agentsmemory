@@ -85,7 +85,7 @@ func TestJSONResultCarriesBothHalves(t *testing.T) {
 // validates what comes back against the schema the same server advertised.
 func TestEveryDeclaredOutputSchemaIsSatisfiedByTheTool(t *testing.T) {
 	gdb := graphTestDB(t)
-	drawers := palace.NewService(palace.NewRepo(gdb), graphTestEmbedder{}, sqlitevec.New(gdb), graphTestDim)
+	drawers := palace.NewService(palace.NewRepo(gdb, gdb), graphTestEmbedder{}, sqlitevec.New(gdb), graphTestDim)
 	// ⚠ FULLY WIRED, BECAUSE THIS GATE CALLS EVERY TOOL THAT DECLARES A SCHEMA.
 	// A Deps missing a service does not make the gate skip that tool — it makes
 	// the handler dereference nil and panic, which is how am_list_skills brought

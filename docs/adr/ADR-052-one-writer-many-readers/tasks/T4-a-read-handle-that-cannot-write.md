@@ -40,7 +40,7 @@ the refusal is real rather than a naming convention.
 
 ```bash
 set -o pipefail
-go test ./cmd/server/ -run 'TestTheReadHandleCannotWrite$|TestTheServePathOpensBothHandles$|TestTheReaderPoolFlagReachesTheHandle$' -count=1 2>&1 | tee /tmp/adr052-t4a.out \
+go test ./cmd/server/ -run 'TestTheReadHandleCannotWrite$|TestTheServePathOpensBothHandles$|TestTheReaderPoolFlagReachesTheHandle$|TestReadEnvVarsAreDocumented$|TestDocumentedEnvVarsAreRead$' -count=1 2>&1 | tee /tmp/adr052-t4a.out \
   && ! grep -qE "no tests to run|^FAIL|^--- FAIL|\[build failed\]" /tmp/adr052-t4a.out \
   && go test ./cmd/server/ -count=1 2>&1 | tee /tmp/adr052-t4b.out \
   && ! grep -qE "^FAIL|^--- FAIL|\[build failed\]" /tmp/adr052-t4b.out
@@ -66,6 +66,13 @@ go test ./cmd/server/ -run 'TestTheReadHandleCannotWrite$|TestTheServePathOpensB
 | 4 — it is used | the serve path passes `cfg.DBReaderPool` into the handle it builds, and `TestTheReaderPoolFlagReachesTheHandle` fails when that argument stops being the flag's value. Nothing yet READS through the handle — T5 does — and that is the honest answer to this rung |
 
 ## Mutation Log
+
+- 2026-09-04 · 8648944* · mutant killed · exit 1 · `cmd/server/main.go` · the knob is read into cfg and passed to openReaderDB but never reaches SetMaxOpenConns — the inert setting ADR-006 rejects; TestTheReaderPoolFlagReachesTheHandle sees --db-reader-pool=3 open a derived pool · acceptance-sha256:cf21cbdd4f51b7a9a6e1bbdeae2211acff21d07fa1db63117657db4f92958999 · covers:the pool size the serve path actually passes to SetMaxOpenConns
+- 2026-09-04 · 8648944* · mutant killed · exit 1 · `cmd/server/main.go` · the serve path stops opening the reader: openReaderDB still exists and still passes its own test, but nothing selects it — TestTheServePathOpensBothHandles finds rdb nil · acceptance-sha256:cf21cbdd4f51b7a9a6e1bbdeae2211acff21d07fa1db63117657db4f92958999 · covers:the exit code
+- 2026-09-04 · 8648944* · mutant killed · exit 1 · `cmd/server/main.go` · the reader opens on the writer pragmas: every read still succeeds and the handle is still named a reader, but SQLite no longer refuses a write through it — TestTheReadHandleCannotWrite sees the INSERT land · acceptance-sha256:cf21cbdd4f51b7a9a6e1bbdeae2211acff21d07fa1db63117657db4f92958999 · covers:query_only being refused at the driver rather than in Go
+- 2026-09-04 · 8648944* · mutant killed · exit 1 · `cmd/server/main.go` · the knob is read into cfg and passed to openReaderDB but never reaches SetMaxOpenConns — the inert setting ADR-006 rejects; TestTheReaderPoolFlagReachesTheHandle sees --db-reader-pool=3 open a derived pool · acceptance-sha256:ea94b05790c278470f06bf24a5e0069e81b20e571244f27a9fa32a5ed9482ba2 · covers:the pool size the serve path actually passes to SetMaxOpenConns
+- 2026-09-04 · 8648944* · mutant killed · exit 1 · `cmd/server/main.go` · the serve path stops opening the reader: openReaderDB still exists and still passes its own test, but nothing selects it — TestTheServePathOpensBothHandles finds rdb nil · acceptance-sha256:ea94b05790c278470f06bf24a5e0069e81b20e571244f27a9fa32a5ed9482ba2 · covers:the exit code
+- 2026-09-04 · 8648944* · mutant killed · exit 1 · `cmd/server/main.go` · the reader opens on the writer pragmas: every read still succeeds and the handle is still named a reader, but SQLite no longer refuses a write through it — TestTheReadHandleCannotWrite sees the INSERT land · acceptance-sha256:ea94b05790c278470f06bf24a5e0069e81b20e571244f27a9fa32a5ed9482ba2 · covers:query_only being refused at the driver rather than in Go
 
 ## Invariants
 
@@ -96,3 +103,23 @@ to remove, not a configuration gap.
 - Giving `internal/mcptest` a reader handle (deferred: `docs/adr/BACKLOG.md`)
 
 ## Verification Log
+- 2026-09-04 · 8648944* · exit 1 · `set -o pipefail …` · acceptance-sha256:cf21cbdd4f51b7a9a6e1bbdeae2211acff21d07fa1db63117657db4f92958999 · ms:628
+  ```
+  --- last 10 line(s) of stdout (of 11 after folding 11 raw)
+  cmd/server/dbwiring_test.go:39:12: undefined: openReaderDB
+  cmd/server/dbwiring_test.go:81:27: svc.rdb undefined (type *services has no field or method rdb)
+  cmd/server/dbwiring_test.go:83:91: svc.rdb undefined (type *services has no field or method rdb)
+  cmd/server/dbwiring_test.go:85:12: svc.rdb undefined (type *services has no field or method rdb)
+  cmd/server/dbwiring_test.go:89:16: svc.Close undefined (type *services has no field or method Close)
+  cmd/server/dbwiring_test.go:92:78: svc.rdb undefined (type *services has no field or method rdb)
+  cmd/server/dbwiring_test.go:126:30: svc.Close undefined (type *services has no field or method Close)
+  cmd/server/dbwiring_test.go:131:21: svc.rdb undefined (type *services has no field or method rdb)
+  FAIL	github.com/atvirokodosprendimai/agentsmemory/cmd/server [build failed]
+  FAIL
+  ```
+- 2026-09-04 · 8648944* · exit 0 · `set -o pipefail …` · acceptance-sha256:cf21cbdd4f51b7a9a6e1bbdeae2211acff21d07fa1db63117657db4f92958999 · ms:14875
+- 2026-09-04 · 8648944* · exit 0 · `set -o pipefail …` · acceptance-sha256:cf21cbdd4f51b7a9a6e1bbdeae2211acff21d07fa1db63117657db4f92958999 · ms:12658
+- 2026-09-04 · 8648944* · exit 0 · `set -o pipefail …` · acceptance-sha256:cf21cbdd4f51b7a9a6e1bbdeae2211acff21d07fa1db63117657db4f92958999 · ms:11697
+- 2026-09-04 · 8648944* · exit 0 · `set -o pipefail …` · acceptance-sha256:ea94b05790c278470f06bf24a5e0069e81b20e571244f27a9fa32a5ed9482ba2 · ms:13099
+- 2026-09-04 · 8648944* · exit 0 · `set -o pipefail …` · acceptance-sha256:ea94b05790c278470f06bf24a5e0069e81b20e571244f27a9fa32a5ed9482ba2 · ms:12141
+- 2026-09-04 · 8648944* · exit 0 · `set -o pipefail …` · acceptance-sha256:ea94b05790c278470f06bf24a5e0069e81b20e571244f27a9fa32a5ed9482ba2 · ms:11973

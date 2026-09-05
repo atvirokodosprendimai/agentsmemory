@@ -82,14 +82,14 @@ func (s *Service) CountFetches(ctx context.Context, teamID string, since time.Du
 		since = 24 * time.Hour
 	}
 	cutoff := time.Now().UTC().Add(-since).Format(time.RFC3339)
-	q := s.repo.db.WithContext(ctx).Model(&drawerFetchRow{}).
+	q := s.repo.reader.WithContext(ctx).Model(&drawerFetchRow{}).
 		Where("team_id = ? AND created_at >= ?", teamID, cutoff)
 	var total int64
 	if err := q.Count(&total).Error; err != nil {
 		return 0, 0, err
 	}
 	var distinct int64
-	if err := s.repo.db.WithContext(ctx).Model(&drawerFetchRow{}).
+	if err := s.repo.reader.WithContext(ctx).Model(&drawerFetchRow{}).
 		Where("team_id = ? AND created_at >= ?", teamID, cutoff).
 		Distinct("search_id").Count(&distinct).Error; err != nil {
 		return 0, 0, err

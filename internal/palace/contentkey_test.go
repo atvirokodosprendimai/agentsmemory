@@ -355,7 +355,7 @@ func TestBackfillAbortsOnCollision(t *testing.T) {
 			t.Fatalf("seed %s: %v", id, err)
 		}
 	}
-	svc := NewService(NewRepo(gdb), fakeEmbedder{}, sqlitevec.New(gdb), fakeDim)
+	svc := NewService(NewRepo(gdb, gdb), fakeEmbedder{}, sqlitevec.New(gdb), fakeDim)
 	err := svc.repo.BackfillContentKeys(ctx)
 	if err == nil {
 		t.Fatal("the backfill succeeded on a corpus where two rows hash to one key; it must ABORT, " +

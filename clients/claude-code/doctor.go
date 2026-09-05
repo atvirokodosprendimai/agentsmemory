@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -58,16 +59,19 @@ import (
 func doctorCommand() *cli.Command {
 	return &cli.Command{
 		Name:  "doctor",
-		Usage: "check that the installed hooks are registered, on an injecting event, and able to run",
+		Usage: "check that the installed hooks are registered, on an injecting event, and able to run, and that the server names its build",
 		Description: "Reads the agent's own settings file, finds every registration pointing at a\n" +
 			"hook that declares `# hook-output: stdout-injected`, and reports whether each\n" +
 			"is selected by an event whose stdout reaches the model — then runs it.\n\n" +
 			"Exits non-zero when a hook is installed but registered nowhere, registered on\n" +
-			"an event that discards its output, or fails to run. Silence is REPORTED and\n" +
+			"an event that discards its output, or fails to run; when the bridge binary a\n" +
+			"registration names cannot be spawned; and when the server the install points\n" +
+			"at reports version `dev` (built unstamped, so nothing can tell it from a stale\n" +
+			"one) or does not complete a handshake. Silence is REPORTED and\n" +
 			"never failed on: a hook that has nothing to say and a hook that cannot speak\n" +
 			"look identical in one run, so the stderr each hook wrote is printed instead.",
 		Flags: []cli.Flag{
-			&cli.StringFlag{Name: "agent", Value: "claude", Usage: "which agent's install to check: claude | codex | pi"},
+			&cli.StringFlag{Name: "agent", Value: "claude", Usage: "which agent's install to check: claude | codex | pi | cursor | claude-desktop (one at a time)"},
 			&cli.StringFlag{Name: "target-dir", Usage: "the agent's config directory (default: the installed one)"},
 			&cli.StringFlag{Name: "project-dir", Usage: "the repository a hook should look at (default: the working directory)"},
 			&cli.StringFlag{Name: "mcp-url", Sources: cli.EnvVars(mcpURLEnvVar), Value: defaultMCPURL, Usage: "agentsmemory MCP endpoint"},
@@ -312,6 +316,110 @@ func recordedMCPCommand(path string) (string, error) {
 	return cfg.MCPServers[mcpName].Command, nil
 }
 
+// serverVerdict is what `doctor` concluded about the server the install points at.
+type serverVerdict struct {
+	url     string
+	version string
+	label   string // ok | unreleased | UNSTAMPED | UNREACHABLE
+	detail  string
+	bad     bool
+}
+
+// probeServerVersion reads the version the endpoint reports in its initialize
+// handshake. It is a variable so the doctor tests — which drive the real CLI
+// against a --mcp-url that defaults to localhost:8080 — can answer it without a
+// server; the default is the real dial, and TestTheServerProbeReadsTheHandshakeVersion
+// drives that one against a real Streamable-HTTP server.
+var probeServerVersion = dialServerVersion
+
+// dialServerVersion is the default probe: one handshake, the version out of it.
+func dialServerVersion(ctx context.Context, url, token string, timeout time.Duration) (string, error) {
+	c, res, err := dialMCPInit(ctx, url, token, timeout)
+	if err != nil {
+		return "", err
+	}
+	c.Close()
+	return res.ServerInfo.Version, nil
+}
+
+// judgeServer is issue #210's rung, and it judges the server's IDENTITY rather
+// than its health: `/healthz` already answers whether it is up.
+//
+// An image built without AGENTSMEMORY_VERSION reports the bare word `dev`, and
+// every other check an operator has is green for it — the container is healthy,
+// the digest matches the image, the needles are present — while the one
+// comparison that tells a stale server from a current one (the checkout against
+// the served version) is gone. redeploy.sh refuses to BUILD that artifact, but a
+// bare `docker compose build` does not, and an operator who deployed that way
+// had no route to the fact. `dev-<commit>` is a different case: buildinfo turns
+// an unstamped build made inside a repository into a string naming its commit,
+// which an operator CAN compare against a checkout, so it is reported and not
+// failed. A pure function of its inputs for the reason judgeServerBin is: a
+// verdict that depends on ambient environment cannot be pinned by a test.
+func judgeServer(url, version string, dialErr error) serverVerdict {
+	v := serverVerdict{url: url, version: version}
+	switch {
+	case dialErr != nil:
+		v.label, v.bad = "UNREACHABLE", true
+		v.detail = "the install points at an endpoint that did not complete a handshake: " + dialErr.Error()
+	case version == "" || version == "dev":
+		v.label, v.bad = "UNSTAMPED", true
+		v.detail = "the server reports version " + strconv.Quote(version) + ", which names no build: it was " +
+			"built without AGENTSMEMORY_VERSION, so nothing can tell it from a stale one (issue #210). " +
+			"Rebuild through scripts/redeploy.sh, which stamps it, or pass " +
+			"AGENTSMEMORY_VERSION=$(git describe --tags) to BOTH `docker compose build` and `up`"
+	case strings.HasPrefix(version, "dev-"):
+		v.label = "unreleased"
+		v.detail = "a build from a checkout rather than a release tag; the string names its commit, " +
+			"so compare it against yours"
+	default:
+		v.label = "ok"
+	}
+	return v
+}
+
+// installEndpoint resolves the endpoint and credential the INSTALL uses, the same
+// way runOneHook does for a hook: the registration's own environment first, the
+// --mcp-url/--token flags as the fallback.
+//
+// ⚠ THE FLAG DEFAULTS TO THE HOSTED ENDPOINT. Judging the server from the flag
+// alone would point every self-hosted install's check at a palace its operator
+// does not use and report the resulting 401 as the install's condition — the same
+// reversal runOneHook's comment records for hooks. The hook registrations are
+// what this installer writes, so they are read; the MCP registration itself is
+// kept by the agent's own CLI in a format this project does not parse (see
+// judgeServerBin). A token that resolves nowhere is passed as empty rather than
+// refused here: a loopback server needs none, and a hosted one answers 401, which
+// judgeServer reports as UNREACHABLE with the reason attached.
+func installEndpoint(c *cli.Command, kit agentKit, dir string) (url, token string) {
+	url, token = c.String("mcp-url"), c.String("token")
+	if kit.hooksFile != "" {
+		if registered, err := registeredHookEvents(filepath.Join(dir, kit.hooksFile)); err == nil {
+			names := make([]string, 0, len(registered))
+			for name := range registered {
+				names = append(names, name)
+			}
+			sort.Strings(names) // a deterministic winner when two hooks disagree
+			for _, name := range names {
+				for _, kv := range registered[name].env {
+					if v, ok := strings.CutPrefix(kv, mcpURLEnvVar+"="); ok && v != "" {
+						url = v
+					}
+					if v, ok := strings.CutPrefix(kv, tokenEnvVar+"="); ok && v != "" {
+						token = v
+					}
+				}
+			}
+		}
+	}
+	if token == "" {
+		if t, _, err := resolveWorkspaceToken(c); err == nil {
+			token = t
+		}
+	}
+	return url, token
+}
+
 // hookVerdict is what `doctor` concluded about one installed hook.
 type hookVerdict struct {
 	name   string
@@ -426,7 +534,20 @@ func runHookDoctor(ctx context.Context, c *cli.Command, out io.Writer) error {
 		fmt.Fprintf(out, "  %-38s %-14s %-12s %s\n", name, "—", "STALE",
 			"differs from this binary's embedded copy — `aiagentmemory install` rewrites it")
 	}
-	return reportServerBin(out, kit, dir, bad, len(verdicts))
+	// The server the install points at, judged by its handshake. Asked here,
+	// past no guard, for the reason reportServerBin is: a rung behind the hook
+	// guards is unreachable for exactly the kit with no hooks.
+	url, token := installEndpoint(c, kit, dir)
+	ver, perr := probeServerVersion(ctx, url, token, c.Duration("timeout"))
+	srv := judgeServer(url, ver, perr)
+	if srv.bad {
+		bad++
+	}
+	fmt.Fprintf(out, "  %-38s %-14s %-12s %s\n", "mcp server", "handshake", srv.label, srv.version+" @ "+srv.url)
+	if srv.detail != "" {
+		fmt.Fprintf(out, "      | %s\n", srv.detail)
+	}
+	return reportServerBin(out, kit, dir, bad, len(verdicts), srv)
 }
 
 // hookAssetFiles pairs every embedded hook asset with the filename install
@@ -612,7 +733,7 @@ func uninstalledRegistrations(dir string, scripts map[string]string, registered 
 // kit without hooks — and the only kit that HAS a bridge binary is exactly a kit
 // without hooks. Reporting it from here, past no guard, is what makes it reachable
 // at all.
-func reportServerBin(out io.Writer, kit agentKit, dir string, bad, hooks int) error {
+func reportServerBin(out io.Writer, kit agentKit, dir string, bad, hooks int, srv serverVerdict) error {
 	// ⚠ RESOLVED HERE, NOT INSIDE THE JUDGEMENT. judgeServerBin used to call
 	// resolveServerBin itself, which made its verdict depend on the $PATH of
 	// whoever ran it — including the developer running the tests, where a real
@@ -637,7 +758,7 @@ func reportServerBin(out io.Writer, kit agentKit, dir string, bad, hooks int) er
 	fmt.Fprintln(out)
 
 	if bad > 0 {
-		return fmt.Errorf("%d finding(s) across %d injecting hook(s) and the bridge binary.\n"+
+		return fmt.Errorf("%d finding(s) across %d injecting hook(s), the bridge binary and the server.\n"+
 			"  UNREGISTERED:   the script is installed and %s registers it for no event.\n"+
 			"  NOT-INSTALLED:  the reverse — %s registers it and the file is not there, so\n"+
 			"                  the agent runs nothing for that event.\n"+
@@ -648,6 +769,9 @@ func reportServerBin(out io.Writer, kit agentKit, dir string, bad, hooks int) er
 			"  FAILED:         it exited non-zero. The stderr above says why.\n"+
 			"  MISSING /\n"+
 			"  NOT-EXECUTABLE: the MCP registration names a binary that cannot be spawned.\n"+
+			"  UNSTAMPED:      the server reports version dev, so nothing can tell it from a\n"+
+			"                  stale one; rebuild it stamped (issue #210).\n"+
+			"  UNREACHABLE:    the endpoint this install points at did not complete a handshake.\n"+
 			"  Re-running `aiagentmemory install` rewrites the registrations",
 			bad, hooks, kit.hooksFile, kit.hooksFile, strings.Join(sortedInjectingEvents(), ", "))
 	}
@@ -660,6 +784,7 @@ func reportServerBin(out io.Writer, kit agentKit, dir string, bad, hooks int) er
 	default:
 		fmt.Fprintf(out, "  all %d injecting hook(s) are registered on an injecting event and ran\n", hooks)
 	}
+	fmt.Fprintf(out, "  the server at %s reports %s (%s)\n", srv.url, srv.version, srv.label)
 	return nil
 }
 

@@ -20,7 +20,7 @@ import (
 func explainPlan(t *testing.T, svc *Service, ctx context.Context, build func(*Repo) *gorm.DB) string {
 	t.Helper()
 
-	dry := &Repo{db: svc.repo.db.Session(&gorm.Session{DryRun: true})}
+	dry := repoOn(svc.repo.db.Session(&gorm.Session{DryRun: true}))
 	stmt := build(dry).Find(&[]kgTripleRow{}).Statement
 	sql := stmt.SQL.String()
 	if sql == "" {

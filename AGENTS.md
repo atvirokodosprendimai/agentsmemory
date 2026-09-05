@@ -129,10 +129,27 @@ ref, and both looked equally confident.
 
 **3. The local stack tracks `main`.** After any merge that changes served code,
 redeploy — the palace this session reads and writes must be the code under work,
-or every `am_*` call measures the previous release. The procedure that works, in
-full, because three of its steps failed silently today:
+or every `am_*` call measures the previous release. ⚠ **THE MERGE IS THE TRIGGER,
+in the same turn, before the next item.** Owner, 2026-09-05, after #240 merged and
+the session moved on while the local palace kept serving the previous release:
+*"after merging to main — ensure that we ourselves are running the latest version.
+This has to be a rule."* Not the next release, not when the session gets to it;
+a merge is not done until the stack you redeployed reports the merged version.
+⚠ **READ THAT FROM THE STACK, NOT FROM WHATEVER YOUR SESSION IS REGISTERED TO.**
+`am_status` answers for the palace this registration points at, and this repo's
+ordinary development setup points at HOSTED (the gate section above says so) —
+a session on `mode: "hosted"` would redeploy correctly and read `v0.0.114` for
+ever, and conclude it had failed. `redeploy.sh` reads the artifact itself
+(`docker exec <container> agentsmemory --version`) and refuses when the stamp did
+not reach the binary; `am_status` counts only from a registration whose `mode` is
+`local`. Review of the release that added this rule caught it, from a session
+that was the case. A docs-only merge changes nothing served — say so in one line
+rather than skipping silently. The procedure that works, in full, because three
+of its steps failed silently the day it was written:
 
+    git checkout main && git pull --ff-only                    # FIRST: the clone below reads LOCAL main
     git clone -q --no-local --branch <tag-or-sha> . "$DIR"   # a CLONE, never a worktree
+    [ "$(git -C "$DIR" rev-parse HEAD)" = "$(git rev-parse '<tag-or-sha>^{}')" ] || exit 1   # the clone is at the ref you named
     cp .env.docker "$DIR/"                                    # a clone has no untracked files
     cd "$DIR" && AGENTSMEMORY_VERSION=<tag> scripts/redeploy.sh
     # then the kit, from the same tree — THREE binaries, not two: the Claude Desktop
@@ -145,6 +162,16 @@ full, because three of its steps failed silently today:
     # then VERIFY FROM THE SERVED SURFACE: am_status must report the version you
     # stamped, and redeploy.sh's kit check must print the desktop bridge as tree-identical
 
+⚠ The clone reads the LOCAL branch, and a hand-typed stamp does not know. Measured
+2026-09-05 after #242 merged: `git fetch` had moved origin/main but local `main` was
+one commit behind, the clone came out at the old commit, and `-X main.version=<new
+sha>` produced a kit binary that NAMED a commit it was not — the identity failure
+§Reachability keeps recording, caught only because `doctor` lacked the line the
+new commit adds. Pull first, and refuse to build when the clone is not at the
+ref you named — compared as RESOLVED COMMITS (`^{}` dereferences an annotated
+tag), because the first draft of this guard compared the clone's sha to the
+stamp string and so refused every tag-stamped release, the documented normal
+path; review caught it against `v0.0.114` before it shipped.
 ⚠ A git worktree's `.git` is a pointer file the container does not mount, so
 every test that shells out to git goes red — four did, at a tag whose suite was
 green. ⚠ `AGENTSMEMORY_VERSION` is per-build, not sticky: a rebuild without it
@@ -616,6 +643,26 @@ socket client gets a 403. **Equality between two things you typed pins nothing.*
 classifier whether it would admit that authority, which fails when either side moves. The
 exemption itself is gone: the placeholder now says `localhost`, so there is no special case
 to forget. A special case you can delete beats one you have to reason about.
+
+**A HANDLE'S ROLE IS DECIDED AT THE COMPOSITION ROOT, AND ONLY AN AST READ OF THAT ROOT CAN
+SEE IT.** ADR-052 made the writer ONE connection and gave the read model a `query_only` handle,
+and both are one-line facts in `cmd/server` that every behavioural test survives the loss of —
+raise `SetMaxOpenConns(1)` and the lock-upgrade failure returns with the suite green, open a
+fourth handle beside the three named openers and nothing objects.
+`TestEveryServingHandleDeclaresItsRole` parses `cmd/server` and requires every
+`openDBWithPragmas` call to sit inside `openWriterDB`, `openReaderDB` or `openInspectionDB`,
+requires the writer's cap to be the literal `1`, and walks every `Transaction(` in
+`internal/palace` to require that it opens on the writer or on the `tx` it was handed; its
+falsifiability cases are subtests over fixtures that ARE offenders, inside the fence, and the
+fence greps for a subtest's name so a skipped negative case cannot report success.
+`TestNoServingOpenerAddsAWriteSerialisationPragma` evaluates each opener's DSN ARGUMENT from
+the AST — constants, the cross-package `db.WriterPragmas`, and concatenations — and refuses
+`_txlock`, because a serialisation pragma on the writer means the writer count stopped being one
+and somebody papered over the second writer instead of removing it. ⚠ WHAT NEITHER CAN SEE: a
+read method that routes ITSELF onto the writer, or a new read that writes. No AST check can
+decide which statements a method should run on; that stays review's job, and what makes the
+second fail loudly is `internal/palace`'s strict test fixture — a `query_only` reader over the
+same file — rather than any gate here.
 
 Prose belongs where a human reads it and nowhere else. Anything that must stay
 true gets a command whose exit code says so — including this section, which

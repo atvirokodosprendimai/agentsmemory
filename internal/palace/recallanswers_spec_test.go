@@ -668,7 +668,7 @@ func brokenBackendService(t *testing.T) (*Service, func()) {
 	if err != nil {
 		t.Fatalf("sql handle: %v", err)
 	}
-	return NewService(NewRepo(gdb), fakeEmbedder{}, sqlitevec.New(gdb), fakeDim), func() { _ = sqlDB.Close() }
+	return NewService(NewRepo(gdb, gdb), fakeEmbedder{}, sqlitevec.New(gdb), fakeDim), func() { _ = sqlDB.Close() }
 }
 
 // UC-6 — the bootstrap. One call replaces a client-side protocol that currently

@@ -258,7 +258,7 @@ const (
 func graphToolServer(t *testing.T) *server.MCPServer {
 	t.Helper()
 	gdb := graphTestDB(t)
-	drawers := palace.NewService(palace.NewRepo(gdb), graphTestEmbedder{}, sqlitevec.New(gdb), graphTestDim)
+	drawers := palace.NewService(palace.NewRepo(gdb, gdb), graphTestEmbedder{}, sqlitevec.New(gdb), graphTestDim)
 
 	for _, content := range []string{
 		"the rerank pool is read from the environment, and the compose file advertised one nobody read",

@@ -37,7 +37,7 @@ over a second writer instead of removing it.
 
 ```bash
 set -o pipefail
-go test ./cmd/server/ -run 'TestEveryServingHandleDeclaresItsRole$|TestTheReadHandleCannotWrite$' -count=1 -v 2>&1 | tee /tmp/adr052-t6.out \
+go test ./cmd/server/ -run 'TestEveryServingHandleDeclaresItsRole$|TestNoServingOpenerAddsAWriteSerialisationPragma$|TestTheReadHandleCannotWrite$' -count=1 -v 2>&1 | tee /tmp/adr052-t6.out \
   && ! grep -qE "no tests to run|^FAIL|^--- FAIL|\[build failed\]" /tmp/adr052-t6.out \
   && grep -q "TestEveryServingHandleDeclaresItsRole/catches_an_unbounded_pool" /tmp/adr052-t6.out
 ```
@@ -65,6 +65,10 @@ cannot report success.
 
 ## Mutation Log
 
+- 2026-09-04 · c983cbe* · mutant killed · exit 1 · `cmd/server/main.go` · the writer cap is raised to 8: the lock-upgrade failure returns and every test in this fence except TestEveryServingHandleDeclaresItsRole stays green, because the reader tests never contend — the gate reads the literal out of the AST · acceptance-sha256:e694d06ed876605ca2b1855be8cb1ea18e34f6f4dc3dfae0b516b285d1739e89 · covers:the AST read of the composition root rather than a list beside it
+- 2026-09-04 · c983cbe* · mutant killed · exit 1 · `cmd/server/main.go` · a serialisation pragma typed at the call site rather than in the constant: T2 test of the constants stays green and the reader still refuses writes, so only TestNoServingOpenerAddsAWriteSerialisationPragma, evaluating the ARGUMENT, can turn the exit code · acceptance-sha256:e694d06ed876605ca2b1855be8cb1ea18e34f6f4dc3dfae0b516b285d1739e89 · covers:the exit code
+- 2026-09-04 · c983cbe* · mutant killed · exit 1 · `internal/palace/service.go` · moveMemory opens its transaction on the reader: nothing in this fence exercises a relocation, so only the S6 walk over every Transaction( in internal/palace can see the receiver is not the writer · acceptance-sha256:e694d06ed876605ca2b1855be8cb1ea18e34f6f4dc3dfae0b516b285d1739e89 · covers:the AST read of the composition root rather than a list beside it
+
 ## Invariants
 
 - The gate derives its universe from the AST, never from a list of file names kept beside the source.
@@ -88,3 +92,20 @@ wrong — reshape the seam rather than adding the list.
 - Extending the gate to the nine packages T5 did not touch (deferred: `docs/adr/BACKLOG.md`)
 
 ## Verification Log
+- 2026-09-04 · 1c0e134* · exit 1 · `set -o pipefail …` · acceptance-sha256:e694d06ed876605ca2b1855be8cb1ea18e34f6f4dc3dfae0b516b285d1739e89 · ms:505
+  ```
+  --- last 10 line(s) of stdout (of 14 after folding 14 raw)
+  cmd/server/dbwiring_test.go:187:16: undefined: token
+  cmd/server/dbwiring_test.go:188:17: undefined: parseNonTestGoFiles
+  cmd/server/dbwiring_test.go:189:25: undefined: transactionHandleFindings
+  cmd/server/dbwiring_test.go:214:11: undefined: token
+  cmd/server/dbwiring_test.go:215:13: undefined: parser
+  cmd/server/dbwiring_test.go:219:13: undefined: servingHandleFindings
+  cmd/server/dbwiring_test.go:219:44: undefined: ast
+  cmd/server/dbwiring_test.go:219:44: too many errors
+  FAIL	github.com/atvirokodosprendimai/agentsmemory/cmd/server [build failed]
+  FAIL
+  ```
+- 2026-09-04 · c983cbe* · exit 0 · `set -o pipefail …` · acceptance-sha256:e694d06ed876605ca2b1855be8cb1ea18e34f6f4dc3dfae0b516b285d1739e89 · ms:4906
+- 2026-09-04 · c983cbe* · exit 0 · `set -o pipefail …` · acceptance-sha256:e694d06ed876605ca2b1855be8cb1ea18e34f6f4dc3dfae0b516b285d1739e89 · ms:1663
+- 2026-09-04 · c983cbe* · exit 0 · `set -o pipefail …` · acceptance-sha256:e694d06ed876605ca2b1855be8cb1ea18e34f6f4dc3dfae0b516b285d1739e89 · ms:2690

@@ -72,7 +72,7 @@ func (s *Service) CopyWing(ctx context.Context, fromTeam, toTeam, wing string) (
 		// default for a transfer only once the format can carry the window; until
 		// then, dropping history loses the account of why, and copying it loses the
 		// account AND asserts the claim. The second is worse.
-		src, err := s.repo.ListCurrent(ctx, fromTeam, wing, "", copyBatch, offset)
+		src, err := s.writer.ListCurrent(ctx, fromTeam, wing, "", copyBatch, offset)
 		if err != nil {
 			return res, fmt.Errorf("list source drawers: %w", err)
 		}
@@ -91,7 +91,7 @@ func (s *Service) CopyWing(ctx context.Context, fromTeam, toTeam, wing string) (
 	}
 
 	// --- closets: copy the wing's pointer index, chunked to bound the IN-list ---
-	closets, err := s.repo.ClosetsByWing(ctx, fromTeam, wing)
+	closets, err := s.writer.ClosetsByWing(ctx, fromTeam, wing)
 	if err != nil {
 		return res, fmt.Errorf("list source closets: %w", err)
 	}
@@ -132,7 +132,7 @@ func (s *Service) copyDrawerBatch(ctx context.Context, reader vectorReader, from
 	for _, d := range src {
 		copyKeys = append(copyKeys, contentKeyOf(toTeam, d.Wing, d.Room, d.SourceFile, d.ChunkIndex, d.Content))
 	}
-	existingKeys, err := s.repo.IDsByContentKeys(ctx, toTeam, copyKeys)
+	existingKeys, err := s.writer.IDsByContentKeys(ctx, toTeam, copyKeys)
 	if err != nil {
 		return 0, 0, fmt.Errorf("look up rows already holding these content keys: %w", err)
 	}

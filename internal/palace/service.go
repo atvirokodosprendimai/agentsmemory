@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/atvirokodosprendimai/agentsmemory/internal/auth"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/store"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/telemetry"
 
@@ -222,7 +223,17 @@ type Reranker interface {
 // the metadata Repo, an Embedder, and the vector store seam; everything is
 // tenant-scoped by the teamID argument, which is also the vector namespace.
 type Service struct {
-	repo    *Repo
+	repo *Repo
+	// writer is the WRITE PATH's view of the repository: the same Repo with the
+	// writer handle in both seats, so a lookup taken through it is a read the
+	// writer itself made. ADR-052's Decision requires that — "the write path
+	// validates against its own reads, never against the read model" — because
+	// a lookup on the pooled reader is a different snapshot, and a check taken
+	// there is not binding on the write that follows. Review of PR #233 found
+	// that shape twice; TestNoWritePathReadsTheReadModel now lists the class.
+	// Anything that selects the rows a write will touch, or the values it will
+	// write, reads through this field; repo stays the read model's view.
+	writer  *Repo
 	embed   Embedder
 	vectors store.VectorStore
 	dim     int // embedding dimension new namespaces are created with (bge-m3 = 1024)
@@ -339,8 +350,15 @@ func (s *Service) Repo() *Repo { return s.repo }
 // tenant's vector namespace on first write (the actual width of returned vectors
 // is authoritative and used in Add; dim is only the seed/fallback).
 func NewService(repo *Repo, embed Embedder, vectors store.VectorStore, dim int) *Service {
+	// The writer view is the same Repo with the writer in both seats. A nil repo
+	// is legal here — the eval's shape-only default service carries no
+	// database at all — and a nil view for it is exactly as usable as its repo.
+	var writer *Repo
+	if repo != nil {
+		writer = repoOn(repo.db)
+	}
 	return &Service{
-		repo: repo, embed: embed, vectors: vectors, dim: dim,
+		repo: repo, writer: writer, embed: embed, vectors: vectors, dim: dim,
 		// Adaptive lexical weighting is the default because it is the only
 		// configuration measured best in BOTH query regimes; a zero value here
 		// would silently make fusion vector-only, which is a measured regression
@@ -760,7 +778,7 @@ func (s *Service) prepareWrite(ctx context.Context, teamID string, in AddInput) 
 	for _, c := range chunks {
 		keys = append(keys, contentKeyOf(teamID, wing, room, in.SourceFile, c.Index, c.Content))
 	}
-	existing, err := s.repo.IDsByContentKeys(ctx, teamID, keys)
+	existing, err := s.writer.IDsByContentKeys(ctx, teamID, keys)
 	if err != nil {
 		return preparedWrite{}, fmt.Errorf("look up rows already holding these content keys: %w", err)
 	}
@@ -1098,7 +1116,15 @@ func (s *Service) purgeSourceOn(ctx context.Context, r *Repo, teamID, wing, room
 // am_entry_point. Authored edges are untouched — see endDerivedEdgesFor.
 
 // Get returns one drawer, mapping an unknown id to ErrNotFound.
-func (s *Service) Get(ctx context.Context, teamID, id string) (d Drawer, err error) {
+func (s *Service) Get(ctx context.Context, teamID, id string) (Drawer, error) {
+	return s.getOn(ctx, s.repo, teamID, id)
+}
+
+// getOn is Get through an explicit view: s.repo for a query, s.writer when the
+// result feeds a write — Update reads the successor it just minted through it.
+// ADR-052: a write-path lookup on the read model is a different snapshot, so
+// the check it makes is not binding on the write that follows.
+func (s *Service) getOn(ctx context.Context, r *Repo, teamID, id string) (d Drawer, err error) {
 	_, sp := telemetry.Start(ctx, telemetry.StageGet)
 	defer func() {
 		if errors.Is(err, ErrNotFound) {
@@ -1107,7 +1133,7 @@ func (s *Service) Get(ctx context.Context, teamID, id string) (d Drawer, err err
 		}
 		endStage(sp, err, attribute.Bool("am.found", err == nil))
 	}()
-	d, err = s.repo.Get(ctx, teamID, id)
+	d, err = r.Get(ctx, teamID, id)
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return Drawer{}, ErrNotFound
 	}
@@ -1270,7 +1296,7 @@ func (s *Service) Update(ctx context.Context, teamID, id string, patch DrawerPat
 
 	// GetAnyVersion so an ended record produces the refusals below — the supersede
 	// path's "already ended on X" and the move guard — rather than a bare miss.
-	current, err := s.GetAnyVersion(ctx, teamID, id) // also maps unknown id -> ErrNotFound
+	current, err := s.getAnyVersionOn(ctx, s.writer, teamID, id) // the writer's own read, not the read model's (ADR-052); also maps unknown id -> ErrNotFound
 	if err != nil {
 		return UpdateResult{}, err
 	}
@@ -1309,7 +1335,7 @@ func (s *Service) Update(ctx context.Context, teamID, id string, patch DrawerPat
 		if serr != nil {
 			return UpdateResult{}, serr
 		}
-		d, gerr := s.Get(ctx, teamID, res.ID) // the successor is current by construction
+		d, gerr := s.getOn(ctx, s.writer, teamID, res.ID) // the successor is current by construction, and it was minted on the writer
 		if gerr != nil {
 			return UpdateResult{}, gerr
 		}
@@ -1333,7 +1359,7 @@ func (s *Service) Update(ctx context.Context, teamID, id string, patch DrawerPat
 	// pointing at a live id — which is why ADR-045 needs no answer to ADR-027's
 	// open question about a reference into a chunk a re-chunk would delete.
 	// Re-chunking on a CONTENT update remains unsolved and remains in the backlog.
-	chunks, err := s.repo.MemoryChunks(ctx, teamID, id)
+	chunks, err := s.writer.MemoryChunks(ctx, teamID, id)
 	if err != nil {
 		return UpdateResult{}, fmt.Errorf("look up the memory this drawer belongs to: %w", err)
 	}
@@ -1411,7 +1437,7 @@ func (s *Service) Update(ctx context.Context, teamID, id string, patch DrawerPat
 	}
 	s.attachDerivedEdgeTo(ctx, teamID, moved)
 
-	updated, err := s.repo.Get(ctx, teamID, id)
+	updated, err := s.writer.Get(ctx, teamID, id)
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return UpdateResult{}, ErrNotFound
 	}
@@ -1442,7 +1468,7 @@ func (s *Service) moveMemory(ctx context.Context, teamID string, chunks []Drawer
 		ids = append(ids, c.ID)
 	}
 	return s.repo.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		txRepo := &Repo{db: tx}
+		txRepo := repoOn(tx)
 		for _, c := range chunks {
 			w, r := wing, room
 			if _, err := txRepo.Update(ctx, teamID, c.ID, DrawerPatch{Wing: &w, Room: &r}); err != nil {
@@ -1517,7 +1543,7 @@ func (s *Service) Delete(ctx context.Context, teamID, id string) (n int, err err
 	// is removing the memory, so removing all of it is what they asked for. The
 	// count is returned so the caller can say how much went, rather than
 	// reporting the one id it was given.
-	chunks, err := s.repo.MemoryChunks(ctx, teamID, id)
+	chunks, err := s.writer.MemoryChunks(ctx, teamID, id)
 	if err != nil {
 		return 0, fmt.Errorf("look up the memory this drawer belongs to: %w", err)
 	}
@@ -1793,6 +1819,10 @@ func (s *Service) SearchPage(ctx context.Context, teamID string, q SearchQuery) 
 		// SELECTS the value T1 returns: without it the reason is computed, put on
 		// the span, and never reaches a row anyone can aggregate.
 		RerankSkipReason: skipReason,
+		// WHO asked, from the context the bridge (or the CLI path) filled. This is
+		// the line that SELECTS the origin for every search: without it the header
+		// is lifted, carried, and never reaches a row (ADR-054).
+		Origin: auth.OriginFrom(ctx),
 	}
 	if len(results) > 0 {
 		ev.TopScore = results[0].Score

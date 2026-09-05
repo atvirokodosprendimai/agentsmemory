@@ -1,9 +1,16 @@
 package main
 
 import (
+	"archive/tar"
+	"archive/zip"
 	"bufio"
+	"compress/gzip"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
+	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
@@ -582,7 +589,16 @@ func (i *Installer) run() error {
 
 	i.step("2/4  agentsmemory MCP")
 	if err := i.registerAgentsMemoryMCP(); err != nil {
-		// Non-fatal: the commands + hook are installed and useful on their own.
+		// ⚠ FATAL FOR A KIT THAT IS ONLY THIS STEP. For Claude Desktop the MCP
+		// registration is the whole install — no commands, no protocol file, no
+		// hook — so a failed one used to print a [!!] line among [ok] lines, a
+		// "Next steps" block written as though it had succeeded, and exit 0: a
+		// no-op install reporting done (issue #208). For the other kits the
+		// commands and hook are installed and useful on their own, so there the
+		// registration stays a warning.
+		if kitNeedsServerBin(i.kit) {
+			return fmt.Errorf("agentsmemory MCP not registered, and for %s that is the whole install: %w", i.kit.name, err)
+		}
 		i.warn("agentsmemory MCP not registered: %v", err)
 	}
 
@@ -1166,7 +1182,13 @@ func (i *Installer) placeServerBin() (string, error) {
 		return "", fmt.Errorf("make the staged server binary executable: %w", err)
 	}
 	if err := os.Rename(staged, dest); err != nil {
-		return "", fmt.Errorf("install the server binary to %s: %w", dest, err)
+		// The mechanism is a rename; the CAUSE an operator can act on is usually
+		// that Claude Desktop is running and has the bridge it spawned held open
+		// — on Windows the loader locks the image, and the rename comes back
+		// "Access is denied" with nothing in it naming Desktop (issue #208).
+		return "", fmt.Errorf("install the server binary to %s: %w — if Claude Desktop is running it holds "+
+			"the bridge it spawned open; quit Claude Desktop and re-run, or copy the new binary over "+
+			"that path after quitting", dest, err)
 	}
 	i.ok("installed server binary → %s", dest)
 	return dest, nil
@@ -2105,10 +2127,25 @@ func (i *Installer) registerCursorMCP(token string) error {
 // there fails at spawn inside Claude Desktop, where the error reads as ours.
 func (i *Installer) registerClaudeDesktopMCP(token string) error {
 	if i.serverBin == "" {
-		return fmt.Errorf("%s registers an mcp-stdio bridge, which needs the agentsmemory server "+
-			"binary on this machine, and none was found. Build one "+
-			"(go build -o ~/.local/bin/aiagentmemory-server ./cmd/server) or pass --server-bin "+
-			"<path>. A Docker-only install produces no host binary", i.kit.name)
+		// A Compose-only install — the documented local server — leaves no host
+		// binary at all, so the documented happy path used to end here with a
+		// refusal telling the operator to install a Go toolchain (issue #199).
+		// Every release publishes the server for each platform beside the client,
+		// so it is fetched from the release this client came from (or the newest,
+		// for an unstamped client) and placed the way a found binary would be.
+		// The refusal stays for the case where that fails too: an entry naming a
+		// binary that is not there fails inside Claude Desktop and reads as ours.
+		fetched, err := i.fetchServerBin()
+		if err != nil {
+			return fmt.Errorf("%s registers an mcp-stdio bridge, which needs the agentsmemory server "+
+				"binary on this machine, and none was found; fetching it from the release failed: %v. "+
+				"Build one (go build -o ~/.local/bin/aiagentmemory-server ./cmd/server) or pass --server-bin "+
+				"<path>. A Docker-only install produces no host binary", i.kit.name, err)
+		}
+		i.serverBin = fetched
+		if !i.dryRun {
+			defer os.Remove(fetched) // placeServerBin copies it to its final name
+		}
 	}
 	// The registration names the binary this install PLACED, not whatever was on
 	// PATH when someone last ran it — see placeServerBin.
@@ -2126,8 +2163,12 @@ func (i *Installer) registerClaudeDesktopMCP(token string) error {
 	}
 	entry := map[string]any{"command": placed, "args": args}
 	if i.dryRun {
-		fmt.Fprintf(i.out, "  would register the agentsmemory MCP in %s → %s mcp-stdio --url %s\n",
-			path, placed, i.mcpURL)
+		// ONE rendering, from the slice the entry is built from. The rehearsal used
+		// to format its own string from the URL alone, so a --wing or --token
+		// install rehearsed as a bare bridge and registered something else (issue
+		// #225). The token is redacted the way a bearer header already is.
+		fmt.Fprintf(i.out, "  would register the agentsmemory MCP in %s → %s %s\n",
+			path, placed, renderBridgeArgs(args, token))
 		return nil
 	}
 	changed, err := ensureMCPServer(path, mcpName, entry)
@@ -2141,6 +2182,203 @@ func (i *Installer) registerClaudeDesktopMCP(token string) error {
 	}
 	i.ok("restart Claude Desktop to pick it up — it reads this file only at launch")
 	return nil
+}
+
+// fetchServerBin downloads the server binary for this platform from the release
+// matching the running client (or the newest release when the client is an
+// unstamped build), verifies it runs, and returns the staged path for
+// placeServerBin to copy into place. In a dry-run it downloads nothing and
+// returns the URL it would have fetched, so the rehearsal names the asset.
+func (i *Installer) fetchServerBin() (string, error) {
+	asset, err := serverArchiveName(runtime.GOOS, runtime.GOARCH)
+	if err != nil {
+		return "", err
+	}
+	ctx := context.Background()
+	tag := version
+	if !strings.HasPrefix(tag, "v") {
+		// An unstamped client has no release of its own; the newest is the best
+		// guess, and the report says which one so a mismatch is visible.
+		if tag, err = latestTag(ctx); err != nil {
+			return "", fmt.Errorf("%s: %w", asset, err)
+		}
+	}
+	url := releaseAssetURL(tag, asset)
+	if i.dryRun {
+		fmt.Fprintf(i.out, "  would download %s from release %s (%s)\n", asset, tag, url)
+		return url, nil
+	}
+	dir := filepath.Join(i.targetDir, "bin")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", err
+	}
+	archive, err := downloadBinary(ctx, url, dir)
+	if err != nil {
+		return "", fmt.Errorf("%s: %w", asset, err)
+	}
+	defer os.Remove(archive)
+	// An executable fetched over the network and registered to be SPAWNED is
+	// checked against the release's own SHA256SUMS before it runs once. A
+	// truncated or substituted download would otherwise reach verifyBinary,
+	// which only asks whether it runs — and a wrong binary runs fine.
+	if err := verifyReleaseChecksum(ctx, tag, asset, archive); err != nil {
+		return "", fmt.Errorf("%s: %w", asset, err)
+	}
+	tmp, err := extractServerBin(archive, dir)
+	if err != nil {
+		return "", fmt.Errorf("%s: %w", asset, err)
+	}
+	out, err := verifyBinaryOutput(ctx, tmp)
+	if err != nil {
+		os.Remove(tmp)
+		return "", fmt.Errorf("%s: %w", asset, err)
+	}
+	// Identity, not integrity: the sum above proves the bytes are the release's;
+	// this proves the release's bytes name the tag they were published under, so
+	// a rebuilt or unstamped asset cannot land under a tag the report then names.
+	// Judged on the SAME output the liveness check read, so there is no second
+	// exec whose failure could skip this (review of #245: the first draft
+	// short-circuited on exec error and was the one fail-open branch here).
+	if !strings.Contains(out, tag) {
+		os.Remove(tmp)
+		return "", fmt.Errorf("%s: the extracted server reports %q, not release %s — the package does not name the release it was published under",
+			asset, strings.TrimSpace(out), tag)
+	}
+	i.ok("downloaded %s from release %s (sha256 verified, --version names %s)", asset, tag, tag)
+	return tmp, nil
+}
+
+// extractServerBin pulls the server binary out of the release package into a
+// staged file in dir — `agentsmemory` from the tar.gz, `agentsmemory.exe` from
+// the zip — and returns its path. Only that member is read; the package's other
+// contents never touch the filesystem.
+func extractServerBin(archive, dir string) (string, error) {
+	want := "agentsmemory"
+	if runtime.GOOS == "windows" {
+		want += ".exe"
+	}
+	var member io.ReadCloser
+	if strings.HasSuffix(archive, ".zip") {
+		zr, err := zip.OpenReader(archive)
+		if err != nil {
+			return "", err
+		}
+		defer zr.Close()
+		for _, f := range zr.File {
+			if filepath.Base(f.Name) == want {
+				rc, err := f.Open()
+				if err != nil {
+					return "", err
+				}
+				member = rc
+				break
+			}
+		}
+	} else {
+		f, err := os.Open(archive)
+		if err != nil {
+			return "", err
+		}
+		defer f.Close()
+		gz, err := gzip.NewReader(f)
+		if err != nil {
+			return "", fmt.Errorf("not a gzip archive: %w", err)
+		}
+		defer gz.Close()
+		tr := tar.NewReader(gz)
+		for {
+			h, err := tr.Next()
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				return "", err
+			}
+			if h.Typeflag == tar.TypeReg && filepath.Base(h.Name) == want {
+				member = io.NopCloser(tr)
+				break
+			}
+		}
+	}
+	if member == nil {
+		return "", fmt.Errorf("the package holds no %s", want)
+	}
+	defer member.Close()
+	out, err := os.CreateTemp(dir, ".aiagentmemory-server-*")
+	if err != nil {
+		return "", err
+	}
+	if _, err := io.Copy(out, member); err != nil {
+		out.Close()
+		os.Remove(out.Name())
+		return "", err
+	}
+	if err := out.Close(); err != nil {
+		os.Remove(out.Name())
+		return "", err
+	}
+	return out.Name(), nil
+}
+
+// verifyReleaseChecksum compares the file's SHA-256 with the entry for asset in
+// the release's SHA256SUMS.txt, fetched from the same release. A release with no
+// sums file, or one that does not list the asset, is refused: an unverifiable
+// executable is not installed, and the message says which half is missing.
+func verifyReleaseChecksum(ctx context.Context, tag, asset, path string) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, releaseAssetURL(tag, "SHA256SUMS.txt"), nil)
+	if err != nil {
+		return err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("cannot fetch SHA256SUMS.txt for release %s: %w", tag, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("release %s publishes no SHA256SUMS.txt (%s), so the download cannot be verified", tag, resp.Status)
+	}
+	sums, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return err
+	}
+	want := ""
+	for _, line := range strings.Split(string(sums), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) == 2 && strings.TrimPrefix(fields[1], "*") == asset {
+			want = strings.ToLower(fields[0])
+		}
+	}
+	if want == "" {
+		return fmt.Errorf("release %s's SHA256SUMS.txt does not list %s, so the download cannot be verified", tag, asset)
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return err
+	}
+	if got := hex.EncodeToString(h.Sum(nil)); got != want {
+		return fmt.Errorf("sha256 mismatch for %s: release lists %s, download is %s — the file is not the one the release published", asset, want[:12], got[:12])
+	}
+	return nil
+}
+
+// renderBridgeArgs prints the bridge's argument list as the registration will
+// carry it, with the token replaced by *** so a rehearsal never puts a credential
+// into a terminal or a captured log.
+func renderBridgeArgs(args []any, token string) string {
+	parts := make([]string, 0, len(args))
+	for _, a := range args {
+		s := fmt.Sprint(a)
+		if token != "" && s == token {
+			s = "***"
+		}
+		parts = append(parts, s)
+	}
+	return strings.Join(parts, " ")
 }
 
 // tokenPath is where the workspace token is persisted inside CODEX_HOME.

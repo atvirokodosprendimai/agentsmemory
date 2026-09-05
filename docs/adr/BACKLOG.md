@@ -2813,6 +2813,57 @@ re-file whichever are wrong."* A session that complies rewrites correct records 
 Also unverified and worth one command: whether the recorded false verdicts should be swept and
 reset, since `doctor --corpus` already reports reference states.
 
+### READ SIDE CLOSED, corpus swept — 2026-09-04
+
+**The read side is fixed and was already fixed when this entry was re-read.** `verifyAnchors` in
+`clients/claude-code/verify.go` now derives `attributed` as a POSITIVE match and routes everything
+else through `unchecked()`, which sorts an anchor into `unattributable` when it carries no label and
+`elsewhere` when it carries someone else's. The two are separate buckets on purpose and the type's
+own comment says why: they have different remedies, and folding them together hides the one a human
+can act on. So an unlabelled anchor can no longer be recorded `missing`, and the destructive verdict
+this entry was written about cannot be produced any more.
+
+**The corpus was swept, and it was NOT the sweep this entry predicted.** Measured against the live
+local palace: 189 anchors, **7 unlabelled**, every one of them pinning this repository's own files.
+Their recorded verdicts were 5 `verified` and 2 `drifted`, all frozen from before the read-side fix,
+because nothing re-checks an anchor it will not attribute.
+
+⚠ **Checking them one by one is what makes this worth recording, because the assumption "unlabelled
+⇒ the verdict is bogus" was wrong in both directions.** Two of the three repairs were real drift the
+frozen verdict happened to state correctly, and one was the opposite — an anchor recorded
+**`verified`** pinning `shutdown, err := telemetry.Setup(...)` in `cmd/server/eval.go`, where **that
+snippet no longer appears at all**. The code did not vanish, it MOVED: `telemetry.Setup` is now
+reached from a single package-level seam, `var telemetrySetup = telemetry.Setup` in
+`cmd/server/telemetry.go`, which `withTelemetry` calls — the arrangement
+`TestTelemetrySetupHasOneChokepoint` requires and counts as exactly one. Moving rather than
+deleting is precisely why a stale pin could go on reading `verified`: the package still compiles,
+the feature still works, and only the pinned lines are gone. That is
+the "permanently silent" half of the defect, and it is the more dangerous one — a false `missing`
+argues loudly for deleting a good memory, while a false `verified` quietly certifies a memory as
+current against code that is gone. Nothing in the corpus would ever have surfaced it, because the
+verdict was frozen by the same missing label.
+
+The three affected records — the 2026-08-25 OTel wiring decision this entry names by name, the
+eval-parenting incident, and the hosted-MCP-URL SSOT decision — were repaired in place with
+`am_update_drawer(code_anchors:)`, which keeps the id and mints no correction. All three were
+confirmed live first, since an ended record refuses the call. Two anchors were re-pointed to where
+their code now lives (`internal/telemetry/telemetry.go`, `cmd/server/telemetry.go`), one snippet was
+re-taken after `searchAttrs(...)` became `attrs...`, and every one now carries `repo:
+"agentsmemory"`. All seven read `status: unchecked`, so the next sweep verifies them for real
+instead of re-serving a frozen verdict.
+
+**What is still open is the write side, and it is a DECISION rather than a task.** The server cannot
+default the label: `internal/mcpserver/drawers.go` builds `palace.AnchorInput` from the request and
+nothing there knows the caller's git remote. The tool description already says to always send `repo`
+and states the consequence of omitting it. So the remaining choice is whether an anchor without a
+label should be REFUSED at write time, or accepted and reported back the way a fan-out warning is —
+the first turns working writes into failures for every client that has not been updated, the second
+adds a response field, and neither is cleanup.
+
+**Decided as a Proposed record on 2026-09-05:** `docs/adr/ADR-056-an-unlabelled-anchor-is-reported-not-refused.md`
+chooses accept-and-report (the fan-out shape), plus a `doctor --corpus` population for the anchors
+already filed. The record is not Accepted; the owner decides.
+
 ## The wake-up surface counts rows and calls them memories, and counts retracted ones — 2026-08-29
 
 Reported first-hand by a depozitas session; **not yet reproduced here**, so the cause is unverified
@@ -3604,3 +3655,42 @@ holds, this is the same defect ADR-055 fixes one surface over and the query want
 If it is what a wing has ever talked about, history belongs in it and the rule should be written down
 rather than left as an unfiltered query nobody chose. ADR-055 declined to settle it because it
 neither lists nor counts rooms, which is that record's whole subject.
+
+## The kit could label an anchor for the caller, and nobody has to remember `repo` — 2026-09-05
+
+Deferred from `docs/adr/ADR-056-an-unlabelled-anchor-is-reported-not-refused.md` (Out of Scope).
+
+ADR-056 reports an unlabelled anchor back to the caller because the server cannot know the
+caller's repository. The Claude Code kit CAN: `aiagentmemory` runs in the checkout, reads the git
+remote for the verify hook already, and could put the label in front of the model — in the tool
+description it installs, in a `SessionStart` line, or by filling `repo` on the way through a proxy
+it does not have today. Each of those is a different mechanism with a different failure mode (a
+description is read once, a session line is read before the first write, a proxy is a component
+that does not exist), and none removes the need for the server-side report, because Codex, pi and a
+raw MCP client do not run the kit. Worth a record once T1 has shipped and the population `doctor
+--corpus` reports is measured to be still growing.
+
+## Tests spawn children with no deadline, and a killed runner leaves them to launchd — 2026-09-05
+
+Standing rule from the owner, relayed by another session on 2026-09-05: every child a test, hook
+or script spawns carries a timeout, and the runner reaps its children before it exits. The
+incident behind it was in another project — two hook children from a mutation run hung in regex
+backtracking after their test had already recorded FAILED, were reparented to launchd, and burned
+most of a core each for fifteen hours; the owner found out from the fan noise.
+
+This tree has the same shape. Counted 2026-09-05 with
+`grep -rn --include='*_test.go' 'exec\.Command(' . | grep -v CommandContext`: 41 sites, most of
+them `exec.Command("bash", hook)` in `clients/claude-code` (`recall_test.go`, `hooks_test.go`,
+`anchorcue_test.go`, `plugin_test.go`, `verify_test.go`, `recall_mergesubjects_test.go`), plus
+one each in `internal/repohygiene` (two files), `internal/importer` and `internal/contractaxis`.
+The hook the tests run shells out to `aiagentmemory mcp search`, whose HTTP call carries a client
+timeout (`clients/claude-code/mcpcall.go`), so a hang in the SERVER call is bounded — but the
+`bash` child itself has no deadline, and `go test`'s package timeout kills the test binary without
+its grandchildren, which is exactly the reparenting the rule exists to stop. Of the shipped hooks,
+only the session-end and verify hooks wrap their work in `timeout`; the two recall hooks do not.
+
+Not measured: whether any child has actually leaked here. `ps -Ao pid,ppid,%cpu,etime,comm -r`
+on the development machine that day showed nothing reparented from a test. The fix is mechanical
+(`exec.CommandContext` with a deadline at every site, `timeout` around the recall hooks' one
+call) and belongs in its own PR, with a gate that greps the universe so a 42nd site joins the
+check on the same commit.
