@@ -198,6 +198,12 @@ ERRFILE="$(mktemp 2>/dev/null || echo /tmp/agentsmemory-recall.err)"
 # not: --token OVERRIDES the CLI's own resolution, so an install whose token lives
 # in agentsmemory.env authenticated as "local" and was refused. Omitting the flag
 # lets the CLI resolve the credential the way `verify` already does.
+# Say WHO is asking (ADR-054): the kit turns this into X-Agentsmemory-Origin,
+# the palace records it on the search_events row, and am_recall_stats' to-write
+# list is then built from the searches nobody's hook made. `hook:<basename>` so
+# an operator can still see which hook. Exported, not passed: the value belongs
+# to the caller, and no query argument an agent could forget or set carries it.
+export AGENTSMEMORY_ORIGIN="hook:$(basename "$0")"
 set -- mcp search "$QUERY" -a limit=3 -a snippet_chars=300 -a room=diary -a max_distance=0.42
 TOKEN="${AGENTSMEMORY_LOCAL_TOKEN:-${AGENTSMEMORY_TOKEN:-}}"
 [ -n "$TOKEN" ] && set -- "$@" --token "$TOKEN"

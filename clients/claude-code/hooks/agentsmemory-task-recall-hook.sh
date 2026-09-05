@@ -133,6 +133,12 @@ QUERY="$(printf '%s' "$PROMPT" | cut -c1-240)"
 
 ERRFILE="$(mktemp 2>/dev/null || echo /tmp/agentsmemory-task-recall.err)"
 
+# Say WHO is asking (ADR-054): the kit turns this into X-Agentsmemory-Origin,
+# the palace records it on the search_events row, and am_recall_stats' to-write
+# list is then built from the searches nobody's hook made. `hook:<basename>` so
+# an operator can still see which hook. Exported, not passed: the value belongs
+# to the caller, and no query argument an agent could forget or set carries it.
+export AGENTSMEMORY_ORIGIN="hook:$(basename "$0")"
 set -- mcp search "$QUERY" -a limit=2 -a snippet_chars=280 -a max_distance=0.42
 TOKEN="${AGENTSMEMORY_LOCAL_TOKEN:-${AGENTSMEMORY_TOKEN:-}}"
 [ -n "$TOKEN" ] && set -- "$@" --token "$TOKEN"
