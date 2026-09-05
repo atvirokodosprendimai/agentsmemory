@@ -679,10 +679,11 @@ func hookVerdictsIn(ctx context.Context, c *cli.Command, kit agentKit, dir, proj
 	}
 	// ⚠ WIRING IS CHECKED FOR EVERY INSTALLED HOOK, NOT ONLY THE ONES THAT CAN
 	// SPEAK. The loop above judges the scripts that declare
-	// `stdout-injected` — three of the ten this kit ships — because judging
+	// `stdout-injected` — three of the NINE hooks this kit ships (eleven files,
+	// two of which declare `not-a-hook`) — because judging
 	// what a hook SAID needs a channel to say it on. Whether a hook is WIRED
 	// needs no channel at all, and keying both questions on the declaration put
-	// seven hooks outside this command's universe: the PreCompact note writer
+	// six hooks outside this command's universe: the PreCompact note writer
 	// and the PostToolUse touched recorder among them, both `hook-output: none`.
 	//
 	// The cost was measured on 2026-09-05: a session compacted, no note was
