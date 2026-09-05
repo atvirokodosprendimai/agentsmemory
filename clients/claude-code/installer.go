@@ -914,7 +914,7 @@ func (i *Installer) writeSkills() error {
 	if i.kit.name != agentClaude {
 		return nil
 	}
-	for _, name := range nativeSkillAssets {
+	for _, name := range nativeSkillAssets() {
 		data, err := i.source().ReadFile("skills/" + name + "/SKILL.md")
 		if err != nil {
 			return err
