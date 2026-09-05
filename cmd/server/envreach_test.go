@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/atvirokodosprendimai/agentsmemory/internal/repohygiene"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -49,7 +50,7 @@ func TestDocumentedEnvVarsAreRead(t *testing.T) {
 	// nothing. RERANK_TOP_K sat in docker-compose.full.yml claiming a rerank pool
 	// of 20 that the server never read — the .env example happened to carry it
 	// too, which is the only reason the first version of this check saw it.
-	composeFiles, _ := filepath.Glob(filepath.Join(root, "docker-compose*.yml"))
+	composeFiles, _ := repohygiene.ComposeFiles(root)
 	for _, path := range composeFiles {
 		rel, _ := filepath.Rel(root, path)
 		for _, v := range composeEnvVarsIn(t, path) {
@@ -431,7 +432,7 @@ func TestReadEnvVarsAreDocumented(t *testing.T) {
 	for _, rel := range operatorDocs {
 		docs = append(docs, filepath.Join(root, rel))
 	}
-	composeFiles, _ := filepath.Glob(filepath.Join(root, "docker-compose*.yml"))
+	composeFiles, _ := repohygiene.ComposeFiles(root)
 	docs = append(docs, composeFiles...)
 
 	var corpus strings.Builder

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/atvirokodosprendimai/agentsmemory/internal/config"
+	"github.com/atvirokodosprendimai/agentsmemory/internal/repohygiene"
 	"github.com/urfave/cli/v3"
 )
 
@@ -38,7 +39,7 @@ func TestEveryModelACommandDefaultsToIsProvisionedOrDocumented(t *testing.T) {
 			docs.Write(src)
 		}
 	}
-	composeFiles, _ := filepath.Glob(filepath.Join(root, "docker-compose*.yml"))
+	composeFiles, _ := repohygiene.ComposeFiles(root)
 	for _, path := range composeFiles {
 		if src, err := os.ReadFile(path); err == nil {
 			docs.Write(src)
