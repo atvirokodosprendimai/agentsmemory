@@ -1,6 +1,6 @@
 # ADR-058: The recall injection is a digest with a budget, not a dump
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-09-05
 **Owner:** Zydrunas
 **Spec:** None — no spec stage
