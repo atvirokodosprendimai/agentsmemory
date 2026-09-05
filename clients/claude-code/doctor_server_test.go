@@ -2,12 +2,16 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/mark3labs/mcp-go/server"
+	"github.com/urfave/cli/v3"
 )
 
 // The whole package's doctor tests run against the stub below, never a real
@@ -148,5 +152,62 @@ func TestJudgeServerNamesEveryState(t *testing.T) {
 		if v.label != c.label || v.bad != c.bad {
 			t.Errorf("judgeServer(%q, %v) = %s/bad=%v, want %s/bad=%v", c.version, c.err, v.label, v.bad, c.label, c.bad)
 		}
+	}
+}
+
+// TestInstallEndpointLetsTheRegistrationWin pins the decision the server rung is
+// built on: the install's own registration names the endpoint, and the --mcp-url
+// flag — which defaults to the HOSTED palace — is only the fallback. Reversed,
+// every self-hosted install would be judged against a palace its operator does
+// not use and the resulting 401 reported as the install's condition, with the
+// whole suite green, because the doctor tests stub the probe. Raised in review
+// of #242: the doc comment was carrying this alone.
+func TestInstallEndpointLetsTheRegistrationWin(t *testing.T) {
+	const flagURL = "http://127.0.0.1:8/mcp"
+	const regURL = "http://127.0.0.1:9/mcp"
+	for _, tc := range []struct {
+		name      string
+		command   string
+		wantURL   string
+		wantToken string
+	}{
+		{"the registration's endpoint wins over the flag",
+			hookCommand(regURL, "/tmp/hook.sh"), regURL, "t-flag"},
+		{"an unprefixed registration falls back to the flag",
+			"bash -- '/tmp/hook.sh'", flagURL, "t-flag"},
+		{"an empty assignment does not blank the flag",
+			mcpURLEnvVar + "='' bash -- '/tmp/hook.sh'", flagURL, "t-flag"},
+		{"a registered token wins over the flag's",
+			tokenEnvVar + "='t-reg' " + hookCommand(regURL, "/tmp/hook.sh"), regURL, "t-reg"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			body, err := json.Marshal(map[string]any{"hooks": map[string]any{
+				"SessionStart": []any{map[string]any{"hooks": []any{map[string]any{
+					"type": "command", "command": tc.command,
+				}}}},
+			}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(dir, claudeKit.hooksFile), body, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			var gotURL, gotToken string
+			d := doctorCommand()
+			d.Action = func(_ context.Context, c *cli.Command) error {
+				gotURL, gotToken = installEndpoint(c, claudeKit, dir)
+				return nil
+			}
+			if err := d.Run(context.Background(), []string{"doctor", "--mcp-url", flagURL, "--token", "t-flag", "--target-dir", dir}); err != nil {
+				t.Fatal(err)
+			}
+			if gotURL != tc.wantURL {
+				t.Errorf("endpoint = %q, want %q", gotURL, tc.wantURL)
+			}
+			if gotToken != tc.wantToken {
+				t.Errorf("token = %q, want %q", gotToken, tc.wantToken)
+			}
+		})
 	}
 }
