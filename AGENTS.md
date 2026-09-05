@@ -134,10 +134,18 @@ in the same turn, before the next item.** Owner, 2026-09-05, after #240 merged a
 the session moved on while the local palace kept serving the previous release:
 *"after merging to main — ensure that we ourselves are running the latest version.
 This has to be a rule."* Not the next release, not when the session gets to it;
-a merge is not done until `am_status` reports the merged version. A docs-only merge
-changes nothing served — say so in one line rather than skipping silently. The
-procedure that works, in full, because three of its steps failed silently the day
-it was written:
+a merge is not done until the stack you redeployed reports the merged version.
+⚠ **READ THAT FROM THE STACK, NOT FROM WHATEVER YOUR SESSION IS REGISTERED TO.**
+`am_status` answers for the palace this registration points at, and this repo's
+ordinary development setup points at HOSTED (the gate section above says so) —
+a session on `mode: "hosted"` would redeploy correctly and read `v0.0.114` for
+ever, and conclude it had failed. `redeploy.sh` reads the artifact itself
+(`docker exec <container> agentsmemory --version`) and refuses when the stamp did
+not reach the binary; `am_status` counts only from a registration whose `mode` is
+`local`. Review of the release that added this rule caught it, from a session
+that was the case. A docs-only merge changes nothing served — say so in one line
+rather than skipping silently. The procedure that works, in full, because three
+of its steps failed silently the day it was written:
 
     git clone -q --no-local --branch <tag-or-sha> . "$DIR"   # a CLONE, never a worktree
     cp .env.docker "$DIR/"                                    # a clone has no untracked files
