@@ -1,6 +1,6 @@
 # ADR-054: A search records who asked, so a to-write list holds only questions
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-09-04
 **Owner:** unassigned
 **Spec:** None — no spec stage. The requirement is one sentence and the inbox finding that carries it is quoted in Context.
