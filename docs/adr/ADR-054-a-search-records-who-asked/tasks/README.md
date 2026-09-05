@@ -20,7 +20,7 @@ README must be regenerated.
 |----|-------|--------|--------|------------|
 | T1 | A search records the origin its request carried | done | — | `go test ./internal/palace/ -run TestASearchRecordsTheOriginItsContextCarries …` |
 | T2 | The kit sends the origin, and every hook declares what it is | done | — | `go test ./clients/claude-code/ -run 'TestEveryRecallHookDeclaresItsOrigin|TestMCPCallSendsTheOriginHeaderFromTheEnvironment' …` |
-| T3 | The to-write list is built from the searches nobody's hook made | pending | — | `go test ./internal/palace/ -run 'TestSuggestionsHoldNoHookRecalls|TestHookSearchesAreCountedPerWing' …` |
+| T3 | The to-write list is built from the searches nobody's hook made | done | — | `go test ./internal/palace/ -run 'TestSuggestionsHoldNoHookRecalls|TestHookSearchesAreCountedPerWing' …` |
 
 Status: `pending` | `partial` | `blocked` | `done`.
 
