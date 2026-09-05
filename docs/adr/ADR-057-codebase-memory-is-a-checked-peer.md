@@ -1,6 +1,6 @@
 # ADR-057: codebase-memory is a checked peer of the kit, not an unwatched one
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-09-05
 **Owner:** Zydrunas
 **Spec:** None — no spec stage
