@@ -59,6 +59,8 @@ go test ./clients/claude-code/ ./cmd/server/ -count=1
 
 ## Mutation Log
 
+- 2026-09-05 · 5c0fd56* · mutant killed · exit 1 · `clients/claude-code/hooks/agentsmemory-recall-hook.sh` · the recall hook stops declaring its origin, so its searches record as a person; TestEveryRecallHookDeclaresItsOrigin must name the script · acceptance-sha256:b11431129085315c1d3539b188731a89ee8eaf53f804cd38dd17765d416d086e
+
 ## Invariants
 
 - A hook that cannot reach the palace still exits 0 and prints nothing — the variable changes what is recorded, never whether the hook speaks.
@@ -77,3 +79,16 @@ Stop if a shipped hook reaches the palace by a route other than `aiagentmemory m
 - The report (T3).
 
 ## Verification Log
+- 2026-09-05 · 5c0fd56* · exit 1 · `set -o pipefail …` · acceptance-sha256:b11431129085315c1d3539b188731a89ee8eaf53f804cd38dd17765d416d086e · ms:1282
+  ```
+  --- last 8 line(s) of stdout
+  --- FAIL: TestEveryRecallHookDeclaresItsOrigin (0.00s)
+      hookorigin_test.go:34: agentsmemory-recall-hook.sh performs a search and never exports AGENTSMEMORY_ORIGIN=hook:<name>; its recalls will be recorded as a person's and reach am_recall_stats' to-write list
+      hookorigin_test.go:34: agentsmemory-task-recall-hook.sh performs a search and never exports AGENTSMEMORY_ORIGIN=hook:<name>; its recalls will be recorded as a person's and reach am_recall_stats' to-write list
+  --- FAIL: TestMCPCallSendsTheOriginHeaderFromTheEnvironment (0.00s)
+      mcpcall_origin_test.go:55: AGENTSMEMORY_ORIGIN did not reach the server verbatim: X-Agentsmemory-Origin=""
+  FAIL
+  FAIL	github.com/atvirokodosprendimai/agentsmemory/clients/claude-code	0.427s
+  FAIL
+  ```
+- 2026-09-05 · 5c0fd56* · exit 0 · `set -o pipefail …` · acceptance-sha256:b11431129085315c1d3539b188731a89ee8eaf53f804cd38dd17765d416d086e · ms:21300

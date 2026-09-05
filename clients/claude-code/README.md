@@ -161,7 +161,12 @@ reporting success.
   ADR-017 named it in 2026-08 ("a subagent cannot skip a recall that already
   happened") and left it unbuilt pending measurement, which ADR-041 supplied. It
   prints nothing when the recall returns nothing; `AGENTSMEMORY_RECALL=off`
-  disables it.
+  disables it. Both recall hooks export `AGENTSMEMORY_ORIGIN=hook:<script>`
+  before searching (ADR-054): the kit sends it as `X-Agentsmemory-Origin`, the
+  palace records it on the search, and `am_recall_stats` builds its to-write
+  list from the searches nobody's hook made — so a branch name or a commit
+  subject a hook recalled never reads as a memory someone should write. A
+  script of your own that searches on an agent's behalf should export it too.
 
   It shipped first on `PreCompact` and could not work there: Claude Code adds a
   hook's plain stdout to the model's context for `SessionStart`,

@@ -24,6 +24,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/atvirokodosprendimai/agentsmemory/internal/mcpprotocol"
 	"io"
 	"net"
 	"net/http"
@@ -180,6 +181,15 @@ func dialMCPInit(ctx context.Context, url, token string, timeout time.Duration) 
 	headers := map[string]string{}
 	if token != "" {
 		headers["Authorization"] = "Bearer " + token
+	}
+	// WHO is calling, for the search_events row (ADR-054 T2). A shipped hook
+	// exports AGENTSMEMORY_ORIGIN=hook:<its name> before calling this client, and
+	// this is the ONE client every hook goes through, so the origin is set here
+	// and never by anything an agent types. An empty variable sends no header at
+	// all: an empty value would be an origin of '' claimed explicitly, which is
+	// indistinguishable from the absent case and a byte on every call.
+	if origin := os.Getenv(mcpprotocol.OriginEnvVar); origin != "" {
+		headers[mcpprotocol.OriginHeader] = origin
 	}
 
 	// ⚠ A REDIRECT CAN MOVE THE REQUEST OFF THE HOST THE AUTH DECISION WAS MADE
