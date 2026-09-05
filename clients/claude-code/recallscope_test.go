@@ -103,7 +103,9 @@ func TestTheRecallHookCarriesTheInstalledWing(t *testing.T) {
 func TestARecallThatCouldNotLookSaysSoOnBothChannels(t *testing.T) {
 	for _, hookName := range []string{"agentsmemory-task-recall-hook.sh", "agentsmemory-recall-hook.sh"} {
 		t.Run(hookName, func(t *testing.T) {
-			out, errText, _ := recallHookRun(t, hookName, []string{"AGENTSMEMORY_WING=wing_alpha"}, "", 1, "dial tcp 127.0.0.1:9: connect: connection refused")
+			// The stub prints the CLI's token notice BEFORE the error, as the real
+			// CLI does: on 2026-09-05 both hooks reported that notice as the cause.
+			out, errText, _ := recallHookRun(t, hookName, []string{"AGENTSMEMORY_WING=wing_alpha"}, "", 1, "aiagentmemory: token from a loopback server, which needs none\ndial tcp 127.0.0.1:9: connect: connection refused")
 			var payload struct {
 				HookSpecificOutput struct {
 					AdditionalContext string `json:"additionalContext"`

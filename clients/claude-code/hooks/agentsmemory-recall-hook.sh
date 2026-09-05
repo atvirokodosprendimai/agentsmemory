@@ -357,7 +357,11 @@ else
   HITS="$(recall "" 1600)"; RC=$?
 fi
 if [ "$RC" -ne 0 ]; then
-  ERR="$(head -n1 "$ERRFILE" 2>/dev/null)"
+  # The FIRST line of stderr that is not the CLI's token notice: `aiagentmemory:
+  # token from …` is printed on every run before anything fails, so `head -n1`
+  # reported it as the cause on 2026-09-05 — twice, in this project's own
+  # wake-up — and the real error (the second line) was never shown.
+  ERR="$(grep -v '^aiagentmemory: token from' "$ERRFILE" 2>/dev/null | head -n1)"
   rm -f "$ERRFILE"
   # ⚠ NO CREDENTIAL CONFIGURED IS A STATE, NOT A FAULT — and it is the state a
   # Claude HOSTED install is in today. That install puts the token in the MCP
