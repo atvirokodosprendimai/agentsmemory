@@ -147,7 +147,9 @@ that was the case. A docs-only merge changes nothing served — say so in one li
 rather than skipping silently. The procedure that works, in full, because three
 of its steps failed silently the day it was written:
 
+    git checkout main && git pull --ff-only                    # FIRST: the clone below reads LOCAL main
     git clone -q --no-local --branch <tag-or-sha> . "$DIR"   # a CLONE, never a worktree
+    [ "$(git -C "$DIR" rev-parse HEAD)" = "$(git rev-parse '<tag-or-sha>^{}')" ] || exit 1   # the clone is at the ref you named
     cp .env.docker "$DIR/"                                    # a clone has no untracked files
     cd "$DIR" && AGENTSMEMORY_VERSION=<tag> scripts/redeploy.sh
     # then the kit, from the same tree — THREE binaries, not two: the Claude Desktop
@@ -160,6 +162,16 @@ of its steps failed silently the day it was written:
     # then VERIFY FROM THE SERVED SURFACE: am_status must report the version you
     # stamped, and redeploy.sh's kit check must print the desktop bridge as tree-identical
 
+⚠ The clone reads the LOCAL branch, and a hand-typed stamp does not know. Measured
+2026-09-05 after #242 merged: `git fetch` had moved origin/main but local `main` was
+one commit behind, the clone came out at the old commit, and `-X main.version=<new
+sha>` produced a kit binary that NAMED a commit it was not — the identity failure
+§Reachability keeps recording, caught only because `doctor` lacked the line the
+new commit adds. Pull first, and refuse to build when the clone is not at the
+ref you named — compared as RESOLVED COMMITS (`^{}` dereferences an annotated
+tag), because the first draft of this guard compared the clone's sha to the
+stamp string and so refused every tag-stamped release, the documented normal
+path; review caught it against `v0.0.114` before it shipped.
 ⚠ A git worktree's `.git` is a pointer file the container does not mount, so
 every test that shells out to git goes red — four did, at a tag whose suite was
 green. ⚠ `AGENTSMEMORY_VERSION` is per-build, not sticky: a rebuild without it
