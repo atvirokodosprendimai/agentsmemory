@@ -407,7 +407,12 @@ aiagentmemory doctor
 `doctor` reads the registration your agent will actually use and reports three
 states an install cannot: a hook installed and registered by no event, a hook
 registered on an event whose stdout goes to the debug log, and a hook that will
-not run. It also judges the binary a Desktop bridge spawns.
+not run. It also judges the binary a Desktop bridge spawns, and the server the
+install points at: it reads the version out of the MCP handshake and fails on
+`UNSTAMPED` — a server reporting the bare word `dev`, which is an image built
+without `AGENTSMEMORY_VERSION` and cannot be told from a stale one (issue #210) —
+and on `UNREACHABLE`. A `dev-<commit>` build is reported as `unreleased` and
+passes, because the string names a commit you can compare against your checkout.
 
 ⚠ **`doctor` cannot fail on silence, and that limit is deliberate.** Both shipped
 injecting hooks are silent when healthy — the verify hook prints only on drift,

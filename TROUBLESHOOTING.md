@@ -11,7 +11,7 @@ rarely "what is the error" — it is "which of these is quietly true right now".
 Two commands answer most of it:
 
 ```bash
-aiagentmemory doctor            # registrations, hook events, the binary a bridge spawns
+aiagentmemory doctor            # registrations, hook events, the binary a bridge spawns, the server's version
 aiagentmemory mcp am_status     # which palace answered, which workspace, which version
 ```
 
