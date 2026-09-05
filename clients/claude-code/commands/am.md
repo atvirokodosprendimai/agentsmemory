@@ -86,12 +86,29 @@ Fire these in parallel where you can; each answers a different question.
      conventions you would otherwise infer. Check here before concluding a skill
      doesn't exist: a skill missing from your local list is usually centralised
      here instead.
+  5. ⚠ **`Monitor` — ARM THE RE-GROUND WAKE. MUST, every session, on Claude
+     Code.** A compaction replaces your context while the work continues, and
+     the session that comes out is the one least able to notice it needs
+     grounding. `TaskList` first so you never arm a second one; the exact
+     command is **Step 1d** below. This is listed here, in the sequence you
+     actually execute, because a gate that lives only in its own section is one
+     a session finishes the list without ever reaching.
 
 Reconcile the three. If project intent (1a), the code (1b), and past decisions (1c)
 disagree, **surface the conflict** — that's a human decision, not one to make
 silently.
 
-## Step 1d — arm the re-ground wake, if it is not already armed (hard gate)
+## Step 1d — arm the re-ground wake (MUST, every session, before you plan)
+
+⚠ **THIS IS A MUST, NOT A "IF YOU GET TO IT".** This heading used to read *"if it
+is not already armed"*, and the owner asked twice, on two separate days, where
+the instruction to spawn the monitor was — while it was sitting right here. A
+conditional heading reads as optional, and `MUST` appeared in this file for
+`am_kg_add` and nowhere near the wake. The same shape is already measured
+2026-08-30 one section up: `start-here` went unloaded by three sessions in three
+repositories because its instruction hung off a call they pruned. **An
+instruction a session can satisfy by doing nothing is not a gate.** Arming it is
+step 5 of the 1c sequence above, and this section is how.
 
 **A compaction replaces your context while the work continues, and the session
 that comes out the other side is the one least able to notice it needs
@@ -124,21 +141,35 @@ willingness to read it. This step makes it a **trigger** instead.
    # marker written to a NOVEL path in the same directory was consumed in under
    # six. The wake worked exactly once per session and then degraded as the
    # session got longer — which is when re-grounding matters most.
-   rm -f "$D"/* 2>/dev/null
+   # ⚠ WATCH ONE PATH, NEVER THE DIRECTORY. The directory is shared by every
+   # session on the machine, and the marker is named for the SESSION ID — so a
+   # loop that globs it consumes other sessions' markers. Measured 2026-09-05:
+   # a monitor emitted a re-ground for a session that had not compacted, on a
+   # marker written by a different session, and DELETED it — one spurious wake
+   # here, one lost wake there, from a single event. Three sessions had notes
+   # under the state dir at the time, so concurrency is the ordinary case.
+   # Watching one path also means arm-time cleanup can only ever discard THIS
+   # session's own stale marker.
+   M="$D/${CLAUDE_CODE_SESSION_ID:-}"
+   if [ -z "${CLAUDE_CODE_SESSION_ID:-}" ]; then
+     # Say so rather than watching a path nothing writes: a silent no-op here is
+     # indistinguishable from a healthy wake that never had to fire. Stderr is
+     # not injected, and `doctor` prints it verbatim for a human to judge.
+     echo "agentsmemory: CLAUDE_CODE_SESSION_ID is unset; the re-ground wake is disabled" >&2
+     exit 0
+   fi
+   rm -f "$M" 2>/dev/null
    while true; do
-     for f in "$D"/*; do
-       # Regular files only: a subdirectory would `cat` to nothing and name an
-       # empty task.
-       [ -f "$f" ] || continue
-       # Claim by MOVE, to a dot-prefixed name the glob above cannot match, so a
-       # marker is consumed exactly once and a failed claim is skipped rather
-       # than emitted on every pass.
-       c="$D/.claim.$$"
-       mv "$f" "$c" 2>/dev/null || continue
-       task="$(cat "$c" 2>/dev/null)"
-       rm -f "$c" 2>/dev/null
-       printf 'RE-GROUND NOW — a compaction replaced this session context. Before anything else run `/amm %s`, then say how what you read differs from the summary.\n' "$task"
-     done
+     if [ -f "$M" ]; then
+       # Claim by MOVE, so the marker is consumed exactly once even if two
+       # monitors are armed for this session: the loser's mv fails and it waits.
+       c="$M.claim.$$"
+       if mv "$M" "$c" 2>/dev/null; then
+         task="$(cat "$c" 2>/dev/null)"
+         rm -f "$c" 2>/dev/null
+         printf 'RE-GROUND NOW — a compaction replaced this session context. Before anything else run `/amm %s`, then say how what you read differs from the summary.\n' "$task"
+       fi
+     fi
      sleep 2
    done
    ```

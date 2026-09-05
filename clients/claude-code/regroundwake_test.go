@@ -162,6 +162,22 @@ func TestACompactionWakesTheSessionThroughTheMonitor(t *testing.T) {
 					}
 					got = append(got, l)
 					if strings.Contains(l, "/amm the task the second compaction interrupted") {
+						// ⚠ ANOTHER SESSION'S MARKER MUST SURVIVE ON DISK, not
+						// merely go unreplayed. The directory is shared by every
+						// session on the machine and the marker is named for the
+						// session id, so a loop that globs the directory both
+						// STEALS the wake (emitting it here) and DESTROYS it
+						// (the rightful session never wakes). Measured
+						// 2026-09-05: a monitor woke a session that had not
+						// compacted, on a marker written by a different session,
+						// and deleted it — one spurious wake, one lost wake,
+						// from a single event. Asserting the file is still there
+						// is what separates "we did not emit it" from "we did
+						// not take it", and only the second is the guarantee the
+						// other session depends on.
+						if _, err := os.Stat(filepath.Join(dir, "oldsession")); err != nil {
+							t.Errorf("the monitor consumed or deleted another session's marker (%v): the watch is globbing a shared directory instead of watching the one marker named for its own session, so the session that compacted never wakes", err)
+						}
 						return
 					}
 				case <-time.After(30 * time.Second):
@@ -244,6 +260,12 @@ func TestASlashCommandIsNotTheTaskInFlight(t *testing.T) {
 		// session's transcript — the fixtures here could not have produced it,
 		// and neither could the session that fixed it, which has no peers.
 		{"peer session message", `Another Claude session sent a message:\n<cross-session-message from=`},
+		// THE KIT'S OWN STOP HOOK, HANDED BACK AS A PLAIN USER TURN. Unlike the
+		// peer form, this one reproduces here: found 2026-09-05 in the fixing
+		// session's own transcript AND in two other sessions' precompact notes
+		// on the same machine, every one of them labelling the wake with the
+		// hook's command line instead of any work.
+		{"stop hook feedback", `Stop hook feedback:\n[AGENTSMEMORY_MCP_URL='https://aiagentmemory.dev/mcp' bash -- '/x/agentsmemory-stop-hook.sh']: agentsmemory checkpoi`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			state := t.TempDir()
@@ -289,6 +311,17 @@ func TestBothProtocolsNameTheRegroundWake(t *testing.T) {
 		for _, want := range []string{
 			"The re-ground wake is Claude-only.",
 			"codex and pi",
+			// ⚠ AND IT MUST READ AS A MUST IN BOTH COPIES. Both said to arm the
+			// wake and both phrased it as a conditional — `/am` as "if it is not
+			// already armed", the bootstrap as "then arm" — so the owner asked
+			// twice, on two separate days, where the instruction was, while it
+			// sat in front of them. An instruction a session satisfies by doing
+			// nothing is not a gate, and this corpus has the same finding
+			// already: `start-here` went unloaded by three sessions in three
+			// repositories because its instruction hung off a call they pruned.
+			// Pinned as a STRING because the failure was the wording, not the
+			// presence, and presence is what the two checks above already cover.
+			"MUST, every session",
 		} {
 			if !strings.Contains(text, want) {
 				t.Errorf("%s does not carry %q: the two copies of the protocol disagree about the wake", asset, want)
@@ -307,12 +340,16 @@ func regroundEnv(state string, explicit bool) []string {
 		switch {
 		case strings.HasPrefix(kv, "AGENTSMEMORY_STATE_DIR="),
 			strings.HasPrefix(kv, "TMPDIR="),
+			strings.HasPrefix(kv, "CLAUDE_CODE_SESSION_ID="),
 			strings.HasPrefix(kv, "AGENTSMEMORY_RECALL="):
 			continue
 		}
 		env = append(env, kv)
 	}
-	env = append(env, "AGENTSMEMORY_RECALL=off", "TMPDIR="+state)
+	// The monitor watches the ONE marker named for its own session, so the id it
+	// is given must be the id the hooks below are driven with. Inheriting the
+	// real session's id would point the watch at a path this test never writes.
+	env = append(env, "AGENTSMEMORY_RECALL=off", "TMPDIR="+state, "CLAUDE_CODE_SESSION_ID=wakeprobe")
 	if explicit {
 		env = append(env, "AGENTSMEMORY_STATE_DIR="+state)
 	}
