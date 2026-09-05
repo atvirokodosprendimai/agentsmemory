@@ -71,7 +71,7 @@ func doctorCommand() *cli.Command {
 			"never failed on: a hook that has nothing to say and a hook that cannot speak\n" +
 			"look identical in one run, so the stderr each hook wrote is printed instead.",
 		Flags: []cli.Flag{
-			&cli.StringFlag{Name: "agent", Value: "claude", Usage: "which agent's install to check: claude | codex | pi"},
+			&cli.StringFlag{Name: "agent", Value: "claude", Usage: "which agent's install to check: claude | codex | pi | cursor | claude-desktop (one at a time)"},
 			&cli.StringFlag{Name: "target-dir", Usage: "the agent's config directory (default: the installed one)"},
 			&cli.StringFlag{Name: "project-dir", Usage: "the repository a hook should look at (default: the working directory)"},
 			&cli.StringFlag{Name: "mcp-url", Sources: cli.EnvVars(mcpURLEnvVar), Value: defaultMCPURL, Usage: "agentsmemory MCP endpoint"},

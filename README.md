@@ -313,7 +313,7 @@ network](#serving-a-home-network---token)):
 
 ```bash
 aiagentmemory install --local                                # global, Claude (~/.claude) — the default agent
-aiagentmemory install --local --agent all                    # claude | codex | pi | both | all
+aiagentmemory install --local --agent all                    # claude | codex | pi | cursor | claude-desktop | both | all
 aiagentmemory install --local --sandbox acme                 # isolated config at ~/.sandboxes/acme
 aiagentmemory install --local --sandbox acme --agent codex   # …and choose the agent inside it
 ```
@@ -529,7 +529,7 @@ cp .env.docker.example .env.docker   # point OLLAMA_URL at your Ollama
 docker compose up -d
 
 # then point your agents at it — the kit does the whole wiring, not just the MCP
-aiagentmemory install --local --agent all     # or: claude | codex | cursor | pi
+aiagentmemory install --local --agent all     # or: claude | codex | pi | cursor | claude-desktop
 ```
 
 `--local` is what tells the kit the server is yours: it registers
