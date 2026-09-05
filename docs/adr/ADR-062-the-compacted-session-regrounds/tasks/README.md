@@ -14,9 +14,16 @@ they are one PR.
 | [T2](T2-the-amm-skill-and-a-derived-install-set.md) | done | none | the `amm` skill; the installed skill set is derived from the embed glob |
 | [T3](T3-the-monitor-that-wakes-the-session.md) | partial | T1 | the hook leaves a marker and `/am` arms a monitor over it, so the pause becomes a wake rather than an instruction |
 
-Both are `partial` for the same reason ADR-059's T2 is: the mechanism is built
-and its mutants are killed, and only a real compaction in this checkout proves
-the harness sends the payload these scripts parse. The hand-run evidence is in
-the PR; it is recorded through `adr-verify` at execution, not written by hand —
-a Mutation Log a person types is the self-declared evidence this pipeline exists
+T3 is `partial` for the reason ADR-059's T2 is: the mechanism is built and its
+mutants are killed, and only a real compaction in this checkout proves the
+harness sends the payload these scripts parse. The hand-run evidence is in the
+PR; it is recorded through `adr-verify` at execution, not written by hand — a
+Mutation Log a person types is the self-declared evidence this pipeline exists
 to remove.
+
+⚠ This paragraph said **"Both are `partial`"** until 2026-09-05, and it went
+false the moment T2 was signed off — one task, not two, with the table directly
+above it saying so. Raised in review of the PR that caused it. Worth leaving the
+correction rather than editing the sentence away: a count of a live structure is
+wrong the moment anyone acts, which is why the table is the record and prose
+about it is not.
