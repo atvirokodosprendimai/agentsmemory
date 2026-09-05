@@ -112,3 +112,45 @@ func TestAnIdsOnlyPageCarriesNoContentAndSaysSo(t *testing.T) {
 		t.Error("an ids-only page reports withheld hits; nothing on it is paid for by content, so nothing can be withheld")
 	}
 }
+
+// TestAThinPageOverTheBudgetWithholdsNothing drives the one branch the fixture
+// above cannot reach: three whole memories past ResponseBudget make the FULL
+// page withhold, and the thin page of the same hits must not report it —
+// nothing on a thin page is paid for by content, so a withheld count there
+// would tell a caller a hit is missing that is on the page. Review of #277
+// measured the reset as an equivalent mutant under the small fixture; this is
+// the fixture under which it is not.
+func TestAThinPageOverTheBudgetWithholdsNothing(t *testing.T) {
+	h := mcptest.New(t)
+	for i, seed := range []string{
+		"the recall identifier is minted once per search and stored as the event row's key. ",
+		"a caller ranks hits by blended score and fetches the few it filters in with am_get_drawer. ",
+		"the recall identifier is minted once per search and the page carries the numbers a caller ranks by. ",
+	} {
+		// ~22,000 runes each. With snippet_chars=20000 the first two windows spend
+		// the 40,000-rune budget and the third hit is withheld — a whole-memory
+		// request (snippet_chars=0) would instead fall back to a bounded window
+		// and never reach the withheld branch.
+		h.MustCall(t, "am_add_drawer", map[string]any{"wing": "wing_alpha", "room": "decisions",
+			"content": strings.Repeat(seed, 250) + " " + strings.Repeat("x", i)})
+	}
+	args := map[string]any{"query": "recall identifier minted once per search, ranked by blended score", "wing": "wing_alpha", "limit": 5, "snippet_chars": 20000}
+	var full map[string]any
+	if err := json.Unmarshal([]byte(h.MustCall(t, "am_search", args)), &full); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := full["withheld"]; !ok {
+		t.Fatalf("the full page did not withhold anything, so this case does not reach the branch it exists for: %v", full["count"])
+	}
+	args["ids_only"] = true
+	var thin map[string]any
+	if err := json.Unmarshal([]byte(h.MustCall(t, "am_search", args)), &thin); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := thin["withheld"]; ok {
+		t.Errorf("the thin page reports withheld hits over the budget; every hit is on it: %v", thin["withheld"])
+	}
+	if thin["count"] != full["count"] {
+		t.Errorf("thin count %v differs from full count %v", thin["count"], full["count"])
+	}
+}
