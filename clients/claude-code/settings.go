@@ -429,8 +429,6 @@ func dropHook(stop []any, isObsolete func(string) bool) ([]any, bool) {
 	return out, dropped
 }
 
-// hookPresent reports whether any entry already registers command cmd,
-// so re-running the installer never duplicates the hook.
 // hookTimeoutSeconds is the deadline written into every hook registration, in
 // the seconds Claude Code's `timeout` field takes.
 //
@@ -477,6 +475,8 @@ func ensureHookTimeout(entries []any, cmd string) bool {
 	return changed
 }
 
+// hookPresent reports whether any entry already registers command cmd,
+// so re-running the installer never duplicates the hook.
 func hookPresent(stop []any, cmd string) bool {
 	for _, entry := range stop {
 		em, ok := entry.(map[string]any)
