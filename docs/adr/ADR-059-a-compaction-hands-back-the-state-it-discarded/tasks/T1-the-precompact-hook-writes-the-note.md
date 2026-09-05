@@ -65,6 +65,7 @@ go test ./clients/claude-code/ -run 'TestThePluginDeclaresEveryHookTheInstallerR
 
 - The script never writes to stdout: PreCompact stdout goes to the debug log and a line there is a line somebody will one day expect the model to have read.
 - The session id is a path component and is validated exactly as the touched hook validates it.
+- The key is the PAYLOAD's `session_id`, parsed by both hooks from the event JSON, and never the transcript's filename or its `sessionId` field. Review of #274 measured a session where the two differed for its whole length while the payload id stayed constant across four compactions; this session measured them coinciding. Both hooks agreeing with each other is what matters, and a later "simplification" to the transcript path would pass every test that drives the scripts with a synthetic payload and never find the note.
 - Every `git` call tolerates a directory that is not a repository.
 
 ## Risks
