@@ -523,6 +523,19 @@ with the whole suite at exit 0: a falsifiability half that shares nothing with t
 gate pins nothing. It resolves a subtest binding on its PARENT only, which the
 declaration says out loud rather than leaving a reader to assume otherwise.
 
+**A TASK'S TABLE OF TEST NAMES IS A THIRD PLACE A NAME IS WRITTEN DOWN AS PROOF, AND A `-run`
+ALTERNATION OVER A MISSING NAME IS NOT AN ERROR TO `go test`.** Found 2026-09-05 by a
+quality-harness session pointing its read-only gate at this tree: ADR-049 T1 named three tests in
+`internal/auth/origin_test.go` that existed nowhere. They HAD existed — commit 71455db (ADR-054 T1)
+rewrote that file and dropped them without saying so — and the rebind guard served for a week with
+no behaviour test, while T1's fence stayed green because its alternation also named four `cmd/server`
+tests that did exist. `adr-lint` checks exactly this, but it is a plugin binary run by hand on the
+record being edited, and nothing ran it over the corpus in CI. `TestEveryTaskTableTestExists` walks
+every task file whose Verification Log claims an `exit 0` run and resolves each row of its table with
+`go/parser`; a pending task is not held to its table, because naming the tests it will write is the
+template working. Its falsifiability case is a subtest over a fixture that IS broken, and renaming one
+of the restored tests turns the real gate red.
+
 **A POINTER IN PROSE IS WORTH WHAT THE THING IT NAMES IS WORTH, AND MOST OF THIS
 CORPUS'S POINTERS ARE IN PROSE.** `TestEveryCitedADRResolves` reads `.go` and only
 `.go`, while the large majority of this corpus's ADR citations sit in ADRs, task
