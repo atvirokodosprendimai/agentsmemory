@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/atvirokodosprendimai/agentsmemory/internal/testexec"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -108,7 +109,7 @@ func TestF6AHookIsSilentInTheCommonCase(t *testing.T) {
 	run := func(t *testing.T, extraEnv []string, workdir string) (string, bool) {
 		t.Helper()
 		_ = os.Remove(marker)
-		cmd := exec.Command("bash", filepath.Join(workdir, "recall.sh"))
+		cmd := testexec.Command(t, "bash", filepath.Join(workdir, "recall.sh"))
 		cmd.Dir = workdir
 		cmd.Stdin = strings.NewReader(`{"hook_event_name":"SessionStart","source":"compact"}`)
 		cmd.Env = append(os.Environ(),
@@ -142,7 +143,7 @@ func TestF6AHookIsSilentInTheCommonCase(t *testing.T) {
 	live := place(t)
 	for _, args := range [][]string{{"init"}, {"config", "user.email", "t@example.test"},
 		{"config", "user.name", "t"}, {"commit", "--allow-empty", "-m", "base"}} {
-		c := exec.Command("git", args...)
+		c := testexec.Command(t, "git", args...)
 		c.Dir = live
 		if out, err := c.CombinedOutput(); err != nil {
 			t.Skipf("git unavailable for the positive case: %v: %s", err, out)
@@ -151,7 +152,7 @@ func TestF6AHookIsSilentInTheCommonCase(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(live, "recallrate.go"), []byte("package main\n"), 0o644); err != nil {
 		t.Fatalf("seed a change: %v", err)
 	}
-	c := exec.Command("git", "add", "-A")
+	c := testexec.Command(t, "git", "add", "-A")
 	c.Dir = live
 	_, _ = c.CombinedOutput()
 	out, called := run(t, []string{"CLAUDE_PROJECT_DIR=" + live}, live)
@@ -183,7 +184,7 @@ func TestF6AHookIsSilentInTheCommonCase(t *testing.T) {
 	}
 	for _, args := range [][]string{{"init"}, {"config", "user.email", "t@example.test"},
 		{"config", "user.name", "t"}, {"commit", "--allow-empty", "-m", "base"}} {
-		c := exec.Command("git", args...)
+		c := testexec.Command(t, "git", args...)
 		c.Dir = broken
 		if out, err := c.CombinedOutput(); err != nil {
 			t.Skipf("git unavailable: %v: %s", err, out)
@@ -192,10 +193,10 @@ func TestF6AHookIsSilentInTheCommonCase(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(broken, "recallrate.go"), []byte("package main\n"), 0o644); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
-	stage := exec.Command("git", "add", "-A")
+	stage := testexec.Command(t, "git", "add", "-A")
 	stage.Dir = broken
 	_, _ = stage.CombinedOutput()
-	cmd := exec.Command("bash", filepath.Join(broken, "recall.sh"))
+	cmd := testexec.Command(t, "bash", filepath.Join(broken, "recall.sh"))
 	cmd.Dir = broken
 	cmd.Stdin = strings.NewReader(`{"hook_event_name":"SessionStart","source":"compact"}`)
 	cmd.Env = append(os.Environ(), "PATH="+brokenBin+":"+os.Getenv("PATH"), "CLAUDE_PROJECT_DIR="+broken)
@@ -247,7 +248,7 @@ func TestTheQueryCarriesTheBranchWorkOnACleanTree(t *testing.T) {
 	repo := t.TempDir()
 	git := func(args ...string) {
 		t.Helper()
-		cmd := exec.Command("git", args...)
+		cmd := testexec.Command(t, "git", args...)
 		cmd.Dir = repo
 		cmd.Env = append(os.Environ(),
 			"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@example.invalid",
@@ -287,7 +288,7 @@ func TestTheQueryCarriesTheBranchWorkOnACleanTree(t *testing.T) {
 	ask := func(t *testing.T, env ...string) string {
 		t.Helper()
 		_ = os.Remove(queryFile)
-		cmd := exec.Command("bash", filepath.Join(repo, "recall.sh"))
+		cmd := testexec.Command(t, "bash", filepath.Join(repo, "recall.sh"))
 		cmd.Dir = repo
 		cmd.Stdin = strings.NewReader(`{"hook_event_name":"SessionStart","source":"compact"}`)
 		// The token variables are CLEARED rather than inherited: an ambient token in
@@ -365,7 +366,7 @@ func TestNoCredentialIsSilentButABadOneSpeaks(t *testing.T) {
 	repo := t.TempDir()
 	git := func(args ...string) {
 		t.Helper()
-		cmd := exec.Command("git", args...)
+		cmd := testexec.Command(t, "git", args...)
 		cmd.Dir = repo
 		cmd.Env = append(os.Environ(),
 			"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@example.invalid",
@@ -401,7 +402,7 @@ func TestNoCredentialIsSilentButABadOneSpeaks(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(stubDir, "aiagentmemory"), []byte(stub), 0o755); err != nil {
 			t.Fatalf("stub: %v", err)
 		}
-		cmd := exec.Command("bash", filepath.Join(repo, "recall.sh"))
+		cmd := testexec.Command(t, "bash", filepath.Join(repo, "recall.sh"))
 		cmd.Dir = repo
 		cmd.Stdin = strings.NewReader(`{"hook_event_name":"SessionStart","source":"compact"}`)
 		cmd.Env = append(os.Environ(),
@@ -533,7 +534,7 @@ func TestAThinQueryIsWidenedOnEveryBranch(t *testing.T) {
 			repo := t.TempDir()
 			git := func(args ...string) {
 				t.Helper()
-				cmd := exec.Command("git", args...)
+				cmd := testexec.Command(t, "git", args...)
 				cmd.Dir = repo
 				cmd.Env = append(os.Environ(),
 					"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@example.invalid",
@@ -562,7 +563,7 @@ func TestAThinQueryIsWidenedOnEveryBranch(t *testing.T) {
 				t.Fatalf("write: %v", err)
 			}
 
-			cmd := exec.Command("bash", filepath.Join(repo, "recall.sh"))
+			cmd := testexec.Command(t, "bash", filepath.Join(repo, "recall.sh"))
 			cmd.Dir = repo
 			cmd.Stdin = strings.NewReader(`{"hook_event_name":"SessionStart","source":"startup"}`)
 			cmd.Env = append(os.Environ(),

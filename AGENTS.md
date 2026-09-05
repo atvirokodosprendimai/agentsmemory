@@ -150,7 +150,7 @@ of its steps failed silently the day it was written:
     git checkout main && git pull --ff-only                    # FIRST: the clone below reads LOCAL main
     git clone -q --no-local --branch <tag-or-sha> . "$DIR"   # a CLONE, never a worktree
     [ "$(git -C "$DIR" rev-parse HEAD)" = "$(git rev-parse '<tag-or-sha>^{}')" ] || exit 1   # the clone is at the ref you named
-    cp .env.docker "$DIR/"                                    # a clone has no untracked files
+    cp .env.docker "$DIR/"; [ -f .env ] && cp .env "$DIR/"     # a clone has no untracked files; .env carries RERANK_URL on a Mac
     cd "$DIR" && AGENTSMEMORY_VERSION=<tag> scripts/redeploy.sh
     # then the kit, from the same tree — THREE binaries, not two: the Claude Desktop
     # bridge is a copy of `aiagentmemory-server` the installer takes from PATH
@@ -663,6 +663,20 @@ read method that routes ITSELF onto the writer, or a new read that writes. No AS
 decide which statements a method should run on; that stays review's job, and what makes the
 second fail loudly is `internal/palace`'s strict test fixture — a `query_only` reader over the
 same file — rather than any gate here.
+
+**A CHILD A TEST STARTS WITHOUT A DEADLINE OUTLIVES THE TEST THAT FAILED IT.**
+`go test`'s package timeout kills the test binary, not the grandchildren a
+`bash <hook>` started; those are reparented to launchd and keep running. Measured
+in a sibling project on 2026-09-05: two hook children hung in regex backtracking
+for fifteen hours after their test recorded FAILED, found by the laptop's fans.
+This tree had 41 such sites, most of them `bash <hook>`. `internal/testexec` is
+the one door now — `testexec.Command(t, name, args...)` binds the child to the
+test's context with a deadline, puts it in its own process group and kills the
+group — and `TestEveryTestChildCarriesADeadline` reads every `_test.go` as an
+AST and refuses a direct `exec.Command` or `exec.CommandContext`, aliased imports
+included. `TestADeadlineKillsTheChildAndItsChildren` proves the reaping with a
+grandchild that must be gone, because a mutant that kills only the direct child
+passes every test that watches the child alone.
 
 Prose belongs where a human reads it and nowhere else. Anything that must stay
 true gets a command whose exit code says so — including this section, which

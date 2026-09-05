@@ -2,8 +2,8 @@ package repohygiene
 
 import (
 	"encoding/json"
+	"github.com/atvirokodosprendimai/agentsmemory/internal/testexec"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -56,7 +56,7 @@ var manifestAllowedKeys = map[string]bool{
 func TestADR036FixturesCarryNoPrivatePalaceContent(t *testing.T) {
 	root := repoRoot(t)
 
-	out, err := exec.Command("git", "-C", root, "ls-files", "internal/palace/testdata").Output()
+	out, err := testexec.Command(t, "git", "-C", root, "ls-files", "internal/palace/testdata").Output()
 	if err != nil {
 		t.Fatalf("git ls-files: %v", err)
 	}

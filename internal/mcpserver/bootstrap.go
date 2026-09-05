@@ -16,10 +16,15 @@ import (
 func registerBootstrap(reg *registrar, drawers *palace.Service, usageSvc *usage.Service) {
 	tool := newTool("bootstrap",
 		mcp.WithDescription("Start work in a wing with ONE call. Returns the wing's entry point, "+
-			"the eager tier's content inline, the on-demand tier as pointers with the call that "+
-			"fetches them, corrections already swept server-side, the resolved wing, and a "+
-			"truncation report. Replaces a client-side protocol of 13 calls that also needed a "+
-			"hardcoded root drawer id. A wing with no entry point still bootstraps."),
+			"the eager tier's content inline, the entry room's overflow as on_demand pointers "+
+			"with the call that fetches them, the must and ref tier authored on the wing's "+
+			"by-name root as `tiers` — pointers only, each with the edge's `hint` and the "+
+			"namespace it hangs `under`, never inline — corrections already swept "+
+			"server-side, the resolved wing, and a truncation report whose `tiers_omitted` "+
+			"counts tier leaves refused, past the bound, or on a node that overflowed a graph "+
+			"page. Replaces a client-side protocol of 13 calls that also needed a hardcoded "+
+			"root drawer id. A wing with no entry point still bootstraps, and a wing with no "+
+			"tier serves none."),
 		mcp.WithString("wing", mcp.Required(), mcp.Description("The wing to bootstrap.")),
 	)
 	reg.add(tool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {

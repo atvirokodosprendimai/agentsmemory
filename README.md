@@ -629,6 +629,12 @@ which is the sharper judgement — and it only runs over what hybrid ranking
 already surfaced, so the cost is bounded per search rather than per palace. If it
 is down, search falls back to the fused vector+BM25 order instead of failing.
 
+**On a Mac, run the cross-encoder on the host, not in the container.** Docker on
+macOS has no GPU, and on four CPU cores the container needs ~30 s for the pool
+the server sends it against a 10 s budget, so every search waits and falls open
+— which is the ten-second pause at session start. `docs/macos-native-reranker.md`
+has the measured numbers and the three commands.
+
 #### No Ollama on the host (`docker-compose.ollama.yml`)
 
 If you have no Ollama at all, a third file adds it — and, unlike a profile,

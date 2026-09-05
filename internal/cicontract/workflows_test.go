@@ -3,6 +3,7 @@
 package cicontract
 
 import (
+	"github.com/atvirokodosprendimai/agentsmemory/internal/testexec"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -70,7 +71,7 @@ func TestExpiredPRImageSelectorRejectsProtectedAndFreshVersions(t *testing.T) {
   {"id":4,"created_at":"2026-08-16T00:00:00Z","metadata":{"container":{"tags":["pr-24-sha256-cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","0.0.92"]}}},
   {"id":5,"created_at":"2026-08-16T00:00:00Z","metadata":{"container":{"tags":[]}}}
 ]`
-	cmd := exec.Command(jq, "-r", "--arg", "cutoff", "2026-08-17T00:00:00Z", "-f", selector)
+	cmd := testexec.Command(t, jq, "-r", "--arg", "cutoff", "2026-08-17T00:00:00Z", "-f", selector)
 	cmd.Stdin = strings.NewReader(fixture)
 	out, err := cmd.CombinedOutput()
 	if err != nil {

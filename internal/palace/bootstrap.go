@@ -25,6 +25,13 @@ const (
 	TierEager BootstrapTier = "eager"
 	// TierOnDemand: content a session may need, sent as an id to fetch.
 	TierOnDemand BootstrapTier = "on_demand"
+	// TierMust and TierRef: the two-tier entry the shipped protocol tells an
+	// agent to author on the wing's by-name ROOT, served as pointers. These are
+	// the team convention the server did not bless until it had to: the protocol
+	// named am_bootstrap as the call that serves the tier, and it served the
+	// entry ROOM's overflow instead (issue #218).
+	TierMust BootstrapTier = "must"
+	TierRef  BootstrapTier = "ref"
 )
 
 // BootstrapPointer names something the response did not inline.
@@ -36,6 +43,15 @@ type BootstrapPointer struct {
 	// prescribed tier to an unreported cap, and reporting "3 omitted" without
 	// saying how to get them repeats that in a politer form.
 	Fetch string `json:"fetch"`
+	// Hint is the edge's source_file — the label an author puts on a leaf so a
+	// session can decide whether to fetch it without fetching it. Only tier
+	// pointers carry one; an unlabelled leaf arrives with it empty, which the
+	// protocol forbids and the server does not enforce.
+	Hint string `json:"hint,omitempty"`
+	// Under is the node the leaf hangs from (wing_x.root.must.ops), which is the
+	// only thing that says what a leaf is FOR when several namespaces share a
+	// tier.
+	Under string `json:"under,omitempty"`
 }
 
 // BootstrapTruncation reports what a bounded response left out.
@@ -48,6 +64,11 @@ type BootstrapTruncation struct {
 	Reason  string `json:"reason,omitempty"`
 	// HowToFetch names the call that retrieves what was dropped.
 	HowToFetch string `json:"how_to_fetch,omitempty"`
+	// TiersOmitted counts tier leaves this response neither listed nor could
+	// list: refused by WingPolicy, past bootstrapTierLimit, or on a node whose
+	// out-degree overflowed one graph page. Separate from Omitted because the
+	// two are fetched differently and a single number would hide which.
+	TiersOmitted int `json:"tiers_omitted,omitempty"`
 }
 
 // BootstrapResult is everything a session needs to start work in a wing, in ONE
@@ -61,6 +82,13 @@ type BootstrapResult struct {
 	Eager []Drawer `json:"eager,omitempty"`
 	// OnDemand names what was not inlined.
 	OnDemand []BootstrapPointer `json:"on_demand,omitempty"`
+	// Tiers are the must and ref leaves authored on the wing's by-name root,
+	// as pointers with their hints — never inline. The tier exists so a wing
+	// carries a small always-loaded spine and points at everything else, and a
+	// bootstrap that inlined it would be the 99KB protocol it replaced. Before
+	// this field the tier was reachable only by am_kg_query("<wing>.root"), a
+	// call a waking session has no reason to make (issue #218).
+	Tiers []BootstrapPointer `json:"tiers,omitempty"`
 	// Corrections are the retracts/supersedes/qualifies edges already swept
 	// server-side, so a session that bootstraps perfectly does not still read
 	// whatever the tier got wrong and believe it.
@@ -72,6 +100,14 @@ type BootstrapResult struct {
 // bootstrapEagerLimit bounds the inline tier. A bootstrap that grows without
 // limit becomes the thing it replaced.
 const bootstrapEagerLimit = 10
+
+// bootstrapTierLimit bounds the tier pointers. A pointer with a hint is ~200
+// bytes, and the protocol's own invariant is at most ~35 leaves per node, so a
+// six-namespace must tier could legally reach 200 leaves — 40KB of pointers on
+// the one call no session skips. The bound is generous for a curated tier and
+// hostile to an uncurated one, which is the right way round; what it cuts is
+// counted in TiersOmitted and reachable by the walk it names.
+const bootstrapTierLimit = 64
 
 // Bootstrap assembles a wing's starting context in one call.
 //
@@ -218,6 +254,20 @@ func (s *Service) Bootstrap(ctx context.Context, teamID, wing string) (Bootstrap
 		out.Truncation.HowToFetch = "am_get_drawer for each id in on_demand; the remainder is not readable from this wing"
 	}
 
+	// The tier the protocol authors on the wing ROOT. EntryPoint resolves the
+	// entry ROOM node, and nothing above walks from one to the other, which is
+	// why a correctly built must/ref tier returned on_demand: null (issue #218).
+	tiers, tiersOmitted, err := s.tierPointers(ctx, teamID, wing, policy)
+	if err != nil {
+		return BootstrapResult{}, err
+	}
+	out.Tiers = tiers
+	out.Truncation.TiersOmitted = tiersOmitted
+	if tiersOmitted > 0 {
+		out.Truncation.HowToFetch = strings.TrimSpace(out.Truncation.HowToFetch +
+			" — am_kg_query(entity: \"" + WingRootSubject(wing) + ".must\" or \".ref\", direction: \"outgoing\") walks the tier the pointers were cut from")
+	}
+
 	// T5's sweep, consumed. Corrections attach as INCOMING edges, so no outgoing
 	// walk from a bootstrapped record can see that it has been retracted — which
 	// is why a session that bootstraps perfectly still reads what the tier got
@@ -344,6 +394,7 @@ func (r BootstrapResult) WireShape() map[string]any {
 		"entry_point": r.EntryPoint,
 		"eager":       r.Eager,
 		"on_demand":   r.OnDemand,
+		"tiers":       r.Tiers,
 		"corrections": r.Corrections,
 		"truncation":  r.Truncation,
 	}
@@ -369,4 +420,86 @@ func (r BootstrapResult) OutputTokens() int {
 		return math.MaxInt32
 	}
 	return len(raw) / 4
+}
+
+// tierPointers follows the must and ref edges from a wing's by-name root and
+// returns their leaves as pointers, bounded and counted.
+//
+// It follows EDGES rather than assuming names: the protocol says the tier node
+// is `<wing>.root.must`, but the root's `must` edge is what an author actually
+// wrote, and the object it names is the tier wherever it points. Below the tier
+// a node is structural when its name carries the `<wing>.root.` prefix and a
+// leaf otherwise — the protocol's own naming rule, and the only thing that keeps
+// this walk from descending into a DRAWER id, whose outgoing fan-out is the
+// 63KB spill start-here warns every session against. Derived edges are skipped
+// because the root's `holds` edge names a room, not a record.
+//
+// Two bounds, both reported: bootstrapTierLimit on the pointers, and one graph
+// page per node — a node past DefaultKGQueryLimit edges has broken the tier's
+// ~35-leaf invariant, and its overflow is counted once rather than paged, since
+// a bootstrap that pages the graph is the walk it exists to replace.
+func (s *Service) tierPointers(ctx context.Context, teamID, wing string, policy WingPolicy) ([]BootstrapPointer, int, error) {
+	root := WingRootSubject(wing)
+	prefix := root + "."
+	rootQ, err := s.KGQuery(ctx, teamID, KGQueryInput{Entity: root, Direction: "outgoing", Status: KGStatusCurrent})
+	if err != nil {
+		return nil, 0, err
+	}
+	if rootQ.Resolution == KGResolutionUnknownTerm {
+		return nil, 0, nil // no by-name root: nothing to walk, and not an error
+	}
+	var out []BootstrapPointer
+	omitted := 0
+	for _, tier := range []BootstrapTier{TierMust, TierRef} {
+		for _, edge := range rootQ.Facts {
+			if edge.Derived || edge.Predicate != string(tier) {
+				continue
+			}
+			type node struct {
+				name  string
+				depth int
+			}
+			queue := []node{{edge.Object, 0}}
+			for len(queue) > 0 {
+				cur := queue[0]
+				queue = queue[1:]
+				q, err := s.KGQuery(ctx, teamID, KGQueryInput{Entity: cur.name, Direction: "outgoing", Status: KGStatusCurrent})
+				if err != nil {
+					return nil, 0, err
+				}
+				if q.NextCursor != "" {
+					omitted++ // the node overflowed a page; counted, not paged
+				}
+				for _, f := range q.Facts {
+					if f.Derived {
+						continue
+					}
+					if strings.HasPrefix(f.Object, prefix) {
+						// Structural. Two levels below the tier is the protocol's
+						// depth (tier → namespace → leaf); anything deeper is
+						// counted as cut rather than walked forever.
+						if cur.depth < 2 {
+							queue = append(queue, node{f.Object, cur.depth + 1})
+						} else {
+							omitted++
+						}
+						continue
+					}
+					if len(out) >= bootstrapTierLimit {
+						omitted++
+						continue
+					}
+					placement, _ := policy.Place(ctx, f.Object)
+					if !policy.MayReturnContent(placement) {
+						omitted++
+						continue
+					}
+					out = append(out, BootstrapPointer{
+						ID: f.Object, Tier: tier, Fetch: "am_get_drawer", Hint: f.SourceFile, Under: f.Subject,
+					})
+				}
+			}
+		}
+	}
+	return out, omitted, nil
 }

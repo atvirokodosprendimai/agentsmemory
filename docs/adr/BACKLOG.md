@@ -3670,7 +3670,7 @@ that does not exist), and none removes the need for the server-side report, beca
 raw MCP client do not run the kit. Worth a record once T1 has shipped and the population `doctor
 --corpus` reports is measured to be still growing.
 
-## Tests spawn children with no deadline, and a killed runner leaves them to launchd — 2026-09-05
+## RESOLVED 2026-09-05 — tests spawn children with no deadline, and a killed runner leaves them to launchd
 
 Standing rule from the owner, relayed by another session on 2026-09-05: every child a test, hook
 or script spawns carries a timeout, and the runner reaps its children before it exits. The
@@ -3694,3 +3694,14 @@ on the development machine that day showed nothing reparented from a test. The f
 (`exec.CommandContext` with a deadline at every site, `timeout` around the recall hooks' one
 call) and belongs in its own PR, with a gate that greps the universe so a 42nd site joins the
 check on the same commit.
+
+**Resolved the same day.** `internal/testexec.Command(t, …)` is the one door: deadline from the
+test's context, own process group, group killed on cancel. `TestEveryTestChildCarriesADeadline`
+refuses a direct `exec.Command` in any test file; `TestADeadlineKillsTheChildAndItsChildren`
+proves the grandchild dies too. The two recall hooks are NOT
+done by this: their `aiagentmemory mcp search` call carries a client `--timeout` (60 s default), so
+the HTTP request is bounded, but the hook PROCESS is not — it can hang before or after that call,
+and neither wraps anything in `timeout` while session-end and verify do. That is the hook half of
+the rule, still open. NOT covered either: the four
+non-test `exec.Command` sites in `clients/claude-code` (`installer.go` running install scripts,
+`mineclaude.go` and `verify.go` reading a git remote) — production code, a different change.
