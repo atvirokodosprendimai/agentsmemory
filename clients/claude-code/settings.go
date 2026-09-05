@@ -430,17 +430,24 @@ func dropHook(stop []any, isObsolete func(string) bool) ([]any, bool) {
 }
 
 // hookTimeoutSeconds is the deadline written into every hook registration, in
-// the seconds Claude Code's `timeout` field takes.
+// the seconds Claude Code's `timeout` field takes. The plugin manifest
+// (hooks/hooks.json) carries the same number by hand, and
+// TestEveryHookRegistrationCarriesATimeout holds the two together.
 //
 // It exists because of the owner's rule of 2026-09-05: every child a hook
 // starts carries a timeout, and the runner reaps it. Claude Code applies a
 // default when the field is absent, but a default is not a declaration — it
 // changes with the harness, and nothing in this tree could say what bound a
-// hook actually ran under. Sixty seconds is the recall hooks' own client
-// `--timeout` (`aiagentmemory mcp search`), so the harness deadline and the
-// one call that can hang agree, and a hook killed here is one whose inner
-// call had already given up.
-const hookTimeoutSeconds = 60
+// hook actually ran under.
+//
+// Seventy-five, not sixty: the one call in a hook that can hang is
+// `aiagentmemory mcp search`, whose client `--timeout` defaults to sixty
+// seconds (the recall hooks pass none), and that clock starts only after the
+// script's own off-switch checks and query assembly. An equal harness deadline
+// would always fire FIRST and kill the hook mid-request — review of the first
+// draft caught the comment claiming the opposite. Strictly greater means a
+// hook killed here is one whose inner call had already given up.
+const hookTimeoutSeconds = 75
 
 // ensureHookTimeout sets the deadline on every registration carrying cmd that
 // has none, and reports whether it changed anything. Registrations written by

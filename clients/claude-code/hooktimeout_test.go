@@ -55,6 +55,75 @@ func TestEveryHookRegistrationCarriesATimeout(t *testing.T) {
 	if changed {
 		t.Fatal("a registration that already carries its timeout was rewritten")
 	}
+
+	// The universe, not one synthetic command: every plan the installer
+	// registers lands bounded, and the plugin manifest — the second, hand-kept
+	// registration path Claude Code reads directly — carries the same number.
+	// Review of the first draft found ten unbounded plugin entries beside a
+	// title that said "every"; this is what makes the name true.
+	t.Run("every installer plan and every plugin entry", func(t *testing.T) {
+		inst, _, _ := newTestInstaller(t, false)
+		planned := filepath.Join(t.TempDir(), "settings.json")
+		var regs []hookReg
+		for _, p := range inst.hookPlans() {
+			if p.retire {
+				continue
+			}
+			regs = append(regs, hookReg{event: p.event, cmd: p.cmd})
+		}
+		if len(regs) == 0 {
+			t.Fatal("no hook plans — this check would pass vacuously")
+		}
+		if _, err := ensureHooks(planned, regs, ""); err != nil {
+			t.Fatal(err)
+		}
+		for _, r := range regs {
+			if got := hookTimeouts(t, planned, r.event, r.cmd); len(got) == 0 || got[0] != hookTimeoutSeconds {
+				t.Errorf("%s registration timeouts = %v, want [%d]", r.event, got, hookTimeoutSeconds)
+			}
+		}
+		entries, timeouts := pluginHookTimeouts(t)
+		if entries == 0 {
+			t.Fatal("the plugin manifest declares no hooks — this check would pass vacuously")
+		}
+		for i, to := range timeouts {
+			if to != hookTimeoutSeconds {
+				t.Errorf("plugin manifest entry %d carries timeout %d, want %d (hooks/hooks.json is hand-kept; it must match hookTimeoutSeconds)", i, to, hookTimeoutSeconds)
+			}
+		}
+	})
+}
+
+// pluginHookTimeouts reads hooks/hooks.json the way pluginHookEvents does and
+// returns the entry count and each entry's timeout, -1 where absent.
+func pluginHookTimeouts(t *testing.T) (int, []int) {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join("hooks", "hooks.json"))
+	if err != nil {
+		t.Fatalf("no plugin hooks manifest: %v", err)
+	}
+	var doc struct {
+		Hooks map[string][]struct {
+			Hooks []map[string]any `json:"hooks"`
+		} `json:"hooks"`
+	}
+	if err := json.Unmarshal(b, &doc); err != nil {
+		t.Fatalf("hooks.json does not parse: %v", err)
+	}
+	var out []int
+	for _, groups := range doc.Hooks {
+		for _, g := range groups {
+			for _, h := range g.Hooks {
+				v, ok := h["timeout"].(float64)
+				if !ok {
+					out = append(out, -1)
+					continue
+				}
+				out = append(out, int(v))
+			}
+		}
+	}
+	return len(out), out
 }
 
 // hookTimeouts returns the timeout of every registration of cmd under event,

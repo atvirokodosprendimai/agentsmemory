@@ -3703,8 +3703,11 @@ done by this: their `aiagentmemory mcp search` call carries a client `--timeout`
 the HTTP request is bounded, but the hook PROCESS is not — it can hang before or after that call,
 and neither wraps anything in `timeout` while session-end and verify do. **The hook half closed
 the same day, one layer up:** every registration the kit writes now carries Claude Code's
-`timeout` (60 s, matching the recall hooks' client `--timeout`), and a registration an older kit
-wrote without one is upgraded in place — `TestEveryHookRegistrationCarriesATimeout`. The harness
+`timeout` (75 s — strictly above the 60 s client `--timeout` the recall hooks inherit, so the inner
+call gives up before the harness kills the hook), a registration an older kit wrote without one is
+upgraded in place, and the plugin manifest `hooks/hooks.json` — the second registration path,
+hand-kept — carries the same number; `TestEveryHookRegistrationCarriesATimeout` derives both from
+source. Review of the first draft found the plugin path unbounded beside a title that said "every". The harness
 kills the hook at that bound; whether it reaps the hook's grandchildren is the harness's business,
 not something this tree can gate. NOT covered: the four
 non-test `exec.Command` sites in `clients/claude-code` (`installer.go` running install scripts,

@@ -2,33 +2,33 @@
   "hooks": {
     "SessionStart": [
       { "hooks": [
-        { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/agentsmemory-verify-hook.sh" },
-        { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/agentsmemory-recall-hook.sh" }
+        { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/agentsmemory-verify-hook.sh", "timeout": 75 },
+        { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/agentsmemory-recall-hook.sh", "timeout": 75 }
       ] }
     ],
     "UserPromptSubmit": [
-      { "hooks": [ { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/agentsmemory-task-recall-hook.sh" } ] }
+      { "hooks": [ { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/agentsmemory-task-recall-hook.sh", "timeout": 75 } ] }
     ],
     "UserPromptExpansion": [
-      { "hooks": [ { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/agentsmemory-task-recall-hook.sh" } ] }
+      { "hooks": [ { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/agentsmemory-task-recall-hook.sh", "timeout": 75 } ] }
     ],
     "PreToolUse": [
-      { "hooks": [ { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/agentsmemory-anchor-cue-hook.sh" } ] }
+      { "hooks": [ { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/agentsmemory-anchor-cue-hook.sh", "timeout": 75 } ] }
     ],
     "PostToolUse": [
-      { "hooks": [ { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/agentsmemory-touched-hook.sh" } ] }
+      { "hooks": [ { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/agentsmemory-touched-hook.sh", "timeout": 75 } ] }
     ],
     "SubagentStart": [
-      { "hooks": [ { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/agentsmemory-subagent-start-hook.sh" } ] }
+      { "hooks": [ { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/agentsmemory-subagent-start-hook.sh", "timeout": 75 } ] }
     ],
     "SubagentStop": [
-      { "hooks": [ { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/agentsmemory-stop-hook.sh" } ] }
+      { "hooks": [ { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/agentsmemory-stop-hook.sh", "timeout": 75 } ] }
     ],
     "Stop": [
-      { "hooks": [ { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/agentsmemory-stop-hook.sh" } ] }
+      { "hooks": [ { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/agentsmemory-stop-hook.sh", "timeout": 75 } ] }
     ],
     "SessionEnd": [
-      { "hooks": [ { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/agentsmemory-session-end-hook.sh" } ] }
+      { "hooks": [ { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/agentsmemory-session-end-hook.sh", "timeout": 75 } ] }
     ]
   }
 }
