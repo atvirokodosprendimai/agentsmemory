@@ -1262,7 +1262,7 @@ func (i *Installer) registerStopHook() error {
 		if changed {
 			i.ok("%s", p.note)
 		} else {
-			i.ok("%s hook already registered", p.event)
+			i.ok("%s", unchangedNote(p))
 		}
 
 		legacy := filepath.Join(i.targetDir, "hooks.json")
@@ -1312,7 +1312,7 @@ func (i *Installer) registerStopHook() error {
 		if changed[p.event] {
 			i.ok("%s", p.note)
 		} else {
-			i.ok("%s hook already registered", p.event)
+			i.ok("%s", unchangedNote(p))
 		}
 	}
 
@@ -1371,6 +1371,34 @@ func (i *Installer) platform() string {
 		return i.goos
 	}
 	return runtime.GOOS
+}
+
+// unchangedNote is what an install says about a plan it did not have to act on.
+//
+// ⚠ THE TWO KINDS OF PLAN READ THE SAME FROM HERE AND MEAN OPPOSITE THINGS. A
+// registration plan that changed nothing means the hook is already registered. A
+// RETIRE plan that changed nothing means it is already gone — and saying
+// "registered" there is not a cosmetic slip, it is the exact inverse of the state.
+//
+// Measured on Windows 11 (#184): one install run printed
+//
+//	[!!] SessionEnd hook NOT registered on Windows: … Any registration from an
+//	     earlier install is retired.
+//	[ok] SessionEnd hook already registered
+//
+// six lines apart, on the same event, in the same run. The first is correct and
+// the second is false; settings.json carried no SessionEnd key at all. Only the
+// REPORT was wrong, which is the worst version of this — the operator's evidence
+// that a deliberate retirement worked is a line saying it did not.
+//
+// hookPlansOn puts a retire plan in the list ON PURPOSE, so the event can be
+// removed rather than skipped; the reporting loop then treated every plan as a
+// registration because a plan's kind was never something it read.
+func unchangedNote(p hookPlan) string {
+	if p.retire {
+		return p.event + " hook already absent — nothing to retire"
+	}
+	return p.event + " hook already registered"
 }
 
 // hookPlansOn is hookPlans with the platform passed in, so the one
