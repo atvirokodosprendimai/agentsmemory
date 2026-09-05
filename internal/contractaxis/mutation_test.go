@@ -5,8 +5,8 @@ package contractaxis
 import (
 	"context"
 	"fmt"
+	"github.com/atvirokodosprendimai/agentsmemory/internal/testexec"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -482,7 +482,7 @@ func writeFixtureFile(t *testing.T, path, content string) {
 
 func runFixtureGit(t *testing.T, repo string, args ...string) string {
 	t.Helper()
-	cmd := exec.Command("git", append([]string{"-C", repo}, args...)...)
+	cmd := testexec.Command(t, "git", append([]string{"-C", repo}, args...)...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, output)

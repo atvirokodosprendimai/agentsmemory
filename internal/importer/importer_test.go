@@ -16,6 +16,7 @@ import (
 	"github.com/atvirokodosprendimai/agentsmemory/internal/auth"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/palace"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/tenant"
+	"github.com/atvirokodosprendimai/agentsmemory/internal/testexec"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/usage"
 )
 
@@ -321,7 +322,7 @@ func TestImportWireWithPythonPusher(t *testing.T) {
 		t.Fatalf("write bundle: %v", err)
 	}
 
-	cmd := exec.Command(py, script, "--file", bundlePath, "--push",
+	cmd := testexec.Command(t, py, script, "--file", bundlePath, "--push",
 		"--server", srv.URL, "--token", "test-token")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
