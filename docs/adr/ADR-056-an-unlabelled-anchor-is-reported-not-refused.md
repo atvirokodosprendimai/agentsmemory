@@ -1,6 +1,6 @@
 # ADR-056: An anchor filed without a repository label is reported, not refused
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-09-05
 **Owner:** unassigned
 **Spec:** None — no spec stage. The requirement is one sentence; the measurement that motivates it is in Context.
