@@ -18,7 +18,7 @@ README must be regenerated.
 | ID | Title | Status | Covers | Acceptance |
 |----|-------|--------|--------|------------|
 | T1 | Both write tools report an anchor accepted without a label | done | — | `go test ./internal/mcptest/... -run 'TestAnUnlabelledAnchorIsReportedAtWrite$' …` |
-| T2 | `doctor --corpus` reports unlabelled anchors as a population, not a verdict | pending | — | `go test ./cmd/server/ -run 'TestDoctorCorpusReportsUnlabelledAnchors$' …` |
+| T2 | `doctor --corpus` reports unlabelled anchors as a population, not a verdict | done | — | `go test ./cmd/server/ -run 'TestDoctorCorpusReportsUnlabelledAnchors$' …` |
 
 Status: `pending` | `partial` | `blocked` | `done`.
 
