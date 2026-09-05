@@ -1,7 +1,7 @@
 {
   "name": "agentsmemory",
   "description": "A memory palace your team writes to and reads from across sessions. Recall why the code is the way it is, and persist what this session learned, without being asked.",
-  "version": "0.0.117",
+  "version": "0.0.118",
   "author": { "name": "atvirokodosprendimai" },
   "homepage": "https://github.com/atvirokodosprendimai/agentsmemory",
   "repository": "https://github.com/atvirokodosprendimai/agentsmemory",
