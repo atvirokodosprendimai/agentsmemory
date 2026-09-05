@@ -1,30 +1,56 @@
-/* agentsmemory dashboard — "The Archive".
-   A warm, dark, editorial aesthetic for a memory tool: ink-dark surfaces,
-   bone text, an ember accent and brass highlights, a characterful serif
-   display (Fraunces) paired with IBM Plex Sans/Mono. Monospaced tabular
-   figures for keys and usage so numbers never reflow. */
+/* agentsmemory dashboard — light, cool, documentation-grade.
+   A near-white page lit by two soft cyan/indigo washes, white cards on hairline
+   borders, a cyan primary and an indigo secondary. Fraunces for display, IBM
+   Plex Sans/Mono for text and figures; monospaced tabular figures for keys and
+   usage so numbers never reflow.
+
+   ⚠ THE TOKENS ARE NAMED BY ROLE, NOT BY COLOUR, and that is the point. The
+   previous palette named them for what they looked like — --ink, --bone,
+   --ember, --brass — which read correctly while the theme was warm and dark and
+   would have gone actively misleading the moment it was not: a token called
+   --ink holding a near-white is worse than an unnamed one, because it still
+   reads as information. Role names survive a retheme; colour names have to be
+   renamed with it or they start lying.
+
+   Contrast was chosen rather than inherited, and COMPUTED rather than estimated
+   (WCAG 2.x relative luminance, 2026-09-05). Against --surface (#fff): --fg
+   17.85:1, --muted 7.58:1, --faint 4.76:1, --accent 5.36:1, --accent-2 7.90:1,
+   --danger 6.47:1, --ok 5.48:1, --warn 5.02:1; --accent-fg on --accent 5.36:1
+   and on the darker hover 7.46:1. Every pair clears AA (4.5:1) for body text —
+   --faint is the closest at 4.76, so it is the one to re-check if it ever moves.
+
+   ⚠ The first draft of this comment carried ESTIMATES (7.0, 4.8, 4.9, 7.5) that
+   were each wrong by up to 0.5 against the arithmetic. They were close enough to
+   look measured, which is the failure worth naming: a ratio nobody computed reads
+   exactly like one somebody did. */
 
 :root {
-  --ink:       #15120d;
-  --ink-2:     #1b1610;
-  --surface:   #221c14;
-  --surface-2: #2a2218;
-  --line:      #392f23;
-  --line-2:    #4a3d2d;
-  --bone:      #efe7d8;
-  --muted:     #b6a78f;
-  --faint:     #8b7c66;
-  --ember:     #e07a3e;
-  --ember-ink: #1a0f06;
-  --brass:     #d2ad55;
-  --danger:    #d6573f;
-  --ok:        #86b06b;
+  color-scheme: light;
+  --bg:        #f6f8fb;
+  --bg-2:      #eef2f7;
+  --surface:   #ffffff;
+  --surface-2: #fbfcfe;
+  --line:      #e2e8f0;
+  --line-2:    #cbd5e1;
+  --fg:        #0f172a;
+  --muted:     #475569;
+  --faint:     #64748b;
+  --accent:    #0e7490;
+  --accent-fg: #ffffff;
+  --accent-2:  #4338ca;
+  --danger:    #b91c1c;
+  --warn:      #b45309;
+  --ok:        #047857;
   --radius:    14px;
   --card-pad:  1.6rem;   /* one canonical inset for content cards — every .card variant inherits this
                             unless it deliberately overrides (compact rows, centered empty state).
                             Shrinks on narrow phones via a :root override in the mobile media query. */
   --maxw:      72rem;
-  --shadow:    0 1px 0 rgba(255,255,255,.03) inset, 0 18px 40px -24px rgba(0,0,0,.8);
+  /* Two layers, because one cannot do both jobs on a light ground: a hairline
+     that separates a white card from a near-white page, and a wide soft drop
+     that gives it height without a grey haze. Tinted with the foreground's blue
+     rather than neutral black — a black shadow on a cool page reads as dirt. */
+  --shadow:    0 1px 2px rgba(15,23,42,.05), 0 12px 32px -18px rgba(15,23,42,.25);
 }
 
 * { box-sizing: border-box; }
@@ -37,11 +63,17 @@ body {
   font-family: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
   font-size: 16px;
   line-height: 1.6;
-  color: var(--bone);
-  background-color: var(--ink);
+  color: var(--fg);
+  background-color: var(--bg);
+  /* The reference's signature: two wide, very low-opacity washes — cyan top
+     right, indigo bottom left — that give a flat near-white page depth without
+     drawing a single edge. Kept under .07 because on a light ground a wash is
+     legible far sooner than on a dark one; at the dark theme's .10 these read
+     as stains rather than light. Fixed, so they belong to the page and not to
+     the scroll. */
   background-image:
-    radial-gradient(1200px 600px at 85% -10%, rgba(224,122,62,.10), transparent 60%),
-    radial-gradient(900px 500px at -10% 110%, rgba(210,173,85,.07), transparent 55%);
+    radial-gradient(1100px 560px at 88% -12%, rgba(14,116,144,.07), transparent 60%),
+    radial-gradient(900px 520px at -8% 108%, rgba(67,56,202,.06), transparent 55%);
   background-attachment: fixed;
 }
 
@@ -55,7 +87,7 @@ body::before {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
 
-a { color: var(--ember); text-decoration: none; }
+a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
 
 .wrap { width: 100%; max-width: var(--maxw); margin: 0 auto; padding: 0 1.5rem; }
@@ -63,7 +95,10 @@ a:hover { text-decoration: underline; }
 /* ---- top bar ---- */
 .topbar {
   border-bottom: 1px solid var(--line);
-  background: linear-gradient(180deg, rgba(42,34,24,.6), rgba(21,18,13,.2));
+  /* Translucent so the page washes show through as the bar passes over them,
+     and white-over-page rather than dark-over-page: on a light ground the bar
+     has to be LIGHTER than what scrolls beneath it to read as glass. */
+  background: linear-gradient(180deg, rgba(255,255,255,.72), rgba(246,248,251,.55));
   backdrop-filter: blur(6px);
   position: sticky; top: 0; z-index: 20;
 }
@@ -73,19 +108,19 @@ a:hover { text-decoration: underline; }
   font-weight: 600;
   font-size: 1.4rem;
   letter-spacing: -.01em;
-  color: var(--bone);
+  color: var(--fg);
 }
-.brand b { color: var(--ember); font-weight: 600; }
-.brand .dot { color: var(--brass); }
+.brand b { color: var(--accent); font-weight: 600; }
+.brand .dot { color: var(--accent-2); }
 .user { display: flex; align-items: center; gap: .9rem; font-size: .9rem; color: var(--muted); }
-.user .email { font-family: "IBM Plex Mono", monospace; color: var(--bone); }
+.user .email { font-family: "IBM Plex Mono", monospace; color: var(--fg); }
 
 /* ---- typography ---- */
-h1, h2, h3 { font-family: "Fraunces", Georgia, serif; font-weight: 600; letter-spacing: -.015em; color: var(--bone); margin: 0; }
+h1, h2, h3 { font-family: "Fraunces", Georgia, serif; font-weight: 600; letter-spacing: -.015em; color: var(--fg); margin: 0; }
 .page-head { padding: 3rem 0 1.5rem; }
 .page-head h1 { font-size: clamp(2rem, 4vw, 2.9rem); line-height: 1.05; }
 .page-head p { color: var(--muted); margin: .6rem 0 0; max-width: 46ch; }
-.eyebrow { font-family: "IBM Plex Mono", monospace; text-transform: uppercase; letter-spacing: .18em; font-size: .72rem; color: var(--brass); margin: 0 0 .6rem; }
+.eyebrow { font-family: "IBM Plex Mono", monospace; text-transform: uppercase; letter-spacing: .18em; font-size: .72rem; color: var(--accent-2); margin: 0 0 .6rem; }
 
 /* ---- cards ---- */
 .card {
@@ -104,14 +139,14 @@ h1, h2, h3 { font-family: "Fraunces", Georgia, serif; font-weight: 600; letter-s
   min-height: 46px;
   padding: .65rem .85rem;
   font: inherit;
-  color: var(--bone);
-  background: var(--ink-2);
+  color: var(--fg);
+  background: var(--bg-2);
   border: 1px solid var(--line-2);
   border-radius: 10px;
   transition: border-color .15s ease, box-shadow .15s ease;
 }
 .input::placeholder { color: var(--faint); }
-.input:focus-visible { outline: none; border-color: var(--ember); box-shadow: 0 0 0 3px rgba(224,122,62,.25); }
+.input:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(14,116,144,.25); }
 
 .btn {
   display: inline-flex; align-items: center; justify-content: center; gap: .5rem;
@@ -122,12 +157,15 @@ h1, h2, h3 { font-family: "Fraunces", Georgia, serif; font-weight: 600; letter-s
   transition: transform .08s ease, background-color .15s ease, border-color .15s ease, opacity .15s ease;
 }
 .btn:active { transform: translateY(1px); }
-.btn:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(224,122,62,.35); }
-.btn-primary { background: var(--ember); color: var(--ember-ink); }
-.btn-primary:hover { background: #ed8b4f; }
+.btn:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(14,116,144,.35); }
+.btn-primary { background: var(--accent); color: var(--accent-fg); }
+/* Hover DARKENS here, where the dark theme's lightened. A filled button on a
+   light page is already the darkest thing in its row, so lifting it toward the
+   page loses the affordance; going deeper keeps the contrast with --accent-fg. */
+.btn-primary:hover { background: #0b5d70; }
 .btn-primary[disabled], .btn-primary:disabled { opacity: .5; cursor: not-allowed; transform: none; }
-.btn-ghost { background: transparent; color: var(--bone); border-color: var(--line-2); }
-.btn-ghost:hover { border-color: var(--ember); color: var(--ember); }
+.btn-ghost { background: transparent; color: var(--fg); border-color: var(--line-2); }
+.btn-ghost:hover { border-color: var(--accent); color: var(--accent); }
 .btn-block { width: 100%; }
 
 /* ---- auth ---- */
@@ -172,24 +210,24 @@ h1, h2, h3 { font-family: "Fraunces", Georgia, serif; font-weight: 600; letter-s
 .slug-chip {
   display: inline-flex; align-items: center; gap: .5rem; max-width: 100%;
   margin: 0; padding: .35rem .4rem .35rem .65rem; min-height: 36px;
-  font: inherit; line-height: 1; color: var(--bone); cursor: pointer;
+  font: inherit; line-height: 1; color: var(--fg); cursor: pointer;
   background: var(--surface-2); border: 1px solid var(--line-2); border-radius: 999px;
   transition: border-color .15s ease, box-shadow .15s ease;
 }
-.slug-chip:hover { border-color: var(--ember); }
+.slug-chip:hover { border-color: var(--accent); }
 .slug-chip:active { transform: translateY(1px); }
-.slug-chip:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(224,122,62,.35); }
+.slug-chip:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(14,116,144,.35); }
 .project-top .slug-chip { margin-top: .4rem; } /* sit just under the project name */
 .slug-chip-tag { font-size: .6rem; font-weight: 600; text-transform: uppercase; letter-spacing: .14em; color: var(--faint); }
 .slug-chip-val {
-  font-family: "IBM Plex Mono", monospace; font-size: .82rem; color: var(--bone);
+  font-family: "IBM Plex Mono", monospace; font-size: .82rem; color: var(--fg);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; /* full slug still copies + lives in aria-label */
 }
 .slug-chip-act {
   font-size: .66rem; text-transform: uppercase; letter-spacing: .08em; color: var(--faint);
   padding: .22rem .5rem; border-radius: 999px; background: color-mix(in srgb, var(--line-2) 40%, transparent);
 }
-.slug-chip:hover .slug-chip-act { color: var(--ember); }
+.slug-chip:hover .slug-chip-act { color: var(--accent); }
 .slug-chip-done { display: none; }
 .slug-chip.is-copied { border-color: color-mix(in srgb, var(--ok) 55%, var(--line-2)); }
 .slug-chip.is-copied .slug-chip-copy { display: none; }
@@ -198,45 +236,48 @@ h1, h2, h3 { font-family: "Fraunces", Georgia, serif; font-weight: 600; letter-s
 @media (pointer: coarse) { .slug-chip { min-height: 44px; } } /* full touch target on touch devices */
 .badge {
   font-family: "IBM Plex Mono", monospace; font-size: .68rem; text-transform: uppercase; letter-spacing: .08em;
-  padding: .25rem .5rem; border-radius: 999px; border: 1px solid var(--line-2); color: var(--brass); white-space: nowrap;
+  padding: .25rem .5rem; border-radius: 999px; border: 1px solid var(--line-2); color: var(--accent-2); white-space: nowrap;
 }
 
 /* key + usage */
 .kv { font-size: .75rem; color: var(--faint); text-transform: uppercase; letter-spacing: .1em; margin-bottom: .35rem; }
 .token {
-  font-family: "IBM Plex Mono", monospace; font-size: .82rem; color: var(--bone);
-  background: var(--ink-2); border: 1px solid var(--line); border-radius: 8px;
+  font-family: "IBM Plex Mono", monospace; font-size: .82rem; color: var(--fg);
+  background: var(--bg-2); border: 1px solid var(--line); border-radius: 8px;
   padding: .55rem .65rem; word-break: break-all;
 }
 .token.muted { color: var(--faint); }
-.token-note { color: var(--brass); font-size: .76rem; margin-top: .4rem; }
+.token-note { color: var(--accent-2); font-size: .76rem; margin-top: .4rem; }
 
 /* API key reveal block (project card) */
 .keybox { display: grid; gap: .5rem; }
 .keybox code.token { display: block; }
 .key-actions { display: flex; gap: .5rem; flex-wrap: wrap; }
 .key-error { color: var(--danger); font-size: .8rem; line-height: 1.45; }
-.key-warn { color: var(--bone); font-size: .8rem; line-height: 1.45; padding: .55rem .65rem; border: 1px solid rgba(214,87,63,.45); background: rgba(214,87,63,.10); border-radius: 8px; }
+.key-warn { color: var(--fg); font-size: .8rem; line-height: 1.45; padding: .55rem .65rem; border: 1px solid rgba(185,28,28,.45); background: rgba(185,28,28,.10); border-radius: 8px; }
 .key-warn b { color: var(--danger); }
-.key-note { color: var(--brass); font-size: .78rem; line-height: 1.45; }
+.key-note { color: var(--accent-2); font-size: .78rem; line-height: 1.45; }
 
 .usage-head { display: flex; justify-content: space-between; align-items: baseline; font-size: .82rem; }
 .usage-head .nums { font-family: "IBM Plex Mono", monospace; font-variant-numeric: tabular-nums; color: var(--muted); }
-.bar { height: 8px; border-radius: 999px; background: var(--ink-2); border: 1px solid var(--line); overflow: hidden; margin-top: .45rem; }
-.bar > span { display: block; height: 100%; background: linear-gradient(90deg, var(--ember), var(--brass)); transition: width .4s ease; }
-.bar.warn > span { background: linear-gradient(90deg, #d6863f, var(--danger)); }
+.bar { height: 8px; border-radius: 999px; background: var(--bg-2); border: 1px solid var(--line); overflow: hidden; margin-top: .45rem; }
+.bar > span { display: block; height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent-2)); transition: width .4s ease; }
+/* Amber survives the retheme: a warning is amber in any palette, and the old
+   value here was a bare hex from the retired warm family rather than a decision.
+   It is a token now, so the next retheme moves it with everything else. */
+.bar.warn > span { background: linear-gradient(90deg, var(--warn), var(--danger)); }
 
 /* ---- flash ---- */
 .flash { border-radius: var(--radius); padding: 1rem 1.15rem; margin: 0 0 1.2rem; border: 1px solid var(--line-2); }
-.flash.success { background: rgba(134,176,107,.10); border-color: rgba(134,176,107,.4); }
-.flash.error { background: rgba(214,87,63,.10); border-color: rgba(214,87,63,.45); }
-.flash.note { background: rgba(210,173,85,.08); border-color: rgba(210,173,85,.38); }
+.flash.success { background: rgba(4,120,87,.10); border-color: rgba(4,120,87,.4); }
+.flash.error { background: rgba(185,28,28,.10); border-color: rgba(185,28,28,.45); }
+.flash.note { background: rgba(67,56,202,.08); border-color: rgba(67,56,202,.38); }
 .flash .ttl { font-weight: 600; }
 .flash .token { margin-top: .6rem; }
 
 /* ---- empty state ---- */
 .empty { text-align: center; padding: 3rem 1.5rem; color: var(--muted); }
-.empty h3 { color: var(--bone); margin-bottom: .4rem; }
+.empty h3 { color: var(--fg); margin-bottom: .4rem; }
 
 /* ---- misc ---- */
 .spinner { width: 1rem; height: 1rem; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: spin .7s linear infinite; }
@@ -252,7 +293,7 @@ footer { color: var(--faint); font-size: .8rem; padding: 2rem 0 3rem; border-top
 /* ---- project detail / skills ---- */
 .breadcrumb { padding-top: 1.5rem; font-size: .85rem; }
 .breadcrumb a { color: var(--muted); }
-.breadcrumb a:hover { color: var(--ember); text-decoration: none; }
+.breadcrumb a:hover { color: var(--accent); text-decoration: none; }
 .meta-row { display: flex; align-items: center; gap: .8rem; margin-top: 1rem; flex-wrap: wrap; }
 
 .mono { font-family: "IBM Plex Mono", monospace; }
@@ -268,32 +309,32 @@ footer { color: var(--faint); font-size: .8rem; padding: 2rem 0 3rem; border-top
   font-family: "IBM Plex Mono", monospace;
   font-size: .85rem;
   line-height: 1.55;
-  color: var(--bone);
-  background: var(--ink-2);
+  color: var(--fg);
+  background: var(--bg-2);
   border: 1px solid var(--line-2);
   border-radius: 10px;
   resize: vertical;
   transition: border-color .15s ease, box-shadow .15s ease;
 }
 .textarea::placeholder { color: var(--faint); }
-.textarea:focus-visible { outline: none; border-color: var(--ember); box-shadow: 0 0 0 3px rgba(224,122,62,.25); }
+.textarea:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(14,116,144,.25); }
 .editor-actions { display: flex; align-items: center; gap: .7rem; flex-wrap: wrap; margin-top: .3rem; }
-.editor-actions .hint { color: var(--brass); font-size: .82rem; }
-.editor-actions .hint .mono { color: var(--bone); }
+.editor-actions .hint { color: var(--accent-2); font-size: .82rem; }
+.editor-actions .hint .mono { color: var(--fg); }
 
 /* read-only note */
 .note { border: 1px dashed var(--line-2); border-radius: var(--radius); padding: 1rem 1.15rem; color: var(--muted); margin-bottom: 2rem; font-size: .92rem; }
-.note b { color: var(--brass); }
+.note b { color: var(--accent-2); }
 
 /* skills list */
 .skills-head { display: flex; align-items: baseline; gap: .7rem; padding-bottom: 1rem; border-bottom: 1px solid var(--line); }
 .skills-head h2 { font-size: 1.4rem; }
-.skills-head .count { font-family: "IBM Plex Mono", monospace; font-size: .78rem; color: var(--brass); border: 1px solid var(--line-2); border-radius: 999px; padding: .1rem .55rem; }
+.skills-head .count { font-family: "IBM Plex Mono", monospace; font-size: .78rem; color: var(--accent-2); border: 1px solid var(--line-2); border-radius: 999px; padding: .1rem .55rem; }
 .skills-list { display: grid; gap: .9rem; padding: 1.2rem 0 4rem; }
 .skill { padding: 1.1rem 1.2rem; display: flex; flex-direction: column; gap: .55rem; }
 .skill-top { display: flex; align-items: flex-start; justify-content: space-between; gap: .8rem; }
 .skill-id { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; }
-.skill-name { font-family: "IBM Plex Mono", monospace; font-weight: 500; font-size: 1.05rem; letter-spacing: 0; color: var(--bone); }
+.skill-name { font-family: "IBM Plex Mono", monospace; font-weight: 500; font-size: 1.05rem; letter-spacing: 0; color: var(--fg); }
 .skill-desc { color: var(--muted); margin: 0; font-size: .92rem; }
 .skill-meta { font-family: "IBM Plex Mono", monospace; font-size: .74rem; color: var(--faint); }
 .btn-sm { min-height: 34px; padding: 0 .8rem; font-size: .82rem; }
@@ -303,25 +344,25 @@ footer { color: var(--faint); font-size: .8rem; padding: 2rem 0 3rem; border-top
 .migrate h2 { font-size: 1.4rem; margin: 0 0 .5rem; }
 .migrate-lede { color: var(--muted); margin: 0 0 1.1rem; max-width: 62ch; font-size: .95rem; }
 .cmd {
-  font-family: "IBM Plex Mono", monospace; font-size: .82rem; line-height: 1.6; color: var(--bone);
-  background: var(--ink-2); border: 1px solid var(--line-2); border-left: 3px solid var(--ember);
+  font-family: "IBM Plex Mono", monospace; font-size: .82rem; line-height: 1.6; color: var(--fg);
+  background: var(--bg-2); border: 1px solid var(--line-2); border-left: 3px solid var(--accent);
   border-radius: 10px; padding: .9rem 1.05rem; margin: 0 0 .85rem;
   white-space: pre-wrap; overflow-wrap: anywhere;
 }
 .cmd code { font: inherit; color: inherit; }
 .cmd-actions { display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; }
 .cmd-hint { font-size: .82rem; color: var(--faint); max-width: 48ch; }
-.cmd-hint b { color: var(--brass); }
+.cmd-hint b { color: var(--accent-2); }
 
 /* ---- share a wing (cross-workspace) ---- */
 .share-card { margin-top: 1.4rem; }
 .share-card h2 { font-size: 1.4rem; margin: 0 0 .5rem; }
 .share-lede { color: var(--muted); margin: 0 0 1.2rem; max-width: 64ch; font-size: .95rem; }
-.share-lede b { color: var(--brass); }
+.share-lede b { color: var(--accent-2); }
 .share-grid { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 1.1rem; }
 .share-grid .field { margin: 0; }
 
-/* Native <select> styled to match .input, with a brass chevron so it reads as a
+/* Native <select> styled to match .input, with an accent-2 chevron so it reads as a
    chooser, not a text box. appearance:none drops the OS arrow; the SVG supplies
    one in the theme's accent. */
 select.input {
@@ -330,38 +371,38 @@ select.input {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8' fill='none' stroke='%23d2ad55' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M1 1.5 6 6.5 11 1.5'/%3E%3C/svg%3E");
   background-repeat: no-repeat; background-position: right .95rem center; background-size: .7rem;
 }
-select.input option { color: var(--bone); background: var(--ink-2); }
+select.input option { color: var(--fg); background: var(--bg-2); }
 
 .share-actions { display: flex; align-items: center; gap: .9rem; flex-wrap: wrap; margin-top: 1.2rem; }
-.share-actions .hint { color: var(--brass); font-size: .82rem; max-width: 44ch; }
+.share-actions .hint { color: var(--accent-2); font-size: .82rem; max-width: 44ch; }
 
 .share-inbox { margin-top: 1.4rem; }
-.share-working { color: var(--brass); font-size: .85rem; margin: .9rem 0 0; }
+.share-working { color: var(--accent-2); font-size: .85rem; margin: .9rem 0 0; }
 .share-req-list { display: grid; gap: .8rem; margin-top: 1.1rem; }
 .share-req { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 1rem 1.15rem; flex-wrap: wrap; }
 .share-req-main { min-width: 0; }
 .share-req-wing { font-size: 1.05rem; margin: 0 0 .25rem; overflow-wrap: anywhere; }
 .share-req-meta { color: var(--muted); font-size: .85rem; margin: 0; overflow-wrap: anywhere; }
-.share-req-meta b { color: var(--bone); }
+.share-req-meta b { color: var(--fg); }
 .share-req-actions { display: flex; gap: .55rem; flex-shrink: 0; }
 
 /* ---- merge wings (background job) ---- */
 .merge-card { margin-top: 1.4rem; }
 .merge-card h2 { font-size: 1.4rem; margin: 0 0 .5rem; }
 .merge-lede { color: var(--muted); margin: 0 0 1.2rem; max-width: 64ch; font-size: .95rem; }
-.merge-lede .mono { color: var(--bone); }
+.merge-lede .mono { color: var(--fg); }
 
 .merge-dups { margin-bottom: 1.2rem; }
 .merge-dup {
   display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap;
   padding: .7rem .9rem; border: 1px dashed var(--line-2); border-radius: 10px; margin-bottom: .55rem;
 }
-.merge-dup-label { font-family: "IBM Plex Mono", monospace; font-size: .85rem; color: var(--bone); overflow-wrap: anywhere; }
+.merge-dup-label { font-family: "IBM Plex Mono", monospace; font-size: .85rem; color: var(--fg); overflow-wrap: anywhere; }
 
 .merge-grid { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 1.1rem; }
 .merge-grid .field { margin: 0; }
 .merge-actions { display: flex; align-items: center; gap: .9rem; flex-wrap: wrap; margin-top: 1.2rem; }
-.merge-actions .hint { color: var(--brass); font-size: .82rem; max-width: 44ch; }
+.merge-actions .hint { color: var(--accent-2); font-size: .82rem; max-width: 44ch; }
 
 /* ---- move a wing (portable bundle in/out) ---- */
 .wing-card { margin-top: 1.4rem; }
@@ -383,7 +424,7 @@ select.input option { color: var(--bone); background: var(--ink-2); }
 .wing-field-action { display: flex; align-items: flex-end; }
 .wing-half .cmd-hint { display: block; margin-top: .7rem; max-width: 62ch; }
 .wing-actions { display: flex; align-items: center; gap: .9rem; flex-wrap: wrap; margin-top: 1.2rem; }
-.wing-actions .hint { color: var(--brass); font-size: .82rem; max-width: 46ch; }
+.wing-actions .hint { color: var(--accent-2); font-size: .82rem; max-width: 46ch; }
 /* A file input's native button is unstyleable across browsers, so style the part
    we can: match .input's frame, then give ::file-selector-button the ghost-button
    look so the control reads as ours rather than as raw browser chrome. */
@@ -393,23 +434,25 @@ select.input option { color: var(--bone); background: var(--ink-2); }
 .wing-file { padding: .35rem .5rem; cursor: pointer; }
 .wing-file::file-selector-button {
   font: inherit; font-weight: 600;
-  color: var(--bone); background: var(--ink-3, var(--ink-2));
+  /* --ink-3 was never defined, so this always took the fallback — dead
+     indirection, and a name with no palette left to belong to. */
+  color: var(--fg); background: var(--bg-2);
   border: 1px solid var(--line-2); border-radius: 8px;
   padding: .35rem .8rem; margin-right: .7rem;
   cursor: pointer;
   transition: border-color .15s ease, background-color .15s ease;
 }
-.wing-file::file-selector-button:hover { border-color: var(--ember); }
+.wing-file::file-selector-button:hover { border-color: var(--accent); }
 
 .merge-jobs { margin-top: 1.4rem; }
 .merge-jobs .kv { margin-top: .2rem; }
 .merge-job-list { display: grid; gap: .55rem; }
 .merge-job {
   display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap;
-  padding: .7rem .9rem; background: var(--ink-2); border: 1px solid var(--line); border-radius: 10px;
+  padding: .7rem .9rem; background: var(--bg-2); border: 1px solid var(--line); border-radius: 10px;
 }
 .merge-job-main { min-width: 0; display: flex; flex-direction: column; gap: .2rem; }
-.merge-job-wings { font-family: "IBM Plex Mono", monospace; font-size: .85rem; color: var(--bone); overflow-wrap: anywhere; }
+.merge-job-wings { font-family: "IBM Plex Mono", monospace; font-size: .85rem; color: var(--fg); overflow-wrap: anywhere; }
 .merge-job-summary { font-size: .8rem; color: var(--muted); overflow-wrap: anywhere; }
 .merge-job-side { display: flex; align-items: center; gap: .7rem; flex-shrink: 0; }
 .merge-job-when { font-size: .78rem; color: var(--faint); font-variant-numeric: tabular-nums; }
@@ -417,13 +460,13 @@ select.input option { color: var(--bone); background: var(--ink-2); }
 /* status badge tints (reuse the .badge base) */
 .badge.ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 45%, var(--line-2)); }
 .badge.danger { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 45%, var(--line-2)); }
-.badge.running { color: var(--ember); border-color: color-mix(in srgb, var(--ember) 45%, var(--line-2)); }
+.badge.running { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, var(--line-2)); }
 
 /* ---- members (per-workspace roster + per-member keys) ---- */
 .members { margin-top: 1.4rem; }
 .members h2 { font-size: 1.4rem; }
 .members-lede { color: var(--muted); margin: .9rem 0 1.2rem; max-width: 64ch; font-size: .95rem; }
-.members-msg { border-radius: 10px; padding: .7rem .9rem; margin: 0 0 1.1rem; font-size: .88rem; color: var(--bone); }
+.members-msg { border-radius: 10px; padding: .7rem .9rem; margin: 0 0 1.1rem; font-size: .88rem; color: var(--fg); }
 .members-msg.ok { background: color-mix(in srgb, var(--ok) 10%, transparent); border: 1px solid color-mix(in srgb, var(--ok) 40%, var(--line-2)); }
 .members-msg.err { background: color-mix(in srgb, var(--danger) 10%, transparent); border: 1px solid color-mix(in srgb, var(--danger) 40%, var(--line-2)); }
 
@@ -431,23 +474,23 @@ select.input option { color: var(--bone); background: var(--ink-2); }
 .member-add-grid { display: grid; grid-template-columns: minmax(0,1fr) 14rem; gap: 1.1rem; }
 .member-add-grid .field { margin: 0; }
 .member-add-actions { display: flex; align-items: center; gap: .9rem; flex-wrap: wrap; margin-top: 1.1rem; }
-.member-add-actions .hint { color: var(--brass); font-size: .82rem; max-width: 44ch; }
+.member-add-actions .hint { color: var(--accent-2); font-size: .82rem; max-width: 44ch; }
 
 .member-list { display: grid; gap: .55rem; }
 .member-row {
   display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap;
-  padding: .75rem .95rem; background: var(--ink-2); border: 1px solid var(--line); border-radius: 10px;
+  padding: .75rem .95rem; background: var(--bg-2); border: 1px solid var(--line); border-radius: 10px;
 }
 .member-main { min-width: 0; display: flex; flex-direction: column; gap: .15rem; }
-.member-name { display: flex; align-items: center; gap: .5rem; color: var(--bone); font-weight: 600; font-size: .95rem; overflow-wrap: anywhere; }
-.member-you { font-size: .66rem; text-transform: uppercase; letter-spacing: .06em; color: var(--brass); border: 1px solid var(--line-2); border-radius: 999px; padding: .05rem .4rem; font-weight: 600; }
+.member-name { display: flex; align-items: center; gap: .5rem; color: var(--fg); font-weight: 600; font-size: .95rem; overflow-wrap: anywhere; }
+.member-you { font-size: .66rem; text-transform: uppercase; letter-spacing: .06em; color: var(--accent-2); border: 1px solid var(--line-2); border-radius: 999px; padding: .05rem .4rem; font-weight: 600; }
 .member-email { font-size: .8rem; color: var(--muted); overflow-wrap: anywhere; }
 .member-actions { display: flex; align-items: center; gap: .55rem; flex-shrink: 0; }
 .member-role { min-width: 8.5rem; padding-top: .5rem; padding-bottom: .5rem; font-size: .84rem; }
 
-/* role badge tints (reuse the .badge base): admin brass, writer bone, member muted */
-.badge.role-admin { color: var(--brass); border-color: color-mix(in srgb, var(--brass) 45%, var(--line-2)); }
-.badge.role-writer { color: var(--bone); }
+/* role badge tints (reuse the .badge base): admin accent-2, writer fg, member muted */
+.badge.role-admin { color: var(--accent-2); border-color: color-mix(in srgb, var(--accent-2) 45%, var(--line-2)); }
+.badge.role-writer { color: var(--fg); }
 .badge.role-member { color: var(--muted); }
 
 @media (max-width: 540px) {
@@ -499,7 +542,7 @@ select.input option { color: var(--bone); background: var(--ink-2); }
 /* skip link — visually hidden until focused (keyboard users land here first) */
 .skip {
   position: absolute; left: -9999px; top: .6rem; z-index: 100;
-  background: var(--ember); color: var(--ember-ink);
+  background: var(--accent); color: var(--accent-fg);
   padding: .6rem 1rem; border-radius: 8px; font-weight: 600;
 }
 .skip:focus { left: 1rem; text-decoration: none; }
@@ -508,13 +551,13 @@ select.input option { color: var(--bone); background: var(--ink-2); }
 .lp-nav {
   position: sticky; top: 0; z-index: 30;
   border-bottom: 1px solid var(--line);
-  background: linear-gradient(180deg, rgba(42,34,24,.78), rgba(21,18,13,.55));
+  background: linear-gradient(180deg, rgba(255,255,255,.85), rgba(246,248,251,.7));
   backdrop-filter: blur(8px);
 }
 .lp-nav-inner { display: flex; align-items: center; justify-content: space-between; min-height: 64px; gap: 1rem; position: relative; }
-.lp-links a { color: var(--bone); font-weight: 500; white-space: nowrap; }
-.lp-links a:hover { color: var(--ember); text-decoration: none; }
-.lp-links a:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(224,122,62,.35); border-radius: 6px; }
+.lp-links a { color: var(--fg); font-weight: 500; white-space: nowrap; }
+.lp-links a:hover { color: var(--accent); text-decoration: none; }
+.lp-links a:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(14,116,144,.35); border-radius: 6px; }
 .lp-ext { color: var(--muted) !important; }
 
 .lp-burger {
@@ -522,11 +565,11 @@ select.input option { color: var(--bone); background: var(--ink-2); }
   width: 44px; height: 44px; padding: 0 10px;
   background: transparent; border: 1px solid var(--line-2); border-radius: 10px; cursor: pointer;
 }
-.lp-burger span { display: block; height: 2px; background: var(--bone); border-radius: 2px; transition: transform .2s ease, opacity .2s ease; }
+.lp-burger span { display: block; height: 2px; background: var(--fg); border-radius: 2px; transition: transform .2s ease, opacity .2s ease; }
 .lp-burger[aria-expanded="true"] span:nth-child(1) { transform: translateY(7px) rotate(45deg); }
 .lp-burger[aria-expanded="true"] span:nth-child(2) { opacity: 0; }
 .lp-burger[aria-expanded="true"] span:nth-child(3) { transform: translateY(-7px) rotate(-45deg); }
-.lp-burger:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(224,122,62,.35); }
+.lp-burger:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(14,116,144,.35); }
 
 /* mobile: links collapse into a toggled dropdown panel */
 @media (max-width: 859.98px) {
@@ -534,7 +577,7 @@ select.input option { color: var(--bone); background: var(--ink-2); }
     display: none; position: absolute; left: 0; right: 0; top: 100%;
     flex-direction: column; gap: .2rem;
     padding: .8rem 1.5rem 1.2rem;
-    background: var(--ink-2); border-bottom: 1px solid var(--line); box-shadow: var(--shadow);
+    background: var(--bg-2); border-bottom: 1px solid var(--line); box-shadow: var(--shadow);
   }
   .lp-links.open { display: flex; }
   .lp-links a { min-height: 44px; display: flex; align-items: center; }
@@ -552,7 +595,7 @@ select.input option { color: var(--bone); background: var(--ink-2); }
 @media (min-width: 960px) { .lp-hero-grid { grid-template-columns: 1.1fr .9fr; gap: 3rem; } }
 .lp-hero h1 { font-size: clamp(2.3rem, 6vw, 4rem); line-height: 1.02; margin: .4rem 0 0; }
 .lp-lede { color: var(--muted); font-size: clamp(1.05rem, 1.5vw, 1.22rem); line-height: 1.6; max-width: 46ch; margin: 1.2rem 0 0; }
-.lp-lede b { color: var(--bone); font-weight: 600; }
+.lp-lede b { color: var(--fg); font-weight: 600; }
 .lp-cta-row { display: flex; flex-wrap: wrap; gap: .8rem; margin-top: 1.8rem; }
 .lp-cta-row .btn { min-height: 50px; padding: 0 1.5rem; font-size: 1rem; }
 .lp-cta-note { color: var(--faint); font-size: .85rem; margin-top: 1.1rem; }
@@ -560,39 +603,39 @@ select.input option { color: var(--bone); background: var(--ink-2); }
 /* hero code peek (decorative) */
 .lp-peek {
   border: 1px solid var(--line); border-radius: var(--radius);
-  background: linear-gradient(180deg, var(--ink-2), var(--ink));
+  background: linear-gradient(180deg, var(--bg-2), var(--bg));
   box-shadow: var(--shadow); overflow: hidden;
 }
-.lp-peek-bar { display: flex; align-items: center; gap: .45rem; padding: .7rem .9rem; border-bottom: 1px solid var(--line); background: rgba(0,0,0,.22); }
+.lp-peek-bar { display: flex; align-items: center; gap: .45rem; padding: .7rem .9rem; border-bottom: 1px solid var(--line); background: rgba(15,23,42,.05); }
 .lp-dot { width: 11px; height: 11px; border-radius: 50%; background: var(--line-2); }
 .lp-dot:nth-child(1) { background: var(--danger); }
-.lp-dot:nth-child(2) { background: var(--brass); }
+.lp-dot:nth-child(2) { background: var(--accent-2); }
 .lp-dot:nth-child(3) { background: var(--ok); }
 .lp-peek-title { margin-left: .5rem; font-family: "IBM Plex Mono", monospace; font-size: .74rem; color: var(--faint); }
 .lp-peek-body { margin: 0; padding: 1.1rem 1.2rem; font-family: "IBM Plex Mono", monospace; font-size: .82rem; line-height: 1.75; color: var(--muted); white-space: pre-wrap; overflow-x: auto; }
 .c-prompt { color: var(--faint); }
-.c-cmd { color: var(--ember); font-weight: 500; }
-.c-str { color: var(--brass); }
-.c-arrow { color: var(--ember); }
-.c-key { color: var(--bone); }
+.c-cmd { color: var(--accent); font-weight: 500; }
+.c-str { color: var(--accent-2); }
+.c-arrow { color: var(--accent); }
+.c-key { color: var(--fg); }
 .c-id { color: var(--faint); }
 .c-score { color: var(--ok); }
-.c-quote { color: var(--bone); }
+.c-quote { color: var(--fg); }
 
 /* ---- stat strip ---- */
-.lp-stats { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); background: rgba(0,0,0,.16); }
+.lp-stats { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); background: rgba(15,23,42,.04); }
 .lp-stats-grid { display: grid; grid-template-columns: repeat(2, 1fr); }
 @media (min-width: 760px) { .lp-stats-grid { grid-template-columns: repeat(4, 1fr); } }
 .lp-stat { padding: 1.6rem 1rem; text-align: center; }
 .lp-stat + .lp-stat { border-left: 1px solid var(--line); }
 .lp-stat:nth-child(3) { border-left: 0; }
 @media (min-width: 760px) { .lp-stat:nth-child(3) { border-left: 1px solid var(--line); } }
-.lp-stat-val { font-family: "Fraunces", Georgia, serif; font-weight: 600; font-size: clamp(1.5rem, 3vw, 2.1rem); color: var(--brass); font-variant-numeric: tabular-nums; }
+.lp-stat-val { font-family: "Fraunces", Georgia, serif; font-weight: 600; font-size: clamp(1.5rem, 3vw, 2.1rem); color: var(--accent-2); font-variant-numeric: tabular-nums; }
 .lp-stat-lbl { color: var(--muted); font-size: .82rem; margin-top: .35rem; line-height: 1.4; }
 
 /* ---- generic section ---- */
 .lp-section { padding: clamp(3rem, 7vw, 6rem) 0; }
-.lp-section-alt { background: rgba(0,0,0,.18); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.lp-section-alt { background: rgba(15,23,42,.045); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
 .lp-head { max-width: 54ch; margin: 0 0 2.4rem; }
 .lp-section h2, .lp-head h2 { font-size: clamp(1.8rem, 3.4vw, 2.6rem); line-height: 1.1; }
 .lp-head-sub { color: var(--muted); margin: .7rem 0 0; font-size: 1.02rem; line-height: 1.6; }
@@ -605,11 +648,11 @@ select.input option { color: var(--bone); background: var(--ink-2); }
 .lp-prose-grid { display: grid; gap: 2rem; }
 @media (min-width: 860px) { .lp-prose-grid { grid-template-columns: 1.4fr 1fr; gap: 3rem; align-items: start; } }
 .lp-prose-grid p { color: var(--muted); margin: 1rem 0 0; line-height: 1.7; max-width: 62ch; }
-.lp-prose-grid p b { color: var(--bone); font-weight: 600; }
+.lp-prose-grid p b { color: var(--fg); font-weight: 600; }
 .lp-def { padding: 1.6rem; }
 @media (min-width: 860px) { .lp-def { position: sticky; top: 84px; } }
-.lp-def-k { font-family: "IBM Plex Mono", monospace; text-transform: uppercase; letter-spacing: .15em; font-size: .72rem; color: var(--brass); margin: 0 0 .6rem; }
-.lp-def-v { color: var(--bone); margin: 0; line-height: 1.6; font-size: 1.04rem; }
+.lp-def-k { font-family: "IBM Plex Mono", monospace; text-transform: uppercase; letter-spacing: .15em; font-size: .72rem; color: var(--accent-2); margin: 0 0 .6rem; }
+.lp-def-v { color: var(--fg); margin: 0; line-height: 1.6; font-size: 1.04rem; }
 
 /* ---- in-depth explainer (long-term / multi-agent / open source) ---- */
 .lp-explain { display: grid; gap: 1.4rem; }
@@ -619,17 +662,17 @@ select.input option { color: var(--bone); background: var(--ink-2); }
   border-radius: var(--radius); background: var(--surface);
   transition: border-left-color .15s ease;
 }
-@media (hover: hover) { .lp-explain article:hover { border-left-color: var(--ember); } }
+@media (hover: hover) { .lp-explain article:hover { border-left-color: var(--accent); } }
 .lp-explain h3 { font-size: 1.28rem; line-height: 1.2; }
 .lp-explain p { color: var(--muted); margin: .85rem 0 0; line-height: 1.75; max-width: 68ch; }
-.lp-explain p b { color: var(--bone); font-weight: 600; }
-.lp-explain p em { color: var(--bone); font-style: normal; text-decoration: underline; text-decoration-color: var(--brass); text-underline-offset: 2px; }
-.lp-explain a { color: var(--ember); text-underline-offset: 2px; }
+.lp-explain p b { color: var(--fg); font-weight: 600; }
+.lp-explain p em { color: var(--fg); font-style: normal; text-decoration: underline; text-decoration-color: var(--accent-2); text-underline-offset: 2px; }
+.lp-explain a { color: var(--accent); text-underline-offset: 2px; }
 
 /* ---- why you need it (problem-awareness: symptom grid) ---- */
 /* The lede reuses .lp-prose-grid + .lp-def and the closing line reuses
    .lp-cost-foot, so only the symptom grid needs styling — and it borrows the
-   .lp-explain article look wholesale (padding, left rule, ember hover). All that
+   .lp-explain article look wholesale (padding, left rule, accent hover). All that
    is left is to give it two columns on wider screens and space it off the lede. */
 .lp-why-symptoms { margin-top: clamp(2rem, 4vw, 2.8rem); }
 @media (min-width: 760px) { .lp-why-symptoms { grid-template-columns: repeat(2, 1fr); } }
@@ -637,7 +680,7 @@ select.input option { color: var(--bone); background: var(--ink-2); }
 /* ---- data model grid ---- */
 .lp-model-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); gap: 1rem; }
 .lp-model { padding: 1.3rem 1.4rem; border-left: 3px solid var(--line-2); }
-.lp-model:hover { border-left-color: var(--ember); }
+.lp-model:hover { border-left-color: var(--accent); }
 .lp-model h3 { font-size: 1.2rem; }
 .lp-model p { color: var(--muted); margin: .5rem 0 0; font-size: .92rem; line-height: 1.6; }
 
@@ -649,14 +692,14 @@ select.input option { color: var(--bone); background: var(--ink-2); }
   border: 1px solid var(--line); border-radius: var(--radius);
   background: linear-gradient(180deg, var(--surface-2), var(--surface));
 }
-.lp-step-n { font-family: "IBM Plex Mono", monospace; font-size: 1.4rem; font-weight: 500; color: var(--brass); line-height: 1.1; min-width: 1.4em; }
+.lp-step-n { font-family: "IBM Plex Mono", monospace; font-size: 1.4rem; font-weight: 500; color: var(--accent-2); line-height: 1.1; min-width: 1.4em; }
 .lp-step h3 { font-size: 1.15rem; }
 .lp-step p { color: var(--muted); margin: .4rem 0 0; line-height: 1.6; font-size: .95rem; }
 
 /* ---- features ---- */
 .lp-feat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr)); gap: 1.1rem; }
 .lp-feat { padding: 1.5rem; }
-.lp-feat-tag { font-family: "IBM Plex Mono", monospace; text-transform: uppercase; letter-spacing: .14em; font-size: .7rem; color: var(--brass); margin: 0 0 .8rem; }
+.lp-feat-tag { font-family: "IBM Plex Mono", monospace; text-transform: uppercase; letter-spacing: .14em; font-size: .7rem; color: var(--accent-2); margin: 0 0 .8rem; }
 .lp-feat h3 { font-size: 1.18rem; }
 .lp-feat p { color: var(--muted); margin: .55rem 0 0; line-height: 1.65; font-size: .93rem; }
 
@@ -665,7 +708,7 @@ select.input option { color: var(--bone); background: var(--ink-2); }
 @media (min-width: 860px) { .lp-start-grid { grid-template-columns: 1fr 1.1fr; gap: 3rem; } }
 .lp-start-links { margin-top: 1.2rem; }
 .lp-code { overflow: hidden; }
-.lp-code-head { display: flex; align-items: center; justify-content: space-between; padding: .55rem .7rem .55rem 1rem; border-bottom: 1px solid var(--line); background: rgba(0,0,0,.22); }
+.lp-code-head { display: flex; align-items: center; justify-content: space-between; padding: .55rem .7rem .55rem 1rem; border-bottom: 1px solid var(--line); background: rgba(15,23,42,.05); }
 .lp-code .cmd { margin: 0; border: 0; border-left: 0; border-radius: 0; }
 
 /* ---- install (Claude Code kit) ---- */
@@ -674,11 +717,11 @@ select.input option { color: var(--bone); background: var(--ink-2); }
 .lp-cmd-ref { margin: 2rem 0 0; display: grid; gap: .5rem; }
 .lp-cmd-row {
   display: grid; gap: .1rem .9rem;
-  padding: .7rem .9rem; border: 1px solid var(--line); border-radius: 10px; background: rgba(0,0,0,.14);
+  padding: .7rem .9rem; border: 1px solid var(--line); border-radius: 10px; background: rgba(15,23,42,.035);
 }
 @media (min-width: 680px) { .lp-cmd-row { grid-template-columns: minmax(0, 23rem) 1fr; align-items: baseline; } }
 .lp-cmd-row dt { margin: 0; }
-.lp-cmd-row dt code { font-family: "IBM Plex Mono", monospace; font-size: .86rem; color: var(--brass); overflow-wrap: anywhere; }
+.lp-cmd-row dt code { font-family: "IBM Plex Mono", monospace; font-size: .86rem; color: var(--accent-2); overflow-wrap: anywhere; }
 .lp-cmd-row dd { margin: 0; color: var(--muted); font-size: .9rem; line-height: 1.5; }
 .lp-install-deps { margin-top: 2.2rem; }
 
@@ -699,7 +742,7 @@ select.input option { color: var(--bone); background: var(--ink-2); }
 @media (min-width: 620px) { .lp-build-opts { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .lp-build-opts .field { margin: 0; }
 .lp-build-note { color: var(--faint); font-size: .8rem; line-height: 1.5; margin: .45rem 0 0; }
-.lp-build-note a { color: var(--brass); }
+.lp-build-note a { color: var(--accent-2); }
 
 /* Flags as a real fieldset: the legend names the group for a screen reader, and
    each label wraps its own input so the whole row is the hit target. */
@@ -710,20 +753,20 @@ select.input option { color: var(--bone); background: var(--ink-2); }
 .lp-check {
   display: grid; grid-template-columns: auto minmax(0, 1fr); gap: .1rem .7rem; align-items: start;
   min-height: 44px; padding: .7rem .85rem; margin-bottom: .5rem;
-  border: 1px solid var(--line); border-radius: 10px; background: rgba(0,0,0,.14);
+  border: 1px solid var(--line); border-radius: 10px; background: rgba(15,23,42,.035);
   cursor: pointer; transition: border-color .15s ease, background .15s ease;
 }
 .lp-check:last-child { margin-bottom: 0; }
-.lp-check:hover { border-color: var(--line-2); background: rgba(0,0,0,.2); }
+.lp-check:hover { border-color: var(--line-2); background: rgba(15,23,42,.055); }
 /* The native checkbox keeps its own focus ring, so lift the row with it — a
    keyboard user needs to see which row the ring belongs to. */
-.lp-check:focus-within { border-color: var(--ember); box-shadow: 0 0 0 3px rgba(224,122,62,.2); }
-.lp-check-box { inline-size: 1.15rem; block-size: 1.15rem; margin: .15rem 0 0; accent-color: var(--ember); cursor: pointer; }
+.lp-check:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(14,116,144,.2); }
+.lp-check-box { inline-size: 1.15rem; block-size: 1.15rem; margin: .15rem 0 0; accent-color: var(--accent); cursor: pointer; }
 .lp-check-text { display: grid; gap: .2rem; }
-.lp-check-flag { font-family: "IBM Plex Mono", monospace; font-size: .86rem; color: var(--brass); }
+.lp-check-flag { font-family: "IBM Plex Mono", monospace; font-size: .86rem; color: var(--accent-2); }
 .lp-check-desc { color: var(--muted); font-size: .87rem; line-height: 1.5; }
 
-/* The assembled command is the section's deliverable, so it keeps the ember edge
+/* The assembled command is the section's deliverable, so it keeps the accent edge
    that .lp-code otherwise strips off .cmd.
 
    Matched through .lp-build-cli too, the wrapper the platform tabs toggle. Direct
@@ -735,7 +778,7 @@ select.input option { color: var(--bone); background: var(--ink-2); }
 .lp-build > .lp-code,
 .lp-build > .lp-build-cli > .lp-code { margin-top: 1.5rem; border-color: var(--line-2); }
 .lp-build > .lp-code .cmd,
-.lp-build > .lp-build-cli > .lp-code .cmd { border-left: 3px solid var(--ember); }
+.lp-build > .lp-build-cli > .lp-code .cmd { border-left: 3px solid var(--accent); }
 
 /* The platform row is the outer question, so it reads as a heading for the row
    below rather than a second peer control: tighter to its own hint, and separated
@@ -748,14 +791,14 @@ select.input option { color: var(--bone); background: var(--ink-2); }
 .lp-build-panel-note { max-width: 72ch; margin-top: .9rem; }
 
 /* The token caveat sits under the command because it is the one step the command
-   cannot carry; brass rule rather than a warning colour — it is a prerequisite,
+   cannot carry; an accent-2 rule rather than a warning colour — it is a prerequisite,
    not an error. */
 .lp-build-token {
-  margin: .9rem 0 0; padding-left: .9rem; border-left: 2px solid var(--brass);
+  margin: .9rem 0 0; padding-left: .9rem; border-left: 2px solid var(--accent-2);
   color: var(--muted); font-size: .88rem; line-height: 1.6; max-width: 72ch;
 }
-.lp-build-token b { color: var(--bone); font-weight: 600; }
-.lp-build-token a { color: var(--brass); }
+.lp-build-token b { color: var(--fg); font-weight: 600; }
+.lp-build-token a { color: var(--accent-2); }
 
 /* The same builder mounted inside a project card on the dashboard. It sits in a
    column roughly half the landing page's width, so the two-up options grid would
@@ -783,17 +826,17 @@ select.input option { color: var(--bone); background: var(--ink-2); }
 .lp-plan-grid { display: grid; gap: 1.4rem; max-width: 46rem; margin: 0 auto; }
 @media (min-width: 760px) { .lp-plan-grid { grid-template-columns: repeat(2, 1fr); } }
 .lp-plan { padding: 1.8rem; display: flex; flex-direction: column; gap: .3rem; position: relative; }
-.lp-plan.featured { border-color: var(--ember); box-shadow: 0 0 0 1px var(--ember), var(--shadow); }
+.lp-plan.featured { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent), var(--shadow); }
 .lp-plan-flag {
   position: absolute; top: -.7rem; right: 1.2rem;
-  background: var(--ember); color: var(--ember-ink);
+  background: var(--accent); color: var(--accent-fg);
   font-family: "IBM Plex Mono", monospace; font-size: .66rem; text-transform: uppercase; letter-spacing: .1em; font-weight: 600;
   padding: .28rem .6rem; border-radius: 999px;
 }
 .lp-plan h3 { font-size: 1.4rem; }
 .lp-plan-tag { color: var(--muted); margin: .2rem 0 0; font-size: .9rem; }
 .lp-plan-price { margin: 1rem 0 .3rem; display: flex; align-items: baseline; gap: .4rem; }
-.lp-plan-amt { font-family: "Fraunces", Georgia, serif; font-weight: 700; font-size: 2.6rem; color: var(--bone); line-height: 1; }
+.lp-plan-amt { font-family: "Fraunces", Georgia, serif; font-weight: 700; font-size: 2.6rem; color: var(--fg); line-height: 1; }
 .lp-plan-per { color: var(--faint); font-size: .9rem; }
 .lp-plan-list { list-style: none; margin: 1rem 0 1.6rem; padding: 0; display: grid; gap: .6rem; flex: 1; }
 .lp-plan-list li { color: var(--muted); font-size: .92rem; padding-left: 1.5rem; position: relative; line-height: 1.5; }
@@ -809,8 +852,8 @@ select.input option { color: var(--bone); background: var(--ink-2); }
 .lp-cost-head h3 { font-size: clamp(1.4rem, 2.6vw, 1.9rem); line-height: 1.15; margin: .15rem 0 0; }
 .lp-cost-head p { color: var(--muted); margin: .7rem 0 0; line-height: 1.6; }
 .lp-cost-foot { color: var(--muted); margin: 1.7rem 0 0; max-width: 68ch; font-size: .96rem; line-height: 1.65; }
-.lp-cost-foot b { color: var(--brass); font-weight: 600; }
-.lp-cost-foot a { color: var(--ember); text-underline-offset: 2px; }
+.lp-cost-foot b { color: var(--accent-2); font-weight: 600; }
+.lp-cost-foot a { color: var(--accent); text-underline-offset: 2px; }
 
 /* ---- migrate ---- */
 .lp-migrate { display: grid; gap: 1.5rem; padding: 2rem; }
@@ -827,11 +870,11 @@ select.input option { color: var(--bone); background: var(--ink-2); }
   width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 1rem;
   text-align: left; padding: 1.1rem 1.2rem; min-height: 44px;
   background: transparent; border: 0; cursor: pointer;
-  color: var(--bone); font-family: "Fraunces", Georgia, serif; font-weight: 500; font-size: 1.08rem;
+  color: var(--fg); font-family: "Fraunces", Georgia, serif; font-weight: 500; font-size: 1.08rem;
 }
-.lp-faq-q:hover { color: var(--ember); }
-.lp-faq-q:focus-visible { outline: none; box-shadow: inset 0 0 0 2px rgba(224,122,62,.55); }
-.lp-faq-mark { color: var(--brass); font-size: 1.5rem; line-height: 1; flex-shrink: 0; transition: transform .2s ease; }
+.lp-faq-q:hover { color: var(--accent); }
+.lp-faq-q:focus-visible { outline: none; box-shadow: inset 0 0 0 2px rgba(14,116,144,.55); }
+.lp-faq-mark { color: var(--accent-2); font-size: 1.5rem; line-height: 1; flex-shrink: 0; transition: transform .2s ease; }
 .lp-faq-mark.open { transform: rotate(45deg); }
 .lp-faq-a { padding: 0 1.2rem 1.2rem; }
 .lp-faq-a p { margin: 0; color: var(--muted); line-height: 1.7; max-width: 64ch; }
@@ -840,7 +883,7 @@ select.input option { color: var(--bone); background: var(--ink-2); }
 .lp-final {
   padding: clamp(3.5rem, 7vw, 6rem) 0; text-align: center;
   border-top: 1px solid var(--line);
-  background: radial-gradient(720px 320px at 50% 0, rgba(224,122,62,.13), transparent 70%);
+  background: radial-gradient(720px 320px at 50% 0, rgba(14,116,144,.13), transparent 70%);
 }
 .lp-final-inner { max-width: 40rem; margin: 0 auto; }
 .lp-final h2 { font-size: clamp(2rem, 4vw, 3rem); line-height: 1.05; }
@@ -848,7 +891,7 @@ select.input option { color: var(--bone); background: var(--ink-2); }
 .lp-final .lp-cta-row { justify-content: center; margin-top: 1.8rem; }
 
 /* ---- footer ---- */
-.lp-footer { border-top: 1px solid var(--line); background: var(--ink-2); padding: 3rem 0 2rem; }
+.lp-footer { border-top: 1px solid var(--line); background: var(--bg-2); padding: 3rem 0 2rem; }
 .lp-footer-grid { display: grid; gap: 1.6rem; }
 @media (min-width: 760px) { .lp-footer-grid { grid-template-columns: 1.4fr 1fr; align-items: start; } }
 .lp-footer-brand .brand { font-size: 1.3rem; }
@@ -856,13 +899,13 @@ select.input option { color: var(--bone); background: var(--ink-2); }
 .lp-footer-links { display: flex; flex-wrap: wrap; gap: .8rem 1.4rem; }
 @media (min-width: 760px) { .lp-footer-links { justify-content: flex-end; } }
 .lp-footer-links a { color: var(--muted); font-size: .9rem; }
-.lp-footer-links a:hover { color: var(--ember); text-decoration: none; }
+.lp-footer-links a:hover { color: var(--accent); text-decoration: none; }
 
 /* ---- upgrade-to-Pro card (project page) ---- */
-.upgrade-card { margin-bottom: 1.6rem; border-color: color-mix(in srgb, var(--ember) 32%, var(--line)); }
+.upgrade-card { margin-bottom: 1.6rem; border-color: color-mix(in srgb, var(--accent) 32%, var(--line)); }
 .upgrade-lede { color: var(--muted); margin: 0 0 1.2rem; max-width: 52ch; line-height: 1.55; }
 /* segmented monthly/annual control */
-.seg { display: inline-flex; gap: .25rem; padding: .25rem; border: 1px solid var(--line-2); border-radius: 999px; background: rgba(0,0,0,.22); }
+.seg { display: inline-flex; gap: .25rem; padding: .25rem; border: 1px solid var(--line-2); border-radius: 999px; background: rgba(15,23,42,.05); }
 .seg-btn {
   display: inline-flex; align-items: center; gap: .5rem;
   min-height: 40px; padding: .4rem 1rem; border: 0; border-radius: 999px;
@@ -870,20 +913,22 @@ select.input option { color: var(--bone); background: var(--ink-2); }
   font: inherit; font-size: .9rem; font-weight: 600; letter-spacing: .01em;
   transition: background .15s ease, color .15s ease;
 }
-.seg-btn:hover { color: var(--bone); }
-.seg-btn.active { background: var(--ember); color: var(--ember-ink); }
-.seg-btn:focus-visible { outline: 2px solid var(--brass); outline-offset: 2px; }
+.seg-btn:hover { color: var(--fg); }
+.seg-btn.active { background: var(--accent); color: var(--accent-fg); }
+.seg-btn:focus-visible { outline: 2px solid var(--accent-2); outline-offset: 2px; }
 .seg-save {
   font-family: "IBM Plex Mono", monospace; font-size: .6rem; text-transform: uppercase; letter-spacing: .08em;
   padding: .12rem .4rem; border-radius: 999px;
-  background: rgba(210,173,85,.16); color: var(--brass);
+  background: rgba(67,56,202,.16); color: var(--accent-2);
 }
-.seg-btn.active .seg-save { background: rgba(26,15,6,.22); color: var(--ember-ink); }
+/* On the active (accent-filled) pill this badge sits on --accent, so it lightens
+   rather than darkens — the dark theme's near-black overlay would now be a hole. */
+.seg-btn.active .seg-save { background: rgba(255,255,255,.22); color: var(--accent-fg); }
 /* price */
 .upgrade-price { margin: 1.3rem 0 .2rem; min-height: 3rem; display: flex; align-items: baseline; flex-wrap: wrap; gap: .5rem; }
-.upgrade-amt { font-family: "Fraunces", Georgia, serif; font-weight: 700; font-size: 2.6rem; color: var(--bone); line-height: 1; }
+.upgrade-amt { font-family: "Fraunces", Georgia, serif; font-weight: 700; font-size: 2.6rem; color: var(--fg); line-height: 1; }
 .upgrade-per { color: var(--faint); font-size: .95rem; }
-.upgrade-sub { color: var(--brass); font-size: .82rem; width: 100%; }
+.upgrade-sub { color: var(--accent-2); font-size: .82rem; width: 100%; }
 .upgrade-list { list-style: none; margin: 1rem 0 1.5rem; padding: 0; display: grid; gap: .55rem; }
 .upgrade-list li { color: var(--muted); font-size: .92rem; padding-left: 1.5rem; position: relative; line-height: 1.5; }
 .upgrade-list li::before { content: "✓"; position: absolute; left: 0; color: var(--ok); font-weight: 700; }
@@ -891,10 +936,10 @@ select.input option { color: var(--bone); background: var(--ink-2); }
 .upgrade-actions .hint { color: var(--faint); font-size: .82rem; max-width: 40ch; }
 
 /* ---- manage-plan card (project page, active paid plan) ---- */
-/* A settled/active counterpart to the upgrade CTA: brass accent (not ember urgency)
+/* A settled/active counterpart to the upgrade CTA: accent-2 (not the primary's urgency)
    and a live status dot signal "your plan is running" rather than "buy now". */
-.manage-card { margin-bottom: 1.6rem; border-color: color-mix(in srgb, var(--brass) 34%, var(--line)); }
-.manage-status { display: inline-flex; align-items: center; gap: .5rem; margin: 0 0 1rem; font-size: .92rem; font-weight: 600; color: var(--brass); }
+.manage-card { margin-bottom: 1.6rem; border-color: color-mix(in srgb, var(--accent-2) 34%, var(--line)); }
+.manage-status { display: inline-flex; align-items: center; gap: .5rem; margin: 0 0 1rem; font-size: .92rem; font-weight: 600; color: var(--accent-2); }
 .manage-status .dot { width: .5rem; height: .5rem; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 24%, transparent); }
 .manage-lede { color: var(--muted); margin: 0 0 1.3rem; max-width: 52ch; line-height: 1.55; }
 .manage-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem 1rem; }
@@ -916,10 +961,10 @@ select.input option { color: var(--bone); background: var(--ink-2); }
    toggle, which must be a real <button> for keyboard/AX but look textual. */
 .linkish {
   background: none; border: 0; padding: 0; margin: 0; font: inherit;
-  color: var(--ember); cursor: pointer; text-align: inherit;
+  color: var(--accent); cursor: pointer; text-align: inherit;
 }
 .linkish:hover { text-decoration: underline; }
-.linkish:focus-visible { outline: 2px solid var(--brass); outline-offset: 3px; border-radius: 4px; }
+.linkish:focus-visible { outline: 2px solid var(--accent-2); outline-offset: 3px; border-radius: 4px; }
 
 /* danger button — destructive confirm (turn off 2FA) */
 .btn-danger { background: transparent; color: var(--danger); border-color: color-mix(in srgb, var(--danger) 45%, var(--line-2)); }
@@ -939,11 +984,13 @@ select.input option { color: var(--bone); background: var(--ink-2); }
 .tfa-qr-col { display: flex; flex-direction: column; gap: .8rem; }
 .totp-qr {
   display: block; width: 220px; height: 220px; border-radius: 12px;
-  background: #fff; padding: 10px; /* quiet zone so scanners lock on against the dark card */
+  background: #fff; padding: 10px; /* the QR's own quiet zone — required by the format
+                                      regardless of what the card behind it looks like, so
+                                      it stays white now the card is white too */
   border: 1px solid var(--line-2);
 }
 .tfa-manual summary { cursor: pointer; color: var(--muted); font-size: .85rem; }
-.tfa-manual summary:hover { color: var(--ember); }
+.tfa-manual summary:hover { color: var(--accent); }
 .tfa-manual .token { display: block; margin-top: .4rem; word-break: break-all; }
 .tfa-confirm-col { min-width: 0; }
 .tfa-actions { display: flex; gap: .7rem; flex-wrap: wrap; align-items: center; }
@@ -951,11 +998,11 @@ select.input option { color: var(--bone); background: var(--ink-2); }
 /* recovery codes — a bordered, save-me-now block shown once on enable */
 .tfa-recovery {
   margin: 0 0 1.6rem; padding: 1.2rem;
-  border: 1px solid color-mix(in srgb, var(--brass) 40%, var(--line));
-  border-radius: 12px; background: rgba(210,173,85,.06);
+  border: 1px solid color-mix(in srgb, var(--accent-2) 40%, var(--line));
+  border-radius: 12px; background: rgba(67,56,202,.06);
 }
-.tfa-recovery-warn { color: var(--bone); font-size: .9rem; margin: .3rem 0 1rem; line-height: 1.55; }
-.tfa-recovery-warn b { color: var(--brass); }
+.tfa-recovery-warn { color: var(--fg); font-size: .9rem; margin: .3rem 0 1rem; line-height: 1.55; }
+.tfa-recovery-warn b { color: var(--accent-2); }
 .rc-grid {
   list-style: none; margin: 0 0 1rem; padding: 0;
   display: grid; grid-template-columns: repeat(2, 1fr); gap: .5rem .9rem;
@@ -963,7 +1010,7 @@ select.input option { color: var(--bone); background: var(--ink-2); }
 @media (min-width: 520px) { .rc-grid { grid-template-columns: repeat(2, 1fr); } }
 .rc-grid code {
   font-family: "IBM Plex Mono", monospace; font-size: .95rem; letter-spacing: .04em;
-  color: var(--bone); font-variant-numeric: tabular-nums;
+  color: var(--fg); font-variant-numeric: tabular-nums;
 }
 
 /* ---- passkeys (account card + login buttons) ---- */
@@ -972,19 +1019,19 @@ select.input option { color: var(--bone); background: var(--ink-2); }
 .btn-ico { flex: 0 0 auto; }
 /* account/security link in the topbar — shield icon reads as "settings" */
 .user-account { display: inline-flex; align-items: center; gap: .45rem; color: var(--muted); }
-.user-account:hover { text-decoration: none; color: var(--ember); }
-.user-account:hover .email { color: var(--ember); }
-.user-account:focus-visible { outline: 2px solid var(--brass); outline-offset: 3px; border-radius: 6px; }
-.user-ico { flex: 0 0 auto; color: var(--brass); }
+.user-account:hover { text-decoration: none; color: var(--accent); }
+.user-account:hover .email { color: var(--accent); }
+.user-account:focus-visible { outline: 2px solid var(--accent-2); outline-offset: 3px; border-radius: 6px; }
+.user-ico { flex: 0 0 auto; color: var(--accent-2); }
 /* registered-passkey list */
 .pk-list { list-style: none; margin: .4rem 0 1.4rem; padding: 0; display: grid; gap: .6rem; }
 .pk-row {
   display: flex; align-items: center; justify-content: space-between; gap: 1rem;
   padding: .8rem 1rem; border: 1px solid var(--line); border-radius: 10px;
-  background: rgba(0,0,0,.14);
+  background: rgba(15,23,42,.035);
 }
 .pk-row-main { display: flex; flex-direction: column; gap: .15rem; min-width: 0; }
-.pk-name { color: var(--bone); font-weight: 600; font-size: .95rem; }
+.pk-name { color: var(--fg); font-weight: 600; font-size: .95rem; }
 .pk-meta { color: var(--faint); font-size: .78rem; font-variant-numeric: tabular-nums; }
 .pk-empty { color: var(--muted); font-size: .92rem; margin: .2rem 0 1.4rem; }
 .pk-add { border-top: 1px solid var(--line); padding-top: 1.3rem; }
@@ -1007,18 +1054,18 @@ select.input option { color: var(--bone); background: var(--ink-2); }
 .sb-switch-btn {
   font: 500 .92rem/1 "IBM Plex Sans", sans-serif;
   min-height: 44px; padding: .7rem 1.15rem;
-  color: var(--muted); background: rgba(0,0,0,.2);
+  color: var(--muted); background: rgba(15,23,42,.055);
   border: 1px solid var(--line); border-radius: 999px;
   cursor: pointer; transition: color .16s ease, border-color .16s ease, background .16s ease;
 }
-.sb-switch-btn:hover { color: var(--bone); border-color: var(--line-2); }
-.sb-switch-btn:focus-visible { outline: 2px solid var(--brass); outline-offset: 3px; }
+.sb-switch-btn:hover { color: var(--fg); border-color: var(--line-2); }
+.sb-switch-btn:focus-visible { outline: 2px solid var(--accent-2); outline-offset: 3px; }
 .sb-switch-btn.is-on {
-  color: var(--ember-ink); background: var(--ember);
-  border-color: var(--ember); font-weight: 600;
+  color: var(--accent-fg); background: var(--accent);
+  border-color: var(--accent); font-weight: 600;
 }
 
-.sb-panel-lede { color: var(--bone); font-size: 1.02rem; line-height: 1.6; margin: 0 0 1.6rem; max-width: 62ch; }
+.sb-panel-lede { color: var(--fg); font-size: 1.02rem; line-height: 1.6; margin: 0 0 1.6rem; max-width: 62ch; }
 .sb-cmds { display: grid; gap: 1rem; }
 @media (min-width: 860px) { .sb-cmds { grid-template-columns: 1fr 1fr; } }
 .sb-spec { margin-top: 1.8rem; }
@@ -1030,16 +1077,16 @@ select.input option { color: var(--bone); background: var(--ink-2); }
   color: var(--muted); font-size: .92rem; line-height: 1.55;
   padding-left: 1.4rem; position: relative; max-width: 78ch;
 }
-.sb-notes li::before { content: "—"; position: absolute; left: 0; color: var(--brass); }
+.sb-notes li::before { content: "—"; position: absolute; left: 0; color: var(--accent-2); }
 
-.sb-table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius); background: rgba(0,0,0,.14); }
+.sb-table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius); background: rgba(15,23,42,.035); }
 .sb-table { width: 100%; border-collapse: collapse; min-width: 46rem; }
 .sb-table-cap { text-align: left; padding: .9rem 1rem; color: var(--faint); font-size: .78rem; letter-spacing: .06em; text-transform: uppercase; }
 .sb-table th, .sb-table td { text-align: left; padding: .85rem 1rem; border-top: 1px solid var(--line); vertical-align: top; }
-.sb-table thead th { color: var(--bone); font-weight: 600; font-size: .92rem; background: rgba(0,0,0,.22); }
-.sb-table tbody th { color: var(--brass); font-weight: 500; font-size: .88rem; white-space: nowrap; }
+.sb-table thead th { color: var(--fg); font-weight: 600; font-size: .92rem; background: rgba(15,23,42,.05); }
+.sb-table tbody th { color: var(--accent-2); font-weight: 500; font-size: .88rem; white-space: nowrap; }
 .sb-table td { color: var(--muted); font-size: .88rem; line-height: 1.5; }
-.sb-table tbody tr:hover td, .sb-table tbody tr:hover th { background: rgba(255,255,255,.02); }
+.sb-table tbody tr:hover td, .sb-table tbody tr:hover th { background: rgba(15,23,42,.028); }
 
 /* A runnable command inside a card. Deliberately NOT .lp-def-k: that style
    uppercases its text, which is fine for a label but wrong for something the
@@ -1047,5 +1094,5 @@ select.input option { color: var(--bone); background: var(--ink-2); }
    Long flags wrap instead of forcing the card wide. */
 .sb-card-cmd {
   font-family: "IBM Plex Mono", monospace; font-size: .8rem; line-height: 1.5;
-  color: var(--brass); margin: 0 0 .9rem; overflow-wrap: anywhere;
+  color: var(--accent-2); margin: 0 0 .9rem; overflow-wrap: anywhere;
 }
