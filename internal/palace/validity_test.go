@@ -140,6 +140,13 @@ func TestExistingRowsReadAsCurrentAfterMigration(t *testing.T) {
 	if err := goose.UpTo(sqlDB, "migrations", validityWindowMigrationVersion-1); err != nil {
 		t.Fatalf("migrate to pre-window: %v", err)
 	}
+	// Closed because the handle is the TEST's, not the process's. POSIX unlinks
+	// an open file so this leaks invisibly here; Windows refuses, and t.TempDir
+	// registers RemoveAll at call time, so every test using the helper fails in
+	// cleanup with its assertions passing (#162). Cleanup is LIFO, so this runs
+	// before TempDir's own.
+	t.Cleanup(func() { _ = sqlDB.Close() })
+
 	if _, err := sqlDB.Exec(
 		`INSERT INTO drawers (team_id,id,wing,room,source_file,chunk_index,content,entities,parent_id,filed_at,content_date,agent,topic)
 		 VALUES ('t','old-row-1','w','r','',0,'written before the window existed','','','2026-01-01T00:00:00Z','','','')`); err != nil {
@@ -148,6 +155,12 @@ func TestExistingRowsReadAsCurrentAfterMigration(t *testing.T) {
 	if err := goose.Up(sqlDB, "migrations"); err != nil {
 		t.Fatalf("apply the validity window: %v", err)
 	}
+	// Closed because the handle is the TEST's, not the process's. POSIX unlinks
+	// an open file so this leaks invisibly here; Windows refuses, and t.TempDir
+	// registers RemoveAll at call time, so every test using the helper fails in
+	// cleanup with its assertions passing (#162). Cleanup is LIFO, so this runs
+	// before TempDir's own.
+	t.Cleanup(func() { _ = sqlDB.Close() })
 
 	svc := NewService(NewRepo(gdb, gdb), fakeEmbedder{}, sqlitevec.New(gdb), fakeDim)
 	d, err := svc.Get(ctx, "t", "old-row-1")

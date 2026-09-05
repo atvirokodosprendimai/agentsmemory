@@ -449,6 +449,18 @@ func openDB(t *testing.T, path string) *gorm.DB {
 			t.Fatalf("seed team %s: %v", team.ID, err)
 		}
 	}
+	// ⚠ CLOSED, and the leak it prevents is INVISIBLE ON THIS PLATFORM.
+	// POSIX unlinks a file with an open descriptor happily, so an unclosed
+	// handle produces no signal on Linux or macOS. Windows refuses the unlink,
+	// and t.TempDir registers its RemoveAll at call time — so the leak surfaces
+	// there as a cleanup failure in tests whose assertions all passed, 40 of
+	// them, none for a reason to do with what they assert (#162). Cleanup runs
+	// LIFO, so this is registered after TempDir's and therefore runs before it.
+	toClose, err := gdb.DB()
+	if err != nil {
+		t.Fatalf("get sql.DB to close: %v", err)
+	}
+	t.Cleanup(func() { _ = toClose.Close() })
 	return gdb
 }
 

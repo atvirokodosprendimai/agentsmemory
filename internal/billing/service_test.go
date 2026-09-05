@@ -50,6 +50,12 @@ func newTestEnv(t *testing.T) (*Service, *fakeCheckout, *tenant.Repo, *gorm.DB, 
 	if err := goose.Up(sqlDB, "migrations"); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
+	// Closed because the handle is the TEST's, not the process's. POSIX unlinks
+	// an open file so this leaks invisibly here; Windows refuses, and t.TempDir
+	// registers RemoveAll at call time, so every test using the helper fails in
+	// cleanup with its assertions passing (#162). Cleanup is LIFO, so this runs
+	// before TempDir's own.
+	t.Cleanup(func() { _ = sqlDB.Close() })
 
 	teamID := uuid.NewString()
 	if err := gdb.Exec(

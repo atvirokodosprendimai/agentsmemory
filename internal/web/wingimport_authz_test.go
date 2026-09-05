@@ -44,6 +44,12 @@ func newRoleEnv(t *testing.T, role tenant.Role) (*Server, *gorm.DB, string, stri
 	if err := goose.Up(sqlDB, "migrations"); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
+	// Closed because the handle is the TEST's, not the process's. POSIX unlinks
+	// an open file so this leaks invisibly here; Windows refuses, and t.TempDir
+	// registers RemoveAll at call time, so every test using the helper fails in
+	// cleanup with its assertions passing (#162). Cleanup is LIFO, so this runs
+	// before TempDir's own.
+	t.Cleanup(func() { _ = sqlDB.Close() })
 
 	now := time.Now().UTC().Format(time.RFC3339)
 	teamID, userID := uuid.NewString(), uuid.NewString()
