@@ -5,7 +5,7 @@
 **Produces:** the `agentsmemory-reground/<session>` marker, `/am` Step 1d
 **Consumes:** T1's `prompt=` note field and `source=compact` block
 **Proof map:** v1
-**Rests-on:** `the marker is written on a compaction`, `only on a compaction`, `the two halves resolve one directory`, `the wake names the task`, `a slash command is not the task`, `a marker already on disk is not an event`, `both protocol copies name the wake`
+**Rests-on:** `the marker is written on a compaction`, `only on a compaction`, `the two halves resolve one directory`, `the wake names the task`, `a slash command is not the task`, `harness chrome is not the task`, `a marker already on disk is not an event`, `both protocol copies name the wake`
 **Covers:** —
 
 ## Goal
@@ -33,7 +33,7 @@ event. Those are two mechanisms and the record collapsed them into one.
 | File | Change |
 |---|---|
 | `clients/claude-code/hooks/agentsmemory-recall-hook.sh` | write `agentsmemory-reground/<session>` carrying the task, inside the existing `AGENTSMEMORY_REGROUND` block; retire the false comment in place |
-| `clients/claude-code/hooks/agentsmemory-precompact-hook.sh` | drop a last user turn that opens with `/` — the compaction command is not the task |
+| `clients/claude-code/hooks/agentsmemory-precompact-hook.sh` | drop a last user turn that opens with `/`, and one that is wrapped harness chrome (`<command-…>`, local-command stdout, a task notification, a system reminder) — neither names the task |
 | `clients/claude-code/commands/am.md` | Step 1d: `TaskList`, then arm a persistent `Monitor` over that directory if none is armed |
 | `docs/adr/ADR-062-the-compacted-session-regrounds.md` | amend the "not buildable" paragraph beside itself; re-disposition the Out of Scope entry |
 | `clients/claude-code/regroundwake_test.go` | `TestACompactionWakesTheSessionThroughTheMonitor`, `TestOnlyACompactionArmsTheWake`, `TestASlashCommandIsNotTheTaskInFlight` |
@@ -48,6 +48,10 @@ event. Those are two mechanisms and the record collapsed them into one.
 6. [S6] Drop a leading-`/` turn in the PreCompact extraction, with `TestASlashCommandIsNotTheTaskInFlight`.
 7. [S7] Mutants, one per Rests-on mechanism. [proof: mutation]
 8. [S8] Record one real compaction in which the monitor fires and the session re-grounds. [proof: human: no test can observe a notification arriving in a live session; only a transcript shows the wake changed what the session did next]
+
+   **Observed 2026-09-05, session `a59e1cad`, monitor `bz4bkmjl3`, armed at `136004f` before the compaction.** The compaction replaced the context; the monitor's line arrived as a notification and the session took a turn on it. What it changed is the part no test could have shown: the re-ground was the FIRST action out of the summary, ahead of the two PR threads that were also waiting, and it was taken because the notification arrived — not because the summary asked for it. The printed `PAUSE` was in that same context and had been for every prior compaction; the wake is what got acted on.
+
+   ⚠ **AND THE WAKE'S OWN LABEL WAS DEFECTIVE, WHICH IS THE EVIDENCE ARRIVING TWICE.** It read ``/amm <command-message>am</command-message><command-name>/am</command-name><command-args>recall</command-args>`` — the `^/` guard S6 added catches the bare spelling only, and a slash command reaches the transcript wrapped in tags, so its content begins with `<`. Fixed in the same turn and the fixtures widened. The mechanism was debugged BY being used, which is the whole argument for a human step here: five fixtures agreed with each other and none of them had the shape the harness actually produces.
 9. [S9] Pin `am.md` and `bootstrap.md` equal on the wake and on its Claude-only caveat, with `TestBothProtocolsNameTheRegroundWake`. Two copies of one protocol is this repository's recorded hazard, and `Monitor` is a Claude Code tool — codex and pi run the same bootstrap and can arm nothing.
 
 ## Acceptance
@@ -65,7 +69,7 @@ if grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/a62t3.out; then echo "vacuous
 |---|---|---|---|---|
 | `TestACompactionWakesTheSessionThroughTheMonitor` | `clients/claude-code/regroundwake_test.go` | armed over a directory already holding a stale marker and a subdirectory, the shipped script emits the NEW task and never a replayed or empty one, under both addressing modes | — | S1, S3, S4, S5, S7 |
 | `TestOnlyACompactionArmsTheWake` | `clients/claude-code/regroundwake_test.go` | startup/resume/clear write no marker | — | S2 |
-| `TestASlashCommandIsNotTheTaskInFlight` | `clients/claude-code/regroundwake_test.go` | the compaction command is not recorded as the task | — | S6 |
+| `TestASlashCommandIsNotTheTaskInFlight` | `clients/claude-code/regroundwake_test.go` | neither spelling of a slash command, nor local-command stdout, a task notification or a system reminder, is recorded as the task — the wrapped case came from the live wake in S8, not from a fixture | — | S6, S8 |
 | `TestBothProtocolsNameTheRegroundWake` | `clients/claude-code/regroundwake_test.go` | `am.md` and `bootstrap.md` agree on the wake and on its Claude-only caveat | — | S9 |
 
 ## Invariants
@@ -108,6 +112,7 @@ and the printed pause would remain the only mechanism.
   the fence passed with the mechanism broken; it may not materialize, compile, load, or assert on the changed path
   ```
 - 2026-09-05 · 1fcc2da* · mutant killed · exit 1 · `clients/claude-code/hooks/agentsmemory-recall-hook.sh` · every startup and resume writes a marker with a note present, so the wake fires on sessions that were never compacted; re-run after the test was fixed to seed the note, which is what makes the source the deciding condition · acceptance-sha256:a7041b09bb5c6dda0c8df95d5a20437f8d9e710f3b533d108aeaf25d1d32395f · covers:only on a compaction
+- 2026-09-05 · 74d5858* · mutant killed · exit 1 · `clients/claude-code/hooks/agentsmemory-precompact-hook.sh` · the task label keeps every wrapped harness turn, so the wake names a command wrapper instead of work — exactly what the first live compaction with the monitor armed emitted · acceptance-sha256:a7041b09bb5c6dda0c8df95d5a20437f8d9e710f3b533d108aeaf25d1d32395f · covers:harness chrome is not the task
 
 ## Verification Log
 - 2026-09-05 · 0b8d533* · exit 0 · `gofmt -l clients/claude-code | grep -q . && exit 1 …` · acceptance-sha256:a7041b09bb5c6dda0c8df95d5a20437f8d9e710f3b533d108aeaf25d1d32395f · ms:7339
@@ -120,3 +125,5 @@ and the printed pause would remain the only mechanism.
 - 2026-09-05 · 0b8d533* · exit 0 · `gofmt -l clients/claude-code | grep -q . && exit 1 …` · acceptance-sha256:a7041b09bb5c6dda0c8df95d5a20437f8d9e710f3b533d108aeaf25d1d32395f · ms:7308
 - 2026-09-05 · 0b8d533* · exit 0 · `gofmt -l clients/claude-code | grep -q . && exit 1 …` · acceptance-sha256:a7041b09bb5c6dda0c8df95d5a20437f8d9e710f3b533d108aeaf25d1d32395f · ms:7135
 - 2026-09-05 · 1fcc2da* · exit 0 · `gofmt -l clients/claude-code | grep -q . && exit 1 …` · acceptance-sha256:a7041b09bb5c6dda0c8df95d5a20437f8d9e710f3b533d108aeaf25d1d32395f · ms:7636
+- 2026-09-05 · 74d5858* · exit 0 · `gofmt -l clients/claude-code | grep -q . && exit 1 …` · acceptance-sha256:a7041b09bb5c6dda0c8df95d5a20437f8d9e710f3b533d108aeaf25d1d32395f · ms:9369
+- 2026-09-05 · human-observed · S8: session a59e1cad, monitor bz4bkmjl3 armed at 136004f before a 16:12Z compaction — the wake arrived as a notification and the session re-grounded on it as its first action out of the summary; the wake's own label was defective (a wrapped slash command), which is how the harness-chrome guard was found
