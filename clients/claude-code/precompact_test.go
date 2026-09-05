@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/atvirokodosprendimai/agentsmemory/internal/testexec"
 )
@@ -234,5 +235,79 @@ func TestAColdStartDoesNotReadTheNote(t *testing.T) {
 		if strings.Contains(c, "llm_open_threads") {
 			t.Errorf("a startup start asked the checkpoint room: %s", c)
 		}
+	}
+}
+
+// TestThePreCompactHookSurvivesALongTranscriptLine drives the SCRIPT over a
+// transcript whose lines are the length a real one reaches, and holds it to a
+// wall-clock bound.
+//
+// It exists because every other test over the task-in-flight extraction drives a
+// fixture of short lines, and the stage is quadratic in LINE LENGTH rather than
+// in file size: `sed`'s `s/.*"role"…/` retries from every position, so one
+// 243,820-character line costs more than the other 16,405 lines together.
+// Measured 2026-09-05 on this checkout's own 29MB transcript, the stage took
+// 47.25s of a 49.19s run while reading the whole file took 0.01s.
+//
+// A bound rather than a benchmark, because what broke was not slowness. The hook
+// is registered with `timeout: 75`; past that it is killed, writes no note, and
+// the recall hook's `[ -s "$NOTE" ]` then skips the re-ground marker entirely —
+// so the compaction completes and the monitor waits for ever on a file nobody
+// will write. The owner saw only "/compact and nothing happens".
+//
+// ⚠ THE LINE MUST BE A TOOL RESULT, AND THE FIRST VERSION OF THIS FIXTURE WAS
+// NOT — THE MUTANT SURVIVED IT. Long ASSISTANT lines cost nothing (0.02s for 20
+// x 200,000 characters, measured): `.*"role"…"user"` fails on them early and sed
+// gives up. The expensive shape is a user turn whose `content` is an ARRAY, which
+// a tool result always is: `"role":"user","content":[` matches the pattern's
+// whole prefix and only then hits `[` where a quote was required, so every one of
+// those lines is a full backtracking scan. That is the same array-valued content
+// this extraction already documents as unreachable — it is not merely skipped,
+// it is what the scan spends its time on. A fixture built from the shape a reader
+// would reach for first pins nothing, which is why the shape is spelled out here
+// rather than left to the generator below.
+//
+// Sized and bounded from measurement, not from taste. Against a 29MB fixture —
+// the size this checkout's real transcript had reached — the hook takes 0.13s
+// with the prefilter and 12.72s without it. The 5s bound therefore leaves ~38x
+// headroom on the passing side while the mutant misses it by 2.5x, so neither a
+// loaded CI box nor a fast one changes the verdict.
+func TestThePreCompactHookSurvivesALongTranscriptLine(t *testing.T) {
+	state, repo := t.TempDir(), gitRepoWithOneDirtyFile(t)
+
+	// 120 tool-result turns of 250,000 characters, then the one plain user turn
+	// that names the work, then the `/compact` that triggered the compaction —
+	// so this also holds the chrome rule while it holds the clock.
+	var b strings.Builder
+	huge := strings.Repeat("x", 250_000)
+	for i := 0; i < 120; i++ {
+		b.WriteString(`{"type":"user","message":{"role":"user","content":[{"type":"tool_result","content":"` + huge + `"}]}}` + "\n")
+	}
+	b.WriteString(`{"type":"user","message":{"role":"user","content":"the work the compaction interrupted"}}` + "\n")
+	b.WriteString(`{"type":"user","message":{"role":"user","content":"/compact"}}` + "\n")
+
+	transcript := filepath.Join(t.TempDir(), "transcript.jsonl")
+	if err := os.WriteFile(transcript, []byte(b.String()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	start := time.Now()
+	note, _, stderr := runPreCompactHook(t, state, repo, "longline",
+		`{"session_id":"longline","trigger":"manual","transcript_path":"`+transcript+`"}`)
+	elapsed := time.Since(start)
+
+	if elapsed > 5*time.Second {
+		t.Errorf("the hook took %s over a %d-byte transcript of %d-character tool-result lines; "+
+			"the task-in-flight extraction is scanning them with a backtracking regexp, and at 75s "+
+			"the harness kills it — which costs the note, the marker and the re-ground wake, silently",
+			elapsed, b.Len(), len(huge))
+	}
+
+	// Exiting fast by extracting nothing is the same lost wake by another route,
+	// so the note must still name the work — and still skip the `/compact` turn
+	// that triggered the compaction.
+	if !strings.Contains(note, "prompt=the work the compaction interrupted") {
+		t.Errorf("the hook finished in %s but the note does not name the work in flight:\n%s\nstderr:\n%s",
+			elapsed, note, stderr)
 	}
 }
