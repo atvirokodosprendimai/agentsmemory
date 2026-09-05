@@ -39,7 +39,16 @@ func TestEveryModelACommandDefaultsToIsProvisionedOrDocumented(t *testing.T) {
 			docs.Write(src)
 		}
 	}
-	composeFiles, _ := repohygiene.ComposeFiles(root)
+	composeFiles, err := repohygiene.ComposeFiles(root)
+	if err != nil {
+		// Not tolerated, because the failure is SILENT in the direction that
+		// matters: an empty corpus makes this gate pass over documents it never
+		// read. On main the discard was safe — filepath.Glob with a constant
+		// pattern can only return ErrBadPattern — and reading the git index made
+		// the error reachable, which is what turned an inert `_` into a route to
+		// a vacuous pass. Raised in review of the change that moved it.
+		t.Fatalf("list tracked compose files: %v", err)
+	}
 	for _, path := range composeFiles {
 		if src, err := os.ReadFile(path); err == nil {
 			docs.Write(src)

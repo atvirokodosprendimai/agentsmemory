@@ -50,7 +50,16 @@ func TestDocumentedEnvVarsAreRead(t *testing.T) {
 	// nothing. RERANK_TOP_K sat in docker-compose.full.yml claiming a rerank pool
 	// of 20 that the server never read — the .env example happened to carry it
 	// too, which is the only reason the first version of this check saw it.
-	composeFiles, _ := repohygiene.ComposeFiles(root)
+	composeFiles, err := repohygiene.ComposeFiles(root)
+	if err != nil {
+		// Not tolerated, because the failure is SILENT in the direction that
+		// matters: an empty corpus makes this gate pass over documents it never
+		// read. On main the discard was safe — filepath.Glob with a constant
+		// pattern can only return ErrBadPattern — and reading the git index made
+		// the error reachable, which is what turned an inert `_` into a route to
+		// a vacuous pass. Raised in review of the change that moved it.
+		t.Fatalf("list tracked compose files: %v", err)
+	}
 	for _, path := range composeFiles {
 		rel, _ := filepath.Rel(root, path)
 		for _, v := range composeEnvVarsIn(t, path) {
@@ -432,7 +441,16 @@ func TestReadEnvVarsAreDocumented(t *testing.T) {
 	for _, rel := range operatorDocs {
 		docs = append(docs, filepath.Join(root, rel))
 	}
-	composeFiles, _ := repohygiene.ComposeFiles(root)
+	composeFiles, err := repohygiene.ComposeFiles(root)
+	if err != nil {
+		// Not tolerated, because the failure is SILENT in the direction that
+		// matters: an empty corpus makes this gate pass over documents it never
+		// read. On main the discard was safe — filepath.Glob with a constant
+		// pattern can only return ErrBadPattern — and reading the git index made
+		// the error reachable, which is what turned an inert `_` into a route to
+		// a vacuous pass. Raised in review of the change that moved it.
+		t.Fatalf("list tracked compose files: %v", err)
+	}
 	docs = append(docs, composeFiles...)
 
 	var corpus strings.Builder
