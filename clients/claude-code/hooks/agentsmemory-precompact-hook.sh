@@ -77,7 +77,10 @@ TMP="$(mktemp "$DIR/.$SESSION.XXXXXX" 2>/dev/null)" || { trace "cannot write und
   # Bounded to eight: the read side renders these on one line, and a wall of
   # paths after a compaction is skimmed rather than read. The count above says
   # how many were elided.
-  [ "$TOUCHED" -gt 0 ] && head -n 8 "$TOUCHED_LIST" | sed 's/^/file=/'
+  # `if` rather than `[ … ] && …` for the reason spelled out at the prompt line
+  # below: every optional line in this group is one edit away from being its LAST
+  # line, and a false test there deletes the note. This one is not last today.
+  if [ "$TOUCHED" -gt 0 ]; then head -n 8 "$TOUCHED_LIST" | sed 's/^/file=/'; fi
   # ADR-062: the TASK IN FLIGHT, so the other side can name what it interrupted.
   #
   # ADR-059 hands back where the tree was; it cannot say what the session was
@@ -206,7 +209,22 @@ TMP="$(mktemp "$DIR/.$SESSION.XXXXXX" 2>/dev/null)" || { trace "cannot write und
       | grep -Ev "$CHROME" \
       | tail -n 1 | tr '\n\r\t' '   ' | cut -c1-200 \
       | sed -e 's/[[:space:]][[:space:]]*/ /g' -e 's/^ //' -e 's/ $//')"
-    [ -n "$PENDING" ] && printf 'prompt=%s\n' "$PENDING"
+    # ⚠ `if`, NOT `[ … ] && …`, AND THIS IS THE WHOLE BUG THIS SHAPE CAUSED.
+    # The exit status of the `{ … }` below is the status of its LAST command, and
+    # that status decides whether `mv` runs or the note is DELETED. Written as
+    # `[ -n "$PENDING" ] && printf …`, a session whose extraction yields nothing
+    # ends the block on a false test — so the group exits 1, the `||` arm fires,
+    # and the note the session's whole re-ground depends on is thrown away. `if`
+    # with no `else` returns 0 when its condition is false, which is what an
+    # OPTIONAL line must do.
+    #
+    # Measured 2026-09-05 on a live brolis-lizdai session: it compacted, the
+    # harness reported `PreCompact … completed successfully`, and no note and no
+    # marker were ever written, so its armed monitor waited on a file that was
+    # deleted a millisecond after it was created. PENDING is empty exactly when
+    # every plain user turn is chrome — a short session driven by slash commands
+    # — which is a normal session, not a corner case.
+    if [ -n "$PENDING" ]; then printf 'prompt=%s\n' "$PENDING"; fi
   fi
 } > "$TMP" && mv -f "$TMP" "$NOTE" || { rm -f "$TMP"; trace "could not write the note"; exit 0; }
 
