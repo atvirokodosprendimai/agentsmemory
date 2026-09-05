@@ -49,6 +49,21 @@ count.
 
 ---
 
+## I created a room by mistake
+
+A room is its live memories, and nothing else (ADR-055). There is no create and no
+delete: filing a memory into a name is what makes the room exist, and the room is
+gone from `am_list_rooms`, `am_list_wings` and `am_graph_stats` the moment its
+last live memory is not there. Two verbs do that:
+
+- **retract** the memory — `am_invalidate_drawer(id, reason)` — when it should
+  not have been filed at all;
+- **relocate** it — `am_update_drawer(id, room: "<the right room>")` — when the
+  memory is right and the room name was the typo. The id is kept.
+
+A room whose memories are all ended stays readable by id (history is never
+deleted) and is listed by nothing.
+
 ## Nothing is being written to memory any more
 
 **Most likely: an install repointed your hooks.** A bare `aiagentmemory install`
