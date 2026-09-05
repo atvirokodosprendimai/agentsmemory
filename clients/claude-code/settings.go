@@ -128,16 +128,18 @@ func ensureHooks(path string, regs []hookReg, statusLineCmd string) (map[string]
 			changed[reg.event] = true
 			continue
 		}
-		if hookPresent(pruned, reg.cmd) && !dropped {
+		bounded := ensureHookTimeout(pruned, reg.cmd)
+		if hookPresent(pruned, reg.cmd) && !dropped && !bounded {
 			continue
 		}
 
 		if !hookPresent(pruned, reg.cmd) {
 			// Append a matcher-less entry carrying our command — the same shape
-			// Claude Code writes and the same shape the old install.sh produced.
+			// Claude Code writes and the same shape the old install.sh produced,
+			// plus the deadline every child this kit starts must carry.
 			pruned = append(pruned, map[string]any{
 				"hooks": []any{
-					map[string]any{"type": "command", "command": reg.cmd},
+					map[string]any{"type": "command", "command": reg.cmd, "timeout": hookTimeoutSeconds},
 				},
 			})
 		}
@@ -425,6 +427,59 @@ func dropHook(stop []any, isObsolete func(string) bool) ([]any, bool) {
 		out = append(out, em)
 	}
 	return out, dropped
+}
+
+// hookTimeoutSeconds is the deadline written into every hook registration, in
+// the seconds Claude Code's `timeout` field takes. The plugin manifest
+// (hooks/hooks.json) carries the same number by hand, and
+// TestEveryHookRegistrationCarriesATimeout holds the two together.
+//
+// It exists because of the owner's rule of 2026-09-05: every child a hook
+// starts carries a timeout, and the runner reaps it. Claude Code applies a
+// default when the field is absent, but a default is not a declaration — it
+// changes with the harness, and nothing in this tree could say what bound a
+// hook actually ran under.
+//
+// Seventy-five, not sixty: the one call in a hook that can hang is
+// `aiagentmemory mcp search`, whose client `--timeout` defaults to sixty
+// seconds (the recall hooks pass none), and that clock starts only after the
+// script's own off-switch checks and query assembly. An equal harness deadline
+// would always fire FIRST and kill the hook mid-request — review of the first
+// draft caught the comment claiming the opposite. Strictly greater means a
+// hook killed here is one whose inner call had already given up.
+const hookTimeoutSeconds = 75
+
+// ensureHookTimeout sets the deadline on every registration carrying cmd that
+// has none, and reports whether it changed anything. Registrations written by
+// an older kit have no `timeout`, and an install that only appends would leave
+// them unbounded for ever — "already registered" must not mean "left as it was".
+func ensureHookTimeout(entries []any, cmd string) bool {
+	changed := false
+	for _, entry := range entries {
+		em, ok := entry.(map[string]any)
+		if !ok {
+			continue
+		}
+		inner, ok := em["hooks"].([]any)
+		if !ok {
+			continue
+		}
+		for _, h := range inner {
+			hm, ok := h.(map[string]any)
+			if !ok {
+				continue
+			}
+			if c, _ := hm["command"].(string); c != cmd {
+				continue
+			}
+			if _, has := hm["timeout"]; has {
+				continue
+			}
+			hm["timeout"] = hookTimeoutSeconds
+			changed = true
+		}
+	}
+	return changed
 }
 
 // hookPresent reports whether any entry already registers command cmd,
