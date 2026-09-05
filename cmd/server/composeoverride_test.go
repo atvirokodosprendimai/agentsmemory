@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/atvirokodosprendimai/agentsmemory/internal/repohygiene"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -168,13 +169,34 @@ func stripInlineComment(v string) string {
 // `- KEY=value` list — because both are valid and a gate that reads one of them
 // is a gate the next author walks around without knowing it. envreach_test.go's
 // own parser already handles both, which is where the omission showed.
+// composeEnvAssignments parses the PROJECT's compose files — the tracked ones.
+//
+// The enumeration is repohygiene.ComposeFiles and not a directory glob, because
+// an operator's untracked local overlay is not the project's (#178, #296). It is
+// a thin wrapper over composeEnvAssignmentsIn so that the two questions stay
+// apart: WHICH files are the project's, and WHAT do these files say. Fusing them
+// is what made the fixture test below reach for a directory listing of a TempDir
+// that is not a repository at all.
 func composeEnvAssignments(t *testing.T, root string) []composeAssignment {
+	t.Helper()
+	files, err := repohygiene.ComposeFiles(root)
+	if err != nil {
+		t.Fatalf("list tracked compose files: %v", err)
+	}
+	return composeEnvAssignmentsIn(t, root, files)
+}
+
+// composeEnvAssignmentsIn parses exactly the files it is given.
+//
+// Separated from the enumeration so a fixture can be parsed without pretending to
+// be a checkout: the parser is what these tests exercise, and requiring a git
+// index to reach it would make the fixture test assert the enumeration instead.
+func composeEnvAssignmentsIn(t *testing.T, root string, files []string) []composeAssignment {
 	t.Helper()
 	mapForm := regexp.MustCompile(`^([A-Z][A-Z0-9_]*)\s*:\s*(\S.*)$`)
 	listForm := regexp.MustCompile(`^-\s*([A-Z][A-Z0-9_]*)=(.*)$`)
 	serviceLine := regexp.MustCompile(`^([a-z0-9][a-z0-9_-]*):\s*$`)
 
-	files, _ := filepath.Glob(filepath.Join(root, "docker-compose*.yml"))
 	var out []composeAssignment
 	for _, path := range files {
 		src, err := os.ReadFile(path)
@@ -248,7 +270,7 @@ func TestTheComposeParserSeesBothFormsAndNeitherComment(t *testing.T) {
 	}
 
 	got := map[string]composeAssignment{}
-	for _, a := range composeEnvAssignments(t, dir) {
+	for _, a := range composeEnvAssignmentsIn(t, dir, []string{filepath.Join(dir, "docker-compose.fixture.yml")}) {
 		got[a.Service+"::"+a.Name] = a
 	}
 	for _, want := range []string{"alpha::PINNED_MAP", "alpha::COMMENTED", "beta::PINNED_LIST", "beta::SHARED"} {
