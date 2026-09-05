@@ -129,14 +129,26 @@ if [ "$SOURCE" = "compact" ] && [ -n "$SESSION" ] && [ -s "$NOTE" ]; then
   # model is still holding when it chooses its first action, and INSIDE it so
   # ADR-061's NOTE_PRINTED covers it.
   #
-  # ⚠ IT IS AN INSTRUCTION, NOT A TRIGGER, AND THE DIFFERENCE IS NOT A DETAIL. No
-  # hook can invoke a skill, on a timer or otherwise, and nothing outside a
-  # session can make it take a turn: the CLI dispatches and attaches background
-  # sessions, and offers no way to send a prompt into a running one (checked
-  # 2026-09-05). A hook writes text and the model chooses. So this names one
-  # action and one task, because an instruction that can be acted on without
-  # looking anything else up is the only kind that survives a compaction.
-  # AGENTSMEMORY_REGROUND=off leaves the state note and drops the directive.
+  # ⚠ THIS IS AN INSTRUCTION AND NOT, BY ITSELF, A TRIGGER. No hook can invoke a
+  # skill, on a timer or otherwise: a hook writes text and the model chooses. So
+  # this names one action and one task, because an instruction that can be acted
+  # on without looking anything else up is the only kind that survives a
+  # compaction. AGENTSMEMORY_REGROUND=off leaves the state note and drops it.
+  #
+  # ⚠ AND THE SENTENCE THAT USED TO FOLLOW WAS FALSE — RETIRED IN PLACE 2026-09-05,
+  # not deleted, because the reason it was wrong is the transferable part. It read:
+  # "nothing outside a session can make it take a turn: the CLI dispatches and
+  # attaches background sessions, and offers no way to send a prompt into a running
+  # one (checked 2026-09-05)." The CLI half is true and the CONCLUSION is not. A
+  # persistent `Monitor` emits every stdout line as a notification, and a
+  # notification makes the session take a turn — measured the same day, a monitor
+  # armed before a 15:21:19Z compaction delivered an event to the same session
+  # after it, because a compaction replaces the CONTEXT and not the SESSION. What
+  # was actually ruled out is narrower: a HOOK cannot invoke a skill. The hook is
+  # not the trigger — it writes the marker below; a monitor the session armed is
+  # the trigger. Collapsing the two is how a buildable design got recorded as a
+  # permanent boundary, which is §Reachability's defect wearing the other face: a
+  # description that goes false, here about a capability that was never tried.
   #
   # The task is the FIRST prompt line of the shared reader's list: read_note is
   # one reader for two headers (ADR-061), so this takes what it already parsed
@@ -147,6 +159,18 @@ if [ "$SOURCE" = "compact" ] && [ -n "$SESSION" ] && [ -s "$NOTE" ]; then
       printf 'PAUSE — do not continue from the summary. Your first action is `/amm %s`: re-ground on that task (intent, code, palace), then reconcile what you find against the summary and say so if they disagree.\n' "$REGROUND_TASK"
     else
       printf 'PAUSE — do not continue from the summary. Your first action is `/amm`: re-ground before acting, and rebuild the plan from what you read rather than from the summary.\n'
+    fi
+    # The marker the re-ground monitor watches for. Writing it is the hook's whole
+    # part in the trigger: it cannot invoke anything, so it leaves one file whose
+    # APPEARANCE is the event, and a monitor armed by the session (see the `/am`
+    # command, Step 1d) turns that into a notification the session must answer.
+    # Keyed by session like the note above, so two concurrent sessions cannot read
+    # each other's task. A failure here is deliberately silent: the printed PAUSE
+    # above is the floor, and a hook that dies on an unwritable state dir would
+    # cost the session its branch and its uncommitted count for nothing.
+    REGROUND_DIR="${AGENTSMEMORY_STATE_DIR:-${TMPDIR:-/tmp}}/agentsmemory-reground"
+    if mkdir -p "$REGROUND_DIR" 2>/dev/null; then
+      printf '%s\n' "$REGROUND_TASK" > "$REGROUND_DIR/${SESSION:-none}" 2>/dev/null || true
     fi
   fi
   printf '\n'

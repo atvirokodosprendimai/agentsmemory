@@ -91,6 +91,57 @@ Reconcile the three. If project intent (1a), the code (1b), and past decisions (
 disagree, **surface the conflict** — that's a human decision, not one to make
 silently.
 
+## Step 1d — arm the re-ground wake, if it is not already armed (hard gate)
+
+**A compaction replaces your context while the work continues, and the session
+that comes out the other side is the one least able to notice it needs
+grounding.** ADR-062 makes the post-compaction injection *print* `PAUSE … /amm
+<task>`, which is an instruction: it works exactly as well as the model's
+willingness to read it. This step makes it a **trigger** instead.
+
+**Arm it once per session, and check first so you never arm a second one:**
+
+1. `TaskList` — if a monitor described `agentsmemory re-ground wake` is already
+   running, **do nothing**; say it is armed and move on.
+2. Otherwise call `Monitor` with `persistent: true`, description
+   `agentsmemory re-ground wake`, and this command:
+
+   ```bash
+   D="${AGENTSMEMORY_STATE_DIR:-${TMPDIR:-/tmp}}/agentsmemory-reground"
+   mkdir -p "$D"; seen=""
+   while true; do
+     for f in "$D"/*; do
+       [ -e "$f" ] || continue
+       case " $seen " in *" $f "*) continue ;; esac
+       seen="$seen $f"
+       printf 'RE-GROUND NOW — a compaction replaced this session context. Before anything else run `/amm %s`, then say how what you read differs from the summary.\n' "$(cat "$f" 2>/dev/null)"
+     done
+     sleep 2
+   done
+   ```
+
+The recall hook writes one marker file into that directory when it fires on
+`source=compact`, so the loop emits a single line a second or two later. **A
+monitor's stdout line arrives as a notification, and a notification makes the
+session take a turn** — which is the whole point: the re-ground stops depending
+on the model choosing to obey a line of text it may skim.
+
+⚠ **A monitor armed before a compaction SURVIVES it.** Compaction replaces the
+context, not the session, and background tasks belong to the session. Measured
+2026-09-05: a persistent monitor armed before a 15:21:19Z compaction delivered an
+event to the same session afterwards.
+
+⚠ **THIS COMMAND USED TO SAY THE MECHANISM WAS IMPOSSIBLE, AND THAT WAS WRONG.**
+ADR-062 recorded "no hook can invoke a skill, on a timer or otherwise" and
+generalised it to *nothing outside a session can make it take a turn*. The first
+clause is still true and the second is false. The hook is **not** the trigger —
+it writes a marker; a monitor the session armed is the trigger. Collapsing those
+two mechanisms is what shipped a design whose own record called it unbuildable.
+
+⚠ **The instruction remains the fallback, and must.** A session that never ran
+`/am` armed no monitor, so ADR-062's printed `PAUSE` is what it gets. This step
+raises the ceiling; it does not remove the floor.
+
 ## Memory-first — ask before you grep
 
 When the task pulls you into unfamiliar code, **ask memory first**: `am_search`
