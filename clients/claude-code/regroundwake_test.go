@@ -135,6 +135,39 @@ func TestACompactionWakesTheSessionThroughTheMonitor(t *testing.T) {
 			if strings.Contains(joined, "/amm `") || strings.Contains(joined, "/amm ,") {
 				t.Errorf("the monitor emitted an empty task label, which grounds nothing: %q", joined)
 			}
+
+			// ⚠ THE SECOND COMPACTION OF THE SAME SESSION, which is the case the
+			// first version of this loop could not serve. A marker is named for
+			// the SESSION ID, so its path is constant for the session's whole
+			// life; the loop kept a `seen` list keyed by that path, so the first
+			// compaction pinned it and every later one was skipped in silence.
+			// Measured 2026-09-05 on a live session: the second marker sat
+			// unconsumed for eight minutes beside a two-second loop, while a
+			// marker at a novel path in the same directory was consumed in under
+			// six. One compaction per session is exactly the shape a single-shot
+			// test cannot see, and the wake degraded as the session got longer —
+			// which is when re-grounding matters most.
+			second := `{"type":"user","message":{"role":"user","content":"the task the second compaction interrupted"}}` + "\n"
+			if err := os.WriteFile(transcript, []byte(second), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			runHookEnv(t, "agentsmemory-precompact-hook.sh", payload, env)
+			runHookEnv(t, "agentsmemory-recall-hook.sh", `{"session_id":"wakeprobe","source":"compact"}`, env)
+
+			for {
+				select {
+				case l, ok := <-lines:
+					if !ok {
+						t.Fatalf("the monitor's output ended before the second compaction woke the session; saw: %q", got)
+					}
+					got = append(got, l)
+					if strings.Contains(l, "/amm the task the second compaction interrupted") {
+						return
+					}
+				case <-time.After(30 * time.Second):
+					t.Fatalf("the second compaction of the same session emitted nothing: the marker path is the session id, so a loop that remembers paths it has emitted wakes a session exactly once and is silently dead for the rest of its life. saw: %q", got)
+				}
+			}
 		})
 	}
 }

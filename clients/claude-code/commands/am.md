@@ -108,20 +108,36 @@ willingness to read it. This step makes it a **trigger** instead.
 
    ```bash
    D="${AGENTSMEMORY_STATE_DIR:-${TMPDIR:-/tmp}}/agentsmemory-reground"
-   mkdir -p "$D"; seen=" "
+   mkdir -p "$D"
    # A marker's APPEARANCE is the event, so whatever is already on disk is not
    # one. Markers outlive their sessions by design (they sit beside ADR-059's
    # notes under the state dir), and replaying them would tell every new session
-   # to re-ground on somebody else's finished work. Regular files only: a
-   # subdirectory would `cat` to nothing and name an empty task.
-   for f in "$D"/*; do [ -f "$f" ] && seen="$seen$f "; done
+   # to re-ground on somebody else's finished work.
+   #
+   # ⚠ DISCARD THEM; DO NOT REMEMBER THEM. This loop used to keep a `seen` list
+   # of paths it had already emitted — and the marker's filename is the SESSION
+   # ID, which is constant for the whole life of a session. So the FIRST
+   # compaction emitted its marker and pinned that path for ever, and every LATER
+   # compaction of the same session rewrote the identical path and was skipped
+   # silently. Measured 2026-09-05 on a live session: the second compaction's
+   # marker sat unconsumed for eight minutes beside a two-second loop, while a
+   # marker written to a NOVEL path in the same directory was consumed in under
+   # six. The wake worked exactly once per session and then degraded as the
+   # session got longer — which is when re-grounding matters most.
+   rm -f "$D"/* 2>/dev/null
    while true; do
      for f in "$D"/*; do
+       # Regular files only: a subdirectory would `cat` to nothing and name an
+       # empty task.
        [ -f "$f" ] || continue
-       case "$seen" in *" $f "*) continue ;; esac
-       seen="$seen$f "
-       printf 'RE-GROUND NOW — a compaction replaced this session context. Before anything else run `/amm %s`, then say how what you read differs from the summary.\n' "$(cat "$f" 2>/dev/null)"
-       rm -f "$f" 2>/dev/null
+       # Claim by MOVE, to a dot-prefixed name the glob above cannot match, so a
+       # marker is consumed exactly once and a failed claim is skipped rather
+       # than emitted on every pass.
+       c="$D/.claim.$$"
+       mv "$f" "$c" 2>/dev/null || continue
+       task="$(cat "$c" 2>/dev/null)"
+       rm -f "$c" 2>/dev/null
+       printf 'RE-GROUND NOW — a compaction replaced this session context. Before anything else run `/amm %s`, then say how what you read differs from the summary.\n' "$task"
      done
      sleep 2
    done
