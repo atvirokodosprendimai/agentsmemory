@@ -58,6 +58,9 @@ go test ./clients/claude-code/ -run 'TestThePluginDeclaresEveryHookTheInstallerR
 
 ## Mutation Log
 
+- 2026-09-05 · 09762a2* · mutant killed · exit 1 · `clients/claude-code/hooks/agentsmemory-precompact-hook.sh` · the note is written under a fixed name instead of the session id, so every concurrent session reads another session's state · acceptance-sha256:3991f8275976fc2aae27b8284f821bebbe7e48e1f5e183f66714ad80cf32df3e · covers:the note is written under the session id
+- 2026-09-05 · 09762a2* · mutant killed · exit 1 · `clients/claude-code/installer.go` · the PreCompact plan names the touched hook instead, so the note writer is on disk and registered on nothing · acceptance-sha256:3991f8275976fc2aae27b8284f821bebbe7e48e1f5e183f66714ad80cf32df3e · covers:the PreCompact registration
+
 ## Invariants
 
 - The script never writes to stdout: PreCompact stdout goes to the debug log and a line there is a line somebody will one day expect the model to have read.
@@ -77,3 +80,14 @@ Stop if `hookEventChannel("PreCompact")` is not a definite debug-log answer — 
 - Reading the note (T2).
 
 ## Verification Log
+- 2026-09-05 · 09762a2* · exit 1 · `set -o pipefail …` · acceptance-sha256:3991f8275976fc2aae27b8284f821bebbe7e48e1f5e183f66714ad80cf32df3e · ms:591
+  ```
+  --- last 5 line(s) of stdout
+  # github.com/atvirokodosprendimai/agentsmemory/clients/claude-code [github.com/atvirokodosprendimai/agentsmemory/clients/claude-code.test]
+  clients/claude-code/precompact_test.go:122:42: undefined: precompactHookFile
+  clients/claude-code/precompact_test.go:127:30: undefined: precompactHookFile
+  FAIL	github.com/atvirokodosprendimai/agentsmemory/clients/claude-code [build failed]
+  FAIL
+  ```
+- 2026-09-05 · 09762a2* · exit 0 · `set -o pipefail …` · acceptance-sha256:3991f8275976fc2aae27b8284f821bebbe7e48e1f5e183f66714ad80cf32df3e · ms:3251
+- 2026-09-05 · 09762a2* · exit 0 · `set -o pipefail …` · acceptance-sha256:3991f8275976fc2aae27b8284f821bebbe7e48e1f5e183f66714ad80cf32df3e · ms:2323

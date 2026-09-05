@@ -100,6 +100,12 @@ const unattendedSettingsAsset = "unattended-settings.json"
 // arrives.
 const taskRecallHookAsset = "hooks/agentsmemory-task-recall-hook.sh"
 
+// precompactHookAsset is the embedded PreCompact hook (ADR-059): it writes the
+// session's state note — branch, HEAD, uncommitted count, touched files — in the
+// last moment before the context is summarised, for the SessionStart recall hook
+// to hand back on `source=compact`.
+const precompactHookAsset = "hooks/agentsmemory-precompact-hook.sh"
+
 const (
 	// hookFile is where the Stop hook is installed: flat in the config dir, not
 	// under hooks/. The directory name matters because a sandbox is shared — pi
@@ -134,6 +140,9 @@ const (
 
 	// taskRecallHookFile is where the per-prompt recall hook lands.
 	taskRecallHookFile = "agentsmemory-task-recall-hook.sh"
+
+	// precompactHookFile is where the PreCompact state-note writer lands.
+	precompactHookFile = "agentsmemory-precompact-hook.sh"
 
 	// statsHelperFile is the sourced /stats helper, beside the hook scripts.
 	statsHelperFile = "agentsmemory-stats.sh"
@@ -810,6 +819,7 @@ func (i *Installer) writeAssets() error {
 		}{
 			{anchorCueHookAsset, i.anchorCueHookPath(), "hook"},
 			{touchedHookAsset, i.touchedHookPath(), "hook"},
+			{precompactHookAsset, i.precompactHookPath(), "hook"},
 			{statusLineAsset, i.statusLinePath(), "status line"},
 			{unattendedSettingsAsset, filepath.Join(i.targetDir, "agentsmemory-unattended-settings.json"), "unattended permissions (pass with --settings)"},
 		} {
@@ -1006,6 +1016,11 @@ func (i *Installer) touchedHookPath() string {
 // taskRecallHookPath is where the UserPromptSubmit recall hook is installed.
 func (i *Installer) taskRecallHookPath() string {
 	return filepath.Join(i.targetDir, taskRecallHookFile)
+}
+
+// precompactHookPath is where the PreCompact state-note writer is installed.
+func (i *Installer) precompactHookPath() string {
+	return filepath.Join(i.targetDir, precompactHookFile)
 }
 
 // statsHelperPath is where the sourced /stats helper lands, beside the scripts
@@ -1421,6 +1436,17 @@ func (i *Installer) hookPlansOn(goos string) []hookPlan {
 			event: "PostToolUse",
 			cmd:   i.hookCommand(i.touchedHookPath()),
 			note:  "registered PostToolUse hook (the session remembers which files it changed)",
+		},
+
+		// ADR-059. THIS LINE IS THE MECHANISM: the script writes the state note
+		// in the last moment before a compaction, and is inert on any other event.
+		// PreCompact stdout goes to the debug log, which is why the script writes
+		// a file and the matcher-less SessionStart recall hook above reads it on
+		// `source=compact` — the same write/read split as the touched hook.
+		hookPlan{
+			event: "PreCompact",
+			cmd:   i.hookCommand(i.precompactHookPath()),
+			note:  "registered PreCompact hook (a compaction leaves a note the next start hands back)",
 		},
 
 		hookPlan{

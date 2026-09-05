@@ -17,7 +17,7 @@ README must be regenerated.
 
 | ID | Title | Status | Covers | Acceptance |
 |----|-------|--------|--------|------------|
-| T1 | A PreCompact hook writes the session's state note before the context is summarised | pending | — | `go test ./clients/claude-code/ -run 'TestThePreCompactHookWritesTheStateNote$\|TestThePreCompactHookIsRegistered$' …` |
+| T1 | A PreCompact hook writes the session's state note before the context is summarised | done | — | `go test ./clients/claude-code/ -run 'TestThePreCompactHookWritesTheStateNote$\|TestThePreCompactHookIsRegistered$' …` |
 | T2 | The SessionStart recall on `source=compact` hands the note back and recalls the session's checkpoint | pending | — | `go test ./clients/claude-code/ -run 'TestACompactStartHandsBackTheStateNote$\|TestAColdStartDoesNotReadTheNote$' …` |
 
 Status: `pending` | `partial` | `blocked` | `done`.

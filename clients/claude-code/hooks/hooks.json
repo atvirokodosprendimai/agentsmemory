@@ -21,6 +21,9 @@
     "SubagentStart": [
       { "hooks": [ { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/agentsmemory-subagent-start-hook.sh", "timeout": 75 } ] }
     ],
+    "PreCompact": [
+      { "hooks": [ { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/agentsmemory-precompact-hook.sh", "timeout": 75 } ] }
+    ],
     "SubagentStop": [
       { "hooks": [ { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/agentsmemory-stop-hook.sh", "timeout": 75 } ] }
     ],

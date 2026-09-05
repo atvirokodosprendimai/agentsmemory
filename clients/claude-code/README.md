@@ -138,6 +138,12 @@ reporting success.
   end-of-turn nudge from "persist something" into a question with an answer in it.
   It is not the `PostToolUse` audit ADR-041 rejected — it delivers no verdict, so
   there is nothing to report late.
+- `agentsmemory-precompact-hook.sh` → registered on **`PreCompact`** (ADR-059). In
+  the last moment before the context is summarised it writes a note — branch,
+  HEAD, uncommitted count, the session's touched files — keyed by session id
+  under the same state dir. It says nothing to the model: `PreCompact` stdout
+  goes to the debug log. The `SessionStart` recall hook reads the note when its
+  `source` is `compact` and opens the injection with it.
 - The task-recall script is registered on **`UserPromptSubmit`** and
   **`UserPromptExpansion`**, branching on `hook_event_name`. The submit branch
   REFUSES a slash command on purpose — `/am` is a command name, and recalling
