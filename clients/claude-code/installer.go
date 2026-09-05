@@ -582,7 +582,16 @@ func (i *Installer) run() error {
 
 	i.step("2/4  agentsmemory MCP")
 	if err := i.registerAgentsMemoryMCP(); err != nil {
-		// Non-fatal: the commands + hook are installed and useful on their own.
+		// ⚠ FATAL FOR A KIT THAT IS ONLY THIS STEP. For Claude Desktop the MCP
+		// registration is the whole install — no commands, no protocol file, no
+		// hook — so a failed one used to print a [!!] line among [ok] lines, a
+		// "Next steps" block written as though it had succeeded, and exit 0: a
+		// no-op install reporting done (issue #208). For the other kits the
+		// commands and hook are installed and useful on their own, so there the
+		// registration stays a warning.
+		if kitNeedsServerBin(i.kit) {
+			return fmt.Errorf("agentsmemory MCP not registered, and for %s that is the whole install: %w", i.kit.name, err)
+		}
 		i.warn("agentsmemory MCP not registered: %v", err)
 	}
 
@@ -1166,7 +1175,13 @@ func (i *Installer) placeServerBin() (string, error) {
 		return "", fmt.Errorf("make the staged server binary executable: %w", err)
 	}
 	if err := os.Rename(staged, dest); err != nil {
-		return "", fmt.Errorf("install the server binary to %s: %w", dest, err)
+		// The mechanism is a rename; the CAUSE an operator can act on is usually
+		// that Claude Desktop is running and has the bridge it spawned held open
+		// — on Windows the loader locks the image, and the rename comes back
+		// "Access is denied" with nothing in it naming Desktop (issue #208).
+		return "", fmt.Errorf("install the server binary to %s: %w — if Claude Desktop is running it holds "+
+			"the bridge it spawned open; quit Claude Desktop and re-run, or copy the new binary over "+
+			"that path after quitting", dest, err)
 	}
 	i.ok("installed server binary → %s", dest)
 	return dest, nil
@@ -2126,8 +2141,12 @@ func (i *Installer) registerClaudeDesktopMCP(token string) error {
 	}
 	entry := map[string]any{"command": placed, "args": args}
 	if i.dryRun {
-		fmt.Fprintf(i.out, "  would register the agentsmemory MCP in %s → %s mcp-stdio --url %s\n",
-			path, placed, i.mcpURL)
+		// ONE rendering, from the slice the entry is built from. The rehearsal used
+		// to format its own string from the URL alone, so a --wing or --token
+		// install rehearsed as a bare bridge and registered something else (issue
+		// #225). The token is redacted the way a bearer header already is.
+		fmt.Fprintf(i.out, "  would register the agentsmemory MCP in %s → %s %s\n",
+			path, placed, renderBridgeArgs(args, token))
 		return nil
 	}
 	changed, err := ensureMCPServer(path, mcpName, entry)
@@ -2141,6 +2160,21 @@ func (i *Installer) registerClaudeDesktopMCP(token string) error {
 	}
 	i.ok("restart Claude Desktop to pick it up — it reads this file only at launch")
 	return nil
+}
+
+// renderBridgeArgs prints the bridge's argument list as the registration will
+// carry it, with the token replaced by *** so a rehearsal never puts a credential
+// into a terminal or a captured log.
+func renderBridgeArgs(args []any, token string) string {
+	parts := make([]string, 0, len(args))
+	for _, a := range args {
+		s := fmt.Sprint(a)
+		if token != "" && s == token {
+			s = "***"
+		}
+		parts = append(parts, s)
+	}
+	return strings.Join(parts, " ")
 }
 
 // tokenPath is where the workspace token is persisted inside CODEX_HOME.

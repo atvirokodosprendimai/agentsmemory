@@ -340,9 +340,15 @@ var cursorKit = agentKit{
 // (`mcp-stdio --url`), so the Node.js route the project's own windows-guide
 // recommends is unnecessary for a self-hosted server.
 //
-// The consequence worth stating: Desktop receives the tools and no protocol at
-// all. ADR-021 T1's handshake instructions exist because this kit cannot deliver
-// one — the read half without the write half, one step further than Cursor.
+// What Desktop receives: the tools, and the protocol by the ONE route this kit
+// has — the MCP handshake. ADR-021 T1 puts the instructions in the initialize
+// result precisely for a client with nowhere to put a file, and through the real
+// bridge that handshake delivered 1,198 characters (measured 2026-09-04, issue
+// #198). What Desktop does NOT receive is the file half: no slash commands, no
+// memory file, no Stop hook — the read half without the write half, one step
+// further than Cursor. This comment used to deny the protocol outright, which
+// was true before ADR-021 and false after it, while installer.go's
+// registerMemoryBootstrap said the opposite, correctly.
 var claudeDesktopKit = agentKit{
 	name: agentClaudeDesktop,
 	bin:  "", // there is no CLI to drive
