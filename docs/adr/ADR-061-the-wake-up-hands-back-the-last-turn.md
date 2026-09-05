@@ -1,6 +1,6 @@
 # ADR-061: The wake-up hands back the last turn
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-09-05
 **Owner:** Zydrunas
 **Spec:** None — no spec stage
