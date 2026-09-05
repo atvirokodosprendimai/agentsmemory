@@ -143,12 +143,31 @@ func TestACompactionWakesTheSessionThroughTheMonitor(t *testing.T) {
 // ordinary start would wake every session into a re-ground it does not need, and
 // the failure is silent in the expensive direction: the notification arrives and
 // the session obeys it.
+// ⚠ IT MUST SEED THE NOTE FIRST, AND THE FIRST VERSION DID NOT — the mutant said
+// so. The guard is `source = compact` AND a non-empty note; over a fresh temp dir
+// there is no note, so the note check alone suppressed the block and deleting the
+// `compact` test changed nothing. adr-verify recorded that mutant as SURVIVED
+// against this fence. Writing the note first makes the source the only thing
+// left deciding, which is the mechanism this test claims to cover.
 func TestOnlyACompactionArmsTheWake(t *testing.T) {
 	for _, source := range []string{"startup", "resume", "clear"} {
 		state := t.TempDir()
-		runHookEnv(t, "agentsmemory-recall-hook.sh", `{"session_id":"wakeprobe","source":"`+source+`"}`, regroundEnv(state, true))
+		env := regroundEnv(state, true)
+
+		transcript := filepath.Join(state, "t.jsonl")
+		line := `{"type":"user","message":{"role":"user","content":"work from an earlier compaction"}}` + "\n"
+		if err := os.WriteFile(transcript, []byte(line), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		runHookEnv(t, "agentsmemory-precompact-hook.sh",
+			`{"session_id":"wakeprobe","transcript_path":"`+transcript+`","trigger":"auto"}`, env)
+		if _, err := os.Stat(filepath.Join(state, "agentsmemory-precompact", "wakeprobe")); err != nil {
+			t.Fatalf("the note was not seeded, so this test cannot bind the source guard: %v", err)
+		}
+
+		runHookEnv(t, "agentsmemory-recall-hook.sh", `{"session_id":"wakeprobe","source":"`+source+`"}`, env)
 		if _, err := os.Stat(filepath.Join(state, "agentsmemory-reground", "wakeprobe")); err == nil {
-			t.Errorf("source=%s wrote a re-ground marker; only a compaction should", source)
+			t.Errorf("source=%s wrote a re-ground marker with a note present; only a compaction should", source)
 		}
 	}
 }
