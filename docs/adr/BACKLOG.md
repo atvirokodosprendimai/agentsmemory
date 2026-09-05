@@ -2860,6 +2860,10 @@ label should be REFUSED at write time, or accepted and reported back the way a f
 the first turns working writes into failures for every client that has not been updated, the second
 adds a response field, and neither is cleanup.
 
+**Decided as a Proposed record on 2026-09-05:** `docs/adr/ADR-056-an-unlabelled-anchor-is-reported-not-refused.md`
+chooses accept-and-report (the fan-out shape), plus a `doctor --corpus` population for the anchors
+already filed. The record is not Accepted; the owner decides.
+
 ## The wake-up surface counts rows and calls them memories, and counts retracted ones — 2026-08-29
 
 Reported first-hand by a depozitas session; **not yet reproduced here**, so the cause is unverified
@@ -3651,3 +3655,17 @@ holds, this is the same defect ADR-055 fixes one surface over and the query want
 If it is what a wing has ever talked about, history belongs in it and the rule should be written down
 rather than left as an unfiltered query nobody chose. ADR-055 declined to settle it because it
 neither lists nor counts rooms, which is that record's whole subject.
+
+## The kit could label an anchor for the caller, and nobody has to remember `repo` — 2026-09-05
+
+Deferred from `docs/adr/ADR-056-an-unlabelled-anchor-is-reported-not-refused.md` (Out of Scope).
+
+ADR-056 reports an unlabelled anchor back to the caller because the server cannot know the
+caller's repository. The Claude Code kit CAN: `aiagentmemory` runs in the checkout, reads the git
+remote for the verify hook already, and could put the label in front of the model — in the tool
+description it installs, in a `SessionStart` line, or by filling `repo` on the way through a proxy
+it does not have today. Each of those is a different mechanism with a different failure mode (a
+description is read once, a session line is read before the first write, a proxy is a component
+that does not exist), and none removes the need for the server-side report, because Codex, pi and a
+raw MCP client do not run the kit. Worth a record once T1 has shipped and the population `doctor
+--corpus` reports is measured to be still growing.
