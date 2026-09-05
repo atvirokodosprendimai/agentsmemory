@@ -302,11 +302,7 @@ func graphTestDB(t *testing.T) *gorm.DB {
 	// there as a cleanup failure in tests whose assertions all passed, 40 of
 	// them, none for a reason to do with what they assert (#162). Cleanup runs
 	// LIFO, so this is registered after TempDir's and therefore runs before it.
-	toClose, err := gdb.DB()
-	if err != nil {
-		t.Fatalf("get sql.DB to close: %v", err)
-	}
-	t.Cleanup(func() { _ = toClose.Close() })
+	t.Cleanup(func() { _ = sqlDB.Close() })
 	return gdb
 }
 

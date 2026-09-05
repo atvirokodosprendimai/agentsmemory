@@ -40,11 +40,12 @@ func newMigratedDB(t *testing.T) *gorm.DB {
 	if err := goose.Up(sqlDB, "migrations"); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
-	// Closed because the handle is the TEST's, not the process's. POSIX unlinks
-	// an open file so this leaks invisibly here; Windows refuses, and t.TempDir
-	// registers RemoveAll at call time, so every test using the helper fails in
-	// cleanup with its assertions passing (#162). Cleanup is LIFO, so this runs
-	// before TempDir's own.
+	// Closed because the handle is the TEST's, not the process's. This palace is
+	// :memory:, so there is no file to unlink and no TempDir cleanup waiting —
+	// the sibling helpers' reason (#162) does not apply here and saying it would
+	// be false. What makes it right instead: an in-memory database lives on
+	// its CONNECTION, so the handle is the schema, and the helper that opened it
+	// owns its lifetime.
 	t.Cleanup(func() { _ = sqlDB.Close() })
 
 	return gdb

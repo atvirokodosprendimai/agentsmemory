@@ -32,7 +32,26 @@ func migratesAndClosesIn(fset *token.FileSet, file *ast.File, path string) []str
 		if !takesTestingT(fn) {
 			return true
 		}
-		migrates, closes := false, false
+		// ⚠ THE CLOSE IS BOUND TO THE MIGRATED HANDLE BY NAME, not merely present.
+		// An earlier version set closes=true for ANY .Close() in the function, and
+		// review demonstrated the hole: leave the DB handle leaking, add an
+		// unrelated `f.Close()` on an os.Open in the same helper, and the gate
+		// reports clean over a helper leaking exactly the handle it exists to
+		// protect. Nothing in the tree hits that today — all fourteen close the
+		// right object — so it was a future hole, and the future is a helper that
+		// grows a `defer rows.Close()` and silently leaves the class. goose.Up's
+		// first argument already NAMES the handle, so binding to that identifier
+		// costs nothing and removes the whole shape.
+		// ⚠ TWO PASSES, BECAUSE ONE IS ORDER-DEPENDENT AND SILENTLY SO. A single
+		// walk learns the handle's name only when it reaches goose.Up, so a
+		// `defer sqlDB.Close()` written ABOVE the migration — which is the
+		// idiomatic place for it, and what db/migrations_test.go does three times
+		// — is inspected while the name is still unknown and does not count. The
+		// first version of this gate reported those three as leaks. A detector
+		// whose verdict depends on statement order is worse than a loose one: it
+		// accuses correct code, and the fix a reader reaches for is to move a
+		// defer that was already right.
+		handle := ""
 		ast.Inspect(fn.Body, func(m ast.Node) bool {
 			call, ok := m.(*ast.CallExpr)
 			if !ok {
@@ -42,16 +61,32 @@ func migratesAndClosesIn(fset *token.FileSet, file *ast.File, path string) []str
 			if !ok {
 				return true
 			}
-			// goose.Up is what makes a handle a MIGRATED palace rather than an
-			// incidental open — the shape both offenders had.
-			if pkg, ok := sel.X.(*ast.Ident); ok && pkg.Name == "goose" && sel.Sel.Name == "Up" {
-				migrates = true
-			}
-			if sel.Sel.Name == "Close" {
-				closes = true
+			if pkg, ok := sel.X.(*ast.Ident); ok && pkg.Name == "goose" &&
+				(sel.Sel.Name == "Up" || sel.Sel.Name == "UpTo") && len(call.Args) > 0 {
+				if id, ok := call.Args[0].(*ast.Ident); ok {
+					handle = id.Name
+				}
 			}
 			return true
 		})
+		closes := false
+		ast.Inspect(fn.Body, func(m ast.Node) bool {
+			call, ok := m.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			sel, ok := call.Fun.(*ast.SelectorExpr)
+			if !ok {
+				return true
+			}
+			if sel.Sel.Name == "Close" {
+				if id, ok := sel.X.(*ast.Ident); ok && handle != "" && id.Name == handle {
+					closes = true
+				}
+			}
+			return true
+		})
+		migrates := handle != ""
 		if migrates && !closes {
 			bad = append(bad, fn.Name.Name+" ("+path+")")
 		}
@@ -180,6 +215,12 @@ func closes(t *testing.T) *DB {
 	goose.Up(sqlDB, "migrations")
 	t.Cleanup(func() { sqlDB.Close() })
 	return gdb
+}
+func closesTheWrongThing(t *testing.T) *DB {
+	goose.Up(sqlDB, "migrations")
+	f, _ := os.Open(os.DevNull)
+	t.Cleanup(func() { f.Close() })
+	return gdb
 }`
 		fs2 := token.NewFileSet()
 		f, err := parser.ParseFile(fs2, "fixture.go", fixture, 0)
@@ -187,9 +228,14 @@ func closes(t *testing.T) *DB {
 			t.Fatalf("parse fixture: %v", err)
 		}
 		got := migratesAndClosesIn(fs2, f, "fixture.go")
-		if len(got) != 1 || !strings.HasPrefix(got[0], "leaks") {
-			t.Fatalf("the detector reported %v over a fixture with exactly one leaking helper; "+
-				"a gate that cannot see an offender cannot report a clean tree either", got)
+		// Two offenders: the one that closes nothing, and the one that closes an
+		// UNRELATED handle — the false negative review demonstrated. The second is
+		// the reason this list is checked rather than just its length.
+		if len(got) != 2 ||
+			!strings.HasPrefix(got[0], "closesTheWrongThing") && !strings.HasPrefix(got[1], "closesTheWrongThing") {
+			t.Fatalf("the detector reported %v; want both `leaks` and `closesTheWrongThing`. "+
+				"Missing the second means any .Close() in the function satisfies the gate, so an "+
+				"unrelated close masks a leak of the very handle this exists to protect.", got)
 		}
 	})
 }
