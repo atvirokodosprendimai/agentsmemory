@@ -68,7 +68,11 @@ func TestEveryHookScriptDeclaresItsOutputChannel(t *testing.T) {
 		"structured":      true, // hookSpecificOutput.additionalContext
 		"blocking":        true, // exit 2, whose stderr the model is shown
 		"none":            true, // reaches the model on no channel
-		"not-a-hook":      true, // a helper, registered on no event
+		// The KEY is the constant, not a copy of it: doctor's wiring check skips
+		// this channel, so a renamed constant must make the scripts' real
+		// declaration an unknown channel here rather than turn doctor into two
+		// false positives on a correct install (review of #291).
+		channelNotAHook: true, // a helper, registered on no event
 	}
 	for name, s := range hookScripts(t) {
 		if s.channel == "" {

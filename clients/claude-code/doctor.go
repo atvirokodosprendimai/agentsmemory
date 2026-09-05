@@ -677,6 +677,28 @@ func hookVerdictsIn(ctx context.Context, c *cli.Command, kit agentKit, dir, proj
 	for _, name := range names {
 		verdicts = append(verdicts, judgeHook(ctx, c, dir, name, registered[name], projectDir))
 	}
+	// ⚠ WIRING IS CHECKED FOR EVERY INSTALLED HOOK, NOT ONLY THE ONES THAT CAN
+	// SPEAK. The loop above judges the scripts that declare
+	// `stdout-injected` — three of the NINE hooks this kit ships (eleven files,
+	// two of which declare `not-a-hook`) — because judging
+	// what a hook SAID needs a channel to say it on. Whether a hook is WIRED
+	// needs no channel at all, and keying both questions on the declaration put
+	// six hooks outside this command's universe: the PreCompact note writer
+	// and the PostToolUse touched recorder among them, both `hook-output: none`.
+	//
+	// The cost was measured on 2026-09-05: a session compacted, no note was
+	// written anywhere on the filesystem, the re-ground marker was therefore
+	// never written either, the monitor armed by `/am` Step 1d waited on a file
+	// nobody would write — and `doctor` exited 0 through all of it. UNREGISTERED
+	// is the verdict this command exists to produce (§Reachability records it
+	// catching exactly that for three ADR-051 hooks) and it could not reach the
+	// hook that needed it.
+	//
+	// Only the UNREGISTERED case is reported here. A wired non-injecting hook is
+	// not run and not judged on its output: it has no channel, so silence is its
+	// healthy state, which is the distinction TestDoctorDoesNotFailOnSilence
+	// already keeps.
+	verdicts = append(verdicts, unwiredHooksIn(dir, scripts, registered)...)
 	verdicts = append(verdicts, uninstalledRegistrations(dir, scripts, registered)...)
 	return verdicts, nil
 }
@@ -1132,4 +1154,53 @@ func runOneHook(ctx context.Context, c *cli.Command, dir, name string, reg hookR
 		v.detail = fmt.Sprintf("%d bytes", n)
 	}
 	return v
+}
+
+// unwiredHooksIn reports every hook INSTALLED in dir that no event runs,
+// whatever channel it declares — the half of the wiring question that does not
+// need a channel to answer.
+//
+// judged holds the scripts hookVerdictsIn already reported on, so a hook is
+// named once. A file that declares no `# hook-output:` line at all is skipped:
+// it predates the declaration and staleHooksIn is what names those, with the
+// instruction that actually fixes them.
+func unwiredHooksIn(dir string, judged map[string]string, registered map[string]hookRegistration) []hookVerdict {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	var out []hookVerdict
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || judged[name] != "" || !strings.HasSuffix(name, ".sh") {
+			continue
+		}
+		body, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil {
+			continue
+		}
+		m := hookOutputDecl.FindSubmatch(body)
+		if m == nil {
+			continue // predates the declaration; staleHooksIn owns that finding
+		}
+		channel := string(m[1])
+		// A sourced helper and the statusLine command are run by no event by
+		// design, and the declaration is where they say so.
+		if channel == channelNotAHook {
+			continue
+		}
+		if len(registered[name].events) > 0 {
+			continue
+		}
+		out = append(out, hookVerdict{
+			name:  name,
+			label: "UNREGISTERED",
+			bad:   true,
+			detail: "installed, declares `# hook-output: " + channel + "`, and no event runs it — " +
+				"it cannot fire, and a hook that never fires is indistinguishable from one with nothing to do. " +
+				"Run `aiagentmemory install` to register it",
+		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].name < out[j].name })
+	return out
 }

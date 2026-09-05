@@ -122,3 +122,10 @@ var hookOutputDecl = regexp.MustCompile(`(?m)^# hook-output:[ \t]*([a-z-]+)[ \t]
 // to put text in front of the model. Only these are worth running from `doctor`:
 // every other channel reports somewhere a human already looks.
 const channelStdoutInjected = "stdout-injected"
+
+// channelNotAHook is the declaration a file in hooks/ carries when no event runs
+// it at all: the `/stats` helper the Stop and SessionEnd hooks source, and the
+// statusLine command. They live beside the hooks and are not hooks, so the
+// wiring check must not report them as unregistered — the declaration is where
+// they say which they are.
+const channelNotAHook = "not-a-hook"
