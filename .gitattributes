@@ -1,0 +1,40 @@
+# Line endings in the WORKING TREE, not just in the index.
+#
+# Without this file a Windows checkout with core.autocrlf=true (Git for Windows'
+# default) materialises CRLF sources, and this repository's gates read their own
+# source text: internal/repohygiene, internal/doclint, internal/archguard and a
+# dozen reachability checks in internal/mcpserver and cmd/server all parse or
+# string-match Go files. Those matchers hard-code "\n", so on such a host they
+# false-alarm on properties that hold — issue #163 measured
+# TestSearchResultRendersTheCorrectionMark failing at "could not bound the
+# searchHitView literal" over a literal that was there and correct.
+#
+# `eol=lf` is what fixes the class rather than one matcher. `text=auto` alone
+# normalises the INDEX and still hands Windows a CRLF working tree, which is
+# exactly the half that breaks: every gate reads the file on disk.
+#
+# Shell scripts are here for a harder reason than tidiness. The kit's hooks are
+# bash, and a CRLF shebang line makes the interpreter path end in \r — the script
+# then fails to execute with a message naming a binary that does not exist,
+# which is a confusing failure a long way from its cause.
+*.go    text eol=lf
+*.sh    text eol=lf
+*.md    text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+*.json  text eol=lf
+*.toml  text eol=lf
+*.sql   text eol=lf
+
+# Binaries and archives must never be touched. Listing them is not paranoia:
+# `text=auto` guesses, and a guess that goes wrong here corrupts the file
+# silently rather than failing.
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.ico   binary
+*.pdf   binary
+*.gz    binary
+*.zip   binary
+*.wasm  binary
