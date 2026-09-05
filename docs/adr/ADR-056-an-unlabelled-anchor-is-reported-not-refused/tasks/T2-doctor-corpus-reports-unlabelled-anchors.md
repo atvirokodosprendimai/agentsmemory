@@ -54,6 +54,14 @@ go test ./cmd/server/ -run 'TestDoctorCorpus' -count=1
 
 ## Mutation Log
 
+- 2026-09-05 · 1a2287d* · mutant killed · exit 1 · `cmd/server/doctorcorpus.go` · the population must be selected on repo='' and reported in its own field; routing it into LostAnchors turns a permitted state into a verdict and empties the report line · acceptance-sha256:2e39a2da41aba71b42d213b6de69fad95474ba780174bac7214121a055b6c171
+- 2026-09-05 · 1a2287d* · mutant killed · exit 1 · `cmd/server/doctorcorpus.go` · the population is printed at every run and never decides the exit code; turning it into a verdict is the design ADR-056 refused · acceptance-sha256:2e39a2da41aba71b42d213b6de69fad95474ba780174bac7214121a055b6c171 · covers:the report prints the population and the exit code ignores it
+- 2026-09-05 · 1a2287d* · mutant survived · exit 0 · `cmd/server/doctorcorpus.go` · the walk must select the empty repo, not the labelled ones; inverting the predicate reports the labelled anchor and misses the unlabelled one · acceptance-sha256:2e39a2da41aba71b42d213b6de69fad95474ba780174bac7214121a055b6c171 · covers:the walk selects anchors with an empty repo
+  ```
+  the fence passed with the mechanism broken; it may not materialize, compile, load, or assert on the changed path
+  ```
+- 2026-09-05 · 07db758* · mutant killed · exit 1 · `cmd/server/doctorcorpus.go` · the walk must select the empty repo, not the labelled ones; inverting the predicate reports the labelled drawer and misses the unlabelled one · acceptance-sha256:2e39a2da41aba71b42d213b6de69fad95474ba780174bac7214121a055b6c171 · covers:the walk selects anchors with an empty repo
+
 ## Invariants
 
 - `clean()` and the exit code are unchanged: an unlabelled anchor is a legal write and never a corpus failure.
@@ -76,3 +84,16 @@ Stop if the anchors table has no `repo` column on the walk's read model (it is `
 - The write-side report — T1's job.
 
 ## Verification Log
+- 2026-09-05 · 1a2287d* · exit 1 · `set -o pipefail …` · acceptance-sha256:2e39a2da41aba71b42d213b6de69fad95474ba780174bac7214121a055b6c171 · ms:373
+  ```
+  --- last 5 line(s) of stdout
+  # github.com/atvirokodosprendimai/agentsmemory/cmd/server [github.com/atvirokodosprendimai/agentsmemory/cmd/server.test]
+  cmd/server/doctorcorpus_test.go:255:15: found.UnlabelledAnchors undefined (type corpusFindings has no field or method UnlabelledAnchors)
+  cmd/server/doctorcorpus_test.go:256:100: found.UnlabelledAnchors undefined (type corpusFindings has no field or method UnlabelledAnchors)
+  FAIL	github.com/atvirokodosprendimai/agentsmemory/cmd/server [build failed]
+  FAIL
+  ```
+- 2026-09-05 · 1a2287d* · exit 0 · `set -o pipefail …` · acceptance-sha256:2e39a2da41aba71b42d213b6de69fad95474ba780174bac7214121a055b6c171 · ms:11917
+- 2026-09-05 · 1a2287d* · exit 0 · `set -o pipefail …` · acceptance-sha256:2e39a2da41aba71b42d213b6de69fad95474ba780174bac7214121a055b6c171 · ms:5355
+- 2026-09-05 · 1a2287d* · exit 0 · `set -o pipefail …` · acceptance-sha256:2e39a2da41aba71b42d213b6de69fad95474ba780174bac7214121a055b6c171 · ms:11587
+- 2026-09-05 · 07db758* · exit 0 · `set -o pipefail …` · acceptance-sha256:2e39a2da41aba71b42d213b6de69fad95474ba780174bac7214121a055b6c171 · ms:5033
