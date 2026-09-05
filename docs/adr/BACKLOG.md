@@ -3701,7 +3701,11 @@ refuses a direct `exec.Command` in any test file; `TestADeadlineKillsTheChildAnd
 proves the grandchild dies too. The two recall hooks are NOT
 done by this: their `aiagentmemory mcp search` call carries a client `--timeout` (60 s default), so
 the HTTP request is bounded, but the hook PROCESS is not — it can hang before or after that call,
-and neither wraps anything in `timeout` while session-end and verify do. That is the hook half of
-the rule, still open. NOT covered either: the four
+and neither wraps anything in `timeout` while session-end and verify do. **The hook half closed
+the same day, one layer up:** every registration the kit writes now carries Claude Code's
+`timeout` (60 s, matching the recall hooks' client `--timeout`), and a registration an older kit
+wrote without one is upgraded in place — `TestEveryHookRegistrationCarriesATimeout`. The harness
+kills the hook at that bound; whether it reaps the hook's grandchildren is the harness's business,
+not something this tree can gate. NOT covered: the four
 non-test `exec.Command` sites in `clients/claude-code` (`installer.go` running install scripts,
 `mineclaude.go` and `verify.go` reading a git remote) — production code, a different change.

@@ -128,16 +128,18 @@ func ensureHooks(path string, regs []hookReg, statusLineCmd string) (map[string]
 			changed[reg.event] = true
 			continue
 		}
-		if hookPresent(pruned, reg.cmd) && !dropped {
+		bounded := ensureHookTimeout(pruned, reg.cmd)
+		if hookPresent(pruned, reg.cmd) && !dropped && !bounded {
 			continue
 		}
 
 		if !hookPresent(pruned, reg.cmd) {
 			// Append a matcher-less entry carrying our command — the same shape
-			// Claude Code writes and the same shape the old install.sh produced.
+			// Claude Code writes and the same shape the old install.sh produced,
+			// plus the deadline every child this kit starts must carry.
 			pruned = append(pruned, map[string]any{
 				"hooks": []any{
-					map[string]any{"type": "command", "command": reg.cmd},
+					map[string]any{"type": "command", "command": reg.cmd, "timeout": hookTimeoutSeconds},
 				},
 			})
 		}
@@ -429,6 +431,52 @@ func dropHook(stop []any, isObsolete func(string) bool) ([]any, bool) {
 
 // hookPresent reports whether any entry already registers command cmd,
 // so re-running the installer never duplicates the hook.
+// hookTimeoutSeconds is the deadline written into every hook registration, in
+// the seconds Claude Code's `timeout` field takes.
+//
+// It exists because of the owner's rule of 2026-09-05: every child a hook
+// starts carries a timeout, and the runner reaps it. Claude Code applies a
+// default when the field is absent, but a default is not a declaration — it
+// changes with the harness, and nothing in this tree could say what bound a
+// hook actually ran under. Sixty seconds is the recall hooks' own client
+// `--timeout` (`aiagentmemory mcp search`), so the harness deadline and the
+// one call that can hang agree, and a hook killed here is one whose inner
+// call had already given up.
+const hookTimeoutSeconds = 60
+
+// ensureHookTimeout sets the deadline on every registration carrying cmd that
+// has none, and reports whether it changed anything. Registrations written by
+// an older kit have no `timeout`, and an install that only appends would leave
+// them unbounded for ever — "already registered" must not mean "left as it was".
+func ensureHookTimeout(entries []any, cmd string) bool {
+	changed := false
+	for _, entry := range entries {
+		em, ok := entry.(map[string]any)
+		if !ok {
+			continue
+		}
+		inner, ok := em["hooks"].([]any)
+		if !ok {
+			continue
+		}
+		for _, h := range inner {
+			hm, ok := h.(map[string]any)
+			if !ok {
+				continue
+			}
+			if c, _ := hm["command"].(string); c != cmd {
+				continue
+			}
+			if _, has := hm["timeout"]; has {
+				continue
+			}
+			hm["timeout"] = hookTimeoutSeconds
+			changed = true
+		}
+	}
+	return changed
+}
+
 func hookPresent(stop []any, cmd string) bool {
 	for _, entry := range stop {
 		em, ok := entry.(map[string]any)
