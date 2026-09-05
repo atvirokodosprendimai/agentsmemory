@@ -202,6 +202,10 @@ func TestASlashCommandIsNotTheTaskInFlight(t *testing.T) {
 		// plain user turn, so a session's SECOND compaction would label its wake
 		// with the FIRST one's preamble. Prose, so no bracket rule reaches it.
 		{"continuation preamble", `This session is being continued from a previous conversation that ran out of context.`},
+		// Found by a reviewer running the extraction against a DIFFERENT
+		// session's transcript — the fixtures here could not have produced it,
+		// and neither could the session that fixed it, which has no peers.
+		{"peer session message", `Another Claude session sent a message:\n<cross-session-message from=`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			state := t.TempDir()

@@ -120,12 +120,35 @@ TMP="$(mktemp "$DIR/.$SESSION.XXXXXX" 2>/dev/null)" || { trace "cannot write und
   # session would label its wake with the FIRST compaction's preamble. The label
   # would degrade exactly as the session got longer, which is when re-grounding
   # matters most.
+  #
+  # ⚠ AND A PEER SESSION'S MESSAGE IS CHROME BY THE SAME ARGUMENT. Reported on
+  # PR #283 by a reviewer who ran this extraction against a DIFFERENT session's
+  # real transcript — a second corpus, which is the only reason it was found:
+  # a relayed peer message arrives as a plain `type=user` turn opening "Another
+  # Claude session sent a message:". Prose again, so no bracket rule reaches it,
+  # and on a session that talks to peers it can be the last plain turn for a long
+  # stretch. Not reproducible in the session that fixed it, which has no peers —
+  # accepted on the reviewer's artifact rather than on a fixture anybody typed.
+  #
+  # ⚠ SO THE FORMS ARE A DENY LIST NOW, AND EVERY ENTRY ON IT WAS OBSERVED
+  # RATHER THAN IMAGINED. They were found one at a time, each invisible to the
+  # fixtures that existed when the previous one was fixed, and three of them came
+  # from running this code against a real transcript instead of a written one.
+  # The list is kept in one place so a reader can see that, and each entry names
+  # where it was seen; nothing goes on it by reasoning about what a harness might
+  # emit. Matched by NAME rather than by shape (`^<` would take four of them in
+  # one stroke) because a user turn may legitimately open with a bracket, and the
+  # cost of that shortcut is silently dropping the work it was meant to name.
   if [ "${AGENTSMEMORY_LAST_TURN:-on}" != "off" ] && [ -n "$TRANSCRIPT" ] && [ -r "$TRANSCRIPT" ]; then
+    CHROME='^agentsmemory recalled'                                        # this kit's own recall injection
+    CHROME="$CHROME|^/"                                                    # bare slash command — the /compact that triggers the compaction
+    CHROME="$CHROME|^<command-"                                            # wrapped slash command — the live wake's own defective label
+    CHROME="$CHROME|^<local-command-stdout|^<task-notification|^<system-reminder"  # bracketed harness chrome
+    CHROME="$CHROME|^This session is being continued from a previous conversation" # the post-compaction preamble
+    CHROME="$CHROME|^Another Claude session sent a message"                # a peer session's relayed message
     PENDING="$(grep -v '"isSidechain":[[:space:]]*true' "$TRANSCRIPT" 2>/dev/null \
       | sed -n 's/.*"role"[[:space:]]*:[[:space:]]*"user"[[:space:]]*,[[:space:]]*"content"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
-      | grep -v '^agentsmemory recalled' | grep -v '^/' \
-      | grep -v '^<command-\|^<local-command\|^<task-notification\|^<system-reminder' \
-      | grep -v '^This session is being continued from a previous conversation' \
+      | grep -Ev "$CHROME" \
       | tail -n 1 | tr '\n\r\t' '   ' | cut -c1-200 \
       | sed -e 's/[[:space:]][[:space:]]*/ /g' -e 's/^ //' -e 's/ $//')"
     [ -n "$PENDING" ] && printf 'prompt=%s\n' "$PENDING"
