@@ -1275,7 +1275,7 @@ func registerListWings(reg *registrar, drawers *palace.Service, usageSvc *usage.
 func registerListRooms(reg *registrar, drawers *palace.Service, usageSvc *usage.Service, scopeSearchToWing bool) {
 	tool := newTool("list_rooms",
 		mcp.WithOutputSchema[roomsResult](),
-		mcp.WithDescription("List the team's rooms with drawer counts, optionally restricted to one wing. Omitted, scoped to this registration's default_wing only when one is configured and SEARCH_SCOPE is not workspace; otherwise omission lists every wing. Pass \"*\" to list every wing deliberately."),
+		mcp.WithDescription("List the team's rooms with drawer counts, optionally restricted to one wing. A room exists while it holds a live memory and not otherwise — there is no create or delete: filing into a name creates it, and a mistyped room disappears from every listing once its last memory is retracted (am_invalidate_drawer) or relocated (am_update_drawer with room) (ADR-055). Omitted, scoped to this registration's default_wing only when one is configured and SEARCH_SCOPE is not workspace; otherwise omission lists every wing. Pass \"*\" to list every wing deliberately."),
 		mcp.WithString("wing", mcp.Description("Only rooms within this wing. Omitted, scoped to this registration's default_wing only when one is configured and SEARCH_SCOPE is not workspace; otherwise every wing. Pass \"*\" for every wing deliberately."), searchWingProperty()),
 	)
 	reg.add(tool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
