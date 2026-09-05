@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"testing"
 
@@ -24,6 +26,19 @@ func TestTheCLIPathSetsTheOriginFromTheEnvironment(t *testing.T) {
 	t.Setenv(mcpprotocol.OriginEnvVar, "hook:t")
 	t.Setenv("AGENTSMEMORY_DB", cfg.DBPath)
 
+	// HERMETIC: a search embeds its query, and `mcp` builds the production
+	// embedder from --ollama-url. The first version of this test passed only on
+	// a machine with Ollama on 11434 and failed in CI (review of #250); a
+	// fake speaking Ollama's /api/embed answers a fixed vector instead, so the
+	// row this test reads exists whatever is listening on the host.
+	fake := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"embeddings":[[0.1,0.2,0.3,0.4]]}`))
+	}))
+	t.Cleanup(fake.Close)
+	t.Setenv("OLLAMA_URL", fake.URL)
+	cfg.OllamaURL = fake.URL
+
 	// `--team` names a trusted local identity and creates no teams row, and
 	// search_events.team_id REFERENCES teams(id) — so on a fresh file the row's
 	// insert fails the foreign key and recordSearch swallows it (measured while
@@ -42,7 +57,7 @@ func TestTheCLIPathSetsTheOriginFromTheEnvironment(t *testing.T) {
 	root := rootCommand(config.Default())
 	root.Writer = &out
 	if err := root.Run(context.Background(), []string{
-		"agentsmemory", "mcp", "--db", cfg.DBPath, "--team", "t-origin", "search", "-a", "query=anything at all", "-a", "wing=wing_acme",
+		"agentsmemory", "mcp", "--db", cfg.DBPath, "--ollama-url", fake.URL, "--team", "t-origin", "search", "-a", "query=anything at all", "-a", "wing=wing_acme",
 	}); err != nil {
 		t.Fatalf("mcp search: %v\n%s", err, out.String())
 	}
