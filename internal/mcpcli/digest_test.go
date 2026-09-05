@@ -73,6 +73,14 @@ func TestTheDigestFitsItsBudget(t *testing.T) {
 	if !strings.Contains(small, "2 more hit(s) withheld by the budget") || !strings.Contains(small, `am_search "redeploy the host"`) {
 		t.Errorf("the withheld line is missing or does not name the count and query:\n%s", small)
 	}
+	// The trailing line caps the query: a whole prompt echoed back is the budget
+	// line spending the budget (seen on a 280-char prompt the day T1 shipped).
+	long := RenderDigest([]byte(page), strings.Repeat("a very long prompt ", 20), 300)
+	for _, line := range strings.Split(long, "\n") {
+		if strings.Contains(line, "withheld by the budget") && len(line) > 160 {
+			t.Errorf("the withheld line echoes the whole query (%d chars): %s", len(line), line)
+		}
+	}
 	// A hit is never cut mid-line: every line of the small digest is a full line of the large one.
 	for _, line := range strings.Split(strings.TrimSpace(small), "\n") {
 		if strings.HasPrefix(line, "2 more hit") {
