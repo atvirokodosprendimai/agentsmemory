@@ -10,7 +10,7 @@ they are one PR.
 
 | Task | Status | Depends-on | What it does |
 |---|---|---|---|
-| [T1](T1-the-note-carries-the-task-and-the-start-pauses.md) | partial | none | the PreCompact note carries the task in flight; a compact start pauses and names `/amm <task>` |
+| [T1](T1-the-note-carries-the-task-and-the-start-pauses.md) | done | none | the PreCompact note carries the task in flight; a compact start pauses and names `/amm <task>` |
 | [T2](T2-the-amm-skill-and-a-derived-install-set.md) | partial | none | the `amm` skill; the installed skill set is derived from the embed glob |
 | [T3](T3-the-monitor-that-wakes-the-session.md) | partial | T1 | the hook leaves a marker and `/am` arms a monitor over it, so the pause becomes a wake rather than an instruction |
 

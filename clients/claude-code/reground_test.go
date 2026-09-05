@@ -103,6 +103,23 @@ func TestACompactStartTellsTheSessionToReGround(t *testing.T) {
 // nobody asked for on every session start.
 func TestAStartThatIsNotACompactIsUnchanged(t *testing.T) {
 	state := t.TempDir()
+	// ⚠ THE NOTE IS SEEDED, AND THAT IS THE WHOLE POINT OF THIS FIXTURE.
+	// The directive is guarded by `$SOURCE = compact` AND a non-empty note. With
+	// no note on disk the second condition is false for every source, so the
+	// block never runs and this test passes whatever the source guard says — it
+	// would sit one layer below the mechanism it claims to hold. Measured
+	// 2026-09-05 on T1's S6: the `only on a compaction` mutant SURVIVED against
+	// an unseeded fixture, the same way it survived twice on T3 before 1fcc2da.
+	// Seeding a note makes the source the only remaining deciding condition, so
+	// widening that guard is the one change this test can still see.
+	noteDir := filepath.Join(state, "agentsmemory-precompact")
+	if err := os.MkdirAll(noteDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	note := "at=2026-09-05T00:00:00Z\ntrigger=auto\nbranch=main\nhead=deadbee\ndirty=0\ntouched=0\nprompt=the task that was interrupted\n"
+	if err := os.WriteFile(filepath.Join(noteDir, "regroundprobe"), []byte(note), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	for _, source := range []string{"startup", "resume", "clear"} {
 		out := runHook(t, "agentsmemory-recall-hook.sh", `{"session_id":"regroundprobe","source":"`+source+`"}`, state)
 		if strings.Contains(out, "PAUSE") || strings.Contains(out, "/amm") {
