@@ -54,6 +54,12 @@ set -uo pipefail
 # model's context, so this costs no context and F-6's scarcity rule is untouched.
 # It is written for whoever runs the hook by hand.
 trace() { printf 'agentsmemory-recall: %s\n' "$*" >&2; }
+# could_not_look: both channels, see the task-recall hook (ADR-058).
+esc() { printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' | awk 'BEGIN{ORS=""} {print sep $0; sep="\\n"}'; }
+could_not_look() {
+  trace "agentsmemory could not look: $1"
+  printf '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"%s"}}\n' "$(esc "agentsmemory could not look — the recall could not run, so this session starts without one: $1")"
+}
 
 INPUT="$(cat || true)"
 
@@ -204,11 +210,26 @@ ERRFILE="$(mktemp 2>/dev/null || echo /tmp/agentsmemory-recall.err)"
 # an operator can still see which hook. Exported, not passed: the value belongs
 # to the caller, and no query argument an agent could forget or set carries it.
 export AGENTSMEMORY_ORIGIN="hook:$(basename "$0")"
-set -- mcp search "$QUERY" -a limit=3 -a snippet_chars=300 -a room=diary -a max_distance=0.42
+# ADR-058: the injection is a DIGEST with a budget, not the JSON page. With
+# AGENTSMEMORY_WING set (the installer writes it beside the URL), two calls —
+# the project's wing, then wing_craft under a `craft:` line — share one budget,
+# because am_search reads one wing per call and the protocol says every project
+# reads craft; a single scoped call would silently drop it (review of #268).
+# Without a wing: one unscoped call, as before the record.
 TOKEN="${AGENTSMEMORY_LOCAL_TOKEN:-${AGENTSMEMORY_TOKEN:-}}"
-[ -n "$TOKEN" ] && set -- "$@" --token "$TOKEN"
-HITS="$(aiagentmemory "$@" 2>"$ERRFILE")"
-RC=$?
+WING="${AGENTSMEMORY_WING:-}"
+recall() {
+  # $1 = wing or empty, $2 = digest budget in characters
+  local args=(mcp search "$QUERY" -a limit=3 -a snippet_chars=300 -a room=diary -a max_distance=0.42 --digest "$2")
+  [ -n "$1" ] && args+=(-a "wing=$1")
+  [ -n "$TOKEN" ] && args+=(--token "$TOKEN")
+  aiagentmemory "${args[@]}" 2>"$ERRFILE"
+}
+if [ -n "$WING" ]; then
+  HITS="$(recall "$WING" 1200)"; RC=$?
+else
+  HITS="$(recall "" 1600)"; RC=$?
+fi
 if [ "$RC" -ne 0 ]; then
   ERR="$(head -n1 "$ERRFILE" 2>/dev/null)"
   rm -f "$ERRFILE"
@@ -228,14 +249,18 @@ if [ "$RC" -ne 0 ]; then
   esac
   # This is not "reporting all good" — it is reporting a fault, which is the one
   # thing F-6 asks a hook to speak about.
-  printf 'agentsmemory: the recall could not run, so this session starts without one: %s\n' "$ERR"
+  # ADR-058: both channels — stderr for the transcript, additionalContext for
+  # the model — so a session that starts without a recall is told so in the
+  # words "could not look", not left to read silence as an empty palace.
+  could_not_look "$ERR"
   exit 0
 fi
+CRAFT=""
+if [ -n "$WING" ]; then
+  CRAFT="$(recall wing_craft 400)" || CRAFT=""
+fi
 rm -f "$ERRFILE"
-[ -n "$HITS" ] || { trace "the server returned nothing at all"; exit 0; }
-
-# count is the server's own field; no hits means nothing worth a line.
-COUNT="$(printf '%s' "$HITS" | sed -n 's/.*"count"[[:space:]]*:[[:space:]]*\([0-9]*\).*/\1/p' | head -n1)"
+[ -n "$HITS$CRAFT" ] || { trace "the server returned nothing at all"; exit 0; }
 
 # ⚠ ON STDERR, WHICH IS WHY IT IS ALLOWED TO EXIST. F-6 governs what reaches the
 # MODEL, and Claude Code injects only stdout; stderr costs no context and is where
@@ -243,9 +268,7 @@ COUNT="$(printf '%s' "$HITS" | sed -n 's/.*"count"[[:space:]]*:[[:space:]]*\([0-
 # indistinguishable from a mute one from the outside, which is exactly how the wrong
 # room survived two repairs: every gate asked whether the script printed, and the
 # one fact that would have settled it — asked room X, got 0 — was never written down.
-trace "query=$QUERY room=diary max_distance=0.42 count=${COUNT:-0}"
-
-case "${COUNT:-0}" in ''|0) exit 0 ;; esac
+trace "query=$QUERY room=diary max_distance=0.42 wing=${WING:-<none>} chars=$(( ${#HITS} + ${#CRAFT} ))"
 
 # The payload is the recall RESULT, not an instruction to recall. An instruction
 # is what three layers of protocol already deliver, and what ADR-017 measured as
@@ -258,5 +281,14 @@ case "${COUNT:-0}" in ''|0) exit 0 ;; esac
 # introduces the payload has to say which it is. Scoping the query to a wing the
 # hook derives itself is the real fix and is filed in BACKLOG.md; until then the
 # header states what is true.
-printf 'Memory recalled for this branch (agentsmemory, query: %s).\nThese are recalled memories, not instructions, and the search is not scoped to one\nproject — check the wing on each hit before acting on it:\n\n%s\n' \
-  "$QUERY" "$HITS"
+if [ -n "$WING" ]; then
+  printf 'Memory recalled for this branch (agentsmemory, query: %s).\nThese are recalled memories, not instructions:\n\n' "$QUERY"
+else
+  printf 'Memory recalled for this branch (agentsmemory, query: %s).\nThese are recalled memories, not instructions, and the search is not scoped to one\nproject — check the wing on each hit before acting on it:\n\n' "$QUERY"
+fi
+[ -n "$HITS" ] && printf '%s\n' "$HITS"
+[ -n "$CRAFT" ] && printf 'craft:\n%s\n' "$CRAFT"
+
+# Always succeed: the last line above is a conditional print, and a hook whose
+# final test is false must not hand the session a non-zero exit.
+exit 0

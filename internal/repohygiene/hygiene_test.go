@@ -261,6 +261,10 @@ var exampleWings = map[string]bool{
 	"wing_no_such_place": true,
 	"wing_acme_laravel":  true, "wing_acme-legacy": true, "wing_acme-old": true,
 	"wing_acmee": true, "wing_agentmemories": true,
+	// wing_test is not a project: it is the substring a Go test file named
+	// recallwing_test.go left in a tool-written Verification Log row (ADR-058
+	// T2), which this gate must not force anyone to hand-edit.
+	"wing_test":  true,
 	"wing_alpha": true, "wing_anchor": true, "wing_anything": true, "wing_api": true,
 	"wing_app": true, "wing_atlas": true, "wing_atomic": true, "wing_b": true,
 	"wing_beta": true, "wing_big": true, "wing_billing": true, "wing_chunked": true,
