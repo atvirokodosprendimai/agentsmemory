@@ -3698,7 +3698,10 @@ check on the same commit.
 **Resolved the same day.** `internal/testexec.Command(t, …)` is the one door: deadline from the
 test's context, own process group, group killed on cancel. `TestEveryTestChildCarriesADeadline`
 refuses a direct `exec.Command` in any test file; `TestADeadlineKillsTheChildAndItsChildren`
-proves the grandchild dies too. The two recall hooks stay as they are: their one child is
-`aiagentmemory mcp search`, whose `--timeout` (60 s default) bounds it. NOT covered: the four
+proves the grandchild dies too. The two recall hooks are NOT
+done by this: their `aiagentmemory mcp search` call carries a client `--timeout` (60 s default), so
+the HTTP request is bounded, but the hook PROCESS is not — it can hang before or after that call,
+and neither wraps anything in `timeout` while session-end and verify do. That is the hook half of
+the rule, still open. NOT covered either: the four
 non-test `exec.Command` sites in `clients/claude-code` (`installer.go` running install scripts,
 `mineclaude.go` and `verify.go` reading a git remote) — production code, a different change.
