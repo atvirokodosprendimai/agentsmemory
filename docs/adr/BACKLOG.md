@@ -3739,7 +3739,10 @@ they fire on `compact` and the wake-up recall was re-emitted after every compact
 the summary (a `PreCompact` hook, T1) and a post-compaction recall that asks for the session's own
 `llm_open_threads` checkpoint instead of the cold-start question (T2). Still deferred under
 ADR-059's name: reading the note on `resume`, where a note from the same session id may be hours
-old and the tree may have moved under it.
+old and the tree may have moved under it. **That deferral is RESOLVED by
+`docs/adr/ADR-061-the-wake-up-hands-back-the-last-turn.md`, 2026-09-05**, by a different note:
+the Stop hook writes a per-project last-turn note at every turn end, and `startup` and `resume`
+hand THAT back — with its date — rather than the compaction note.
 
 ## The `wing_craft` call sits just above the floor for most prompts — 2026-09-05
 

@@ -56,9 +56,18 @@ set -uo pipefail
 trace() { printf 'agentsmemory-recall: %s\n' "$*" >&2; }
 # could_not_look: both channels, see the task-recall hook (ADR-058).
 esc() { printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' | awk 'BEGIN{ORS=""} {print sep $0; sep="\\n"}'; }
+# NOTE_PRINTED: once a note block (ADR-059's or ADR-061's) is on stdout the
+# output IS plain text, and a JSON envelope appended after it is parsed as
+# neither — Claude Code reads stdout as an envelope only when the whole of it
+# is one. So could_not_look speaks plain after a note and JSON otherwise.
+NOTE_PRINTED=0
 could_not_look() {
   trace "agentsmemory could not look: $1"
-  printf '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"%s"}}\n' "$(esc "agentsmemory could not look — the recall could not run, so this session starts without one: $1")"
+  if [ "$NOTE_PRINTED" = 1 ]; then
+    printf 'agentsmemory could not look — the recall could not run, so this session starts without one: %s\n' "$1"
+  else
+    printf '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"%s"}}\n' "$(esc "agentsmemory could not look — the recall could not run, so this session starts without one: $1")"
+  fi
 }
 
 INPUT="$(cat || true)"
@@ -71,39 +80,82 @@ FLAT="$(printf '%s' "$INPUT" | tr '\n' ' ')"
 SOURCE="$(printf '%s' "$FLAT" | sed -n 's/.*"source"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
 SESSION="$(printf '%s' "$FLAT" | sed -n 's/.*"session_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
 case "$SESSION" in *[!A-Za-z0-9_-]*) SESSION="" ;; esac
-NOTE="${AGENTSMEMORY_STATE_DIR:-${TMPDIR:-/tmp}}/agentsmemory-precompact/${SESSION:-none}"
-if [ "$SOURCE" = "compact" ] && [ -n "$SESSION" ] && [ -s "$NOTE" ]; then
-  # Printed FIRST and before any early exit below: the note is the one thing
-  # this hook knows for certain after a compaction, and a thin query or a missing
-  # credential must not cost the model its branch and its uncommitted count.
-  # key=value lines, read with a case rather than sourced — the file is data.
-  N_AT=""; N_TRIGGER=""; N_BRANCH=""; N_HEAD=""; N_DIRTY=0; N_TOUCHED=0; N_FILES=""; N_SHOWN=0
+# read_note loads a key=value state note into N_* variables. Shared by the
+# PreCompact note (ADR-059) and the last-turn note (ADR-061): one reader, two
+# headers, so a key added to the format is read by both on the same commit.
+# Read with a case rather than sourced — the file is data. The counts come
+# from a file, and a file can be half-written or hand-edited; an arithmetic
+# comparison on "" or "abc" aborts the block under set -u, so they are guarded.
+read_note() {
+  N_AT=""; N_TRIGGER=""; N_SESSION=""; N_BRANCH=""; N_HEAD=""; N_DIRTY=0; N_TOUCHED=0; N_FILES=""; N_SHOWN=0; N_PROMPTS=""
   while IFS= read -r line; do
     case "$line" in
       at=*) N_AT="${line#at=}" ;;
       trigger=*) N_TRIGGER="${line#trigger=}" ;;
+      session=*) N_SESSION="${line#session=}" ;;
       branch=*) N_BRANCH="${line#branch=}" ;;
       head=*) N_HEAD="${line#head=}" ;;
       dirty=*) N_DIRTY="${line#dirty=}" ;;
       touched=*) N_TOUCHED="${line#touched=}" ;;
       file=*) N_FILES="${N_FILES:+$N_FILES, }${line#file=}"; N_SHOWN=$((N_SHOWN + 1)) ;;
+      prompt=*) N_PROMPTS="${N_PROMPTS}prompt: ${line#prompt=}
+" ;;
     esac
-  done < "$NOTE"
-  # The counts come from a file, and a file can be half-written or hand-edited;
-  # an arithmetic comparison on "" or "abc" aborts the block under set -u.
+  done < "$1"
   case "$N_TOUCHED" in ''|*[!0-9]*) N_TOUCHED=0 ;; esac
   case "$N_DIRTY" in ''|*[!0-9]*) N_DIRTY=0 ;; esac
+}
+# edited_line prints the bounded file list with its elision count, or nothing.
+edited_line() {
+  [ "$N_SHOWN" -gt 0 ] || return 0
+  local more=""
+  [ "$N_TOUCHED" -gt "$N_SHOWN" ] && more=" (+$((N_TOUCHED - N_SHOWN)) more)"
+  printf '%s%s%s\n' "$1" "$N_FILES" "$more"
+}
+
+NOTE="${AGENTSMEMORY_STATE_DIR:-${TMPDIR:-/tmp}}/agentsmemory-precompact/${SESSION:-none}"
+if [ "$SOURCE" = "compact" ] && [ -n "$SESSION" ] && [ -s "$NOTE" ]; then
+  # Printed FIRST and before any early exit below: the note is the one thing
+  # this hook knows for certain after a compaction, and a thin query or a missing
+  # credential must not cost the model its branch and its uncommitted count.
+  read_note "$NOTE"
   printf 'Before compaction (%s, %s): branch %s at %s, %s uncommitted file(s)\n' \
     "$N_AT" "$N_TRIGGER" "${N_BRANCH:-?}" "${N_HEAD:-?}" "$N_DIRTY"
-  if [ "$N_SHOWN" -gt 0 ]; then
-    MORE=""
-    [ "$N_TOUCHED" -gt "$N_SHOWN" ] && MORE=" (+$((N_TOUCHED - N_SHOWN)) more)"
-    printf 'edited this session: %s%s\n' "$N_FILES" "$MORE"
-  fi
+  edited_line 'edited this session: '
   printf '\n'
+  NOTE_PRINTED=1
   trace "handed back the pre-compaction note $NOTE"
 fi
 
+# ADR-061: THE LAST-TURN NOTE, on a startup or resume — the cross-SESSION half
+# of what ADR-059 does across a compaction. Written by the Stop hook at every
+# turn end, keyed by PROJECT (the same basename-plus-checksum the writer
+# derives; TestAColdStartOnTheSameBranchHandsBackTheLastTurn writes the note
+# through the real Stop hook so the two derivations cannot drift apart
+# unnoticed). Not on compact: the PreCompact note above is fresher there.
+# Facts only — header, one edited line, one line per recorded prompt.
+#
+# LT_MATCH decides the SECOND recall call below: the note's branch equal to
+# the current branch means the same work continued, and the 400-character
+# slot goes to the wing's crash-resume checkpoint as on compact; a different
+# branch is cold work and keeps wing_craft.
+LT_MATCH=0
+if [ "${AGENTSMEMORY_LAST_TURN:-on}" != "off" ] && { [ "$SOURCE" = "startup" ] || [ "$SOURCE" = "resume" ]; }; then
+  LT_ROOT="${CLAUDE_PROJECT_DIR:-$PWD}"
+  LT_NOTE="${AGENTSMEMORY_STATE_DIR:-${TMPDIR:-/tmp}}/agentsmemory-last-turn/$(basename "$LT_ROOT")-$(printf '%s' "$LT_ROOT" | cksum | cut -d' ' -f1)"
+  if [ -s "$LT_NOTE" ]; then
+    read_note "$LT_NOTE"
+    printf 'Last turn (%s, session %s): branch %s at %s, %s uncommitted file(s)\n' \
+      "$N_AT" "$(printf '%s' "$N_SESSION" | cut -c1-8)" "${N_BRANCH:-?}" "${N_HEAD:-?}" "$N_DIRTY"
+    edited_line 'edited: '
+    [ -n "$N_PROMPTS" ] && printf '%s' "$N_PROMPTS"
+    printf '\n'
+    LT_BRANCH_NOW="$(cd "$LT_ROOT" 2>/dev/null && git rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
+    [ -n "$N_BRANCH" ] && [ "$N_BRANCH" = "$LT_BRANCH_NOW" ] && LT_MATCH=1
+    NOTE_PRINTED=1
+    trace "handed back the last-turn note $LT_NOTE (branch match=$LT_MATCH)"
+  fi
+fi
 [ "${AGENTSMEMORY_RECALL:-on}" = "off" ] && { trace "off (AGENTSMEMORY_RECALL=off)"; exit 0; }
 command -v aiagentmemory >/dev/null 2>&1 || { trace "no aiagentmemory on PATH"; exit 0; }
 
@@ -305,7 +357,7 @@ fi
 CRAFT=""
 CHECKPOINT=""
 if [ -n "$WING" ]; then
-  if [ "$SOURCE" = "compact" ]; then
+  if [ "$SOURCE" = "compact" ] || [ "$LT_MATCH" = 1 ]; then
     # ADR-059: after a compaction the 400-character second slot goes to the
     # session's OWN crash-resume checkpoint (AGENTS.md §The working loop, item
     # 4 tells every session to file one before its first edit) rather than to

@@ -112,7 +112,7 @@ func TestF6AHookIsSilentInTheCommonCase(t *testing.T) {
 		cmd := testexec.Command(t, "bash", filepath.Join(workdir, "recall.sh"))
 		cmd.Dir = workdir
 		cmd.Stdin = strings.NewReader(`{"hook_event_name":"SessionStart","source":"compact"}`)
-		cmd.Env = append(os.Environ(),
+		cmd.Env = append(append(os.Environ(), "AGENTSMEMORY_STATE_DIR="+t.TempDir()),
 			append([]string{"PATH=" + stubDir + ":" + os.Getenv("PATH")}, extraEnv...)...)
 		out, err := cmd.Output()
 		if err != nil {
@@ -199,7 +199,7 @@ func TestF6AHookIsSilentInTheCommonCase(t *testing.T) {
 	cmd := testexec.Command(t, "bash", filepath.Join(broken, "recall.sh"))
 	cmd.Dir = broken
 	cmd.Stdin = strings.NewReader(`{"hook_event_name":"SessionStart","source":"compact"}`)
-	cmd.Env = append(os.Environ(), "PATH="+brokenBin+":"+os.Getenv("PATH"), "CLAUDE_PROJECT_DIR="+broken)
+	cmd.Env = append(os.Environ(), "AGENTSMEMORY_STATE_DIR="+t.TempDir(), "PATH="+brokenBin+":"+os.Getenv("PATH"), "CLAUDE_PROJECT_DIR="+broken)
 	bout, err := cmd.Output()
 	if err != nil {
 		t.Fatalf("the hook failed the session on a failed recall (%v) — it must never do that", err)
@@ -250,7 +250,7 @@ func TestTheQueryCarriesTheBranchWorkOnACleanTree(t *testing.T) {
 		t.Helper()
 		cmd := testexec.Command(t, "git", args...)
 		cmd.Dir = repo
-		cmd.Env = append(os.Environ(),
+		cmd.Env = append(os.Environ(), "AGENTSMEMORY_STATE_DIR="+t.TempDir(),
 			"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@example.invalid",
 			"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@example.invalid")
 		if out, err := cmd.CombinedOutput(); err != nil {
@@ -294,7 +294,7 @@ func TestTheQueryCarriesTheBranchWorkOnACleanTree(t *testing.T) {
 		// The token variables are CLEARED rather than inherited: an ambient token in
 		// the developer's shell would make the no-token assertion below pass or fail
 		// for a reason that has nothing to do with the hook.
-		cmd.Env = append(os.Environ(), append([]string{
+		cmd.Env = append(append(os.Environ(), "AGENTSMEMORY_STATE_DIR="+t.TempDir()), append([]string{
 			"PATH=" + stubDir + ":" + os.Getenv("PATH"), "CLAUDE_PROJECT_DIR=" + repo,
 			"AGENTSMEMORY_LOCAL_TOKEN=", "AGENTSMEMORY_TOKEN=",
 		}, env...)...)
@@ -368,7 +368,7 @@ func TestNoCredentialIsSilentButABadOneSpeaks(t *testing.T) {
 		t.Helper()
 		cmd := testexec.Command(t, "git", args...)
 		cmd.Dir = repo
-		cmd.Env = append(os.Environ(),
+		cmd.Env = append(os.Environ(), "AGENTSMEMORY_STATE_DIR="+t.TempDir(),
 			"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@example.invalid",
 			"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@example.invalid")
 		if out, err := cmd.CombinedOutput(); err != nil {
@@ -405,7 +405,7 @@ func TestNoCredentialIsSilentButABadOneSpeaks(t *testing.T) {
 		cmd := testexec.Command(t, "bash", filepath.Join(repo, "recall.sh"))
 		cmd.Dir = repo
 		cmd.Stdin = strings.NewReader(`{"hook_event_name":"SessionStart","source":"compact"}`)
-		cmd.Env = append(os.Environ(),
+		cmd.Env = append(os.Environ(), "AGENTSMEMORY_STATE_DIR="+t.TempDir(),
 			"PATH="+stubDir+":"+os.Getenv("PATH"), "CLAUDE_PROJECT_DIR="+repo,
 			"AGENTSMEMORY_LOCAL_TOKEN=", "AGENTSMEMORY_TOKEN=")
 		out, err := cmd.Output()
@@ -536,7 +536,7 @@ func TestAThinQueryIsWidenedOnEveryBranch(t *testing.T) {
 				t.Helper()
 				cmd := testexec.Command(t, "git", args...)
 				cmd.Dir = repo
-				cmd.Env = append(os.Environ(),
+				cmd.Env = append(os.Environ(), "AGENTSMEMORY_STATE_DIR="+t.TempDir(),
 					"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@example.invalid",
 					"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@example.invalid")
 				if out, err := cmd.CombinedOutput(); err != nil {
@@ -566,7 +566,7 @@ func TestAThinQueryIsWidenedOnEveryBranch(t *testing.T) {
 			cmd := testexec.Command(t, "bash", filepath.Join(repo, "recall.sh"))
 			cmd.Dir = repo
 			cmd.Stdin = strings.NewReader(`{"hook_event_name":"SessionStart","source":"startup"}`)
-			cmd.Env = append(os.Environ(),
+			cmd.Env = append(os.Environ(), "AGENTSMEMORY_STATE_DIR="+t.TempDir(),
 				"PATH="+stubDir+":"+os.Getenv("PATH"), "CLAUDE_PROJECT_DIR="+repo,
 				"AGENTSMEMORY_LOCAL_TOKEN=", "AGENTSMEMORY_TOKEN=")
 			if out, err := cmd.Output(); err != nil {
