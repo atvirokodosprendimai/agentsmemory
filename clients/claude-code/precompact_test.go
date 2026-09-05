@@ -311,3 +311,63 @@ func TestThePreCompactHookSurvivesALongTranscriptLine(t *testing.T) {
 			elapsed, note, stderr)
 	}
 }
+
+// TestTheNoteSurvivesATranscriptWithNoPromptToExtract drives the SCRIPT over a
+// transcript whose every plain user turn is chrome, so the task-in-flight
+// extraction yields nothing, and requires the note to be written anyway.
+//
+// It exists because the note was DELETED in exactly that case, and the deletion
+// was invisible from every side. The note's fields are produced by a `{ … }`
+// group whose exit status is its LAST command's, and that status decides between
+// `mv -f "$TMP" "$NOTE"` and the `||` arm that removes the temp file. The last
+// line was `[ -n "$PENDING" ] && printf 'prompt=%s\n' "$PENDING"`, so an empty
+// extraction ended the group on a false test, the group exited 1, and the note
+// went in the bin — while the hook still exited 0, because it is deliberately
+// silent about a state dir it cannot write.
+//
+// Measured 2026-09-05 on a live session (brolis-lizdai, 404859e7): it compacted,
+// the harness recorded `PreCompact … completed successfully`, its re-ground
+// monitor was armed on the correct path, and no note and no marker were ever
+// written. The wake could not fire, and nothing anywhere said why.
+//
+// PENDING is empty whenever every plain user turn is chrome — a short session
+// driven by slash commands reaches that easily — so this is an ordinary session,
+// not a corner case. What the note carries then is still worth having: the
+// branch, the head and the uncommitted count are what ADR-059 exists to hand
+// back, and the wake's marker is written whether or not a task was named.
+func TestTheNoteSurvivesATranscriptWithNoPromptToExtract(t *testing.T) {
+	state, repo := t.TempDir(), gitRepoWithOneDirtyFile(t)
+
+	// Every one of these is on the extraction's chrome deny list, so the pipeline
+	// runs, matches, and is filtered down to nothing — which is the path that
+	// broke. A transcript with no user turns at all would exercise a different
+	// branch and would not have caught this.
+	var b strings.Builder
+	b.WriteString(`{"type":"user","message":{"role":"user","content":"/compact"}}` + "\n")
+	b.WriteString(`{"type":"user","message":{"role":"user","content":"<local-command-stdout>Compacted</local-command-stdout>"}}` + "\n")
+	b.WriteString(`{"type":"user","message":{"role":"user","content":"<system-reminder>x</system-reminder>"}}` + "\n")
+
+	transcript := filepath.Join(t.TempDir(), "transcript.jsonl")
+	if err := os.WriteFile(transcript, []byte(b.String()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	note, _, stderr := runPreCompactHook(t, state, repo, "nochrome",
+		`{"session_id":"nochrome","trigger":"manual","transcript_path":"`+transcript+`"}`)
+
+	if note == "" {
+		t.Fatalf("no note was written for a transcript whose user turns are all chrome; the "+
+			"compaction then hands back nothing and the re-ground marker is never created, so an "+
+			"armed monitor waits for ever. stderr:\n%s", stderr)
+	}
+	for _, want := range []string{"branch=task/note\n", "dirty=1\n", "trigger=manual\n"} {
+		if !strings.Contains(note, want) {
+			t.Errorf("the note lacks %q, so the state ADR-059 exists to hand back is missing:\n%s", want, note)
+		}
+	}
+	// The absent prompt is correct — chrome names no work — and must be absent
+	// rather than empty, or the read side labels the wake with a blank task.
+	if strings.Contains(note, "prompt=") {
+		t.Errorf("the note carries a prompt= line built from chrome:\n%s", note)
+	}
+}
