@@ -1420,7 +1420,6 @@ func unchangedNote(p hookPlan) string {
 // it would have reported are available on demand from `/stats`; what is lost is
 // the automatic end-of-session line, and the install says so rather than leaving
 // a silent gap.
-
 func (i *Installer) hookPlansOn(goos string) []hookPlan {
 	plans := []hookPlan{
 		{event: "Stop", cmd: i.hookCommand(i.hookPath()), note: "registered Stop hook in " + i.kit.hooksFile},
