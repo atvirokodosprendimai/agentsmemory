@@ -276,6 +276,19 @@ It exits non-zero on three states, and only these three:
 | `DISCARDED` | registered on an event whose PLAIN stdout goes to the debug log; only `SessionStart`, `UserPromptSubmit`, `UserPromptExpansion` and `PostModelSwitch` reach the model that way. A hook declaring a structured channel is not judged here — it injects via `additionalContext` instead |
 | `FAILED` | it exited non-zero; the indented line under it is the hook's own stderr |
 
+**The `codebase-memory` row** (ADR-057) judges the peer the session protocol tells
+every agent to call first, from the two files `doctor` already reads — `settings.json`
+for its `cbm-*` hooks and `.claude.json` for its MCP entry — and never spawns it:
+
+| label | what it means |
+|---|---|
+| `ok` | one MCP registration, every `cbm-*` hook registered once per event |
+| `absent` | nothing registered — the peer is optional (`install --recommended` adds it); exit stays 0 |
+| `DUPLICATE` | a `cbm-*` hook registered more than once on one event (every copy runs and injects on every session start — measured at four on 2026-09-05), or the same server under two MCP names; exits non-zero |
+| `BROKEN` | registered, but the binary is missing or not executable, or hooks without an MCP entry; exits non-zero |
+
+Codex and pi print `n/a`: their MCPs live where this command does not read.
+
 **`silent` is not a failure.** Both of these hooks are silent when everything is
 fine — the verify hook prints only when a memory drifted, the recall hook only when
 the palace has something for your branch. Nothing can tell that apart from a broken

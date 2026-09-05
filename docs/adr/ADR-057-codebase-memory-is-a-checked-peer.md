@@ -6,7 +6,7 @@
 **Spec:** None — no spec stage
 **Cross-references:** ADR-041 (recall that does not depend on remembering), ADR-051 (the session that grounds itself), clients/claude-code/README.md, clients/claude-code/commands/am.md
 **Governs:** clients/claude-code/doctor.go, clients/claude-code/installer.go, clients/claude-code/settings.go, clients/claude-code/main.go, clients/claude-code/README.md, clients/claude-code/commands/am.md
-**Enforced-by:** `clients/claude-code/doctor_test.go::TestDoctorReportsTheCodebaseMemoryPeer`
+**Enforced-by:** `clients/claude-code/doctorpeer_test.go::TestDoctorReportsTheCodebaseMemoryPeer`
 **Invalidates:** none — checked
 **Served-path change:** `aiagentmemory doctor` prints one more row, `codebase-memory`, and exits non-zero when that peer's hooks or MCP entry are registered more than once; `aiagentmemory install --recommended` stops registering the peer under a second name and removes duplicate peer hook registrations it finds.
 
@@ -26,7 +26,13 @@ measured on the owner's machine on 2026-09-05, none of which the kit could repor
   (`clients/claude-code/main.go`, `codebaseMemoryName`). A machine that took that path carries two
   stdio registrations of one server, two daemons, and two tool prefixes; the protocol text and the
   harness's own reminders name `codebase-memory-mcp`, so the kit's name is the one nothing reads.
-  The owner's machine has only `codebase-memory-mcp`, because it was installed upstream-first.
+  ⚠ The first draft of this record said the owner's machine carried only `codebase-memory-mcp`.
+  Review of #265 found both, in two config dirs: `~/.claude.json` has upstream's name and
+  `~/.sandboxes/<name>/.claude.json` has the kit's, with the reviewing session running under the
+  kit's and its tools exposed as `mcp__codebasememory__*`. Those are two INSTALLS, each with one
+  registration — not one install registered twice — and the reviewer's own run of T1's binary
+  against each (#266) reports each correctly on its own. That measurement is why the Decision reads
+  one registry per install rather than a union across config dirs.
 - `claude mcp list` reported `codebase-memory-mcp ✘ CONNECTION_CLOSED` for days in August
   (recorded in `am.md` itself), and three sessions were read as "forgot Step 1b" while the server
   was down. The kit's doctor, the one place an operator looks, said nothing.
@@ -54,14 +60,22 @@ keeps it so.
 
 ## Decision
 
-`aiagentmemory doctor` gains one row, `codebase-memory`, judged from files the kit already reads:
-the MCP registration(s) naming the codebase-memory binary in `.claude.json` (either name), whether
-that binary exists and is executable, and how many times each `cbm-*` script is registered per
-event in `settings.json`. Verdicts: `ok` (one registration, one of each hook), `absent` (nothing
-registered — the peer is optional, exit stays 0), `DUPLICATE` (the same MCP under two names, or a
-hook script registered more than once for one event — exit non-zero, because every session pays
-for each copy and nothing else will ever say so), `BROKEN` (registered but the binary is missing or
-not executable — exit non-zero). It does NOT dial the server: a stdio MCP is spawned per session by
+`aiagentmemory doctor` gains one row, `codebase-memory`, judged from files the kit already reads.
+The MCP half reads the ONE registry the install under judgement actually uses — `~/.claude.json`
+for a global install, `<config-dir>/.claude.json` for a pinned one (a sandbox, `--config-dir`),
+the rule `pinConfigDir` already encodes — and collects each entry under either name. Doctor is
+per-install (`--agent`, `--target-dir`), so a sandbox is judged by `doctor --target-dir
+~/.sandboxes/<name>`, not folded into the global verdict: a union across config dirs was tried in
+review and reported DUPLICATE over two legitimate installs that each carry one registration (see
+Alternatives). The hook half counts how many times each `cbm-*` script is registered per event in
+that install's `settings.json`. The binary named by each entry is checked for the execute bit. Verdicts: `ok` (one registration, one of each hook; when that one registration is under the
+retired `codebasememory`, the row says so, because `install --recommended` renames it and until
+then the session's tool prefix is one no document names), `absent` (nothing registered — the peer
+is optional, exit stays 0), `DUPLICATE` (the peer under both names in this install's registry, or
+a hook script registered more than once for one event — exit non-zero, because every session pays
+for each copy and nothing else will ever say so),
+`BROKEN` (registered but a named binary is missing or not executable, or hooks with no entry — exit
+non-zero). It does NOT dial the server: a stdio MCP is spawned per session by
 the harness, and "can I spawn it" is answered by the executable bit, while "is the index fresh" is
 codebase-memory's own `index_status` and not the kit's to judge.
 
@@ -91,6 +105,12 @@ the tests seed the same shape.
 - **Keep the kit's own MCP name `codebasememory`:** it is what the README promises today. Rejected
   because the protocol, upstream, and the harness's tool prefix all say `codebase-memory-mcp`; a
   second name is a second daemon and a tool set no document tells the agent to call.
+- **Read the union of every discoverable registry (global, `$CLAUDE_CONFIG_DIR`, the target dir,
+  every sandbox):** raised as a blocker on #265 and built during T1. Rejected by measurement on
+  #266: the two names on the reviewer's machine are two installs with one registration each, and
+  the union reported DUPLICATE over both while `doctor --target-dir <each>` reported each right.
+  A diagnostic that reads a file the agent under judgement does not is a diagnostic of nothing;
+  the blocker was withdrawn by its author.
 - **Make codebase-memory a hard dependency the kit refuses to run without:** rejected; ADR-020's
   kits (Desktop, pi) cannot host a stdio MCP at all, and `am.md` already carries the
   "unreachable — say so and carry on" branch. `absent` is a legal verdict.
@@ -136,6 +156,7 @@ measured state; T2 consumes the name constant only to retire it.
 - The server learning anything about codebase-memory (permanent: boundary: the palace's code anchors are AAM's own index of code reality; whether they duplicate the graph is a different decision, and "share no runtime integration" stays true)
 - Dialling the peer from `doctor` to read `index_status` (deferred: docs/adr/BACKLOG.md)
 - Fixing upstream's `install.sh` so it stops appending hook registrations (external: DeusData/codebase-memory-mcp: https://github.com/DeusData/codebase-memory-mcp)
+- Giving the peer's hook entries a `timeout` when the dedupe rewrites them (permanent: boundary: they are upstream's hooks, not the kit's to police — #263's gate derives its universe from `hookPlans()` and stops at the kit's own; the 1.5 s × 4 cost is the duplication, which T2 removes, not the absence of a bound)
 - Codex and pi kits: codex registers MCPs through `codex mcp add` in `config.toml`, which the kit does not parse, and pi hosts no stdio MCP (permanent: boundary: the doctor rung is Claude-only, and the row says `n/a` for those kits rather than guessing)
 
 ## Risks
@@ -143,7 +164,7 @@ measured state; T2 consumes the name constant only to retire it.
 | Risk | Likelihood | Impact | Mitigation |
 |------|------------|--------|------------|
 | The dedupe pass removes a duplicate an operator wanted (two identical hook entries are never wanted, but a near-duplicate with different env is) | Low | Med | dedupe on the exact `(type, command)` pair only; a differing prefix is a different command and stays |
-| `.claude.json` moves with `CLAUDE_CONFIG_DIR` and the rung reads the wrong one | Med | Med | resolve through the same function `tokenFromConfigDir` uses, and test with a pinned config dir |
+| A ghost `<config-dir>/.claude.json` under the GLOBAL dir (left by an old pinned install) is never read by a plain `claude` and never by the rung — a stale registration nobody sees | Low | Low | correct by construction: the rung reads what the agent reads; the owner's machine carries such a ghost today and it is inert |
 | Retiring `codebasememory` strands a machine whose harness tools were addressed under that prefix | Low | Low | none of this corpus's docs or hooks name that prefix (grep in Context); the README line is updated in T2 |
 
 ## Rollback
