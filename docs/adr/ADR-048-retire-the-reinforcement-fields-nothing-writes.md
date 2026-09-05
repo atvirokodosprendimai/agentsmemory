@@ -1,6 +1,6 @@
 # ADR-048: Retire the reinforcement fields nothing writes
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-08-30
 **Owner:** unassigned
 **Spec:** None — no spec stage
