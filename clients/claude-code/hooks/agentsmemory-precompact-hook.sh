@@ -143,7 +143,11 @@ TMP="$(mktemp "$DIR/.$SESSION.XXXXXX" 2>/dev/null)" || { trace "cannot write und
     CHROME='^agentsmemory recalled'                                        # this kit's own recall injection
     CHROME="$CHROME|^/"                                                    # bare slash command — the /compact that triggers the compaction
     CHROME="$CHROME|^<command-"                                            # wrapped slash command — the live wake's own defective label
-    CHROME="$CHROME|^<local-command-stdout|^<task-notification|^<system-reminder"  # bracketed harness chrome
+    # ⚠ `^<local-command` STAYS BROAD. Narrowing it to `-stdout` while writing the
+    # list above let `<local-command-caveat>` — the wrapper the harness puts round
+    # a local command's own output — through on the very next real-transcript run.
+    # The prefix covers a family whose members are not enumerable in advance.
+    CHROME="$CHROME|^<local-command|^<task-notification|^<system-reminder"  # bracketed harness chrome
     CHROME="$CHROME|^This session is being continued from a previous conversation" # the post-compaction preamble
     CHROME="$CHROME|^Another Claude session sent a message"                # a peer session's relayed message
     PENDING="$(grep -v '"isSidechain":[[:space:]]*true' "$TRANSCRIPT" 2>/dev/null \
