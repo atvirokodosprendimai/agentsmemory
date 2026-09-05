@@ -161,7 +161,15 @@ reporting success.
   ADR-017 named it in 2026-08 ("a subagent cannot skip a recall that already
   happened") and left it unbuilt pending measurement, which ADR-041 supplied. It
   prints nothing when the recall returns nothing; `AGENTSMEMORY_RECALL=off`
-  disables it. Both recall hooks export `AGENTSMEMORY_ORIGIN=hook:<script>`
+  disables it. What either hook injects is a DIGEST, not the search page
+  (ADR-058): three lines per hit, one per fact, a trailing "N more" line, inside
+  1,600 characters. An install with `--wing` writes `AGENTSMEMORY_WING` beside
+  the URL in each hook's environment; with it set the hook searches that wing
+  and then `wing_craft` (the wing every project reads) under a `craft:` line,
+  both within the same budget, and its preamble stops disclaiming provenance.
+  Without it the hook searches the whole workspace, as before, and says so. A
+  recall that could not run says `could not look` to the model through
+  `additionalContext` as well as on stderr. Both recall hooks export `AGENTSMEMORY_ORIGIN=hook:<script>`
   before searching (ADR-054): the kit sends it as `X-Agentsmemory-Origin`, the
   palace records it on the search, and `am_recall_stats` builds its to-write
   list from the searches nobody's hook made — so a branch name or a commit

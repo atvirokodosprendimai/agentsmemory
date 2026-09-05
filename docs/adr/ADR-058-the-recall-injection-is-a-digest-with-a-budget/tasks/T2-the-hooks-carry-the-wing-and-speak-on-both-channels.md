@@ -22,7 +22,7 @@ Every UserPromptSubmit and SessionStart recall injects the digest — the instal
 | `clients/claude-code/hooks/agentsmemory-recall-hook.sh` | edit | the same three changes for SessionStart |
 | `clients/claude-code/installer.go` | edit | the Claude hook environment prefix carries `AGENTSMEMORY_WING='<wing>'` beside the URL when `--wing` was given — this is what SELECTS the wing for the hook, and the test deletes it |
 | `clients/claude-code/doctor.go` | edit | the hook environment `doctor` prints and runs with includes the wing, so a reinstall that added it is visible |
-| `clients/claude-code/hooks_test.go` | edit | `TestTheRecallHookCarriesTheInstalledWing` (fake MCP server records the requests; with the env set there are TWO searches, the first carrying the wing and the second `wing_craft`, and the craft page's hits appear under `craft:`; without it exactly one search carrying no wing), `TestARecallThatCouldNotLookSaysSoOnBothChannels` (server down: stdout carries `additionalContext` with "could not look", stderr carries the same line) |
+| `clients/claude-code/recallscope_test.go` | add | `TestTheRecallHookCarriesTheInstalledWing` (fake MCP server records the requests; with the env set there are TWO searches, the first carrying the wing and the second `wing_craft`, and the craft page's hits appear under `craft:`; without it exactly one search carrying no wing), `TestARecallThatCouldNotLookSaysSoOnBothChannels` (server down: stdout carries `additionalContext` with "could not look", stderr carries the same line) |
 | `clients/claude-code/installer_test.go` | edit | `TestTheHookPrefixCarriesTheWing` |
 | `clients/claude-code/README.md` | edit | the hooks paragraph: what is injected now, and what `AGENTSMEMORY_WING` does |
 
@@ -47,8 +47,8 @@ go test ./clients/claude-code/ -count=1
 
 | Test name | File | Verifies | Covers | Steps |
 |-----------|------|----------|--------|-------|
-| `TestTheRecallHookCarriesTheInstalledWing` | `clients/claude-code/hooks_test.go` | the search carries the wing iff the env is set | — | S1, S2 |
-| `TestARecallThatCouldNotLookSaysSoOnBothChannels` | `clients/claude-code/hooks_test.go` | a dead server is named on additionalContext and stderr | — | S1, S2 |
+| `TestTheRecallHookCarriesTheInstalledWing` | `clients/claude-code/recallscope_test.go` | the search carries the wing iff the env is set | — | S1, S2 |
+| `TestARecallThatCouldNotLookSaysSoOnBothChannels` | `clients/claude-code/recallscope_test.go` | a dead server is named on additionalContext and stderr | — | S1, S2 |
 | `TestTheHookPrefixCarriesTheWing` | `clients/claude-code/installer_test.go` | the installer writes the wing into the prefix | — | S1, S3 |
 
 ## Reachability
@@ -61,6 +61,11 @@ go test ./clients/claude-code/ -count=1
 | 4 — it is used | S6's re-measurement on this machine, recorded in the ADR |
 
 ## Mutation Log
+
+- 2026-09-05 · 9a4ea94* · mutant killed · exit 1 · `clients/claude-code/hooks/agentsmemory-task-recall-hook.sh` · the installed wing must reach the search; dropping it restores the workspace-wide recall the record exists to end · acceptance-sha256:dc5bcf359c6795c0aab99f56e0143ade876012ee21813e85e97796120992ac0f · covers:the wing reaches the search when set
+- 2026-09-05 · 9a4ea94* · mutant killed · exit 1 · `clients/claude-code/hooks/agentsmemory-task-recall-hook.sh` · the hook must ask for the digest; without --digest it injects the JSON page again · acceptance-sha256:dc5bcf359c6795c0aab99f56e0143ade876012ee21813e85e97796120992ac0f · covers:the digest is what the hook prints
+- 2026-09-05 · 9a4ea94* · mutant killed · exit 1 · `clients/claude-code/hooks/agentsmemory-task-recall-hook.sh` · a failed recall must reach the model through additionalContext, not stderr alone · acceptance-sha256:dc5bcf359c6795c0aab99f56e0143ade876012ee21813e85e97796120992ac0f · covers:the could-not-look line on additionalContext
+- 2026-09-05 · 8d8c898* · mutant killed · exit 1 · `clients/claude-code/hooks/agentsmemory-task-recall-hook.sh` · a scoped recall must still read wing_craft; without the second call the craft wing goes silent and nothing reports it · acceptance-sha256:dc5bcf359c6795c0aab99f56e0143ade876012ee21813e85e97796120992ac0f · covers:the craft call beside the project call
 
 ## Invariants
 
@@ -83,3 +88,17 @@ Stop if `hookSpecificOutput.additionalContext` on UserPromptSubmit is not inject
 - PreCompact / compact-matcher hooks (deferred: docs/adr/BACKLOG.md)
 
 ## Verification Log
+- 2026-09-05 · 9a4ea94* · exit 1 · `set -o pipefail …` · acceptance-sha256:dc5bcf359c6795c0aab99f56e0143ade876012ee21813e85e97796120992ac0f · ms:452
+  ```
+  --- last 6 line(s) of stdout
+  # github.com/atvirokodosprendimai/agentsmemory/clients/claude-code [github.com/atvirokodosprendimai/agentsmemory/clients/claude-code.test]
+  clients/claude-code/installer_test.go:2091:9: undefined: hookCommandWithWing
+  clients/claude-code/installer_test.go:2103:12: undefined: hookCommandWithWing
+  clients/claude-code/recallwing_test.go:56:81: undefined: itoa
+  FAIL	github.com/atvirokodosprendimai/agentsmemory/clients/claude-code [build failed]
+  FAIL
+  ```
+- 2026-09-05 · 9a4ea94* · exit 0 · `set -o pipefail …` · acceptance-sha256:dc5bcf359c6795c0aab99f56e0143ade876012ee21813e85e97796120992ac0f · ms:18758
+- 2026-09-05 · 9a4ea94* · exit 0 · `set -o pipefail …` · acceptance-sha256:dc5bcf359c6795c0aab99f56e0143ade876012ee21813e85e97796120992ac0f · ms:17717
+- 2026-09-05 · 9a4ea94* · exit 0 · `set -o pipefail …` · acceptance-sha256:dc5bcf359c6795c0aab99f56e0143ade876012ee21813e85e97796120992ac0f · ms:17687
+- 2026-09-05 · 8d8c898* · exit 0 · `set -o pipefail …` · acceptance-sha256:dc5bcf359c6795c0aab99f56e0143ade876012ee21813e85e97796120992ac0f · ms:19213

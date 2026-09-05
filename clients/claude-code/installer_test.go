@@ -2082,3 +2082,38 @@ func TestRecommendedRegistersThePeerOnceUnderUpstreamsName(t *testing.T) {
 		}
 	})
 }
+
+// TestTheHookPrefixCarriesTheWing is ADR-058 T2's installer half: an install
+// with --wing writes AGENTSMEMORY_WING='<wing>' into every hook command's
+// environment prefix beside the URL, and the two parsers that must agree on a
+// prefix (installerHookPath, hookCommandEnv) both accept the result.
+func TestTheHookPrefixCarriesTheWing(t *testing.T) {
+	cmd := hookCommandWithWing("http://localhost:8080/mcp", "wing_alpha", "/cfg/agentsmemory-recall-hook.sh")
+	if !strings.Contains(cmd, "AGENTSMEMORY_WING='wing_alpha'") || !strings.Contains(cmd, "AGENTSMEMORY_MCP_URL='http://localhost:8080/mcp'") {
+		t.Fatalf("prefix lacks the wing or the URL: %q", cmd)
+	}
+	if path, ok := installerHookPath(cmd); !ok || path != "/cfg/agentsmemory-recall-hook.sh" {
+		t.Errorf("installerHookPath cannot match the two-assignment prefix: %q → %q %v", cmd, path, ok)
+	}
+	env := hookCommandEnv(cmd)
+	if !containsString(env, "AGENTSMEMORY_WING=wing_alpha") {
+		t.Errorf("hookCommandEnv does not reproduce the wing: %v", env)
+	}
+	// No wing: the prefix is exactly what it was before this record.
+	if got := hookCommandWithWing("http://localhost:8080/mcp", "", "/cfg/x.sh"); got != hookCommand("http://localhost:8080/mcp", "/cfg/x.sh") {
+		t.Errorf("without a wing the prefix changed: %q", got)
+	}
+	// And the installer uses it: a --wing install registers the wing in the prefix.
+	inst, _, dir := newTestInstaller(t, false)
+	inst.wing = "wing_alpha"
+	if err := inst.run(); err != nil {
+		t.Fatalf("install: %v", err)
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, "settings.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "AGENTSMEMORY_WING='wing_alpha'") {
+		t.Errorf("the installed hook registrations carry no wing:\n%s", raw)
+	}
+}

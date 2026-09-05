@@ -1686,8 +1686,22 @@ func hookCommand(mcpURL, path string) string {
 	return mcpURLEnvVar + "=" + shellQuote(mcpURL) + " " + bashHookCommand(path)
 }
 
+// hookCommandWithWing is hookCommand plus the installed wing (ADR-058 T2):
+// `AGENTSMEMORY_WING='<wing>'` beside the URL, so the recall hooks can scope
+// their search to the project and add the wing_craft call, instead of
+// searching every wing in the workspace because they cannot know which one
+// is theirs. An install without --wing writes exactly the old prefix, and the
+// two parsers that must agree on a prefix (installerHookPath, hookCommandEnv)
+// already read every leading assignment.
+func hookCommandWithWing(mcpURL, wing, path string) string {
+	if wing == "" {
+		return hookCommand(mcpURL, path)
+	}
+	return mcpURLEnvVar + "=" + shellQuote(mcpURL) + " " + wingEnvVar + "=" + shellQuote(wing) + " " + bashHookCommand(path)
+}
+
 func (i *Installer) hookCommand(path string) string {
-	return hookCommand(i.mcpURL, path)
+	return hookCommandWithWing(i.mcpURL, i.wing, path)
 }
 
 // stripMCPURLAssignment removes the leading AGENTSMEMORY_MCP_URL='…' this

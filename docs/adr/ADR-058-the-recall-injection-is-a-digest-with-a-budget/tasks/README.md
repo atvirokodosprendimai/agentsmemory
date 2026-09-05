@@ -18,7 +18,7 @@ README must be regenerated.
 | ID | Title | Status | Covers | Acceptance |
 |----|-------|--------|--------|------------|
 | T1 | `mcp search --digest <chars>` renders a bounded plain-text digest of the page | done | — | `go test ./internal/mcpcli/ -run 'TestTheDigestFitsItsBudget$' …` |
-| T2 | both recall hooks use the digest, carry the installed wing, and say "could not look" on both channels | pending | — | `go test ./clients/claude-code/ -run 'TestTheRecallHookCarriesTheInstalledWing$|TestARecallThatCouldNotLookSaysSoOnBothChannels$|TestTheHookPrefixCarriesTheWing$' …` |
+| T2 | both recall hooks use the digest, carry the installed wing, and say "could not look" on both channels | done | — | `go test ./clients/claude-code/ -run 'TestTheRecallHookCarriesTheInstalledWing$|TestARecallThatCouldNotLookSaysSoOnBothChannels$|TestTheHookPrefixCarriesTheWing$' …` |
 
 Status: `pending` | `partial` | `blocked` | `done`.
 
