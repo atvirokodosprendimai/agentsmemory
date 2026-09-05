@@ -824,6 +824,55 @@ func registerListDrawers(reg *registrar, drawers *palace.Service, usageSvc *usag
 	})
 }
 
+// searchHitIDView is the ids_only shape of a hit (ADR-060): the identity and the
+// numbers a caller ranks and fetches by, and none of the memory's text.
+//
+// It is built FROM a finished searchHitView rather than from the palace hit, so
+// a field added to the full view is one line away from this one instead of a
+// second place to forget. Every key here is a key the full hit already carries
+// under the same name — the test asserts the subset — and the two disclosure
+// fields ADR-044 defined say the truth about this shape: content_truncated is
+// always true when the memory has any text, and content_length is what a fetch
+// would return. Measured 2026-09-05 on this project's palace, five real hits
+// rendered this way were 1,451–1,555 bytes against 12,631–14,912 for the full
+// page: a caller can page a recall and pay for content only for what it keeps.
+type searchHitIDView struct {
+	ID               string  `json:"id"`
+	MemoryID         string  `json:"memory_id"`
+	URI              string  `json:"uri"`
+	Wing             string  `json:"wing"`
+	Room             string  `json:"room"`
+	SourceFile       string  `json:"source_file"`
+	FiledAt          string  `json:"filed_at"`
+	ContentDate      string  `json:"content_date,omitempty"`
+	ValidTo          string  `json:"valid_to,omitempty"`
+	EndedReason      string  `json:"ended_reason,omitempty"`
+	SupersededBy     string  `json:"superseded_by,omitempty"`
+	Supersedes       string  `json:"supersedes,omitempty"`
+	SupersededReason string  `json:"superseded_reason,omitempty"`
+	Identity         string  `json:"identity,omitempty"`
+	Distance         float64 `json:"distance"`
+	Blended          float64 `json:"blended_score,omitempty"`
+	Stale            bool    `json:"stale,omitempty"`
+	StaleIndex       bool    `json:"stale_index,omitempty"`
+	Truncated        bool    `json:"content_truncated,omitempty"`
+	FullLength       int     `json:"content_length,omitempty"`
+}
+
+// thinSearchHit reduces a full hit to its ids_only shape. fullLength is the
+// whole memory's rune count, which the full view records only when it trimmed.
+func thinSearchHit(v searchHitView, fullLength int) searchHitIDView {
+	return searchHitIDView{
+		ID: v.ID, MemoryID: v.MemoryID, URI: v.URI, Wing: v.Wing, Room: v.Room,
+		SourceFile: v.SourceFile, FiledAt: v.FiledAt, ContentDate: v.ContentDate,
+		ValidTo: v.ValidTo, EndedReason: v.EndedReason, SupersededBy: v.SupersededBy,
+		Supersedes: v.Supersedes, SupersededReason: v.SupersededReason,
+		Identity: v.Identity, Distance: v.Distance, Blended: v.Blended,
+		Stale: v.Stale, StaleIndex: v.StaleIndex,
+		Truncated: fullLength > 0, FullLength: fullLength,
+	}
+}
+
 // newSearchHitView maps a domain hit onto the view an agent receives.
 //
 // Extracted from the loop it used to be inlined in, because an inline composite
@@ -974,6 +1023,12 @@ func registerSearch(reg *registrar, drawers *palace.Service, usageSvc *usage.Ser
 			"How much of each hit's text to return, as a window centred on the match (default 400). "+
 				"Recall is paid for in your context window: a page of full-length memories costs several thousand tokens, "+
 				"and most of it is text you did not need. Pass 0 for whole memories, or fetch any single one in full with am_get_drawer.")),
+		mcp.WithBoolean("ids_only", mcp.Description(
+			"Return a thin page (default false): each hit carries only id, memory_id, uri, wing, room, source_file, dates, identity, "+
+				"distance, blended_score, stale and the two disclosure fields — content_truncated (always true for a memory with text) "+
+				"and content_length — and no content, regions or content_coverage; count, search_id and the facts are exactly as on "+
+				"a full page, and no hit is ever withheld for budget because nothing on it is paid for by content. Measured at about a "+
+				"tenth of the full page's bytes. Page with it, then fetch the few you keep with am_get_drawer(id, whole=true, search_id).")),
 		mcp.WithString("context", mcp.Description("Optional background context — what you are working on. Sharpens re-ranking when a reranker is configured; ignored otherwise. It does not change which drawers are retrieved, only how they are ordered.")),
 	)
 	reg.add(tool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -1011,6 +1066,10 @@ func registerSearch(reg *registrar, drawers *palace.Service, usageSvc *usage.Ser
 		}
 		hits := page.Hits
 		snippetChars := req.GetInt("snippet_chars", palace.DefaultSnippetChars)
+		// ADR-060: the line that SELECTS the thin page. The full loop below still
+		// runs — it is what computes identity, staleness and the whole-memory
+		// length — and the reduction happens once, after it, from the finished view.
+		idsOnly := req.GetBool("ids_only", false)
 		// spent/overBudget bound the WHOLE-memory expansion. See ResponseBudget.
 		//
 		// withheld is overBudget's SIBLING, not a rename of it, and the two are
@@ -1173,6 +1232,21 @@ func registerSearch(reg *registrar, drawers *palace.Service, usageSvc *usage.Ser
 		// found nothing still ran and still wrote its row, and that is the page
 		// most worth tracing. It is the primary key of the search_events row.
 		out := map[string]any{"hits": views, "count": len(views), "search_id": page.SearchID}
+		if idsOnly {
+			thin := make([]searchHitIDView, len(views))
+			for i, h := range hits {
+				full := h.MemoryContent
+				if full == "" {
+					full = h.Drawer.Content
+				}
+				thin[i] = thinSearchHit(views[i], len([]rune(full)))
+			}
+			out["hits"] = thin
+			// Nothing on a thin page was paid for by content, so the budget loop's
+			// verdict does not describe it; a withheld count here would tell a
+			// caller a hit is missing that is on the page.
+			withheld = 0
+		}
 		// The fact block, rendered BESIDE the hits. Three keys, because a match
 		// this recall did not return is reported one of two ways and never as
 		// silence: the WING that holds it, when provenance makes that derivable

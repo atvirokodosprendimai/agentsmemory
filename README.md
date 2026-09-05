@@ -168,7 +168,7 @@ exposes same-named tools — without the client seeing two tools of the same nam
 | `am_add_drawer` | ✅ | File a verbatim memory (chunked + embedded; idempotent by source) |
 | `am_get_drawer` / `am_update_drawer` / `am_invalidate_drawer` | ✅ | Read a memory; correct it (sending `content` supersedes — a new record, the old one ended with your `reason`, the two linked) or move it (wing/room keeps the id); retract one that nothing replaces. **No agent-reachable tool destroys a record** — erasure is `agentsmemory drawer erase`, which needs the database file |
 | `am_list_drawers` | ✅ | Paginate drawers, optionally filtered by wing/room |
-| `am_search` | ✅ | Hybrid recall — vector candidates re-ranked by vector + BM25 + closet boost, then optionally by a TEI cross-encoder (`RERANK_URL`) |
+| `am_search` | ✅ | Hybrid recall — vector candidates re-ranked by vector + BM25 + closet boost, then optionally by a TEI cross-encoder (`RERANK_URL`). `ids_only: true` returns a thin page (ids, wing/room, identity, scores, stale marker, content length — no text) at about a tenth of the bytes, to page and then fetch the few you keep with `am_get_drawer` (ADR-060) |
 | `am_check_duplicate` | ✅ | Is content near-identical to an existing drawer? |
 | `am_list_wings` / `am_list_rooms` / `am_get_taxonomy` | ✅ | Indexed wing/room aggregations of a team's memory |
 | `am_get_aaak_spec` | ✅ | The AAAK compressed-memory dialect reference |
