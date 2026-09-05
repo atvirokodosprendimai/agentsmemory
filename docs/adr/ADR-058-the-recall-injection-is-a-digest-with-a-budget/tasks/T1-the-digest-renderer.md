@@ -8,7 +8,7 @@
 **Consumes:** none
 **Data dependency:** hermetic
 **Proof map:** v1
-**Rests-on:** `whole hits within the budget`, `the withheld count line`, `in-wing facts as one line each`
+**Rests-on:** `whole hits within the budget`, `the withheld count line`, `in-wing facts as one line each`, `the content line is not the identity line`
 
 ## Goal
 
@@ -25,10 +25,10 @@
 
 ## Ordered Steps
 
-1. [S1] Write `TestTheDigestFitsItsBudget` red: a fixture page whose raw JSON is ~6k chars renders to ≤1,600 chars, every hit present is whole (identity line, wing/room line, region line), the trailing line names the withheld count and the query, and each fact is one `subject → predicate → object` line. And `TestTheDigestIsSelectedByTheFlag` red: the real CLI with `--digest 1600` against a fake MCP server prints text, not JSON.
+1. [S1] Write `TestTheDigestFitsItsBudget` red: a fixture page whose raw JSON is ~6k chars renders to ≤1,600 chars, every hit present is whole (identity line, wing/room line, region line), the trailing line names the withheld count and the query, and each fact is one `subject → predicate → object` line. One fixture hit opens with a `SESSION:…|PROJ:…` header whose `regions[0]` is contained in its identity and whose `regions[1]` is body text: the content line must be `regions[1]` (review of #268 measured this shape on half the sampled hits). And `TestTheDigestIsSelectedByTheFlag` red: the real CLI with `--digest 1600` against a fake MCP server prints text, not JSON.
 2. [S2] Implement `renderDigest` and wire the flag. [proof: mutation]
 3. [S3] README example. [proof: human: the reviewer reads the example beside the code that renders it]
-4. [S4] Mutants, one per Rests-on mechanism: render a hit past the budget (cut mid-line); drop the trailing line; render facts as raw JSON. [proof: mutation]
+4. [S4] Mutants, one per Rests-on mechanism: render a hit past the budget (cut mid-line); drop the trailing line; render facts as raw JSON; always render `regions[0]`. [proof: mutation]
 
 ## Acceptance
 
@@ -60,6 +60,7 @@ go test ./clients/claude-code/ -count=1
 
 - The server's hit order is kept; withholding drops from the END.
 - A hit is whole or absent; no line is truncated.
+- The content line is the first region not contained in the identity line; only when every region is contained does it fall back to the first.
 - Without `--digest` the JSON page is byte-identical to today.
 
 ## Risks

@@ -21,7 +21,14 @@ against the local palace: 5,877 bytes (~1,470 tokens) on plain stdout, two hits 
 88k-character session transcripts carrying 24 JSON keys each, and two facts whose subjects were
 `deploy-router` and `tool-multipathreadwrite` — neither this repository. Every one of this
 session's own prompts carried the same four unrelated billing facts and one 88k-char transcript
-chunk, so the figure holds across prompts, not just the probe.
+chunk, so the figure holds across prompts, not just the probe. Review of #268 measured a
+DIFFERENT session on the HOSTED palace, seven injections: 5,301–6,408 bytes, mean ~1,364 tokens —
+and, counting wing names across them in a session working only on agentsmemory,
+`wing_tool-multipathreadwrite` 34, `wing_forumchat` 34, `wing_agentmemories` 12. The repository's
+own wing was the LEAST represented, outnumbered about five to one by two projects that share no
+code with it; one recurring hit was a service-worker JavaScript file about push-notification
+badges, returned against prompts about ADR reviews. Out-of-wing content is the majority of every
+injection, not a tail on a good answer — which is the argument for the wing half of this record.
 
 Two mechanisms, both already written down in the code:
 
@@ -64,7 +71,9 @@ things and are not this class.
 
 `aiagentmemory mcp search` gains `--digest <chars>`: instead of the JSON page it prints, for each
 hit in the server's order, three lines — `identity` (the memory's first line), `wing/room` with
-`content_date` when present and `STALE` when the hit says so, and the first matched region — then
+`content_date` when present and `STALE` when the hit says so, and the first matched region whose
+text is NOT already contained in the identity line (falling back to the first region when every
+region is) — then
 one line per in-wing fact as `subject → predicate → object`, and, when the page held more than
 fit, a final line `N more hit(s) withheld by the budget; am_search "<query>" for the rest`. The
 budget is total characters of the rendered text, applied hit by hit so a hit is either whole or
@@ -100,6 +109,12 @@ search request carries no wing; an unreachable-server run whose stdout carries n
 - **Filter facts server-side for a wing-less query by guessing the wing from the token:** the
   server cannot know which project a bare token is speaking for; ADR-054 chose to record origin
   rather than guess it, and this record makes the same choice — the kit knows the wing and says it.
+- **Render `regions[0]` as the content line:** the obvious choice, and review of #268 measured it
+  against this palace's diary memories, which open with a `SESSION:…|PROJ:…|TASK:…` header: in one
+  of two sampled hits `regions[0]` was 100% contained in `identity`, so the digest's one content
+  line would reprint the line above it — the single-window failure ADR-019's `SnippetRegions`
+  exists to prevent, re-created one layer up. Rejected for the first region not contained in the
+  identity.
 - **Drop the fact block from the hook entirely:** simplest. Rejected because in-wing facts are the
   cheapest thing the palace returns (one line each) and the one thing a dormant wing can still
   answer (ADR-041's reasoning for the block).
