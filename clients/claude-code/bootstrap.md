@@ -304,6 +304,17 @@ calls in parallel where you can; each answers a different question.
     outrank whatever you would otherwise infer. This is also the Step 0 backstop:
     if the idiom skill was not in your local list, it is very likely here. Emit
     `team skills loaded ✓` (or say plainly that the catalogue is empty).
+  - **Then arm the re-ground wake, on Claude Code only.** A compaction replaces
+    your context while the work continues, and ADR-062's post-compaction
+    injection prints `PAUSE … /amm <task>` — an instruction, worth exactly the
+    model's willingness to read it. On Claude Code, `/am` Step 1d turns that into
+    a trigger: the recall hook leaves a marker and a persistent `Monitor` over
+    that directory emits a line, which arrives as a notification and makes the
+    session take a turn. ⚠ **The re-ground wake is Claude-only.** `Monitor` is a
+    Claude Code tool; codex and pi run this same protocol and have nothing
+    equivalent, so there the printed `PAUSE` is the whole mechanism. Said in both
+    copies on purpose — two copies of a protocol is this repository's recorded
+    hazard, and the copy nobody maintains is the one that goes wrong.
 
 Reconcile the three sources. If project intent (1a), the code (1b), and past decisions
 (1c) disagree, **surface the conflict** — that's a human decision, not one to

@@ -50,25 +50,23 @@ func TestACompactionWakesTheSessionThroughTheMonitor(t *testing.T) {
 			state := t.TempDir()
 			env := regroundEnv(state, mode == "explicit state dir")
 
-			transcript := filepath.Join(state, "t.jsonl")
-			line := `{"type":"user","message":{"role":"user","content":"the task that was interrupted"}}` + "\n"
-			if err := os.WriteFile(transcript, []byte(line), 0o600); err != nil {
+			// ⚠ THE ORDER IS THE REAL ONE, AND THE FIRST VERSION HAD IT BACKWARDS.
+			// `/am` arms the monitor DURING a session; the compaction that writes
+			// the marker happens later. A test that writes the marker first and
+			// then arms is testing a sequence that never occurs, and it hid the
+			// defect below: review of #283 reproduced a monitor replaying every
+			// marker already on disk the moment it was armed.
+			dir := filepath.Join(state, "agentsmemory-reground")
+			if err := os.MkdirAll(filepath.Join(dir, "subdir"), 0o755); err != nil {
 				t.Fatal(err)
 			}
-			payload := `{"session_id":"wakeprobe","transcript_path":"` + transcript + `","trigger":"auto"}`
-			runHookEnv(t, "agentsmemory-precompact-hook.sh", payload, env)
-			runHookEnv(t, "agentsmemory-recall-hook.sh", `{"session_id":"wakeprobe","source":"compact"}`, env)
-
-			marker := filepath.Join(state, "agentsmemory-reground", "wakeprobe")
-			body, err := os.ReadFile(marker)
-			if err != nil {
-				t.Fatalf("the recall hook wrote no re-ground marker on a compaction: %v", err)
-			}
-			if got := strings.TrimSpace(string(body)); got != "the task that was interrupted" {
-				t.Errorf("marker carries %q, not the task in flight", got)
+			// A marker from a session that finished long ago. Markers outlive their
+			// sessions by design, so this is the ordinary state of the directory —
+			// and re-grounding a new session on it is worse than not waking at all.
+			if err := os.WriteFile(filepath.Join(dir, "oldsession"), []byte("an old task from a previous session\n"), 0o600); err != nil {
+				t.Fatal(err)
 			}
 
-			// The shipped script, verbatim, against the marker the hook just wrote.
 			doc, err := os.ReadFile(filepath.Join("commands", "am.md"))
 			if err != nil {
 				t.Fatal(err)
@@ -88,27 +86,54 @@ func TestACompactionWakesTheSessionThroughTheMonitor(t *testing.T) {
 			}
 			// The loop never exits on its own; testexec kills its process group when
 			// this test ends, which is the whole reason children go through it.
-			lines := make(chan string, 1)
+			lines := make(chan string, 8)
 			go func() {
 				s := bufio.NewScanner(out)
 				for s.Scan() {
 					if strings.TrimSpace(s.Text()) != "" {
 						lines <- s.Text()
-						return
 					}
 				}
 				close(lines)
 			}()
-			select {
-			case got, ok := <-lines:
-				if !ok {
-					t.Fatal("the monitor script exited without emitting an event for a marker that exists")
+
+			// Now the compaction, with the watch already running.
+			transcript := filepath.Join(state, "t.jsonl")
+			line := `{"type":"user","message":{"role":"user","content":"the task that was interrupted"}}` + "\n"
+			if err := os.WriteFile(transcript, []byte(line), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			payload := `{"session_id":"wakeprobe","transcript_path":"` + transcript + `","trigger":"auto"}`
+			runHookEnv(t, "agentsmemory-precompact-hook.sh", payload, env)
+			runHookEnv(t, "agentsmemory-recall-hook.sh", `{"session_id":"wakeprobe","source":"compact"}`, env)
+
+			var got []string
+		collect:
+			for {
+				select {
+				case l, ok := <-lines:
+					if !ok {
+						break collect
+					}
+					got = append(got, l)
+					if strings.Contains(l, "/amm the task that was interrupted") {
+						break collect
+					}
+				case <-time.After(30 * time.Second):
+					t.Fatalf("the monitor emitted nothing for the marker the hook wrote — the two halves resolve different directories, which is a trigger that cannot fire. saw: %q", got)
 				}
-				if !strings.Contains(got, "/amm the task that was interrupted") {
-					t.Errorf("the monitor woke the session without naming the task: %q", got)
-				}
-			case <-time.After(30 * time.Second):
-				t.Fatal("the monitor script emitted nothing for a marker the hook wrote — the two halves resolve different directories, which is a trigger that cannot fire")
+			}
+			joined := strings.Join(got, "\n")
+			if !strings.Contains(joined, "/amm the task that was interrupted") {
+				t.Errorf("the monitor woke the session without naming the task: %q", joined)
+			}
+			// The two ways a wake is WORSE than no wake: it names finished work, or
+			// it names nothing at all. A subdirectory `cat`s to the empty string.
+			if strings.Contains(joined, "an old task from a previous session") {
+				t.Errorf("the monitor replayed a marker that was already on disk when it was armed — every new session would re-ground on somebody else's finished work: %q", joined)
+			}
+			if strings.Contains(joined, "/amm `") || strings.Contains(joined, "/amm ,") {
+				t.Errorf("the monitor emitted an empty task label, which grounds nothing: %q", joined)
 			}
 		})
 	}
@@ -161,6 +186,33 @@ func TestASlashCommandIsNotTheTaskInFlight(t *testing.T) {
 	}
 	if !strings.Contains(string(body), "prompt=the work that was actually in flight") {
 		t.Errorf("the note does not fall back to the last real turn:\n%s", body)
+	}
+}
+
+// TestBothProtocolsNameTheRegroundWake pins the two copies of the grounding
+// protocol equal on the wake, the way TestBothProtocolsReadTheWakeUp already
+// pins them on ADR-061's sentence.
+//
+// The hazard is this repository's recorded one: `/am` and `bootstrap.md` are two
+// copies of one protocol, and the copy nobody maintains is the one that goes
+// wrong. It also pins the CAVEAT, because `Monitor` is a Claude Code tool and
+// codex and pi run the same bootstrap — a copy that described the wake without
+// saying so would promise those agents a trigger they cannot arm.
+func TestBothProtocolsNameTheRegroundWake(t *testing.T) {
+	for _, asset := range []string{"commands/am.md", "bootstrap.md"} {
+		body, err := assets.ReadFile(asset)
+		if err != nil {
+			t.Fatalf("read embedded %s: %v", asset, err)
+		}
+		text := strings.Join(strings.Fields(string(body)), " ")
+		for _, want := range []string{
+			"The re-ground wake is Claude-only.",
+			"codex and pi",
+		} {
+			if !strings.Contains(text, want) {
+				t.Errorf("%s does not carry %q: the two copies of the protocol disagree about the wake", asset, want)
+			}
+		}
 	}
 }
 

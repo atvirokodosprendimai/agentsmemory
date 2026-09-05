@@ -108,13 +108,20 @@ willingness to read it. This step makes it a **trigger** instead.
 
    ```bash
    D="${AGENTSMEMORY_STATE_DIR:-${TMPDIR:-/tmp}}/agentsmemory-reground"
-   mkdir -p "$D"; seen=""
+   mkdir -p "$D"; seen=" "
+   # A marker's APPEARANCE is the event, so whatever is already on disk is not
+   # one. Markers outlive their sessions by design (they sit beside ADR-059's
+   # notes under the state dir), and replaying them would tell every new session
+   # to re-ground on somebody else's finished work. Regular files only: a
+   # subdirectory would `cat` to nothing and name an empty task.
+   for f in "$D"/*; do [ -f "$f" ] && seen="$seen$f "; done
    while true; do
      for f in "$D"/*; do
-       [ -e "$f" ] || continue
-       case " $seen " in *" $f "*) continue ;; esac
-       seen="$seen $f"
+       [ -f "$f" ] || continue
+       case "$seen" in *" $f "*) continue ;; esac
+       seen="$seen$f "
        printf 'RE-GROUND NOW — a compaction replaced this session context. Before anything else run `/amm %s`, then say how what you read differs from the summary.\n' "$(cat "$f" 2>/dev/null)"
+       rm -f "$f" 2>/dev/null
      done
      sleep 2
    done
@@ -141,6 +148,12 @@ two mechanisms is what shipped a design whose own record called it unbuildable.
 ⚠ **The instruction remains the fallback, and must.** A session that never ran
 `/am` armed no monitor, so ADR-062's printed `PAUSE` is what it gets. This step
 raises the ceiling; it does not remove the floor.
+
+⚠ **The re-ground wake is Claude-only.** `Monitor` is a Claude Code tool; codex
+and pi run this same protocol from `bootstrap.md` and have nothing equivalent, so
+there the printed `PAUSE` is the whole mechanism. Said in both copies on purpose
+— two copies of a protocol is this repository's recorded hazard, and the copy
+nobody maintains is the one that goes wrong.
 
 ## Memory-first — ask before you grep
 
