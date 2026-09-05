@@ -194,4 +194,9 @@ hook, which ignores the variable.
 
 ## Follow-ups
 
-- [ ] Re-measure the per-prompt injection size after T2 lands, on the same prompt, and record it here beside the 5,877-byte figure.
+- [x] Re-measured 2026-09-05 after T2, same prompt ("fix the flaky session end hook test"), same
+      local palace, kit reinstalled with `--wing wing_agentmemories`: **630 bytes (~157 tokens)**
+      against 5,877 (~1,470) before — two hits, both from `wing_agentmemories`, three lines each;
+      the `wing_craft` call returned nothing within `max_distance=0.42` for that query, so no
+      `craft:` block, and the digest's own trace line reports `chars=463` for the two pages
+      combined. Roughly a ninefold cut, and every line of it is about this project.
