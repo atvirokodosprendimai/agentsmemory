@@ -27,7 +27,15 @@ var codebaseMemoryHookScripts = []string{
 // under: upstream's own, and the one this kit registered until ADR-057.
 // The rung reads both because a machine that took the kit's --recommended path
 // after upstream's installer carries the same binary under both.
-var codebaseMemoryMCPNames = []string{"codebase-memory-mcp", "codebasememory"}
+var codebaseMemoryMCPNames = []string{codebaseMemoryMCPName, retiredCodebaseMemoryName}
+
+// codebaseMemoryMCPName is upstream's registration name — the one the protocol
+// text and the harness's tool prefix use. retiredCodebaseMemoryName is what
+// this kit registered until ADR-057; T2 stops writing it and removes it.
+const (
+	codebaseMemoryMCPName     = "codebase-memory-mcp"
+	retiredCodebaseMemoryName = "codebasememory"
+)
 
 // peerVerdict is what doctor concluded about the codebase-memory peer.
 //
@@ -98,7 +106,14 @@ func judgeCodebaseMemory(kit agentKit, dir string) peerVerdict {
 		return peerVerdict{label: "BROKEN", detail: "cbm-* hooks are registered but no MCP entry names the server — the hooks will run and the agent has no tools to call", bad: true}
 	}
 	for name, cmd := range commands {
-		return peerVerdict{label: "ok", detail: name + " → " + cmd + fmt.Sprintf(", %d hook registration(s)", len(counts))}
+		detail := name + " → " + cmd + fmt.Sprintf(", %d hook registration(s)", len(counts))
+		if name == retiredCodebaseMemoryName {
+			// One registration, so not a duplicate — but under a name no document
+			// tells the agent to call. Said in the row, not the exit code: the
+			// install works, and `install --recommended` renames it (T2).
+			detail += " — under the RETIRED name; the protocol's tool prefix is " + codebaseMemoryMCPName + ", and `install --recommended` renames it"
+		}
+		return peerVerdict{label: "ok", detail: detail}
 	}
 	return peerVerdict{label: "ok"}
 }
@@ -113,6 +128,13 @@ func judgeCodebaseMemory(kit agentKit, dir string) peerVerdict {
 // from a ghost file (~/.claude/.claude.json, left by an old pinned install)
 // while `claude mcp list` knew only codebase-memory-mcp from ~/.claude.json. A
 // diagnostic that reads a file the agent does not is a diagnostic of nothing.
+//
+// Resolved, NOT a union across config dirs — decided against the alternative
+// on the evidence: review of #265/#266 found the peer under upstream's name in
+// ~/.claude.json and under the kit's in ~/.sandboxes/aks/.claude.json, and a
+// union read reports DUPLICATE over two legitimate installs that each carry
+// exactly one registration. Doctor is per-install (--agent, --target-dir);
+// `doctor --target-dir ~/.sandboxes/aks` judges that install on its own.
 func claudeMCPRegistry(kit agentKit, dir string) string {
 	if dir == kit.globalConfigDir(homeDir()) {
 		return filepath.Join(homeDir(), ".claude.json")

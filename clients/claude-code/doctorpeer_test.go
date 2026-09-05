@@ -106,6 +106,22 @@ func TestDoctorReportsTheCodebaseMemoryPeer(t *testing.T) {
 		}
 	})
 
+	t.Run("ok under the retired name says so in the row, and does not fail", func(t *testing.T) {
+		// The reviewer's sandbox on #266: one registration, the kit's old name.
+		// Not a duplicate — one daemon — but a tool prefix no document names.
+		dir := base(t)
+		bin := peerBinary(t, dir, true)
+		peerMCP(t, dir, map[string]string{"codebasememory": bin})
+		report, err := runDoctor(t, dir)
+		if err != nil {
+			t.Fatalf("one registration under the retired name must not fail doctor: %v\n%s", err, report)
+		}
+		assertPeerRow(t, report, "ok")
+		if !strings.Contains(report, "RETIRED") {
+			t.Errorf("the row does not say the name is retired:\n%s", report)
+		}
+	})
+
 	t.Run("BROKEN: registered, binary not executable", func(t *testing.T) {
 		dir := base(t)
 		bin := peerBinary(t, dir, false)
