@@ -5,4 +5,4 @@ it would produce a commit where the fields are gone and nothing stops them retur
 
 | Task | Status | Depends-on | Goal |
 |------|--------|------------|------|
-| [T1](T1-no-unwritten-dynamics-field-reaches-the-wire.md) | pending | none | Remove the four inert dynamics keys from both wire views, delete the exemption they made dead, and gate their return |
+| [T1](T1-no-unwritten-dynamics-field-reaches-the-wire.md) | done | none | Remove the four inert dynamics keys from both wire views, delete the exemption they made dead, and gate their return |

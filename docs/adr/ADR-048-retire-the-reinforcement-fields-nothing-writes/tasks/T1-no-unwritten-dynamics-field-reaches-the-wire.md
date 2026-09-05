@@ -6,6 +6,7 @@
 **Owner:** unassigned
 **Produces:** `TestNoDynamicsFieldIsDeclaredOnTheWireInThisPackage` and the reduced `tunnelView` / `hallwayView` shapes
 **Consumes:** `palace.Dynamics`'s json tags, which are the gate's universe — an existing type, not produced by a sibling task
+**Rests-on:** `a retired key returning to the wire is caught`, `the forbidden set is derived, never vacuous`, `the detector reports an offender`
 **Data dependency:** none. Every check here is hermetic: the gate parses source text and the suite needs no corpus, no live server and no populated palace.
 
 ## Goal
@@ -40,6 +41,19 @@ forbidden key set from `palace.Dynamics` itself rather than from a literal list.
    pointers are honoured rather than merely resolvable.
 5. Run the full suite as regression.
 
+⚠ **THE WORK PREDATED THIS EVIDENCE, AND THE LOG WOULD OTHERWISE IMPLY A CYCLE THAT
+DID NOT HAPPEN.** Steps 1-4 landed in `bb8d030`, under this record's ORIGINAL number:
+it was authored as ADR-045, `main` took 045 while it sat open, and `f7c83d9`
+renumbered it to 048. The renumber carried the files and lost the bookkeeping — the
+tasks README stayed `pending` and the record stayed `Proposed` over a tree where the
+fields were already gone, the gate already existed and the dead `undescribedOnPurpose`
+entry was already deleted. So no entry below is a TDD red run, because there was no
+red state left to observe by the time anyone ran the fence: step 1's "confirm it is
+red for the right reason" was satisfied at authoring time in `bb8d030` and is not
+re-creatable now. What carries that burden instead is the `a_returned_key_is_caught`
+subtest and the three mutants, each of which puts the offender back and watches the
+gate report it — a stronger claim than a red run, because it is repeatable.
+
 ## Acceptance
 
 ```bash
@@ -73,6 +87,9 @@ run follows as regression, chained with `&&` so every stage must pass.
 ## Mutation Log
 
 <!-- Tool-written by `adr-verify --mutant`. Empty at authoring. -->
+- 2026-09-05 · 276cba9* · mutant killed · exit 1 · `internal/mcpserver/graph.go` · Puts one retired dynamics key back on tunnelView, the regression this record exists to prevent: an agent reading a tunnel sees a strength it can never learn anything from, because initDynamics stamps it once and nothing writes it again. · acceptance-sha256:852859ee7b4643e593dd2089da2dec756723d2752e4fe17b61cd75fa821576f4 · covers:a retired key returning to the wire is caught
+- 2026-09-05 · 276cba9* · mutant killed · exit 1 · `internal/mcpserver/dynamicswire_test.go` · The forbidden set is read from a struct that no longer matches, so dynamicsKeys returns nothing and the gate would sweep a package it never looked at — reporting a clean wire because it forgot what to look for. This is the vacuity a derived universe buys and the reason the len==0 Fatal exists; without that guard the gate is green forever after any rename of palace.Dynamics. · acceptance-sha256:852859ee7b4643e593dd2089da2dec756723d2752e4fe17b61cd75fa821576f4 · covers:the forbidden set is derived, never vacuous
+- 2026-09-05 · 276cba9* · mutant killed · exit 1 · `internal/mcpserver/dynamicswire_test.go` · Severs the detector so it reports nothing whatever it is given. The main assertion still passes — a clean package and a blind detector are byte-identical from outside — and only the falsifiability subtest can tell them apart. This is why that half is a SUBTEST driving the same function rather than a sibling that reimplements it. · acceptance-sha256:852859ee7b4643e593dd2089da2dec756723d2752e4fe17b61cd75fa821576f4 · covers:the detector reports an offender
 
 ## Invariants
 
@@ -103,3 +120,7 @@ has exactly one such reader, so the check can genuinely come back either way.
 ## Verification Log
 
 <!-- Tool-written by `adr-verify`. -->
+- 2026-09-05 · 276cba9 · exit 0 · `set -o pipefail …` · acceptance-sha256:852859ee7b4643e593dd2089da2dec756723d2752e4fe17b61cd75fa821576f4 · ms:48918
+- 2026-09-05 · 276cba9* · exit 0 · `set -o pipefail …` · acceptance-sha256:852859ee7b4643e593dd2089da2dec756723d2752e4fe17b61cd75fa821576f4 · ms:53319
+- 2026-09-05 · 276cba9* · exit 0 · `set -o pipefail …` · acceptance-sha256:852859ee7b4643e593dd2089da2dec756723d2752e4fe17b61cd75fa821576f4 · ms:43806
+- 2026-09-05 · 276cba9* · exit 0 · `set -o pipefail …` · acceptance-sha256:852859ee7b4643e593dd2089da2dec756723d2752e4fe17b61cd75fa821576f4 · ms:42792
