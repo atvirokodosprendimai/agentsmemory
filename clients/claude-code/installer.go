@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"io"
 	"net/url"
@@ -2120,10 +2121,25 @@ func (i *Installer) registerCursorMCP(token string) error {
 // there fails at spawn inside Claude Desktop, where the error reads as ours.
 func (i *Installer) registerClaudeDesktopMCP(token string) error {
 	if i.serverBin == "" {
-		return fmt.Errorf("%s registers an mcp-stdio bridge, which needs the agentsmemory server "+
-			"binary on this machine, and none was found. Build one "+
-			"(go build -o ~/.local/bin/aiagentmemory-server ./cmd/server) or pass --server-bin "+
-			"<path>. A Docker-only install produces no host binary", i.kit.name)
+		// A Compose-only install — the documented local server — leaves no host
+		// binary at all, so the documented happy path used to end here with a
+		// refusal telling the operator to install a Go toolchain (issue #199).
+		// Every release publishes the server for each platform beside the client,
+		// so it is fetched from the release this client came from (or the newest,
+		// for an unstamped client) and placed the way a found binary would be.
+		// The refusal stays for the case where that fails too: an entry naming a
+		// binary that is not there fails inside Claude Desktop and reads as ours.
+		fetched, err := i.fetchServerBin()
+		if err != nil {
+			return fmt.Errorf("%s registers an mcp-stdio bridge, which needs the agentsmemory server "+
+				"binary on this machine, and none was found; fetching it from the release failed: %v. "+
+				"Build one (go build -o ~/.local/bin/aiagentmemory-server ./cmd/server) or pass --server-bin "+
+				"<path>. A Docker-only install produces no host binary", i.kit.name, err)
+		}
+		i.serverBin = fetched
+		if !i.dryRun {
+			defer os.Remove(fetched) // placeServerBin copies it to its final name
+		}
 	}
 	// The registration names the binary this install PLACED, not whatever was on
 	// PATH when someone last ran it — see placeServerBin.
@@ -2160,6 +2176,46 @@ func (i *Installer) registerClaudeDesktopMCP(token string) error {
 	}
 	i.ok("restart Claude Desktop to pick it up — it reads this file only at launch")
 	return nil
+}
+
+// fetchServerBin downloads the server binary for this platform from the release
+// matching the running client (or the newest release when the client is an
+// unstamped build), verifies it runs, and returns the staged path for
+// placeServerBin to copy into place. In a dry-run it downloads nothing and
+// returns the URL it would have fetched, so the rehearsal names the asset.
+func (i *Installer) fetchServerBin() (string, error) {
+	asset, err := serverAssetName(runtime.GOOS, runtime.GOARCH)
+	if err != nil {
+		return "", err
+	}
+	ctx := context.Background()
+	tag := version
+	if !strings.HasPrefix(tag, "v") {
+		// An unstamped client has no release of its own; the newest is the best
+		// guess, and the report says which one so a mismatch is visible.
+		if tag, err = latestTag(ctx); err != nil {
+			return "", fmt.Errorf("%s: %w", asset, err)
+		}
+	}
+	url := releaseAssetURL(tag, asset)
+	if i.dryRun {
+		fmt.Fprintf(i.out, "  would download %s from release %s (%s)\n", asset, tag, url)
+		return url, nil
+	}
+	dir := filepath.Join(i.targetDir, "bin")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", err
+	}
+	tmp, err := downloadBinary(ctx, url, dir)
+	if err != nil {
+		return "", fmt.Errorf("%s: %w", asset, err)
+	}
+	if err := verifyBinary(ctx, tmp); err != nil {
+		os.Remove(tmp)
+		return "", fmt.Errorf("%s: %w", asset, err)
+	}
+	i.ok("downloaded %s from release %s", asset, tag)
+	return tmp, nil
 }
 
 // renderBridgeArgs prints the bridge's argument list as the registration will

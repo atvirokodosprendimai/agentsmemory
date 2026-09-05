@@ -147,6 +147,20 @@ func assetName(goos, goarch string) (string, error) {
 	return name, nil
 }
 
+// serverAssetName is assetName for the server binary the same release publishes
+// beside the client — the mcp-stdio bridge a Claude Desktop install spawns. It
+// shares publishedPlatforms because release.yml builds both from one matrix.
+func serverAssetName(goos, goarch string) (string, error) {
+	if !publishedPlatforms[goos+"/"+goarch] {
+		return "", fmt.Errorf("no published aiagentmemory-server build for %s/%s — build it from source with `go build ./cmd/server`", goos, goarch)
+	}
+	name := fmt.Sprintf("aiagentmemory-server-%s-%s", goos, goarch)
+	if goos == "windows" {
+		name += ".exe"
+	}
+	return name, nil
+}
+
 // publishedPlatforms is exactly the set release.yml's `binaries` matrix builds.
 //
 // ⚠ IT IS A SET OF PAIRS, NOT TWO INDEPENDENT SWITCHES, and that is the whole

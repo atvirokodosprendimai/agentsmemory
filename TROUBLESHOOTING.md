@@ -169,15 +169,16 @@ the boundary instead.
 
 Two separate causes:
 
-- **Desktop was running.** It holds its config file, and the install currently
-  exits 0 after failing to register, reporting a rename error rather than "quit
-  Claude Desktop" (issue #208). Quit it and re-run.
-- **There is no host server binary.** `--agent claude-desktop` registers an
-  `mcp-stdio` bridge, and a Docker-only install produces no host binary to spawn
-  (issue #199):
+- **Desktop was running.** It holds the bridge it spawned open, so placing the
+  new binary fails; the install now exits non-zero and says so (issue #208). Quit
+  Claude Desktop and re-run.
+- **There is no host server binary and the download failed.** `--agent
+  claude-desktop` registers an `mcp-stdio` bridge; a Docker-only install produces
+  no host binary, so the installer downloads the release's one for your platform
+  (issue #199). Offline, or on a platform the release does not build, build it:
 
   ```bash
-  go build -o ~/.local/bin/aiagentmemory-server ./cmd/server
+  go build -o ~/.local/bin/aiagentmemory-server ./cmd/server   # or: --server-bin <path>
   ```
 
 Either way, `aiagentmemory doctor` judges the binary the bridge spawns — trust it

@@ -196,11 +196,15 @@ Putting that same line in a `.env` beside the compose files makes it the
 directory's default, which is what stops the flags drifting between people.
 
 ⚠ **A Compose-only install leaves no host binary**, and `--agent claude-desktop`
-needs one because it registers a `mcp-stdio` bridge (issue #199). If you want
-Claude Desktop, build the server for the host too:
+needs one because it registers a `mcp-stdio` bridge (issue #199). The installer
+fetches it for you: when no `aiagentmemory-server` is on PATH it downloads the
+one the release publishes for your platform — the release the client came from,
+or the newest for an unstamped client — verifies it runs, and places it under
+the install's `bin/`. Offline, or on a platform the release does not build, it
+refuses with the hand remedy, which still works:
 
 ```bash
-go build -o ~/.local/bin/aiagentmemory-server ./cmd/server
+go build -o ~/.local/bin/aiagentmemory-server ./cmd/server   # or: --server-bin <path>
 ```
 
 ⚠ **Capping the inference containers can turn reranking off silently.** At a
