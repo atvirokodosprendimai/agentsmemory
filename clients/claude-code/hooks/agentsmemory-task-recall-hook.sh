@@ -169,7 +169,10 @@ else
   HITS="$(recall "" 1600)"; RC=$?
 fi
 if [ "$RC" -ne 0 ]; then
-  ERR="$(head -n1 "$ERRFILE" 2>/dev/null)"
+  # Not the CLI's `aiagentmemory: token from …` notice, which precedes every
+  # error on stderr; see the recall hook for the day it was reported as the cause.
+  ERR="$(grep -v '^aiagentmemory: token from' "$ERRFILE" 2>/dev/null | head -n1)"
+  [ -n "$ERR" ] || ERR="$(head -n1 "$ERRFILE" 2>/dev/null)"
   rm -f "$ERRFILE"
   # No credential configured is a STATE, not a fault — the same checked branch the
   # sibling hook documents. Every other failure still speaks.
