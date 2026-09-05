@@ -132,7 +132,7 @@ ancestors' 18 still run, so a regression in what T8 was built on is still caught
 
 ## Out of Scope
 
-- Defining `must.*`/`ref.*` as server vocabulary (permanent: the server distinguishes eager from on-demand; the names are a team convention.)
+- Defining `must.*`/`ref.*` as server vocabulary (permanent: boundary: for THIS record the server distinguishes eager from on-demand and the names are a team convention. Amended 2026-09-05: the owner decided to merge #227, which serves the must/ref tier authored on the wing root through the bootstrap. That is ADR-043's territory, not a reopening of this task; the exclusion still says what T8 itself does not define.)
 - Updating the client kits to use it (deferred: docs/adr/BACKLOG.md)
 
 ## Stop Condition
