@@ -34,7 +34,7 @@ func recallHookRun(t *testing.T, hookName string, extraEnv []string, stubOut str
 		input = `{"hook_event_name":"SessionStart","source":"startup","cwd":"` + cmd.Dir + `"}`
 	}
 	cmd.Stdin = strings.NewReader(input)
-	cmd.Env = append(os.Environ(),
+	cmd.Env = append(os.Environ(), "AGENTSMEMORY_STATE_DIR="+t.TempDir(),
 		"PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"),
 		"AGENTSMEMORY_MCP_URL=http://127.0.0.1:9/mcp",
 		"AGENTSMEMORY_TOKEN=t",

@@ -66,7 +66,13 @@ if [ "${AGENTSMEMORY_LAST_TURN:-on}" != "off" ] \
   LT_KEY="$(basename "$LT_ROOT")-$(printf '%s' "$LT_ROOT" | cksum | cut -d' ' -f1)"
   LT_STATE="${AGENTSMEMORY_STATE_DIR:-${TMPDIR:-/tmp}}"
   LT_DIR="$LT_STATE/agentsmemory-last-turn"
-  if mkdir -p "$LT_DIR" 2>/dev/null; then
+  # ⚠ THE NOTE HOLDS THE USER'S OWN PROMPT TEXT, VERBATIM, ON LOCAL DISK — under
+  # /tmp when no state dir is set. The directory is 0700 and the file 0600, and
+  # both are set EXPLICITLY rather than inherited from mktemp, so a later
+  # "simplification" to a plain redirect cannot quietly make prompts
+  # world-readable at the ambient umask. TestTheStopHookWritesTheLastTurnNote
+  # asserts the mode. Review of #278 found the protection was a side effect.
+  if mkdir -p "$LT_DIR" 2>/dev/null && chmod 700 "$LT_DIR" 2>/dev/null; then
     LT_BRANCH="$(cd "$LT_ROOT" 2>/dev/null && git rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
     LT_HEAD="$(cd "$LT_ROOT" 2>/dev/null && git rev-parse --short HEAD 2>/dev/null || true)"
     LT_DIRTY="$(cd "$LT_ROOT" 2>/dev/null && git status --porcelain 2>/dev/null | wc -l | tr -d ' ' || true)"
@@ -79,6 +85,7 @@ if [ "${AGENTSMEMORY_LAST_TURN:-on}" != "off" ] \
     case "$LT_N" in ''|*[!0-9]*) LT_N=3 ;; esac
     [ "$LT_N" -gt 10 ] && LT_N=10
     LT_TMP="$(mktemp "$LT_DIR/.$LT_KEY.XXXXXX" 2>/dev/null || true)"
+    [ -n "$LT_TMP" ] && chmod 600 "$LT_TMP" 2>/dev/null
     if [ -n "$LT_TMP" ]; then
       {
         printf 'at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"

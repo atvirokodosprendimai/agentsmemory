@@ -56,9 +56,18 @@ set -uo pipefail
 trace() { printf 'agentsmemory-recall: %s\n' "$*" >&2; }
 # could_not_look: both channels, see the task-recall hook (ADR-058).
 esc() { printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' | awk 'BEGIN{ORS=""} {print sep $0; sep="\\n"}'; }
+# NOTE_PRINTED: once a note block (ADR-059's or ADR-061's) is on stdout the
+# output IS plain text, and a JSON envelope appended after it is parsed as
+# neither — Claude Code reads stdout as an envelope only when the whole of it
+# is one. So could_not_look speaks plain after a note and JSON otherwise.
+NOTE_PRINTED=0
 could_not_look() {
   trace "agentsmemory could not look: $1"
-  printf '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"%s"}}\n' "$(esc "agentsmemory could not look — the recall could not run, so this session starts without one: $1")"
+  if [ "$NOTE_PRINTED" = 1 ]; then
+    printf 'agentsmemory could not look — the recall could not run, so this session starts without one: %s\n' "$1"
+  else
+    printf '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"%s"}}\n' "$(esc "agentsmemory could not look — the recall could not run, so this session starts without one: $1")"
+  fi
 }
 
 INPUT="$(cat || true)"
@@ -114,6 +123,7 @@ if [ "$SOURCE" = "compact" ] && [ -n "$SESSION" ] && [ -s "$NOTE" ]; then
     "$N_AT" "$N_TRIGGER" "${N_BRANCH:-?}" "${N_HEAD:-?}" "$N_DIRTY"
   edited_line 'edited this session: '
   printf '\n'
+  NOTE_PRINTED=1
   trace "handed back the pre-compaction note $NOTE"
 fi
 
@@ -142,6 +152,7 @@ if [ "${AGENTSMEMORY_LAST_TURN:-on}" != "off" ] && { [ "$SOURCE" = "startup" ] |
     printf '\n'
     LT_BRANCH_NOW="$(cd "$LT_ROOT" 2>/dev/null && git rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
     [ -n "$N_BRANCH" ] && [ "$N_BRANCH" = "$LT_BRANCH_NOW" ] && LT_MATCH=1
+    NOTE_PRINTED=1
     trace "handed back the last-turn note $LT_NOTE (branch match=$LT_MATCH)"
   fi
 fi

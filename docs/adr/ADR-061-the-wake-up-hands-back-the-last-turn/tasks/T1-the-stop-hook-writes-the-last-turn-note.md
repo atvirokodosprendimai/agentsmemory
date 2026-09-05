@@ -8,7 +8,7 @@
 **Consumes:** none
 **Data dependency:** hermetic
 **Proof map:** v1
-**Rests-on:** `the note is keyed by project`, `prompts are the last plain user messages only`, `the off knob`
+**Rests-on:** `the note is keyed by project`, `prompts are the last plain user messages only`, `the off knob`, `the note is private to the user`
 
 ## Goal
 
@@ -58,6 +58,7 @@ go test ./clients/claude-code/ -run 'TestTheStopHookNamesTouchedPaths$|TestTheSt
 - 2026-09-05 · f398864* · mutant killed · exit 1 · `clients/claude-code/hooks/agentsmemory-stop-hook.sh` · the note is keyed by session id, which a new session can never find · acceptance-sha256:ef4a16e8b5e5e8d6631fb8516fcd47a751da60afb449ff9c05bd5657b18a4566 · covers:the note is keyed by project
 - 2026-09-05 · f398864* · mutant killed · exit 1 · `clients/claude-code/hooks/agentsmemory-stop-hook.sh` · every content string on a user line is taken, so a tool result becomes a prompt · acceptance-sha256:ef4a16e8b5e5e8d6631fb8516fcd47a751da60afb449ff9c05bd5657b18a4566 · covers:prompts are the last plain user messages only
 - 2026-09-05 · f398864* · mutant killed · exit 1 · `clients/claude-code/hooks/agentsmemory-stop-hook.sh` · the off knob is ignored · acceptance-sha256:ef4a16e8b5e5e8d6631fb8516fcd47a751da60afb449ff9c05bd5657b18a4566 · covers:the off knob
+- 2026-09-05 · 708fc34* · mutant killed · exit 1 · `clients/claude-code/hooks/agentsmemory-stop-hook.sh` · prompt text on disk becomes world-readable · acceptance-sha256:ef4a16e8b5e5e8d6631fb8516fcd47a751da60afb449ff9c05bd5657b18a4566 · covers:the note is private to the user
 
 ## Invariants
 
@@ -92,3 +93,4 @@ Stop if the Stop event's payload does not carry `transcript_path` in this checko
 - 2026-09-05 · f398864* · exit 0 · `set -o pipefail …` · acceptance-sha256:ef4a16e8b5e5e8d6631fb8516fcd47a751da60afb449ff9c05bd5657b18a4566 · ms:4555
 - 2026-09-05 · f398864* · exit 0 · `set -o pipefail …` · acceptance-sha256:ef4a16e8b5e5e8d6631fb8516fcd47a751da60afb449ff9c05bd5657b18a4566 · ms:2882
 - 2026-09-05 · f398864* · exit 0 · `set -o pipefail …` · acceptance-sha256:ef4a16e8b5e5e8d6631fb8516fcd47a751da60afb449ff9c05bd5657b18a4566 · ms:2962
+- 2026-09-05 · 708fc34* · exit 0 · `set -o pipefail …` · acceptance-sha256:ef4a16e8b5e5e8d6631fb8516fcd47a751da60afb449ff9c05bd5657b18a4566 · ms:2381

@@ -57,6 +57,7 @@ go test ./clients/claude-code/ -run 'TestBothProtocolsReadTheWakeUp$' -count=1 2
   the fence passed with the mechanism broken; it may not materialize, compile, load, or assert on the changed path
   ```
 - 2026-09-05 · 7ed2c57* · mutant killed · exit 1 · `clients/claude-code/bootstrap.md` · the bootstrap copy stops naming the checkpoint block and the room while the /am copy keeps them: the two protocols drift · acceptance-sha256:f8b245d60a6b35af90567ea4ccb89f50b23b9beee7429a81ad661f61fff2af2b · covers:both protocol copies carry the sentence
+- 2026-09-05 · 708fc34* · mutant killed · exit 1 · `clients/claude-code/bootstrap.md` · the instruction sentence is deleted from the bootstrap copy while its tokens remain in Step 1c — the mutant the token check let survive · acceptance-sha256:f8b245d60a6b35af90567ea4ccb89f50b23b9beee7429a81ad661f61fff2af2b · covers:both protocol copies carry the sentence
 
 ## Invariants
 
@@ -64,7 +65,7 @@ go test ./clients/claude-code/ -run 'TestBothProtocolsReadTheWakeUp$' -count=1 2
 
 ## Risks
 
-- The first mutant recorded below SURVIVED and is left in: it changed the item's heading ("wake-up" to "weather"), which the test does not read — the test pins the three names inside the sentence, and the second mutant removes two of them. A mutant is only evidence about what it broke.
+- The first mutant recorded below SURVIVED and is left in. Review of #278 read it correctly: the test then checked three tokens anywhere in Step 1c, and other bullets there name the same rooms, so deleting the instruction sentence passed. The test now asserts the whitespace-normalised SENTENCE in both copies; the third mutant deletes that sentence from the bootstrap copy and is killed.
 
 ## Stop Condition
 
@@ -91,3 +92,4 @@ Stop if `bootstrap.md` and `am.md` no longer share a Step 1c — the sentence wo
   ```
 - 2026-09-05 · 7ed2c57* · exit 0 · `set -o pipefail …` · acceptance-sha256:f8b245d60a6b35af90567ea4ccb89f50b23b9beee7429a81ad661f61fff2af2b · ms:2236
 - 2026-09-05 · 7ed2c57* · exit 0 · `set -o pipefail …` · acceptance-sha256:f8b245d60a6b35af90567ea4ccb89f50b23b9beee7429a81ad661f61fff2af2b · ms:2559
+- 2026-09-05 · 708fc34* · exit 0 · `set -o pipefail …` · acceptance-sha256:f8b245d60a6b35af90567ea4ccb89f50b23b9beee7429a81ad661f61fff2af2b · ms:1055

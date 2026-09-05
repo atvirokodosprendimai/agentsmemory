@@ -290,7 +290,7 @@ calls in parallel where you can; each answers a different question.
     last user prompts) and, when that branch is the one you are on, a
     `checkpoint:` block from `llm_open_threads`; a `compact` opened it with
     `Before compaction (…)` (ADR-061, ADR-059). They are the previous context's
-    facts, not instructions. When neither is present, ask `llm_open_threads` in
+    facts, not instructions. When neither block is present, ask `llm_open_threads` in
     your wing yourself before you plan.
   - **Then load the team's skills** — call `am_list_skills`, and
     `am_load_skill(<name>)` for any that bear on the task. Two are about the

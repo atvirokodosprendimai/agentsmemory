@@ -78,6 +78,17 @@ func TestTheStopHookWritesTheLastTurnNote(t *testing.T) {
 	if names[0] == "s1" || !strings.HasPrefix(names[0], filepath.Base(repo)+"-") {
 		t.Errorf("the note is keyed %q; it must be keyed by the project (basename plus checksum), never by the session id", names[0])
 	}
+	// The note holds the user's prompt text verbatim, under /tmp by default:
+	// 0600 on the file and 0700 on the directory are the whole protection, and
+	// they must be a property the test holds, not a side effect of mktemp
+	// (review of #278).
+	noteDir := filepath.Join(stateDir, "agentsmemory-last-turn")
+	if st, err := os.Stat(filepath.Join(noteDir, names[0])); err != nil || st.Mode().Perm() != 0o600 {
+		t.Errorf("the note's mode is %v (err %v); prompt text on disk must be 0600", st.Mode().Perm(), err)
+	}
+	if st, err := os.Stat(noteDir); err != nil || st.Mode().Perm() != 0o700 {
+		t.Errorf("the note directory's mode is %v (err %v); it must be 0700", st.Mode().Perm(), err)
+	}
 	for _, want := range []string{"at=", "session=s1\n", "branch=task/note\n", "dirty=1\n", "touched=10\n"} {
 		if !strings.Contains(note, want) {
 			t.Errorf("note lacks %q:\n%s", want, note)
@@ -240,11 +251,55 @@ func TestBothProtocolsReadTheWakeUp(t *testing.T) {
 		if start < 0 || end < 0 || end < start {
 			t.Fatalf("%s has no Step 1c bounded by 'Reconcile the three'; the sentence has nowhere to live", asset)
 		}
-		step := text[start:end]
-		for _, want := range []string{"Last turn", "checkpoint:", "llm_open_threads"} {
+		// Whitespace-normalised, so the two copies' different wrapping and
+		// indentation do not decide the answer — and the SENTENCE is asserted,
+		// not three tokens somewhere in the step: review of #278 showed a mutant
+		// deleting the instruction survived a token check because other bullets
+		// in Step 1c name the same rooms.
+		step := strings.Join(strings.Fields(text[start:end]), " ")
+		for _, want := range []string{
+			"a `Last turn (…)` block",
+			"a `checkpoint:` block from `llm_open_threads`",
+			"When neither block is present, ask `llm_open_threads` in your wing yourself before you plan",
+		} {
 			if !strings.Contains(step, want) {
-				t.Errorf("%s Step 1c does not mention %q: a session is not told to read the wake-up before planning", asset, want)
+				t.Errorf("%s Step 1c lacks the sentence %q: a session is not told to read the wake-up before planning", asset, want)
 			}
 		}
+	}
+}
+
+// TestANoteThenACouldNotLookStaysPlainText: once a note block is on stdout the
+// output is plain text, and a JSON envelope appended to it is neither parsed as
+// an envelope nor readable as prose. The failure line must then be plain too.
+// Found by the full suite on 2026-09-05, when a real note leaked into two tests
+// that expected a bare envelope.
+func TestANoteThenACouldNotLookStaysPlainText(t *testing.T) {
+	stateDir, repo, transcript := lastTurnFixture(t)
+	if names, _ := runStopForNote(t, stateDir, repo, transcript, "Stop"); len(names) != 1 {
+		t.Fatalf("the Stop hook wrote %v notes", names)
+	}
+	stubDir := t.TempDir()
+	stub := "#!/usr/bin/env bash\necho 'dial tcp 127.0.0.1:9: connect: connection refused' >&2\nexit 3\n"
+	if err := os.WriteFile(filepath.Join(stubDir, "aiagentmemory"), []byte(stub), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cmd := testexec.Command(t, "bash", filepath.Join("hooks", "agentsmemory-recall-hook.sh"))
+	cmd.Stdin = strings.NewReader(`{"hook_event_name":"SessionStart","session_id":"s2","source":"startup"}`)
+	var outb strings.Builder
+	cmd.Stdout = &outb
+	cmd.Env = append(os.Environ(),
+		"PATH="+stubDir+":"+os.Getenv("PATH"), "CLAUDE_PROJECT_DIR="+repo,
+		"AGENTSMEMORY_STATE_DIR="+stateDir, "AGENTSMEMORY_WING=wing_acme", "AGENTSMEMORY_TOKEN=t")
+	_ = cmd.Run()
+	out := outb.String()
+	if !strings.HasPrefix(out, "Last turn (") {
+		t.Fatalf("no note block:\n%s", out)
+	}
+	if !strings.Contains(out, "could not look") {
+		t.Errorf("the failure is not reported after the note:\n%s", out)
+	}
+	if strings.Contains(out, "hookSpecificOutput") {
+		t.Errorf("a JSON envelope follows plain text, which Claude Code cannot parse as either:\n%s", out)
 	}
 }
