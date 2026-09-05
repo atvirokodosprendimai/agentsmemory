@@ -82,11 +82,19 @@ type hookReg struct {
 // ensureHooks writes every hook registration, and the statusLine when one is
 // given, in a single read-modify-write of settings.json.
 func ensureHooks(path string, regs []hookReg, statusLineCmd string) (map[string]bool, error) {
+	changed, _, err := ensureHooksReporting(path, regs, statusLineCmd)
+	return changed, err
+}
+
+// ensureHooksReporting is ensureHooks plus the list of entries the dedupe
+// removed, for the caller that prints an install report.
+func ensureHooksReporting(path string, regs []hookReg, statusLineCmd string) (map[string]bool, []removedHook, error) {
 	changed := map[string]bool{}
+	var removedHooks []removedHook
 
 	raw, err := os.ReadFile(path)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return nil, err
+		return nil, nil, err
 	}
 
 	settings := map[string]any{}
@@ -94,13 +102,13 @@ func ensureHooks(path string, regs []hookReg, statusLineCmd string) (map[string]
 		if err := json.Unmarshal(raw, &settings); err != nil {
 			// Refuse to touch a file we can't parse: overwriting a user's
 			// hand-edited settings.json would be worse than failing loudly.
-			return nil, fmt.Errorf("parse %s: %w", path, err)
+			return nil, nil, fmt.Errorf("parse %s: %w", path, err)
 		}
 	}
 
 	hooks, err := childObject(settings, "hooks")
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	// ADR-057 T2: before the kit's own registrations, collapse exact duplicate
@@ -109,16 +117,15 @@ func ensureHooks(path string, regs []hookReg, statusLineCmd string) (map[string]
 	// cbm-session-reminder it left (measured 2026-09-05) cost four processes and
 	// four injections per session start. Counted as a change per event so the
 	// file is written back.
-	for event, n := range dedupeHookEntries(hooks) {
-		if n > 0 {
-			changed[event] = true
-		}
+	for _, r := range dedupeHookEntries(hooks) {
+		changed[r.event] = true
+		removedHooks = append(removedHooks, r)
 	}
 
 	for _, reg := range regs {
 		entries, err := childArray(hooks, reg.event)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 
 		pruned, dropped := dropHook(entries, reg.obsolete)
@@ -168,25 +175,25 @@ func ensureHooks(path string, regs []hookReg, statusLineCmd string) (map[string]
 	}
 
 	if len(changed) == 0 {
-		return changed, nil
+		return changed, removedHooks, nil
 	}
 	settings["hooks"] = hooks
 
 	if err := backupConfig(path, raw); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	out, err := json.MarshalIndent(settings, "", "  ")
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if err := os.WriteFile(path, append(out, '\n'), 0o644); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return changed, nil
+	return changed, removedHooks, nil
 }
 
 // codexStopHookBlock renders the one TOML block the installer owns. Markers let
@@ -441,13 +448,24 @@ func dropHook(stop []any, isObsolete func(string) bool) ([]any, bool) {
 	return out, dropped
 }
 
+// removedHook names one hook entry the dedupe dropped, so the install can
+// print it: a pass that removes registrations the kit did not write must say
+// which, or the operator's first sign is a hook that stopped running.
+type removedHook struct {
+	event, matcher, command string
+}
+
 // dedupeHookEntries removes, under every event, any hook entry whose
-// (type, command) pair already appeared under that event, and returns how many
-// were removed per event. Exact pairs only: an entry with a different env
-// prefix is a different command and is kept, which is the line between a
-// duplicate and a deliberate second registration.
-func dedupeHookEntries(hooks map[string]any) map[string]int {
-	removed := map[string]int{}
+// (matcher, type, command) triple already appeared under that event, and
+// returns what it removed. Exact triples only. A different env prefix is a
+// different command; and a different MATCHER is a different registration —
+// one guard script registered for `Bash` and again for `Edit|Write` is the
+// ordinary way to run one hook on two tool classes. Review of #267 found the
+// first draft keyed on (type, command) alone and reproduced it dropping the
+// second matcher on every install; the matcher lives on the enclosing entry,
+// not the hook, which is why a key built from the hook alone cannot see it.
+func dedupeHookEntries(hooks map[string]any) []removedHook {
+	var removed []removedHook
 	for event, raw := range hooks {
 		entries, ok := raw.([]any)
 		if !ok {
@@ -466,6 +484,7 @@ func dedupeHookEntries(hooks map[string]any) map[string]int {
 				kept = append(kept, entry)
 				continue
 			}
+			matcher, _ := em["matcher"].(string)
 			var keptInner []any
 			for _, h := range inner {
 				hm, ok := h.(map[string]any)
@@ -475,9 +494,9 @@ func dedupeHookEntries(hooks map[string]any) map[string]int {
 				}
 				typ, _ := hm["type"].(string)
 				cmd, _ := hm["command"].(string)
-				key := typ + "\x00" + cmd
+				key := matcher + "\x00" + typ + "\x00" + cmd
 				if seen[key] {
-					removed[event]++
+					removed = append(removed, removedHook{event: event, matcher: matcher, command: cmd})
 					continue
 				}
 				seen[key] = true

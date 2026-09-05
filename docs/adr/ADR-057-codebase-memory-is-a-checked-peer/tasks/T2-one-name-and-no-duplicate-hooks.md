@@ -8,7 +8,7 @@
 **Consumes:** the `codebase-memory` doctor row (T1), which is how the result is checked on a real machine
 **Data dependency:** hermetic
 **Proof map:** v1
-**Rests-on:** `the single registration name`, `the dedupe of exact duplicate entries`, `the retirement of the old name`
+**Rests-on:** `the single registration name`, `the dedupe of exact duplicate entries`, `the retirement of the old name`, `the matcher in the dedupe key`
 
 ## Goal
 
@@ -61,10 +61,11 @@ go test ./clients/claude-code/ -count=1
 - 2026-09-05 · 157cce6* · mutant killed · exit 1 · `clients/claude-code/installer.go` · the peer must be registered under upstream's name; the kit's old name is a tool prefix no document names · acceptance-sha256:8120834e0db1b169345c4bceb46098422c8631dfce6abcf094cec31a2585ac7f · covers:the single registration name
 - 2026-09-05 · 157cce6* · mutant killed · exit 1 · `clients/claude-code/settings.go` · every install must collapse exact duplicates; skipping the pass leaves four copies of a peer hook running per session start · acceptance-sha256:8120834e0db1b169345c4bceb46098422c8631dfce6abcf094cec31a2585ac7f · covers:the dedupe of exact duplicate entries
 - 2026-09-05 · 157cce6* · mutant killed · exit 1 · `clients/claude-code/installer.go` · a machine carrying the old name must lose it on the next --recommended install, or two daemons keep running · acceptance-sha256:8120834e0db1b169345c4bceb46098422c8631dfce6abcf094cec31a2585ac7f · covers:the retirement of the old name
+- 2026-09-05 · 3f9f5a3* · mutant killed · exit 1 · `clients/claude-code/settings.go` · a differing matcher is a different registration; keying on the hook alone drops the second matcher of one guard script on every install · acceptance-sha256:8120834e0db1b169345c4bceb46098422c8631dfce6abcf094cec31a2585ac7f · covers:the matcher in the dedupe key
 
 ## Invariants
 
-- Dedupe matches the exact `(type, command)` pair; a differing env prefix is a different command.
+- Dedupe matches the exact `(matcher, type, command)` triple; a differing env prefix is a different command, and a differing matcher is a different registration (one guard under `Bash` and `Edit|Write` is two, not a duplicate — review of #267 caught the first draft collapsing it).
 - A retirement never removes `codebase-memory-mcp` itself.
 - `ensureHooks` still writes nothing when nothing changed.
 
@@ -99,3 +100,4 @@ Stop if upstream's `install.sh` has changed the name it registers — check the 
 - 2026-09-05 · 157cce6* · exit 0 · `set -o pipefail …` · acceptance-sha256:8120834e0db1b169345c4bceb46098422c8631dfce6abcf094cec31a2585ac7f · ms:15149
 - 2026-09-05 · 157cce6* · exit 0 · `set -o pipefail …` · acceptance-sha256:8120834e0db1b169345c4bceb46098422c8631dfce6abcf094cec31a2585ac7f · ms:13952
 - 2026-09-05 · 157cce6* · exit 0 · `set -o pipefail …` · acceptance-sha256:8120834e0db1b169345c4bceb46098422c8631dfce6abcf094cec31a2585ac7f · ms:14484
+- 2026-09-05 · 3f9f5a3* · exit 0 · `set -o pipefail …` · acceptance-sha256:8120834e0db1b169345c4bceb46098422c8631dfce6abcf094cec31a2585ac7f · ms:16800

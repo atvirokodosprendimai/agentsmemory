@@ -1282,7 +1282,14 @@ func (i *Installer) registerStopHook() error {
 	if i.kit.name == agentClaude {
 		statusLineCmd = i.hookCommand(i.statusLinePath())
 	}
-	changed, err := ensureHooks(hooksFile, regs, statusLineCmd)
+	changed, removed, err := ensureHooksReporting(hooksFile, regs, statusLineCmd)
+	for _, r := range removed {
+		m := r.matcher
+		if m == "" {
+			m = "(no matcher)"
+		}
+		i.ok("removed a duplicate %s hook registration %s %s — it was registered more than once and ran on every trigger", r.event, m, r.command)
+	}
 	if err != nil {
 		return err
 	}

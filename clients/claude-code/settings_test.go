@@ -608,9 +608,19 @@ func TestEveryInstallRemovesDuplicateHookEntries(t *testing.T) {
 	entry := func(cmd string) map[string]any {
 		return map[string]any{"hooks": []any{map[string]any{"type": "command", "command": cmd}}}
 	}
+	matched := func(matcher, cmd string) map[string]any {
+		e := entry(cmd)
+		e["matcher"] = matcher
+		return e
+	}
+	guard := `"$HOME/.claude/hooks/guard.sh"`
 	seed := map[string]any{"hooks": map[string]any{
 		"SessionStart": []any{entry(cbm), entry(cbm), entry(cbm), entry(cbm), entry(other), entry(other)},
 		"Stop":         []any{entry(other)},
+		// One guard under two matchers is one script running on two tool
+		// classes, not a duplicate. Review of #267 caught the first draft
+		// collapsing it; the matcher is on the enclosing entry, not the hook.
+		"PreToolUse": []any{matched("Bash", guard), matched("Edit|Write", guard), matched("Bash", guard)},
 	}}
 	raw, _ := json.Marshal(seed)
 	if err := os.WriteFile(path, raw, 0o644); err != nil {
@@ -644,6 +654,9 @@ func TestEveryInstallRemovesDuplicateHookEntries(t *testing.T) {
 	}
 	if got := count("SessionStart", kit); got != 1 {
 		t.Errorf("the kit's own registration = %d, want 1", got)
+	}
+	if got := count("PreToolUse", guard); got != 2 {
+		t.Errorf("one guard under two matchers = %d registration(s) after install, want 2 — a different matcher is a different registration", got)
 	}
 	// Idempotent.
 	changed, err = ensureHook(path, "SessionStart", kit, nil)
