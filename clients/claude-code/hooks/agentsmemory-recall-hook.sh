@@ -122,6 +122,33 @@ if [ "$SOURCE" = "compact" ] && [ -n "$SESSION" ] && [ -s "$NOTE" ]; then
   printf 'Before compaction (%s, %s): branch %s at %s, %s uncommitted file(s)\n' \
     "$N_AT" "$N_TRIGGER" "${N_BRANCH:-?}" "${N_HEAD:-?}" "$N_DIRTY"
   edited_line 'edited this session: '
+  # ADR-062: STOP, then re-ground. Everything above is the STATE ADR-059 hands
+  # back; none of it is grounding, and a session that reads it and carries on is
+  # acting on a SUMMARY of its own reasoning — the one thing this project refuses
+  # to treat as a memory. Printed last in the block so it is the instruction the
+  # model is still holding when it chooses its first action, and INSIDE it so
+  # ADR-061's NOTE_PRINTED covers it.
+  #
+  # ⚠ IT IS AN INSTRUCTION, NOT A TRIGGER, AND THE DIFFERENCE IS NOT A DETAIL. No
+  # hook can invoke a skill, on a timer or otherwise, and nothing outside a
+  # session can make it take a turn: the CLI dispatches and attaches background
+  # sessions, and offers no way to send a prompt into a running one (checked
+  # 2026-09-05). A hook writes text and the model chooses. So this names one
+  # action and one task, because an instruction that can be acted on without
+  # looking anything else up is the only kind that survives a compaction.
+  # AGENTSMEMORY_REGROUND=off leaves the state note and drops the directive.
+  #
+  # The task is the FIRST prompt line of the shared reader's list: read_note is
+  # one reader for two headers (ADR-061), so this takes what it already parsed
+  # rather than adding a second parse of the same file.
+  if [ "${AGENTSMEMORY_REGROUND:-on}" != "off" ]; then
+    REGROUND_TASK="$(printf '%s' "$N_PROMPTS" | sed -n '1s/^prompt: //p')"
+    if [ -n "$REGROUND_TASK" ]; then
+      printf 'PAUSE — do not continue from the summary. Your first action is `/amm %s`: re-ground on that task (intent, code, palace), then reconcile what you find against the summary and say so if they disagree.\n' "$REGROUND_TASK"
+    else
+      printf 'PAUSE — do not continue from the summary. Your first action is `/amm`: re-ground before acting, and rebuild the plan from what you read rather than from the summary.\n'
+    fi
+  fi
   printf '\n'
   NOTE_PRINTED=1
   trace "handed back the pre-compaction note $NOTE"

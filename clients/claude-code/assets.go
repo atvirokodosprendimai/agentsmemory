@@ -15,7 +15,10 @@
 //     sandbox so its commands, settings, MCP servers, and token stay isolated.
 package main
 
-import "embed"
+import (
+	"embed"
+	"sort"
+)
 
 // assets holds the command markdown and the Stop-hook script compiled into the
 // binary with go:embed. Shipping them inside the executable is the whole point
@@ -55,14 +58,43 @@ var assets embed.FS
 // one list so a command added here reaches every install path at once.
 var commandAssets = []string{"am.md", "load-skill.md"}
 
-// skillAssets are the native Agent Skills the kit installs (ADR-051 T8).
+// nativeSkillAssets are the native Agent Skills the kit installs (ADR-051 T8),
+// DERIVED from the embedded `skills/` directory rather than listed.
 //
 // Claude Code only: a SKILL.md is discovered by Claude Code's own skill mechanism,
 // which codex and pi do not have. The skill POINTS at the centralised catalogue —
 // am_list_skills, am_load_skill — and restates none of it, because a second copy
 // of a convention is a second thing to get wrong and the copy nobody maintains is
 // the one that stays wrong.
-var nativeSkillAssets = []string{"recall"}
+//
+// ⚠ IT IS DERIVED BECAUSE THE LIST IT REPLACES COULD ONLY EVER BE WRONG IN THE
+// SILENT DIRECTION. The embed is a GLOB (`skills/*/SKILL.md`), so a skill added
+// to the tree ships inside the binary whatever anyone remembers; the install loop
+// read a hand-kept slice, so a skill that shipped and was not listed was
+// installed by nothing and discovered by nobody — present in the binary, absent
+// from every config dir, and reported by no check. That is this repository's
+// signature defect (§Reachability), and ADR-062 made it reachable the moment it
+// added the second skill. Reading the embed makes the glob the one source of
+// truth: a skill joins the install on the commit that adds the file.
+// TestEverySkillEmbeddedIsInstalled fails when the two sides disagree.
+func nativeSkillAssets() []string {
+	entries, err := assets.ReadDir("skills")
+	if err != nil {
+		return nil // no embedded skills in this build; nothing to install
+	}
+	out := make([]string, 0, len(entries))
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		if _, err := assets.ReadFile("skills/" + e.Name() + "/SKILL.md"); err != nil {
+			continue // a directory without a SKILL.md is not a skill
+		}
+		out = append(out, e.Name())
+	}
+	sort.Strings(out)
+	return out
+}
 
 // retiredCommands are command files earlier versions shipped and this one does
 // not. They are REMOVED from a config dir on install, not merely left unshipped.

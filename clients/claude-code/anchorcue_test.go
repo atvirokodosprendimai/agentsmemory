@@ -510,7 +510,7 @@ func TestTheSkillIsInstalled(t *testing.T) {
 	if got != want {
 		t.Errorf("skill lands at %s, want %s — Claude Code discovers skills/<name>/SKILL.md", got, want)
 	}
-	if len(nativeSkillAssets) == 0 {
+	if len(nativeSkillAssets()) == 0 {
 		t.Fatal("no native skills declared; writeSkills would install nothing")
 	}
 	b, err := os.ReadFile("installer.go")
