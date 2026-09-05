@@ -311,6 +311,17 @@ func TestBothProtocolsNameTheRegroundWake(t *testing.T) {
 		for _, want := range []string{
 			"The re-ground wake is Claude-only.",
 			"codex and pi",
+			// ⚠ AND IT MUST READ AS A MUST IN BOTH COPIES. Both said to arm the
+			// wake and both phrased it as a conditional — `/am` as "if it is not
+			// already armed", the bootstrap as "then arm" — so the owner asked
+			// twice, on two separate days, where the instruction was, while it
+			// sat in front of them. An instruction a session satisfies by doing
+			// nothing is not a gate, and this corpus has the same finding
+			// already: `start-here` went unloaded by three sessions in three
+			// repositories because its instruction hung off a call they pruned.
+			// Pinned as a STRING because the failure was the wording, not the
+			// presence, and presence is what the two checks above already cover.
+			"MUST, every session",
 		} {
 			if !strings.Contains(text, want) {
 				t.Errorf("%s does not carry %q: the two copies of the protocol disagree about the wake", asset, want)

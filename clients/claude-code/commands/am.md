@@ -86,12 +86,29 @@ Fire these in parallel where you can; each answers a different question.
      conventions you would otherwise infer. Check here before concluding a skill
      doesn't exist: a skill missing from your local list is usually centralised
      here instead.
+  5. ⚠ **`Monitor` — ARM THE RE-GROUND WAKE. MUST, every session, on Claude
+     Code.** A compaction replaces your context while the work continues, and
+     the session that comes out is the one least able to notice it needs
+     grounding. `TaskList` first so you never arm a second one; the exact
+     command is **Step 1d** below. This is listed here, in the sequence you
+     actually execute, because a gate that lives only in its own section is one
+     a session finishes the list without ever reaching.
 
 Reconcile the three. If project intent (1a), the code (1b), and past decisions (1c)
 disagree, **surface the conflict** — that's a human decision, not one to make
 silently.
 
-## Step 1d — arm the re-ground wake, if it is not already armed (hard gate)
+## Step 1d — arm the re-ground wake (MUST, every session, before you plan)
+
+⚠ **THIS IS A MUST, NOT A "IF YOU GET TO IT".** This heading used to read *"if it
+is not already armed"*, and the owner asked twice, on two separate days, where
+the instruction to spawn the monitor was — while it was sitting right here. A
+conditional heading reads as optional, and `MUST` appeared in this file for
+`am_kg_add` and nowhere near the wake. The same shape is already measured
+2026-08-30 one section up: `start-here` went unloaded by three sessions in three
+repositories because its instruction hung off a call they pruned. **An
+instruction a session can satisfy by doing nothing is not a gate.** Arming it is
+step 5 of the 1c sequence above, and this section is how.
 
 **A compaction replaces your context while the work continues, and the session
 that comes out the other side is the one least able to notice it needs
