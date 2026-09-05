@@ -19,7 +19,7 @@ A caller that files or replaces anchors and omits `repo` on any of them learns s
 | File | Change | Why |
 |------|--------|-----|
 | `internal/mcpserver/drawers.go` | edit | `parseAnchorList` also returns how many accepted entries carried an empty `repo`; the `am_add_drawer` handler and the `am_update_drawer` `code_anchors` branch put `anchors_unlabelled` and `anchors_advice` on the response when the count is non-zero |
-| `internal/mcpserver/drawers.go` | edit | both tool descriptions name the two keys, because `TestEveryOmitemptyWireKeyInThisPackageIsDescribed` (`internal/mcpserver/wirekeys_test.go`) refuses an omitempty key no description mentions — a field a caller cannot discover is unreachable even when it is emitted (AGENTS.md §Reachability) |
+| `internal/mcpserver/drawers.go` | edit | both tool descriptions name the two keys, because `TestEveryConditionalWireKeyIsDescribedByItsOwnTool` (`internal/mcpserver/wirekeysconditional_test.go`) refuses a conditional `out[...]` key its own tool's description does not mention — the omitempty gate reads struct tags and is blind to these; review of #253 measured it passing with both names stripped — a field a caller cannot discover is unreachable even when it is emitted (AGENTS.md §Reachability) |
 | `internal/mcptest/anchorlabel_test.go` | add | `TestAnUnlabelledAnchorIsReportedAtWrite` through the real tool registry, so the assertion is on the wire shape the caller sees rather than on the helper |
 
 The class this task governs was enumerated with `grep -rn 'AnchorInput{' --include='*.go' internal cmd clients | grep -v _test` on 2026-09-05 at 3a46c81: `internal/mcpserver/drawers.go` (`parseAnchorList`, the only builder fed from a request) and `internal/palace/supersede.go` (`carryAnchors`, which copies an existing record's anchors forward and is Out of Scope in the ADR). Both external write paths — `AddAnchors` from `am_add_drawer` and `ReplaceAnchors` from `am_update_drawer` — go through `parseAnchorList`, which is why the count is taken there and nowhere else.
@@ -35,7 +35,7 @@ The class this task governs was enumerated with `grep -rn 'AnchorInput{' --inclu
 ```bash
 set -o pipefail
 go test ./internal/mcptest/ -run 'TestAnUnlabelledAnchorIsReportedAtWrite$' -count=1 2>&1 | tee /tmp/acc.out && ! grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/acc.out && \
-go test ./internal/mcpserver/ -run 'TestEveryOmitemptyWireKeyInThisPackageIsDescribed$' -count=1 2>&1 | tee /tmp/acc2.out && ! grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/acc2.out && \
+go test ./internal/mcpserver/ -run 'TestEveryConditionalWireKeyIsDescribedByItsOwnTool$' -count=1 2>&1 | tee /tmp/acc2.out && ! grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/acc2.out && \
 go test ./internal/mcpserver/ ./internal/mcptest/ -count=1
 ```
 
@@ -44,7 +44,7 @@ go test ./internal/mcpserver/ ./internal/mcptest/ -count=1
 | Test name | File | Verifies | Covers | Steps |
 |-----------|------|----------|--------|-------|
 | `TestAnUnlabelledAnchorIsReportedAtWrite` | `internal/mcptest/anchorlabel_test.go` | both write tools report the count and the advice when an anchor lacks `repo`, and emit neither key when every anchor is labelled, when the list is empty, and when the field is omitted | — | S1, S2 |
-| `TestEveryOmitemptyWireKeyInThisPackageIsDescribed` | `internal/mcpserver/wirekeys_test.go` | the two new omitempty keys are named in a tool description, so a caller can learn they exist before hitting the case that emits them | — | S3 |
+| `TestEveryConditionalWireKeyIsDescribedByItsOwnTool` | `internal/mcpserver/wirekeysconditional_test.go` | the two new conditional keys are named in the description of each tool that emits them, so a caller can learn they exist before hitting the case that emits them | — | S3 |
 
 ## Reachability
 
@@ -52,12 +52,13 @@ go test ./internal/mcpserver/ ./internal/mcptest/ -count=1
 |------|------------------------|
 | 1 — exists | the count in `parseAnchorList` |
 | 2 — something selects it | the two handlers put it on the response; the mutant is dropping the count (returning 0 unconditionally), which turns the scenario red on both positive cases |
-| 3 — the caller can discover it | the descriptions name both keys, gated by `TestEveryOmitemptyWireKeyInThisPackageIsDescribed` |
+| 3 — the caller can discover it | the descriptions name both keys, gated by `TestEveryConditionalWireKeyIsDescribedByItsOwnTool` |
 | 4 — it is used | not measured here; the first agent session that files an anchor without `repo` after the release will read it, and `doctor --corpus` (T2) measures whether the population then stops growing |
 
 ## Mutation Log
 
 - 2026-09-05 · 1a2287d* · mutant killed · exit 1 · `internal/mcpserver/drawers.go` · parseAnchorList stops counting anchors with no repo, so neither write tool reports one; both positive cases of TestAnUnlabelledAnchorIsReportedAtWrite must go red · acceptance-sha256:4d854a7117e87acd860074ed21111ccc09fbd3ea073d55bfb46f06b9619e15d3
+- 2026-09-05 · f235ae0* · mutant killed · exit 1 · `internal/mcpserver/drawers.go` · a conditional key a tool emits must be named in that tool's own description; stripping both names from add_drawer's description is what the conditional-key gate exists to refuse, and the omitempty gate the fence used to name passes over it · acceptance-sha256:cf6fb2b31f9be7d4985db616aed1d3068b045fedd0a6d6c712610293f52cf7b0
 
 ## Invariants
 
@@ -94,3 +95,4 @@ Stop if `am_update_drawer`'s `code_anchors` branch turns out not to run through 
   FAIL
   ```
 - 2026-09-05 · 1a2287d* · exit 0 · `set -o pipefail …` · acceptance-sha256:4d854a7117e87acd860074ed21111ccc09fbd3ea073d55bfb46f06b9619e15d3 · ms:9133
+- 2026-09-05 · f235ae0* · exit 0 · `set -o pipefail …` · acceptance-sha256:cf6fb2b31f9be7d4985db616aed1d3068b045fedd0a6d6c712610293f52cf7b0 · ms:7442
