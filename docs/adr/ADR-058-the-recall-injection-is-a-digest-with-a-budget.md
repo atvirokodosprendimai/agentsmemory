@@ -24,9 +24,10 @@ session's own prompts carried the same four unrelated billing facts and one 88k-
 chunk, so the figure holds across prompts, not just the probe. Review of #268 measured a
 DIFFERENT session on the HOSTED palace, seven injections: 5,301–6,408 bytes, mean ~1,364 tokens —
 and, counting wing names across them in a session working only on agentsmemory,
-`wing_tool-multipathreadwrite` 34, `wing_forumchat` 34, `wing_agentmemories` 12. The repository's
-own wing was the LEAST represented, outnumbered about five to one by two projects that share no
-code with it; one recurring hit was a service-worker JavaScript file about push-notification
+two unrelated projects' wings 34 and 34, `wing_agentmemories` 12 (the two are named in the
+review, not here: `TestNoRealProjectNamesInWings` keeps other projects' wing names out of this
+corpus). The repository's own wing was the LEAST represented, outnumbered about five to one by two
+projects that share no code with it; one recurring hit was a service-worker JavaScript file about push-notification
 badges, returned against prompts about ADR reviews. Out-of-wing content is the majority of every
 injection, not a tail on a good answer — which is the argument for the wing half of this record.
 
