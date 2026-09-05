@@ -186,4 +186,6 @@ and reads `''`; `RecallStats` with no `hook:` rows behaves exactly as today. No 
 ## Follow-ups
 
 - [ ] After two default windows have passed on the local palace, re-measure `suggestions` and record
-  in this ADR whether a shape rule is still wanted for what the hooks could not label.
+  in this ADR whether a shape rule is still wanted for what the hooks could not label. The clock
+  started when v0.0.117 began serving locally, 2026-09-05 ~06:55 UTC, so the earliest honest reading
+  is 2026-09-07 — earlier, the window still holds recalls from a kit that declared no origin.
