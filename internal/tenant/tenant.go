@@ -343,6 +343,28 @@ func (k ReadOnlyKeys) Total() int { return k.Member + k.Missing + k.Empty }
 // Faults reports the subset that nothing chose — a missing or empty role.
 func (k ReadOnlyKeys) Faults() int { return k.Missing + k.Empty }
 
+// TeamExists reports whether a teams row with this id is present.
+//
+// Read-only on purpose, and that is the decision rather than an implementation
+// detail. `--team <id>` mints a trusted local admin identity out of thin air, and
+// search_events.team_id REFERENCES teams(id) with foreign_keys(1) — so on a
+// database that has never seen that team the measurement insert fails the
+// constraint, recordSearch swallows the error by design ("a measurement that can
+// break the thing it measures is worse than no measurement"), and the read
+// succeeds while recording nothing. Nothing said so (#249).
+//
+// The caller uses this to SAY so. It deliberately does not create the row:
+// minting tenancy from a read path would make a typo'd team id a new workspace,
+// and the identity would be real in the sense that matters least — a row exists —
+// while still naming a palace nobody meant to open.
+func (r *Repo) TeamExists(ctx context.Context, id string) (bool, error) {
+	var n int64
+	if err := r.db.WithContext(ctx).Model(&Team{}).Where("id = ?", id).Count(&n).Error; err != nil {
+		return false, err
+	}
+	return n > 0, nil
+}
+
 // RefusedWrites reports every workspace holding active API keys that the write
 // guard refuses, and why.
 //

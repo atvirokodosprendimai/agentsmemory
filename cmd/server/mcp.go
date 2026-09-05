@@ -143,6 +143,32 @@ func resolveTenant(ctx context.Context, svc *services, c *cli.Command) (tenant.T
 		return t, false, nil
 	}
 	if team != "" {
+		// ⚠ SAY SO WHEN THE IDENTITY IS ASSERTED RATHER THAN REAL.
+		//
+		// --team mints a trusted local admin out of thin air and creates no teams
+		// row. search_events.team_id REFERENCES teams(id) and the writer runs with
+		// foreign_keys(1) (ADR-052), so on a database that has never seen this team
+		// the measurement insert fails the constraint — and recordSearch swallows
+		// the error on purpose, because a measurement that can break the thing it
+		// measures is worse than no measurement. The read then succeeds and records
+		// NOTHING, so am_recall_stats under-counts that path and nothing anywhere
+		// says why (#249).
+		//
+		// The swallow stays: it is the right call and this is not the place to
+		// relitigate it. What was missing is the sentence. Reported rather than
+		// refused, and rather than creating the row — the house pattern here
+		// (ADR-056 for an unlabelled anchor, ADR-053 T3 for an oversized node) is
+		// that a request whose shape is wrong is served and its caller told. Minting
+		// tenancy from a READ path would turn a typo'd id into a new workspace.
+		//
+		// stderr, because stdout on this command carries MCP protocol frames.
+		if ok, err := svc.tenants.TeamExists(ctx, team); err == nil && !ok {
+			fmt.Fprintf(os.Stderr,
+				"agentsmemory: no team %q exists in this database, so this read is not being "+
+					"recorded: search_events references teams(id) and the insert fails the "+
+					"foreign key, silently by design. The read itself is unaffected; "+
+					"am_recall_stats will not count it.\n", team)
+		}
 		return tenant.Tenant{TeamID: team, Role: tenant.RoleAdmin}, true, nil
 	}
 	return tenant.Tenant{}, false, errors.New("provide --token (or AGENTSMEMORY_TOKEN) for a metered, auth-parity read, or --team <id> for a trusted local admin read")
