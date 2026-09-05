@@ -272,7 +272,10 @@ func registerAddDrawer(reg *registrar, drawers *palace.Service, usageSvc *usage.
 				"one checkout, so repo is the only thing that tells a verifying session whether an anchor is even about "+
 				"the tree in front of it. Without it the anchor can never report drift from anywhere: a path like "+
 				"internal/x/y.go looks checkable from any directory, so an unlabelled anchor is left UNCHECKED rather "+
-				"than reported missing — the safe reading, and a permanently silent one.")),
+				"than reported missing — the safe reading, and a permanently silent one. The write is never refused for "+
+				"a missing repo and the label is never guessed: when any anchor arrives without one, the response carries "+
+				"anchors_unlabelled (how many) and anchors_advice (the one am_update_drawer call that labels them), and "+
+				"neither key appears when every anchor carried repo.")),
 		mcp.WithBoolean("confirm_new_wing", mcp.Description(
 			"Set true to file an inbox item into a wing that holds no memories yet. Without it that "+
 				"combination is refused, because it is what an undeliverable handoff looks like: a "+
@@ -330,7 +333,7 @@ func registerAddDrawer(reg *registrar, drawers *palace.Service, usageSvc *usage.
 
 		// Anchors pin the FIRST chunk: it is the parent handle for a multi-chunk
 		// write, and the one search returns as the memory's identity.
-		if anchors := parseAnchors(req.GetArguments()["code_anchors"]); len(anchors) > 0 && len(created.Drawers) > 0 {
+		if anchors, _, _, unlabelled := parseAnchorList(req.GetArguments()["code_anchors"]); len(anchors) > 0 && len(created.Drawers) > 0 {
 			n, err := drawers.AddAnchors(ctx, t.TeamID, created.Drawers[0].ID, anchors)
 			if err != nil {
 				// The memory is already filed; an anchor failure must not present
@@ -338,6 +341,12 @@ func registerAddDrawer(reg *registrar, drawers *palace.Service, usageSvc *usage.
 				out["anchor_error"] = err.Error()
 			} else {
 				out["code_anchors"] = n
+				// Accepted and reported, never refused or guessed (ADR-056). Absent
+				// when every anchor carried repo, so presence is the whole signal.
+				if unlabelled > 0 {
+					out["anchors_unlabelled"] = unlabelled
+					out["anchors_advice"] = unlabelledAnchorAdvice(created.Drawers[0].ID, unlabelled)
+				}
 			}
 		}
 		if created.PendingEmbedding {
@@ -356,7 +365,7 @@ func registerAddDrawer(reg *registrar, drawers *palace.Service, usageSvc *usage.
 // objects. It is tolerant by design — an unparseable entry is skipped rather than
 // failing the write, because the memory itself is worth more than its anchor.
 func parseAnchors(raw any) []palace.AnchorInput {
-	out, _, _ := parseAnchorList(raw)
+	out, _, _, _ := parseAnchorList(raw)
 	return out
 }
 
@@ -381,12 +390,13 @@ func parseAnchors(raw any) []palace.AnchorInput {
 // "the one anchor I sent had a typo", the likeliest way to get an entry wrong at
 // all. The caller asked to SET anchors, none could be read, and deleting the
 // existing ones is the opposite of the intent.
-func parseAnchorList(raw any) ([]palace.AnchorInput, bool, int) {
+func parseAnchorList(raw any) ([]palace.AnchorInput, bool, int, int) {
 	list, ok := raw.([]any)
 	if !ok {
-		return nil, false, 0
+		return nil, false, 0, 0
 	}
 	out := make([]palace.AnchorInput, 0, len(list))
+	unlabelled := 0
 	for _, item := range list {
 		m, ok := item.(map[string]any)
 		if !ok {
@@ -398,9 +408,25 @@ func parseAnchorList(raw any) ([]palace.AnchorInput, bool, int) {
 		if strings.TrimSpace(path) == "" || strings.TrimSpace(snippet) == "" {
 			continue
 		}
+		// Counted here, the ONE builder fed from a request (ADR-056): an anchor
+		// with no repo can never be attributed to a tree, so it is accepted as
+		// today and REPORTED — a skipped entry above is not an unlabelled one.
+		if strings.TrimSpace(repo) == "" {
+			unlabelled++
+		}
 		out = append(out, palace.AnchorInput{Repo: repo, Path: path, Snippet: snippet})
 	}
-	return out, true, len(list)
+	return out, true, len(list), unlabelled
+}
+
+// unlabelledAnchorAdvice is the one call that labels an anchor filed without a
+// repository, put on the write's response beside the count (ADR-056). The write
+// is never refused for a missing label — the memory is worth more than its
+// anchor, parseAnchors' own rule — and never guessed, because a wrong label is
+// a positive claim the read side attributes and checks in the wrong tree.
+func unlabelledAnchorAdvice(id string, n int) string {
+	return fmt.Sprintf("%d anchor(s) carry no repo and can never be verified against any tree: send "+
+		"am_update_drawer(id: %q, code_anchors: [...]) with \"repo\" — the basename of your git remote — on every entry", n, id)
 }
 
 // anchorReplacement decides what a code_anchors argument means at a REPLACE,
@@ -419,21 +445,21 @@ func parseAnchorList(raw any) ([]palace.AnchorInput, bool, int) {
 // nothing is indistinguishable from a deliberate []. A list with one bad row
 // among several is not this case: it is readable, something survived, and the
 // bad row is dropped.
-func anchorReplacement(raw any) ([]palace.AnchorInput, string) {
-	anchors, readable, sent := parseAnchorList(raw)
+func anchorReplacement(raw any) ([]palace.AnchorInput, int, string) {
+	anchors, readable, sent, unlabelled := parseAnchorList(raw)
 	if !readable {
-		return nil, "code_anchors must be a LIST of {path, snippet, repo?} objects; the value sent could not be " +
+		return nil, 0, "code_anchors must be a LIST of {path, snippet, repo?} objects; the value sent could not be " +
 			"read as one. Refusing rather than clearing, because an unreadable argument and a " +
 			"deliberate \"remove the anchors\" look identical once parsed — send [] if you meant to clear them"
 	}
 	if sent > 0 && len(anchors) == 0 {
-		return nil, fmt.Sprintf(
+		return nil, 0, fmt.Sprintf(
 			"code_anchors carried %d entr(ies) and none could be read — each needs a non-empty "+
 				"\"path\" and \"snippet\". Refusing rather than clearing: you asked to set anchors, "+
 				"so deleting the ones this memory has would be the opposite of that. Send [] if you "+
 				"meant to remove them", sent)
 	}
-	return anchors, ""
+	return anchors, unlabelled, ""
 }
 
 // pendingEmbeddingWarning is the one sentence a caller must pass on when a write
@@ -610,6 +636,7 @@ func registerUpdateDrawer(reg *registrar, drawers *palace.Service, usageSvc *usa
 		mcp.WithArray("code_anchors", mcp.Description(
 			"REPLACE this memory's code anchors, as [{\"path\":\"internal/x/y.go\",\"snippet\":\"<verbatim lines>\",\"repo\":\"<repository name>\"}]. "+
 				"Send repo — the basename of your git remote; an anchor without it is left unchecked forever, because nothing can confirm which tree it belongs to. "+
+				"An entry sent without repo is accepted and reported back: anchors_unlabelled counts them and anchors_advice names the call that labels them; both are absent when every entry carried repo. "+
 				"Send [] to remove them all. Omit the field to leave them untouched. "+
 				"With content, these are applied to the CORRECTING record, not the one being ended. "+
 				"A correction carries the old record's anchors forward as unchecked, so send this only "+
@@ -655,9 +682,10 @@ func registerUpdateDrawer(reg *registrar, drawers *palace.Service, usageSvc *usa
 		// wrong must leave the memory as it found it.
 		raw, wantsAnchors := args["code_anchors"]
 		var anchors []palace.AnchorInput
+		var unlabelled int
 		if wantsAnchors {
 			var refusal string
-			if anchors, refusal = anchorReplacement(raw); refusal != "" {
+			if anchors, unlabelled, refusal = anchorReplacement(raw); refusal != "" {
 				return mcp.NewToolResultError(refusal), nil
 			}
 		}
@@ -683,6 +711,12 @@ func registerUpdateDrawer(reg *registrar, drawers *palace.Service, usageSvc *usa
 				return mcp.NewToolResultError(aerr.Error()), nil
 			}
 			out["code_anchors"] = n
+			// Same report as am_add_drawer's (ADR-056): the anchors were written,
+			// and the ones with no repo are named so the caller can label them.
+			if unlabelled > 0 {
+				out["anchors_unlabelled"] = unlabelled
+				out["anchors_advice"] = unlabelledAnchorAdvice(res.Drawer.ID, unlabelled)
+			}
 		}
 		return jsonResult(out), nil
 	})
@@ -1275,7 +1309,7 @@ func registerListWings(reg *registrar, drawers *palace.Service, usageSvc *usage.
 func registerListRooms(reg *registrar, drawers *palace.Service, usageSvc *usage.Service, scopeSearchToWing bool) {
 	tool := newTool("list_rooms",
 		mcp.WithOutputSchema[roomsResult](),
-		mcp.WithDescription("List the team's rooms with drawer counts, optionally restricted to one wing. Omitted, scoped to this registration's default_wing only when one is configured and SEARCH_SCOPE is not workspace; otherwise omission lists every wing. Pass \"*\" to list every wing deliberately."),
+		mcp.WithDescription("List the team's rooms with drawer counts, optionally restricted to one wing. A room exists while it holds a live memory and not otherwise — there is no create or delete: filing into a name creates it, and a mistyped room disappears from every listing once its last memory is retracted (am_invalidate_drawer) or relocated (am_update_drawer with room) (ADR-055). Omitted, scoped to this registration's default_wing only when one is configured and SEARCH_SCOPE is not workspace; otherwise omission lists every wing. Pass \"*\" to list every wing deliberately."),
 		mcp.WithString("wing", mcp.Description("Only rooms within this wing. Omitted, scoped to this registration's default_wing only when one is configured and SEARCH_SCOPE is not workspace; otherwise every wing. Pass \"*\" for every wing deliberately."), searchWingProperty()),
 	)
 	reg.add(tool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {

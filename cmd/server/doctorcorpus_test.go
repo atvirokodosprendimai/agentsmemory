@@ -219,3 +219,71 @@ func TestDoctorCorpusIsReachable(t *testing.T) {
 			"after an early return runs only when nothing before it does:\n%s", out)
 	}
 }
+
+// TestDoctorCorpusReportsUnlabelledAnchors is ADR-056 T2: an anchor with no repo
+// can never be attributed to a tree, so it is verified by nothing and reports
+// nothing forever — `doctor --corpus` names how many the palace holds, with a
+// sample of ids and the remedy. A POPULATION, not a verdict: the write side
+// keeps accepting such anchors by design (T1), so a term in clean() would go red
+// on a legal state and stay red, taking ADR-038's three real findings with it.
+// Counted and printed at every run including zero, the way EndedFactSources is.
+func TestDoctorCorpusReportsUnlabelledAnchors(t *testing.T) {
+	cfg, teamID := eraseTestWorkspace(t)
+	svc, err := buildServices(cfg)
+	if err != nil {
+		t.Fatalf("build services: %v", err)
+	}
+	ctx := context.Background()
+	// Two DRAWERS, not two anchors on one: the population is reported per drawer,
+	// so a labelled and an unlabelled anchor on the same id would let a walk that
+	// selects the wrong half report the right id. Measured: the first draft of
+	// this test seeded one drawer and an inverted predicate survived it.
+	seed := func(content string, anchor palace.AnchorInput) string {
+		t.Helper()
+		added, err := svc.drawers.Add(ctx, teamID, palace.AddInput{
+			Wing: "wing_alpha", Room: "decisions", Content: content,
+		})
+		if err != nil {
+			t.Fatalf("seed: %v", err)
+		}
+		id := added.Drawers[0].ID
+		if _, err := svc.drawers.AddAnchors(ctx, teamID, id, []palace.AnchorInput{anchor}); err != nil {
+			t.Fatalf("seed anchors: %v", err)
+		}
+		return id
+	}
+	seed("a memory pinned with its repo named", palace.AnchorInput{Repo: "acme", Path: "internal/a.go", Snippet: "func A()"})
+	id := seed("a memory pinned with no repo", palace.AnchorInput{Repo: "", Path: "internal/b.go", Snippet: "func B()"})
+
+	found, err := walkCorpus(ctx, svc, teamID)
+	if err != nil {
+		t.Fatalf("walk: %v", err)
+	}
+	if len(found.UnlabelledAnchors) != 1 || found.UnlabelledAnchors[0] != id {
+		t.Fatalf("unlabelled anchors = %v; want exactly the drawer whose anchor has no repo [%s]", found.UnlabelledAnchors, id)
+	}
+	if !found.clean() {
+		t.Fatalf("an unlabelled anchor made the corpus UNCLEAN (%+v); it is a legal write and must not own the exit code", found)
+	}
+
+	var out bytes.Buffer
+	if err := reportCorpus(&out, "wing_alpha", found); err != nil {
+		t.Fatalf("a corpus whose only population is unlabelled anchors must exit 0, got: %v", err)
+	}
+	text := out.String()
+	for _, want := range []string{id, "repo", "am_update_drawer"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the report omits %q, so an operator cannot act on it:\n%s", want, text)
+		}
+	}
+
+	// Printed at every run, including zero: "0 anchors carry no repo" and "this
+	// check does not look at that" are different statements.
+	out.Reset()
+	if err := reportCorpus(&out, "wing_alpha", corpusFindings{Drawers: 3, Facts: 1}); err != nil {
+		t.Fatalf("clean corpus: %v", err)
+	}
+	if !strings.Contains(out.String(), "0 anchor(s) carry no repo") {
+		t.Errorf("a clean run says nothing about unlabelled anchors:\n%s", out.String())
+	}
+}
