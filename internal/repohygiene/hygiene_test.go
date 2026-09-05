@@ -261,10 +261,6 @@ var exampleWings = map[string]bool{
 	"wing_no_such_place": true,
 	"wing_acme_laravel":  true, "wing_acme-legacy": true, "wing_acme-old": true,
 	"wing_acmee": true, "wing_agentmemories": true,
-	// wing_test is not a project: it is the substring a Go test file named
-	// recallwing_test.go left in a tool-written Verification Log row (ADR-058
-	// T2), which this gate must not force anyone to hand-edit.
-	"wing_test":  true,
 	"wing_alpha": true, "wing_anchor": true, "wing_anything": true, "wing_api": true,
 	"wing_app": true, "wing_atlas": true, "wing_atomic": true, "wing_b": true,
 	"wing_beta": true, "wing_big": true, "wing_billing": true, "wing_chunked": true,
@@ -288,7 +284,11 @@ var exampleWings = map[string]bool{
 }
 
 // wingName matches a wing identifier anywhere in a tracked file.
-var wingName = regexp.MustCompile(`wing_[a-z0-9][a-z0-9_-]*`)
+// wingName matches a wing reference at a TOKEN START. The left boundary is
+// what keeps `recallwing_test.go` from reading as `wing_test`: review of #271
+// found the boundary-less form charging twice for one false positive — a
+// renamed source file and an allowlist entry, neither about a project.
+var wingName = regexp.MustCompile(`(^|[^a-zA-Z0-9_-])(wing_[a-z0-9][a-z0-9_-]*)`)
 
 // TestNoRealProjectNamesInWings fails when a wing name appears that is not a
 // declared example.
@@ -316,7 +316,8 @@ func TestNoRealProjectNamesInWings(t *testing.T) {
 			continue
 		}
 		seen := map[string]bool{}
-		for _, m := range wingName.FindAll(src, -1) {
+		for _, sub := range wingName.FindAllSubmatch(src, -1) {
+			m := sub[2]
 			name := strings.ToLower(string(m))
 			if seen[name] {
 				continue
