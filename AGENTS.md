@@ -150,7 +150,7 @@ of its steps failed silently the day it was written:
     git checkout main && git pull --ff-only                    # FIRST: the clone below reads LOCAL main
     git clone -q --no-local --branch <tag-or-sha> . "$DIR"   # a CLONE, never a worktree
     [ "$(git -C "$DIR" rev-parse HEAD)" = "$(git rev-parse '<tag-or-sha>^{}')" ] || exit 1   # the clone is at the ref you named
-    cp .env.docker "$DIR/"                                    # a clone has no untracked files
+    cp .env.docker "$DIR/"; [ -f .env ] && cp .env "$DIR/"     # a clone has no untracked files; .env carries RERANK_URL on a Mac
     cd "$DIR" && AGENTSMEMORY_VERSION=<tag> scripts/redeploy.sh
     # then the kit, from the same tree — THREE binaries, not two: the Claude Desktop
     # bridge is a copy of `aiagentmemory-server` the installer takes from PATH
