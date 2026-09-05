@@ -2,9 +2,14 @@ package main
 
 import (
 	"context"
+	"io"
+	"os"
+	"strings"
 	"testing"
 
 	"github.com/atvirokodosprendimai/agentsmemory/internal/tenant"
+
+	cli "github.com/urfave/cli/v3"
 )
 
 // TestTeamExistsSeparatesAnAssertedIdentityFromARealOne pins the read that lets
@@ -74,5 +79,82 @@ func TestTeamExistsWritesNothing(t *testing.T) {
 		t.Errorf("asking whether a team exists created %d team row(s).\n"+
 			"  This is the option #249 listed first and this change deliberately did not take: "+
 			"a read path that mints tenancy makes a typo a workspace.", n)
+	}
+}
+
+// TestTheTeamWarningReachesStderr drives resolveTenant itself, because the
+// warning IS this change and nothing else pins it.
+//
+// Review of #302 proved the gap by deletion: removing the whole block —
+// the TeamExists call and its Fprintf together — left `go test ./...` at exit 0
+// over 45 packages. Both sibling tests exercise tenant.Repo.TeamExists DIRECTLY,
+// so the component was well covered and its SELECTION was covered by nothing.
+// That is §Reachability exactly, and AGENTS.md states the remedy as a procedure:
+// a test for "X is now available" must fail when X is removed.
+//
+// It matters more than usual here because TeamExists has no other caller. If the
+// call site is deleted or drifts, what remains is a well-tested function nothing
+// invokes and the exact silence #249 filed — restored, with green tests standing
+// over it.
+//
+// stderr specifically, and asserted rather than assumed: stdout on this command
+// carries MCP protocol frames, so a misdirected line would corrupt the protocol
+// rather than merely land in the wrong place.
+func TestTheTeamWarningReachesStderr(t *testing.T) {
+	gdb := newTestGormDB(t)
+	svc := &services{gdb: gdb, tenants: tenant.NewRepo(gdb)}
+
+	run := func(team string) (stderr string) {
+		t.Helper()
+		r, w, err := os.Pipe()
+		if err != nil {
+			t.Fatalf("pipe: %v", err)
+		}
+		saved := os.Stderr
+		os.Stderr = w
+		defer func() { os.Stderr = saved }()
+
+		cmd := &cli.Command{
+			Name:  "probe",
+			Flags: []cli.Flag{&cli.StringFlag{Name: "token"}, &cli.StringFlag{Name: "team"}},
+			Action: func(ctx context.Context, c *cli.Command) error {
+				tn, unmetered, err := resolveTenant(ctx, svc, c)
+				if err != nil {
+					return err
+				}
+				if tn.TeamID != team || !unmetered {
+					t.Errorf("resolveTenant gave %+v unmetered=%v, want the team as a trusted "+
+						"admin — the read must still be SERVED, not refused", tn, unmetered)
+				}
+				return nil
+			},
+		}
+		if err := cmd.Run(context.Background(), []string{"probe", "--team", team}); err != nil {
+			t.Fatalf("run: %v", err)
+		}
+		_ = w.Close()
+		out, _ := io.ReadAll(r)
+		os.Stderr = saved
+		return string(out)
+	}
+
+	if got := run("never-seeded"); !strings.Contains(got, "no team") || !strings.Contains(got, "not being recorded") {
+		t.Errorf("a --team read against a database with no such team printed %q to stderr.\n"+
+			"  It must SAY the read is not being recorded: the insert fails the foreign key and "+
+			"recordSearch swallows that by design, so this line is the only thing standing "+
+			"between an operator and the silence #249 filed.", got)
+	}
+
+	// The other direction, so a warning printed unconditionally cannot pass. A
+	// line on every legitimate --team read teaches an operator to ignore it, which
+	// restores the silence by a different route.
+	const real = "t-seeded"
+	if err := gdb.Create(&tenant.Team{
+		ID: real, Name: real, Slug: "seeded", Kind: "personal", CreatedAt: "2026-01-01T00:00:00Z",
+	}).Error; err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	if got := run(real); strings.Contains(got, "not being recorded") {
+		t.Errorf("a --team read against a team that EXISTS still warned: %q", got)
 	}
 }
