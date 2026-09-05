@@ -664,6 +664,20 @@ decide which statements a method should run on; that stays review's job, and wha
 second fail loudly is `internal/palace`'s strict test fixture — a `query_only` reader over the
 same file — rather than any gate here.
 
+**A CHILD A TEST STARTS WITHOUT A DEADLINE OUTLIVES THE TEST THAT FAILED IT.**
+`go test`'s package timeout kills the test binary, not the grandchildren a
+`bash <hook>` started; those are reparented to launchd and keep running. Measured
+in a sibling project on 2026-09-05: two hook children hung in regex backtracking
+for fifteen hours after their test recorded FAILED, found by the laptop's fans.
+This tree had 41 such sites, most of them `bash <hook>`. `internal/testexec` is
+the one door now — `testexec.Command(t, name, args...)` binds the child to the
+test's context with a deadline, puts it in its own process group and kills the
+group — and `TestEveryTestChildCarriesADeadline` reads every `_test.go` as an
+AST and refuses a direct `exec.Command` or `exec.CommandContext`, aliased imports
+included. `TestADeadlineKillsTheChildAndItsChildren` proves the reaping with a
+grandchild that must be gone, because a mutant that kills only the direct child
+passes every test that watches the child alone.
+
 Prose belongs where a human reads it and nowhere else. Anything that must stay
 true gets a command whose exit code says so — including this section, which
 `TestAgentsMdNamesGatesThatExist` pins so the list cannot rot into a claim about

@@ -3,8 +3,8 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/atvirokodosprendimai/agentsmemory/internal/testexec"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -23,7 +23,7 @@ func runAnchorCue(t *testing.T, input, stubStdout string) (stdout, stderr string
 	if err := os.WriteFile(stub, []byte("#!/bin/sh\ncat <<'JSON'\n"+stubStdout+"\nJSON\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command("bash", filepath.Join("hooks", "agentsmemory-anchor-cue-hook.sh"))
+	cmd := testexec.Command(t, "bash", filepath.Join("hooks", "agentsmemory-anchor-cue-hook.sh"))
 	cmd.Stdin = strings.NewReader(input)
 	var out, errb strings.Builder
 	cmd.Stdout, cmd.Stderr = &out, &errb
@@ -184,7 +184,7 @@ func runTaskRecall(t *testing.T, input string) (stdout, stderr string) {
 	if err := os.WriteFile(stub, []byte("#!/bin/sh\necho '{\"hits\":[{\"wing\":\"wing_acme\",\"room\":\"decisions\",\"content\":\"a recalled memory\"}],\"count\":1}'\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command("bash", filepath.Join("hooks", "agentsmemory-task-recall-hook.sh"))
+	cmd := testexec.Command(t, "bash", filepath.Join("hooks", "agentsmemory-task-recall-hook.sh"))
 	cmd.Stdin = strings.NewReader(input)
 	var out, errb strings.Builder
 	cmd.Stdout, cmd.Stderr = &out, &errb
@@ -276,7 +276,7 @@ func TestTheExpansionBranchIsSilentWithoutCommandArgs(t *testing.T) {
 func touchedDir(t *testing.T, stateDir string, events ...string) string {
 	t.Helper()
 	for _, ev := range events {
-		cmd := exec.Command("bash", filepath.Join("hooks", "agentsmemory-touched-hook.sh"))
+		cmd := testexec.Command(t, "bash", filepath.Join("hooks", "agentsmemory-touched-hook.sh"))
 		cmd.Stdin = strings.NewReader(ev)
 		cmd.Env = append(os.Environ(), "AGENTSMEMORY_STATE_DIR="+stateDir, "CLAUDE_PROJECT_DIR=/repo")
 		if err := cmd.Run(); err != nil {
@@ -337,7 +337,7 @@ func TestTheStopHookNamesTouchedPaths(t *testing.T) {
 		`{"session_id":"s9","tool_name":"Edit","tool_input":{"file_path":"/repo/alpha.go"}}`,
 		`{"session_id":"s9","tool_name":"Edit","tool_input":{"file_path":"/repo/beta.go"}}`)
 
-	cmd := exec.Command("bash", filepath.Join("hooks", "agentsmemory-stop-hook.sh"))
+	cmd := testexec.Command(t, "bash", filepath.Join("hooks", "agentsmemory-stop-hook.sh"))
 	cmd.Stdin = strings.NewReader(`{"session_id":"s9","hook_event_name":"Stop"}`)
 	var errb strings.Builder
 	cmd.Stderr = &errb
@@ -354,7 +354,7 @@ func TestTheStopHookNamesTouchedPaths(t *testing.T) {
 // TestTheStopHookIsQuietWhenNothingWasTouched: a read-only session ends without
 // being told what it changed, because it changed nothing.
 func TestTheStopHookIsQuietWhenNothingWasTouched(t *testing.T) {
-	cmd := exec.Command("bash", filepath.Join("hooks", "agentsmemory-stop-hook.sh"))
+	cmd := testexec.Command(t, "bash", filepath.Join("hooks", "agentsmemory-stop-hook.sh"))
 	cmd.Stdin = strings.NewReader(`{"session_id":"empty-session","hook_event_name":"Stop"}`)
 	var errb strings.Builder
 	cmd.Stderr = &errb
@@ -417,7 +417,7 @@ func TestTheStatusLineMakesNoNetworkCall(t *testing.T) {
 // user cannot dismiss — and no cache is the ordinary state before the first
 // session-start hook has run.
 func TestTheStatusLineIsSilentWithoutACache(t *testing.T) {
-	cmd := exec.Command("bash", filepath.Join("hooks", "agentsmemory-statusline.sh"))
+	cmd := testexec.Command(t, "bash", filepath.Join("hooks", "agentsmemory-statusline.sh"))
 	cmd.Env = append(os.Environ(), "AGENTSMEMORY_STATE_DIR="+t.TempDir())
 	out, err := cmd.Output()
 	if err != nil {
@@ -443,7 +443,7 @@ func TestTheStatusLineShowsWhatTheCacheHolds(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		cmd := exec.Command("bash", filepath.Join("hooks", "agentsmemory-statusline.sh"))
+		cmd := testexec.Command(t, "bash", filepath.Join("hooks", "agentsmemory-statusline.sh"))
 		cmd.Env = append(os.Environ(), "AGENTSMEMORY_STATE_DIR="+dir)
 		out, err := cmd.Output()
 		if err != nil {

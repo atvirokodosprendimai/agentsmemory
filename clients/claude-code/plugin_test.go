@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"github.com/atvirokodosprendimai/agentsmemory/internal/testexec"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -392,7 +393,7 @@ func TestClaudeCodeActuallyLoadsThePlugin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command("claude", "--plugin-dir", root, "plugin", "details", "agentsmemory")
+	cmd := testexec.Command(t, "claude", "--plugin-dir", root, "plugin", "details", "agentsmemory")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("claude plugin details failed: %v\n%s", err, out)
@@ -455,7 +456,7 @@ func TestADeniedActionIsActuallyRefused(t *testing.T) {
 		if err := os.WriteFile(f, []byte(rules), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		cmd := exec.Command("claude", "-p", "--output-format", "json", "--settings", f,
+		cmd := testexec.Command(t, "claude", "-p", "--output-format", "json", "--settings", f,
 			"--permission-mode", "dontAsk", "--allowedTools", "Bash")
 		cmd.Stdin = strings.NewReader(prompt)
 		// Our own Stop hook speaks on exit 2, and in headless mode that text
@@ -507,7 +508,7 @@ func TestEveryRegisteredPluginHookIsExecutable(t *testing.T) {
 	// without git this gate would go silently inert — which is the shape of failure
 	// it exists to catch, applied to itself. Every other check here already assumes
 	// a git checkout. Reported by review.
-	out, err := exec.Command("git", "ls-files", "-s", "hooks/").Output()
+	out, err := testexec.Command(t, "git", "ls-files", "-s", "hooks/").Output()
 	if err != nil {
 		t.Fatalf("git ls-files failed (%v); this gate reads the INDEX mode and cannot fall back to the working tree, which reports 0644 for everything on a Git-for-Windows checkout", err)
 	}

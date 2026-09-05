@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"github.com/atvirokodosprendimai/agentsmemory/internal/testexec"
 	"io"
 	"os"
 	"os/exec"
@@ -63,7 +64,7 @@ func runStopHookWithInput(t *testing.T, input, statsBody string, env ...string) 
 			"would pass against an empty string.", err)
 	}
 	hook := filepath.Join(repoRootForHooks(t), "clients", "claude-code", "hooks", "agentsmemory-stop-hook.sh")
-	cmd := exec.Command("bash", hook)
+	cmd := testexec.Command(t, "bash", hook)
 	cmd.Stdin = strings.NewReader(input)
 	cmd.Env = append(os.Environ(),
 		"PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"),
@@ -173,7 +174,7 @@ func runSubagentHook(t *testing.T, env ...string) (string, int) {
 	}
 	hook := filepath.Join(repoRootForHooks(t), "clients", "claude-code", "hooks",
 		"agentsmemory-subagent-start-hook.sh")
-	cmd := exec.Command("bash", hook)
+	cmd := testexec.Command(t, "bash", hook)
 	cmd.Stdin = strings.NewReader(`{"hook_event_name":"SubagentStart"}`)
 	cmd.Env = append(os.Environ(), env...)
 	var stdout, stderr strings.Builder
@@ -495,7 +496,7 @@ func TestStatsFetchUsesTheMCPOrigin(t *testing.T) {
 		t.Helper()
 		os.Remove(argsFile)
 		hook := filepath.Join(repoRootForHooks(t), "clients", "claude-code", "hooks", scriptName)
-		cmd := exec.Command("bash", hook)
+		cmd := testexec.Command(t, "bash", hook)
 		cmd.Stdin = strings.NewReader(`{"hook_event_name":"Stop","stop_hook_active":false}`)
 		cmd.Env = append(os.Environ(),
 			"PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"),
@@ -532,7 +533,7 @@ func TestSessionEndHonoursTheSharedStatsOffSwitch(t *testing.T) {
 		t.Fatal(err)
 	}
 	hook := filepath.Join(repoRootForHooks(t), "clients", "claude-code", "hooks", "agentsmemory-session-end-hook.sh")
-	cmd := exec.Command("bash", hook)
+	cmd := testexec.Command(t, "bash", hook)
 	cmd.Stdin = strings.NewReader(`{}`)
 	cmd.Env = append(os.Environ(),
 		"PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"),
@@ -632,7 +633,7 @@ func runStatsQuery(t *testing.T, shim string, birth, mtime int64) (string, strin
 	helper := filepath.Join(repoRootForHooks(t), "clients", "claude-code", "hooks", "agentsmemory-stats.sh")
 	// Same shell options the hooks source it under, so an unset variable or a
 	// failing probe surfaces here the way it would in production.
-	cmd := exec.Command("bash", "-u", "-o", "pipefail", "-c",
+	cmd := testexec.Command(t, "bash", "-u", "-o", "pipefail", "-c",
 		`. "$1"; INPUT="$2"; agentsmemory_stats_query; printf '%s' "$STATS_QUERY"`,
 		"stats-probe", helper, `{"hook_event_name":"Stop","transcript_path":"`+transcript+`"}`)
 	cmd.Env = append(os.Environ(), "PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"))
@@ -714,7 +715,7 @@ func TestSessionEndHookDoesNotWaitOnStdin(t *testing.T) {
 	// A writer that holds the pipe open far longer than the hook may wait. The
 	// hook must finish on its own clock, not the writer's.
 	const writerHeld = 8 * time.Second
-	cmd := exec.Command("bash", hook)
+	cmd := testexec.Command(t, "bash", hook)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		t.Fatal(err)
@@ -781,7 +782,7 @@ func TestSessionEndStillNarrowsTheWindowFromThePayload(t *testing.T) {
 		t.Fatal(err)
 	}
 	hook := filepath.Join(repoRootForHooks(t), "clients", "claude-code", "hooks", "agentsmemory-session-end-hook.sh")
-	cmd := exec.Command("bash", hook)
+	cmd := testexec.Command(t, "bash", hook)
 	cmd.Stdin = strings.NewReader(`{"hook_event_name":"SessionEnd","transcript_path":"` + transcript + `"}`)
 	cmd.Env = append(os.Environ(),
 		"PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"),
@@ -827,7 +828,7 @@ func TestSessionEndKeepsAPayloadThatArrivedOnAStdinStillOpen(t *testing.T) {
 	}
 	hook := filepath.Join(repoRootForHooks(t), "clients", "claude-code", "hooks", "agentsmemory-session-end-hook.sh")
 
-	cmd := exec.Command("bash", hook)
+	cmd := testexec.Command(t, "bash", hook)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		t.Fatal(err)
@@ -893,7 +894,7 @@ func TestStopHookHonoursTheStatsOffSwitch(t *testing.T) {
 	}
 
 	hook := filepath.Join(repoRootForHooks(t), "clients", "claude-code", "hooks", "agentsmemory-stop-hook.sh")
-	cmd := exec.Command("bash", hook)
+	cmd := testexec.Command(t, "bash", hook)
 	cmd.Stdin = strings.NewReader(`{"hook_event_name":"Stop","stop_hook_active":false}`)
 	cmd.Env = append(os.Environ(),
 		"PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"),
@@ -944,7 +945,7 @@ func TestVerifyHookPrintsDriftAndIsOtherwiseSilent(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(dir, "aiagentmemory"), []byte(cli), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		cmd := exec.Command("bash", hook)
+		cmd := testexec.Command(t, "bash", hook)
 		cmd.Stdin = strings.NewReader(`{"hook_event_name":"SessionStart"}`)
 		cmd.Env = append(os.Environ(),
 			"PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"),
