@@ -129,8 +129,16 @@ func contentLine(identity string, regions []string) string {
 	return ""
 }
 
+// withheldLine names the count and the query. The query is CAPPED: the hook
+// asks with the whole prompt, and on 2026-09-05 a 280-character prompt came
+// back verbatim in this line — the budget line spending the budget. Sixty
+// characters is enough to recognise the search and paste it back.
 func withheldLine(n int, query string) string {
-	return fmt.Sprintf("%d more hit(s) withheld by the budget; am_search %q for the rest\n", n, query)
+	q := []rune(strings.TrimSpace(strings.Join(strings.Fields(query), " ")))
+	if len(q) > 60 {
+		q = append(q[:60], '…')
+	}
+	return fmt.Sprintf("%d more hit(s) withheld by the budget; am_search %q for the rest\n", n, string(q))
 }
 
 // withheldLineReserve keeps room for the trailing line so a hit that fits
