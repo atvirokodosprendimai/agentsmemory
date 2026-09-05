@@ -378,6 +378,12 @@ read by a seeding that has already run.
 
 ## Follow-ups
 
+- [ ] **The bootstrap tier ships before this record is Accepted.** On 2026-09-05 the owner decided to
+      merge #227, which serves the `must.*`/`ref.*` tier authored on the wing root through the
+      bootstrap. ADR-036 T8's exclusion was amended the same day to scope itself to that record and
+      point here. So the vocabulary exists in the server under this Proposed record; accepting it, or
+      withdrawing it with the code, closes the gap. Named here so it is found as bookkeeping rather
+      than as a contradiction (review of #227).
 - [ ] Report ADR-036 T7's 25-node observation as CONFIRMED (hosted), REFUTED, or FIXTURE, in
       `BACKLOG.md`, whichever way it falls — including "fixture", which would mean this repository has
       never had a working entry point on any deployment and the four spellings were four descriptions
