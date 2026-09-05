@@ -91,6 +91,11 @@ type WingRecall struct {
 	Wing     string
 	Searches int
 	Answered int
+	// HookSearches is how many of Searches a shipped hook made on its own —
+	// origin `hook:<script>` (ADR-054). Searches keeps every row, so a reader can
+	// see the machine share; `0` beside a polluted Unanswered list is the tell
+	// for a kit that has not learned to declare itself.
+	HookSearches int
 	// AvgTop is the mean top-hit FUSED score across ANSWERED searches. Under
 	// FUSION=rrf the fused score is a rank encoding, so its top-1 value is nearly
 	// constant and this says almost nothing about match quality. Kept for
@@ -211,6 +216,7 @@ func (s *Service) RecallStats(ctx context.Context, teamID, wing string, since ti
 		Wing         string
 		Searches     int
 		Answered     int
+		HookSearches int
 		SumTop       float64
 		SumTopRerank float64
 		Reranked     int
@@ -220,6 +226,10 @@ func (s *Service) RecallStats(ctx context.Context, teamID, wing string, since ti
 	searches := s.repo.reader.WithContext(ctx).
 		Model(&searchEventRow{}).
 		Select("wing, COUNT(*) AS searches, SUM(CASE WHEN hits > 0 THEN 1 ELSE 0 END) AS answered, "+
+			// How many a hook made (ADR-054). Counted, never excluded: ADR-001
+			// calibrates on every row and this aggregate is where the machine share
+			// becomes visible.
+			"SUM(CASE WHEN origin LIKE 'hook:%' THEN 1 ELSE 0 END) AS hook_searches, "+
 			"SUM(CASE WHEN hits > 0 THEN top_score ELSE 0 END) AS sum_top, "+
 			// Averaged over RERANKED answered searches only. Folding in rows where no
 			// cross-encoder ran would divide a sum of real logits by a count that
@@ -283,7 +293,7 @@ func (s *Service) RecallStats(ctx context.Context, teamID, wing string, since ti
 			// totals below, and named so the report does not silently drop it.
 			wing = "(unscoped)"
 		}
-		w := &WingRecall{Wing: wing, Searches: a.Searches, Answered: a.Answered, LastUsed: a.LastUsed}
+		w := &WingRecall{Wing: wing, Searches: a.Searches, Answered: a.Answered, HookSearches: a.HookSearches, LastUsed: a.LastUsed}
 		if a.Answered > 0 {
 			w.AvgTop = a.SumTop / float64(a.Answered)
 		}
@@ -355,7 +365,10 @@ func (s *Service) RecallStats(ctx context.Context, teamID, wing string, since ti
 	var unanswered []searchEventRow
 	unansweredQuery := s.repo.reader.WithContext(ctx).
 		Model(&searchEventRow{}).
-		Where("team_id = ? AND created_at >= ? AND hits = 0 AND query <> ''", teamID, cutoff)
+		// The to-write list is built from the searches nobody's hook made
+		// (ADR-054): a hook's recall that found nothing is a fact about the palace,
+		// not a memory to write. Rows from before the column read as '' and stay.
+		Where("team_id = ? AND created_at >= ? AND hits = 0 AND query <> '' AND origin NOT LIKE 'hook:%'", teamID, cutoff)
 	if wing != "" {
 		unansweredQuery = unansweredQuery.Where("wing = ?", wing)
 	}

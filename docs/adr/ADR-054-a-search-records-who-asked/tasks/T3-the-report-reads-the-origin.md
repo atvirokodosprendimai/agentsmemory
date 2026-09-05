@@ -35,6 +35,7 @@
 ```bash
 set -o pipefail
 go test ./internal/palace/ -run 'TestSuggestionsHoldNoHookRecalls|TestHookSearchesAreCountedPerWing' -count=1 2>&1 | tee /tmp/acc.out && ! grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/acc.out && \
+go test ./internal/mcpserver/ -run 'TestEveryOmitemptyWireKeyInThisPackageIsDescribed|TestEveryConditionalWireKeyIsDescribedByItsOwnTool' -count=1 2>&1 | tee /tmp/acc2.out && ! grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/acc2.out && \
 go test ./internal/palace/ ./internal/mcpserver/ -count=1
 ```
 
@@ -44,7 +45,8 @@ go test ./internal/palace/ ./internal/mcpserver/ -count=1
 |-----------|------|----------|--------|-------|
 | `TestSuggestionsHoldNoHookRecalls` | `internal/palace/recallstats_origin_test.go` | a `hook:` row never reaches `unanswered` or `suggestions`; an origin-less one does | — | S1, S2 |
 | `TestHookSearchesAreCountedPerWing` | `internal/palace/recallstats_origin_test.go` | the per-wing `searches` keeps every row and `hook_searches` counts the `hook:` ones | — | S1, S2 |
-| `TestEveryOmitemptyWireKeyInThisPackageIsDescribed` | `internal/mcpserver/omitempty_test.go` | existing gate; `hook_searches` is named in the description | — | S3 |
+| `TestEveryOmitemptyWireKeyInThisPackageIsDescribed` | `internal/mcpserver/wirekeys_test.go` | existing gate; `hook_searches` is named in the description (file name corrected at execution: the gate lives in `wirekeys_test.go`) | — | S3 |
+| `TestEveryConditionalWireKeyIsDescribedByItsOwnTool` | `internal/mcpserver/wirekeysconditional_test.go` | existing gate (landed after this record was written): a conditionally rendered key must be named by the tool that renders it — `hook_searches` is rendered unconditionally, so this holds it to the same per-tool standard if that ever changes | — | S3 |
 
 ## Reachability
 
@@ -56,6 +58,8 @@ go test ./internal/palace/ ./internal/mcpserver/ -count=1
 | 4 — it is used | S4's re-measurement on the live palace, recorded in the ADR |
 
 ## Mutation Log
+
+- 2026-09-05 · 2c8f1f6* · mutant killed · exit 1 · `internal/palace/recallstats.go` · the unanswered scan stops excluding hook rows, so a hook's recall reaches unanswered and suggestions; TestSuggestionsHoldNoHookRecalls must count five instead of two · acceptance-sha256:25a3e10e8c44617468bf38c48bc5de161b728b269fe63260576d0d2c311b6bc7
 
 ## Invariants
 
@@ -75,3 +79,13 @@ Stop and put it to the owner if, after a full window past the deploy, `suggestio
 - A shape heuristic (deferred: docs/adr/BACKLOG.md — "A shape heuristic for machine recalls needs its false-negative rate first").
 
 ## Verification Log
+- 2026-09-05 · 2c8f1f6* · exit 1 · `set -o pipefail …` · acceptance-sha256:a46a149985c85f31598903c50a10efb37573af9b3a40b76f659569eaffd381eb · ms:354
+  ```
+  --- last 5 line(s) of stdout
+  # github.com/atvirokodosprendimai/agentsmemory/internal/palace [github.com/atvirokodosprendimai/agentsmemory/internal/palace.test]
+  internal/palace/recallstats_origin_test.go:114:32: acme.HookSearches undefined (type *WingRecall has no field or method HookSearches)
+  internal/palace/recallstats_origin_test.go:115:88: acme.HookSearches undefined (type *WingRecall has no field or method HookSearches)
+  FAIL	github.com/atvirokodosprendimai/agentsmemory/internal/palace [build failed]
+  FAIL
+  ```
+- 2026-09-05 · 2c8f1f6* · exit 0 · `set -o pipefail …` · acceptance-sha256:25a3e10e8c44617468bf38c48bc5de161b728b269fe63260576d0d2c311b6bc7 · ms:17982

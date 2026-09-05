@@ -115,7 +115,7 @@ func registerMarkAnchors(reg *registrar, drawers *palace.Service, usageSvc *usag
 // is working, which is the only question an operator can act on.
 func registerRecallStats(reg *registrar, drawers *palace.Service, usageSvc *usage.Service, scopeSearchToWing bool) {
 	tool := newTool("recall_stats",
-		mcp.WithDescription("How well memory is working, per wing: searches run, how many came back with something, drawers held, and the recent queries that found NOTHING (the memories the team looked for and does not have). Use it to see whether recall is earning its keep rather than guessing. Two team-level counts sit beside them: fetches, how many times a caller read a drawer while naming the recall that sent it there, and recalls_fetched, how many DISTINCT recalls those fetches name — the palace's only usage signal that grows with usage rather than with a labelling budget. They are raw counts and deliberately not a rate: the denominator would be recalls that were LOGGED, and a ratio needs the ranking profile beside it to mean anything."),
+		mcp.WithDescription("How well memory is working, per wing: searches run, how many came back with something, how many of them a shipped hook made on its own (hook_searches — a hook's recall that found nothing is a fact about the palace, not a memory to write, so unanswered and suggestions are built from the searches nobody's hook made; hook_searches: 0 beside a machine-shaped list means a kit that has not learned to declare itself), drawers held, and the recent queries that found NOTHING (the memories the team looked for and does not have). Use it to see whether recall is earning its keep rather than guessing. Two team-level counts sit beside them: fetches, how many times a caller read a drawer while naming the recall that sent it there, and recalls_fetched, how many DISTINCT recalls those fetches name — the palace's only usage signal that grows with usage rather than with a labelling budget. They are raw counts and deliberately not a rate: the denominator would be recalls that were LOGGED, and a ratio needs the ranking profile beside it to mean anything."),
 		mcp.WithString("wing", mcp.Description("Only report this wing. Omitted, scoped to this registration's default_wing only when one is configured and SEARCH_SCOPE is not workspace; otherwise every wing. Pass \"*\" for every wing deliberately."), searchWingProperty()),
 		mcp.WithNumber("hours", mcp.Description("Window to report on, in hours (default 24).")),
 		mcp.WithNumber("unanswered", mcp.Description("How many unanswered queries to list (default 10).")),
@@ -143,6 +143,7 @@ func registerRecallStats(reg *registrar, drawers *palace.Service, usageSvc *usag
 				"wing":          w.Wing,
 				"searches":      w.Searches,
 				"answered":      w.Answered,
+				"hook_searches": w.HookSearches,
 				"answered_pct":  w.AnsweredPct(),
 				"avg_top_score": w.AvgTop,
 				// The fused score above is a rank encoding under FUSION=rrf, so it is
