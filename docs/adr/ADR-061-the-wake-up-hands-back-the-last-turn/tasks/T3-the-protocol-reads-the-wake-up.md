@@ -52,13 +52,19 @@ go test ./clients/claude-code/ -run 'TestBothProtocolsReadTheWakeUp$' -count=1 2
 
 ## Mutation Log
 
+- 2026-09-05 · 7ed2c57* · mutant survived · exit 0 · `clients/claude-code/bootstrap.md` · the bootstrap copy loses the sentence while the /am copy keeps it: the two protocols drift · acceptance-sha256:f8b245d60a6b35af90567ea4ccb89f50b23b9beee7429a81ad661f61fff2af2b · covers:both protocol copies carry the sentence
+  ```
+  the fence passed with the mechanism broken; it may not materialize, compile, load, or assert on the changed path
+  ```
+- 2026-09-05 · 7ed2c57* · mutant killed · exit 1 · `clients/claude-code/bootstrap.md` · the bootstrap copy stops naming the checkpoint block and the room while the /am copy keeps them: the two protocols drift · acceptance-sha256:f8b245d60a6b35af90567ea4ccb89f50b23b9beee7429a81ad661f61fff2af2b · covers:both protocol copies carry the sentence
+
 ## Invariants
 
 - The two copies say the same thing; a drift between them is what this repository records as a second copy of a protocol.
 
 ## Risks
 
-- none
+- The first mutant recorded below SURVIVED and is left in: it changed the item's heading ("wake-up" to "weather"), which the test does not read — the test pins the three names inside the sentence, and the second mutant removes two of them. A mutant is only evidence about what it broke.
 
 ## Stop Condition
 
@@ -69,3 +75,19 @@ Stop if `bootstrap.md` and `am.md` no longer share a Step 1c — the sentence wo
 - The AGENTS.md of this repository (it points at the protocol rather than restating it).
 
 ## Verification Log
+- 2026-09-05 · 7ed2c57* · exit 1 · `set -o pipefail …` · acceptance-sha256:f8b245d60a6b35af90567ea4ccb89f50b23b9beee7429a81ad661f61fff2af2b · ms:2127
+  ```
+  --- last 10 line(s) of stdout
+  --- FAIL: TestBothProtocolsReadTheWakeUp (0.00s)
+      lastturn_test.go:246: commands/am.md Step 1c does not mention "Last turn": a session is not told to read the wake-up before planning
+      lastturn_test.go:246: commands/am.md Step 1c does not mention "checkpoint:": a session is not told to read the wake-up before planning
+      lastturn_test.go:246: commands/am.md Step 1c does not mention "llm_open_threads": a session is not told to read the wake-up before planning
+      lastturn_test.go:246: bootstrap.md Step 1c does not mention "Last turn": a session is not told to read the wake-up before planning
+      lastturn_test.go:246: bootstrap.md Step 1c does not mention "checkpoint:": a session is not told to read the wake-up before planning
+      lastturn_test.go:246: bootstrap.md Step 1c does not mention "llm_open_threads": a session is not told to read the wake-up before planning
+  FAIL
+  FAIL	github.com/atvirokodosprendimai/agentsmemory/clients/claude-code	0.325s
+  FAIL
+  ```
+- 2026-09-05 · 7ed2c57* · exit 0 · `set -o pipefail …` · acceptance-sha256:f8b245d60a6b35af90567ea4ccb89f50b23b9beee7429a81ad661f61fff2af2b · ms:2236
+- 2026-09-05 · 7ed2c57* · exit 0 · `set -o pipefail …` · acceptance-sha256:f8b245d60a6b35af90567ea4ccb89f50b23b9beee7429a81ad661f61fff2af2b · ms:2559
