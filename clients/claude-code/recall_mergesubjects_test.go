@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/atvirokodosprendimai/agentsmemory/internal/testexec"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -43,7 +44,7 @@ func TestTheWidenedQuerySkipsMergeSubjects(t *testing.T) {
 	repo := t.TempDir()
 	git := func(args ...string) {
 		t.Helper()
-		cmd := exec.Command("git", args...)
+		cmd := testexec.Command(t, "git", args...)
 		cmd.Dir = repo
 		cmd.Env = append(os.Environ(),
 			"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@example.invalid",
@@ -91,7 +92,7 @@ func TestTheWidenedQuerySkipsMergeSubjects(t *testing.T) {
 		t.Fatalf("write: %v", err)
 	}
 
-	cmd := exec.Command("bash", filepath.Join(repo, "recall.sh"))
+	cmd := testexec.Command(t, "bash", filepath.Join(repo, "recall.sh"))
 	cmd.Dir = repo
 	cmd.Stdin = strings.NewReader(`{"hook_event_name":"SessionStart","source":"startup"}`)
 	cmd.Env = append(os.Environ(),

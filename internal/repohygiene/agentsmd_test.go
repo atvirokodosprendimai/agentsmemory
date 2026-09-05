@@ -1,8 +1,8 @@
 package repohygiene
 
 import (
+	"github.com/atvirokodosprendimai/agentsmemory/internal/testexec"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -91,7 +91,7 @@ func declaredTestNames(t *testing.T, root string) map[string]bool {
 	// first run, reporting "AGENTS.md names a test nobody declares" about THIS test
 	// — a precondition of the harness, announced in the vocabulary of the thing
 	// under check. .gitignore is still respected, so build output stays out.
-	cmd := exec.Command("git", "grep", "--untracked", "-h", "-o", "-E", `^func (Test[A-Za-z0-9_]+)\(`, "--", "*_test.go")
+	cmd := testexec.Command(t, "git", "grep", "--untracked", "-h", "-o", "-E", `^func (Test[A-Za-z0-9_]+)\(`, "--", "*_test.go")
 	cmd.Dir = root
 	out, err := cmd.Output()
 	if err != nil {

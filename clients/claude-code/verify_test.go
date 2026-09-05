@@ -3,12 +3,12 @@ package main
 import (
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/atvirokodosprendimai/agentsmemory/internal/anchorcontract"
+	"github.com/atvirokodosprendimai/agentsmemory/internal/testexec"
 )
 
 // TestFindSurvivesReformatting is the line between a useful flag and noise: a
@@ -163,7 +163,7 @@ func TestCurrentRepoLabelReadsTheRemote(t *testing.T) {
 		{"init", "-q"},
 		{"remote", "add", "origin", "git@github.com:someone/expected-name.git"},
 	} {
-		cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+		cmd := testexec.Command(t, "git", append([]string{"-C", dir}, args...)...)
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Skipf("git unavailable in this environment: %v (%s)", err, out)
 		}
@@ -226,7 +226,7 @@ func gitTreeLabelled(t *testing.T, label string) string {
 		{"init", "-q"},
 		{"remote", "add", "origin", "git@github.com:someone/" + label + ".git"},
 	} {
-		if out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).CombinedOutput(); err != nil {
+		if out, err := testexec.Command(t, "git", append([]string{"-C", dir}, args...)...).CombinedOutput(); err != nil {
 			t.Skipf("git unavailable in this environment: %v (%s)", err, out)
 		}
 	}
