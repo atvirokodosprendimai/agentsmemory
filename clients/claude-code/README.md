@@ -785,7 +785,11 @@ so re-running it without `--` args clears any previously recorded agent flags.
 On each turn end the hook reminds Claude to persist the session into team memory
 (`am_diary_write`, `am_kg_add`, `am_add_drawer`). Control it with
 `AGENTSMEMORY_STOP_HOOK`: `once` (default — first Stop of a session only), `on`
-(every Stop), or `off`.
+(every Stop), or `off`. On every Stop it also writes the project's last-turn note
+(ADR-061) — branch, HEAD, uncommitted count, touched files, the last user prompts
+— which the `SessionStart` recall hands back on the next `startup` or `resume`;
+`AGENTSMEMORY_LAST_TURN=off` skips it and `AGENTSMEMORY_LAST_TURN_PROMPTS` (0–10,
+default 3) sizes the prompt list.
 
 ## Build from source
 

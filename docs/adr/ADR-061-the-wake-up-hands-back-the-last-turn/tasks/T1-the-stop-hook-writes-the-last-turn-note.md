@@ -55,6 +55,10 @@ go test ./clients/claude-code/ -run 'TestTheStopHookNamesTouchedPaths$|TestTheSt
 
 ## Mutation Log
 
+- 2026-09-05 · f398864* · mutant killed · exit 1 · `clients/claude-code/hooks/agentsmemory-stop-hook.sh` · the note is keyed by session id, which a new session can never find · acceptance-sha256:ef4a16e8b5e5e8d6631fb8516fcd47a751da60afb449ff9c05bd5657b18a4566 · covers:the note is keyed by project
+- 2026-09-05 · f398864* · mutant killed · exit 1 · `clients/claude-code/hooks/agentsmemory-stop-hook.sh` · every content string on a user line is taken, so a tool result becomes a prompt · acceptance-sha256:ef4a16e8b5e5e8d6631fb8516fcd47a751da60afb449ff9c05bd5657b18a4566 · covers:prompts are the last plain user messages only
+- 2026-09-05 · f398864* · mutant killed · exit 1 · `clients/claude-code/hooks/agentsmemory-stop-hook.sh` · the off knob is ignored · acceptance-sha256:ef4a16e8b5e5e8d6631fb8516fcd47a751da60afb449ff9c05bd5657b18a4566 · covers:the off knob
+
 ## Invariants
 
 - The note is written AFTER the nudge is printed and never changes the hook's exit code or stderr text — the nudge's tests are in the fence.
@@ -74,3 +78,17 @@ Stop if the Stop event's payload does not carry `transcript_path` in this checko
 - Reading the note (T2).
 
 ## Verification Log
+- 2026-09-05 · f398864* · exit 1 · `set -o pipefail …` · acceptance-sha256:ef4a16e8b5e5e8d6631fb8516fcd47a751da60afb449ff9c05bd5657b18a4566 · ms:3763
+  ```
+  --- last 7 line(s) of stdout
+  --- FAIL: TestTheStopHookWritesTheLastTurnNote (0.14s)
+      lastturn_test.go:76: expected one note, got []
+  --- FAIL: TestTheLastTurnNoteIsOffWhenAsked (0.16s)
+      lastturn_test.go:124: AGENTSMEMORY_LAST_TURN_PROMPTS=1 recorded 0 prompts:
+  FAIL
+  FAIL	github.com/atvirokodosprendimai/agentsmemory/clients/claude-code	0.821s
+  FAIL
+  ```
+- 2026-09-05 · f398864* · exit 0 · `set -o pipefail …` · acceptance-sha256:ef4a16e8b5e5e8d6631fb8516fcd47a751da60afb449ff9c05bd5657b18a4566 · ms:4555
+- 2026-09-05 · f398864* · exit 0 · `set -o pipefail …` · acceptance-sha256:ef4a16e8b5e5e8d6631fb8516fcd47a751da60afb449ff9c05bd5657b18a4566 · ms:2882
+- 2026-09-05 · f398864* · exit 0 · `set -o pipefail …` · acceptance-sha256:ef4a16e8b5e5e8d6631fb8516fcd47a751da60afb449ff9c05bd5657b18a4566 · ms:2962

@@ -42,6 +42,70 @@ set -euo pipefail
 # Consume stdin so the hook is a clean filter even when nothing reads it.
 INPUT="$(cat || true)"
 
+# ADR-061: THE LAST-TURN NOTE, written on EVERY Stop before any early exit
+# below — `once` mode, the off switch and the subagent branch all return
+# before the nudge, and the note must be as fresh as the last completed turn
+# regardless. It is what the next session's SessionStart hands back on a
+# `startup` or `resume` (the recall hook, ADR-061 T2). Stop rather than
+# SessionEnd because SessionEnd is not registered on Windows (#150) and a
+# crashed session never fires it.
+#
+# Facts only, key=value, one per line (owner rule 2026-09-05: no prose in
+# memory). Prompts are the last plain user messages read from the transcript
+# the event names — a human's own words, cut to 200 characters — never the
+# transcript tail, which is tool output. Keyed by PROJECT (basename plus a
+# checksum of the full path, so two checkouts of one repository get two
+# notes), never by session id: a new session has a new id and could never
+# find it. AGENTSMEMORY_LAST_TURN=off skips it; AGENTSMEMORY_LAST_TURN_PROMPTS
+# (0-10, default 3) sizes the prompt list.
+if [ "${AGENTSMEMORY_LAST_TURN:-on}" != "off" ] \
+  && ! printf '%s' "$INPUT" | grep -q '"hook_event_name"[[:space:]]*:[[:space:]]*"SubagentStop"'; then
+  LT_SID="$(printf '%s' "$INPUT" | tr '\n' ' ' | sed -n 's/.*"session_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' || true)"
+  case "$LT_SID" in *[!A-Za-z0-9_-]*) LT_SID="" ;; esac
+  LT_ROOT="${CLAUDE_PROJECT_DIR:-$PWD}"
+  LT_KEY="$(basename "$LT_ROOT")-$(printf '%s' "$LT_ROOT" | cksum | cut -d' ' -f1)"
+  LT_STATE="${AGENTSMEMORY_STATE_DIR:-${TMPDIR:-/tmp}}"
+  LT_DIR="$LT_STATE/agentsmemory-last-turn"
+  if mkdir -p "$LT_DIR" 2>/dev/null; then
+    LT_BRANCH="$(cd "$LT_ROOT" 2>/dev/null && git rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
+    LT_HEAD="$(cd "$LT_ROOT" 2>/dev/null && git rev-parse --short HEAD 2>/dev/null || true)"
+    LT_DIRTY="$(cd "$LT_ROOT" 2>/dev/null && git status --porcelain 2>/dev/null | wc -l | tr -d ' ' || true)"
+    : "${LT_DIRTY:=0}"
+    LT_TOUCHED_LIST="$LT_STATE/agentsmemory-touched/${LT_SID:-none}"
+    LT_TOUCHED=0
+    [ -n "$LT_SID" ] && [ -s "$LT_TOUCHED_LIST" ] && LT_TOUCHED="$(wc -l < "$LT_TOUCHED_LIST" | tr -d ' ')"
+    LT_TP="$(printf '%s' "$INPUT" | tr '\n' ' ' | sed -n 's/.*"transcript_path"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' || true)"
+    LT_N="${AGENTSMEMORY_LAST_TURN_PROMPTS:-3}"
+    case "$LT_N" in ''|*[!0-9]*) LT_N=3 ;; esac
+    [ "$LT_N" -gt 10 ] && LT_N=10
+    LT_TMP="$(mktemp "$LT_DIR/.$LT_KEY.XXXXXX" 2>/dev/null || true)"
+    if [ -n "$LT_TMP" ]; then
+      {
+        printf 'at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        printf 'session=%s\n' "$LT_SID"
+        printf 'branch=%s\n' "$LT_BRANCH"
+        printf 'head=%s\n' "$LT_HEAD"
+        printf 'dirty=%s\n' "$LT_DIRTY"
+        printf 'touched=%s\n' "$LT_TOUCHED"
+        [ "$LT_TOUCHED" -gt 0 ] && head -n 8 "$LT_TOUCHED_LIST" | sed 's/^/file=/'
+        # Plain-string user messages only: a tool result's content is an array
+        # and a sidechain line is a subagent's. Newest first, so the first
+        # prompt= line is what the session was last asked.
+        if [ "$LT_N" -gt 0 ] && [ -n "$LT_TP" ] && [ -r "$LT_TP" ]; then
+          grep '"type"[[:space:]]*:[[:space:]]*"user"' "$LT_TP" 2>/dev/null \
+            | grep -v '"isSidechain"[[:space:]]*:[[:space:]]*true' \
+            | grep -o '"role"[[:space:]]*:[[:space:]]*"user"[[:space:]]*,[[:space:]]*"content"[[:space:]]*:[[:space:]]*"[^"]*"' \
+            | sed 's/^.*"content"[[:space:]]*:[[:space:]]*"//; s/"$//' \
+            | tail -n "$LT_N" \
+            | awk '{a[NR]=$0} END{for(i=NR;i>0;i--)print a[i]}' \
+            | cut -c1-200 \
+            | sed 's/^/prompt=/' || true
+        fi
+      } > "$LT_TMP" 2>/dev/null && mv -f "$LT_TMP" "$LT_DIR/$LT_KEY" 2>/dev/null || rm -f "$LT_TMP"
+    fi
+  fi
+fi
+
 MODE="${AGENTSMEMORY_STOP_HOOK:-once}"
 [ "$MODE" = "off" ] && exit 0
 
