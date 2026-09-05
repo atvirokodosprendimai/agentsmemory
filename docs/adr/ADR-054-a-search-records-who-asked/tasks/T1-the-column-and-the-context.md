@@ -41,6 +41,7 @@ A search made on a connection that declared an origin writes that origin into it
 set -o pipefail
 go test ./internal/palace/ -run 'TestASearchRecordsTheOriginItsContextCarries' -count=1 2>&1 | tee /tmp/acc.out && ! grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/acc.out && \
 go test ./internal/auth/ -run 'TestTheBridgeLiftsTheOriginHeader' -count=1 2>&1 | tee /tmp/acc2.out && ! grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/acc2.out && \
+go test ./cmd/server/ -run 'TestTheCLIPathSetsTheOriginFromTheEnvironment' -count=1 2>&1 | tee /tmp/acc3.out && ! grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/acc3.out && \
 go test ./internal/palace/ ./internal/auth/ ./cmd/server/ ./internal/archguard/ -count=1
 ```
 
@@ -68,6 +69,7 @@ go test ./internal/palace/ ./internal/auth/ ./cmd/server/ ./internal/archguard/ 
   the fence failed on a build/parse error, not an assertion
   ```
 - 2026-09-05 · 7f42bce* · mutant killed · exit 1 · `internal/palace/service.go` · the row literal reads the origin off an empty context instead of the request context, so a hook search records a person; TestASearchRecordsTheOriginItsContextCarries must see the hook origin missing · acceptance-sha256:9f3094b79dc4bfdcb1c963d639e098c49d6e19771bf0cfd5bd9bd09955c75245
+- 2026-09-05 · 71455db* · mutant killed · exit 1 · `internal/palace/service.go` · the row literal reads the origin off an empty context instead of the request context, so a hook search records a person; TestASearchRecordsTheOriginItsContextCarries must see the hook origin missing · acceptance-sha256:a4fba65b76b925c620471f28ef2a7d5962da989ca0d6ec330705e02bce5f8621
 
 ## Invariants
 
@@ -101,3 +103,4 @@ Stop if `internal/palace` cannot read the context's origin without importing a s
   ```
 - 2026-09-05 · 7f42bce* · exit 0 · `set -o pipefail …` · acceptance-sha256:9f3094b79dc4bfdcb1c963d639e098c49d6e19771bf0cfd5bd9bd09955c75245 · ms:16358
 - 2026-09-05 · 7f42bce* · exit 0 · `set -o pipefail …` · acceptance-sha256:9f3094b79dc4bfdcb1c963d639e098c49d6e19771bf0cfd5bd9bd09955c75245 · ms:17909
+- 2026-09-05 · 71455db* · exit 0 · `set -o pipefail …` · acceptance-sha256:a4fba65b76b925c620471f28ef2a7d5962da989ca0d6ec330705e02bce5f8621 · ms:19098
