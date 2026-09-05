@@ -6,7 +6,7 @@
 **Spec:** None — no spec stage
 **Cross-references:** ADR-041 (recall that does not depend on remembering), ADR-051 (the session that grounds itself), ADR-054 (a search records who asked), ADR-057 (codebase-memory is a checked peer), clients/claude-code/hooks/agentsmemory-task-recall-hook.sh, clients/claude-code/hooks/agentsmemory-recall-hook.sh
 **Governs:** clients/claude-code/hooks/agentsmemory-task-recall-hook.sh, clients/claude-code/hooks/agentsmemory-recall-hook.sh, clients/claude-code/mcpcall.go, clients/claude-code/installer.go, clients/claude-code/README.md
-**Enforced-by:** `clients/claude-code/digest_test.go::TestTheDigestFitsItsBudget`
+**Enforced-by:** `internal/mcpcli/digest_test.go::TestTheDigestFitsItsBudget`
 **Invalidates:** none — checked. ADR-041 decided that the hook PERFORMS the recall and injects the RESULT rather than an instruction; this record changes the shape and size of that result and the scope of its query, never whether it is injected. ADR-041's F-9 (drawer selection and order unchanged by the fact block) is untouched: the digest renders the page the server returned in the order it returned it.
 **Served-path change:** every UserPromptSubmit and SessionStart recall injects a bounded plain-text digest (a few lines per hit, a trailing "N more" line, facts from the installed wing only) instead of the raw `am_search` JSON page, and says on both channels when it could not look.
 

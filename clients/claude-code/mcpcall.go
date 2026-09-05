@@ -96,6 +96,10 @@ func mcpCommand() *cli.Command {
 				Name:  "raw",
 				Usage: "print the whole MCP envelope (content blocks, isError) instead of just the result",
 			},
+			&cli.IntFlag{
+				Name:  "digest",
+				Usage: "render a search page as a plain-text digest of at most this many characters — whole hits, one line per fact, a trailing 'N more' line — instead of the JSON page (what the recall hooks inject)",
+			},
 			&cli.BoolFlag{
 				Name:  "write",
 				Usage: "allow a tool that writes to the palace (refused without this)",
@@ -111,7 +115,14 @@ func mcpCommand() *cli.Command {
 			},
 		},
 		Action: func(ctx context.Context, c *cli.Command) error {
-			return runRemoteMCP(ctx, c, os.Stdout)
+			// The root's Writer when a caller set one (the tests capture it), else
+			// stdout — the same rule doctor follows, so the CLI test can read what
+			// the digest printed.
+			var out io.Writer = os.Stdout
+			if w := c.Root().Writer; w != nil {
+				out = w
+			}
+			return runRemoteMCP(ctx, c, out)
 		},
 	}
 }
@@ -154,6 +165,7 @@ func runRemoteMCP(ctx context.Context, c *cli.Command, out io.Writer) error {
 		ArgFlags:    c.StringSlice("arg"),
 		Tail:        mcpcli.TailArgs(c.Args().Slice()),
 		Raw:         c.Bool("raw"),
+		Digest:      c.Int("digest"),
 		AllowWrites: c.Bool("write"),
 		Schema:      c.Bool("schema"),
 		Log:         os.Stderr,

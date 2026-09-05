@@ -33,6 +33,11 @@ type Invocation struct {
 	Tail     []string
 	Raw      bool
 
+	// Digest, when positive, prints RenderDigest of the result inside that
+	// many characters instead of the JSON page (ADR-058). It is what the recall
+	// hooks pass; every other caller keeps the page.
+	Digest int
+
 	// AllowWrites lifts the read-only refusal for this one call. It is opt-in
 	// because the default protects a shell typo from mutating team memory, which
 	// was the whole reason the CLI shipped read-only; it is not a capability the
@@ -92,6 +97,20 @@ func Run(ctx context.Context, out io.Writer, endpoint Endpoint, invocation Invoc
 	result, err := Call(ctx, endpoint.CallTool, tool.Name, args)
 	if err != nil {
 		return fmt.Errorf("call %s: %w", tool.Name, err)
+	}
+	if invocation.Digest > 0 && !result.IsError {
+		// ADR-058: the line that SELECTS the digest. TestTheDigestIsSelectedByTheFlag
+		// drives the real CLI and goes red when this branch is deleted.
+		query := ""
+		if len(invocation.Tail) > 0 {
+			query = invocation.Tail[0]
+		}
+		for _, content := range result.Content {
+			if text, ok := mcp.AsTextContent(content); ok {
+				fmt.Fprint(out, RenderDigest([]byte(text.Text), query, invocation.Digest))
+			}
+		}
+		return nil
 	}
 	if err := PrintCallResult(out, result, invocation.Raw); err != nil {
 		return err
