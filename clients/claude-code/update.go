@@ -308,14 +308,23 @@ func downloadBinary(ctx context.Context, url, dir string) (string, error) {
 // binary is still in place — which is the whole point of checking before the
 // swap rather than after it.
 func verifyBinary(ctx context.Context, p string) error {
+	_, err := verifyBinaryOutput(ctx, p)
+	return err
+}
+
+// verifyBinaryOutput is verifyBinary keeping what --version printed, for a
+// caller that judges IDENTITY as well as liveness: the Desktop bridge fetch
+// requires the output to name the release tag, and reading it here means one
+// exec rather than two — and no second exec whose failure could skip the check.
+func verifyBinaryOutput(ctx context.Context, p string) (string, error) {
 	if err := os.Chmod(p, 0o755); err != nil {
-		return err
+		return "", err
 	}
 	out, err := exec.CommandContext(ctx, p, "--version").CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("the downloaded binary does not run (%w): %s", err, strings.TrimSpace(string(out)))
+		return "", fmt.Errorf("the downloaded binary does not run (%w): %s", err, strings.TrimSpace(string(out)))
 	}
-	return nil
+	return string(out), nil
 }
 
 // replaceBinary swaps the staged file over the target. Renaming within a

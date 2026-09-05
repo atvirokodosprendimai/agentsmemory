@@ -2228,18 +2228,21 @@ func (i *Installer) fetchServerBin() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("%s: %w", asset, err)
 	}
-	if err := verifyBinary(ctx, tmp); err != nil {
+	out, err := verifyBinaryOutput(ctx, tmp)
+	if err != nil {
 		os.Remove(tmp)
 		return "", fmt.Errorf("%s: %w", asset, err)
 	}
 	// Identity, not integrity: the sum above proves the bytes are the release's;
 	// this proves the release's bytes name the tag they were published under, so
 	// a rebuilt or unstamped asset cannot land under a tag the report then names.
-	if out, err := exec.CommandContext(ctx, tmp, "--version").CombinedOutput(); err == nil &&
-		!strings.Contains(string(out), tag) {
+	// Judged on the SAME output the liveness check read, so there is no second
+	// exec whose failure could skip this (review of #245: the first draft
+	// short-circuited on exec error and was the one fail-open branch here).
+	if !strings.Contains(out, tag) {
 		os.Remove(tmp)
 		return "", fmt.Errorf("%s: the extracted server reports %q, not release %s — the package does not name the release it was published under",
-			asset, strings.TrimSpace(string(out)), tag)
+			asset, strings.TrimSpace(out), tag)
 	}
 	i.ok("downloaded %s from release %s (sha256 verified, --version names %s)", asset, tag, tag)
 	return tmp, nil
