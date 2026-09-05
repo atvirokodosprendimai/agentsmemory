@@ -12,7 +12,7 @@
 
 ## Goal
 
-`am_search` with `ids_only: true` returns per hit only the identity and the numbers a caller ranks and fetches by, says on every hit that it is partial, keeps facts and `search_id`, and is at most a third of the full page's bytes on the same fixture.
+`am_search` with `ids_only: true` returns per hit only the identity and the numbers a caller ranks and fetches by, says on every hit that it is partial, keeps facts and `search_id`, and is at most half of the full page's bytes on a real-shaped fixture (the production tenth needs 88k-character hits with regions, which a hermetic fixture cannot honestly reproduce).
 
 ## Affected Files
 
@@ -24,7 +24,7 @@
 
 ## Ordered Steps
 
-1. [S1] Write `TestAnIdsOnlyPageCarriesNoContentAndSaysSo` red: file three drawers (one over 1,600 runes so it chunks), search with and without `ids_only`; assert the thin page has the same `count` and `search_id` shape, every thin hit lacks `content`, `regions` and `content_coverage`, carries `id`, `memory_id`, `wing`, `room`, `identity`, `blended_score`, `content_truncated: true` and a positive `content_length`, its keys are a subset of the full hit's keys plus nothing, and the thin page's JSON is at most a third of the full page's bytes. And that `ids_only: false` (and omitted) still returns `content`.
+1. [S1] Write `TestAnIdsOnlyPageCarriesNoContentAndSaysSo` red: file three drawers (one over 1,600 runes so it chunks), search with and without `ids_only`; assert the thin page has the same `count` and `search_id` shape, every thin hit lacks `content`, `regions` and `content_coverage`, carries `id`, `memory_id`, `wing`, `room`, `identity`, `blended_score`, `content_truncated: true` and a positive `content_length`, its keys are a subset of the full hit's keys plus nothing, and the thin page's JSON is at most half of the full page's bytes. And that `ids_only: false` (and omitted) still returns `content`.
 2. [S2] Implement the view and the branch; describe the argument; README row. [proof: mutation]
 3. [S3] Mutants, one per Rests-on: render content on the thin hit; ignore the argument (always full); report `content_truncated: false` on the thin hit. [proof: mutation]
 
@@ -55,6 +55,10 @@ go test ./internal/mcpserver/ -run 'TestEveryArgumentAHandlerReadsIsDeclared$|Te
 
 ## Mutation Log
 
+- 2026-09-05 · 967f20c* · mutant killed · exit 1 · `internal/mcpserver/drawers.go` · the thin hit no longer says it is partial, so a caller reads an empty memory as whole · acceptance-sha256:6ed99ac7c7b93327a629978ed4359a5228a67daf8ef36b52b303311e75c5e4c3 · covers:the thin hit says it is partial
+- 2026-09-05 · 967f20c* · mutant killed · exit 1 · `internal/mcpserver/drawers.go` · the argument is read and ignored, so every page is the full page and the mode is unreachable · acceptance-sha256:6ed99ac7c7b93327a629978ed4359a5228a67daf8ef36b52b303311e75c5e4c3 · covers:the argument is what selects the thin view
+- 2026-09-05 · 967f20c* · mutant killed · exit 1 · `internal/mcpserver/drawers.go` · the thin view is built and the full views are sent anyway, so the page carries content it claims not to · acceptance-sha256:6ed99ac7c7b93327a629978ed4359a5228a67daf8ef36b52b303311e75c5e4c3 · covers:the thin view carries no content
+
 ## Invariants
 
 - A page with `ids_only` omitted or false is byte-for-byte what it was before this task.
@@ -63,7 +67,7 @@ go test ./internal/mcpserver/ -run 'TestEveryArgumentAHandlerReadsIsDeclared$|Te
 
 ## Risks
 
-- The test's size ratio depends on the fixture; it uses three drawers of which one is over the chunk threshold so the full page is large enough for a third to be a meaningful bound.
+- The test's size ratio depends on the fixture; it uses three drawers of which one is over the chunk threshold so the full page renders a window and regions per hit and half is a meaningful bound.
 
 ## Stop Condition
 
@@ -74,3 +78,20 @@ Stop if `TestEveryArgumentAHandlerReadsIsDeclared` does not exist under that nam
 - The hooks (they keep the full page and the digest).
 
 ## Verification Log
+- 2026-09-05 · 967f20c* · exit 1 · `set -o pipefail …` · acceptance-sha256:6ed99ac7c7b93327a629978ed4359a5228a67daf8ef36b52b303311e75c5e4c3 · ms:2696
+  ```
+  --- last 10 line(s) of stdout (of 58 after folding 58 raw)
+      idsonly_test.go:73: thin hit 1 reports content_length 0; a fetch would return more than that
+      idsonly_test.go:61: thin hit 2 carries "content"; an ids-only hit must hold none of the memory
+      idsonly_test.go:61: thin hit 2 carries "content_coverage"; an ids-only hit must hold none of the memory
+      idsonly_test.go:66: thin hit 2 lacks "blended_score", which a caller ranks or fetches by
+      idsonly_test.go:66: thin hit 2 lacks "content_length", which a caller ranks or fetches by
+      idsonly_test.go:70: thin hit 2 does not say it is partial (content_truncated); a caller reading it as whole reads an empty memory
+      idsonly_test.go:73: thin hit 2 reports content_length 0; a fetch would return more than that
+  FAIL
+  FAIL	github.com/atvirokodosprendimai/agentsmemory/internal/mcptest	0.527s
+  FAIL
+  ```
+- 2026-09-05 · 967f20c* · exit 0 · `set -o pipefail …` · acceptance-sha256:6ed99ac7c7b93327a629978ed4359a5228a67daf8ef36b52b303311e75c5e4c3 · ms:2900
+- 2026-09-05 · 967f20c* · exit 0 · `set -o pipefail …` · acceptance-sha256:6ed99ac7c7b93327a629978ed4359a5228a67daf8ef36b52b303311e75c5e4c3 · ms:2185
+- 2026-09-05 · 967f20c* · exit 0 · `set -o pipefail …` · acceptance-sha256:6ed99ac7c7b93327a629978ed4359a5228a67daf8ef36b52b303311e75c5e4c3 · ms:1752

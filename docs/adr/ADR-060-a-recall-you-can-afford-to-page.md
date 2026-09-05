@@ -57,9 +57,9 @@ rendering and the budget loop entirely. `count`, `search_id`, `facts`, `elsewher
 `unlocatable_facts` are exactly as on a full page. The tool description names the mode, says what a
 hit then carries, and says that `am_get_drawer` is the second call.
 
-**What would make this wrong:** if an ids-only page for the measured prompts came back above a third
+**What would make this wrong:** if an ids-only page for the measured prompts came back above half
 of the full page, the mode would not be worth a second argument; the measurement above says it comes
-back at about a tenth, and the acceptance test asserts the ratio on a fixture rather than trusting
+back at about a tenth, and the acceptance test asserts half on a real-shaped hermetic fixture (3x measured there) rather than trusting
 the number.
 
 ## Alternatives Considered

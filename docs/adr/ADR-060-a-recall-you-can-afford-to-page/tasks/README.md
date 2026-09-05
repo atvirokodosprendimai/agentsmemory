@@ -16,7 +16,7 @@ README must be regenerated.
 
 | ID | Title | Status | Covers | Acceptance |
 |----|-------|--------|--------|------------|
-| T1 | `am_search` returns a thin, truthful page when `ids_only` is true | pending | — | `go test ./internal/mcptest/ -run 'TestAnIdsOnlyPageCarriesNoContentAndSaysSo$' …` |
+| T1 | `am_search` returns a thin, truthful page when `ids_only` is true | done | — | `go test ./internal/mcptest/ -run 'TestAnIdsOnlyPageCarriesNoContentAndSaysSo$' …` |
 
 Status: `pending` | `partial` | `blocked` | `done`.
 
