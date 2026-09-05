@@ -1,0 +1,48 @@
+# Line endings in the WORKING TREE, not just in the index.
+#
+# Without this file a Windows checkout with core.autocrlf=true (Git for Windows'
+# default) materialises CRLF sources, and this repository's gates read their own
+# source text: internal/repohygiene, internal/doclint, internal/archguard and a
+# dozen reachability checks in internal/mcpserver and cmd/server all parse or
+# string-match files on disk. Those matchers hard-code "\n", so on such a host
+# they false-alarm on properties that hold — issue #163 measured
+# TestSearchResultRendersTheCorrectionMark failing at "could not bound the
+# searchHitView literal" over a literal that was there and correct.
+#
+# `eol=lf` is what fixes the class rather than one matcher. `text=auto` ALONE
+# would not: it normalises the INDEX and still hands Windows a CRLF working
+# tree, which is exactly the half that breaks, because every gate reads the file
+# on disk.
+#
+# ⚠ THE DEFAULT IS `*`, AND THAT IS THE WHOLE POINT. An earlier draft listed
+# eight extensions and review found the list already incomplete: `.env.example`
+# and `.env.docker.example` (read by TestEveryModelACommandDefaultsToIsProvisioned‐
+# OrDocumented and by documentedEnvVars), `.templ`, `.ts`, `Dockerfile`, `go.mod`
+# — and `Dockerfile` is extensionless, so no `*.ext` pattern could ever have
+# reached it. A list of covered types is a list kept beside the truth: it goes
+# stale on the next file type somebody adds, silently, and the gate written
+# against it cannot see what it omits. Defaulting and carving out the exceptions
+# inverts that — a new file type is covered on the commit that adds it.
+#
+# Shell scripts and Dockerfiles carry a harder consequence than a false alarm: a
+# CRLF shebang makes the interpreter path end in \r, so the script fails to
+# execute naming a binary that does not exist. And clients/claude-code/extensions
+# /agentsmemory.ts is a shipped go:embed asset, so CRLF there travels to an
+# operator rather than only failing a gate.
+* text=auto eol=lf
+
+# Binaries must never be touched, and `-text` is what actually stops it —
+# `text=auto` GUESSES, and a wrong guess corrupts the file silently rather than
+# failing. Listed explicitly so the guess is never consulted for these.
+*.png   -text
+*.jpg   -text
+*.jpeg  -text
+*.gif   -text
+*.ico   -text
+*.pdf   -text
+*.gz    -text
+*.zip   -text
+*.wasm  -text
+*.woff  -text
+*.woff2 -text
+*.ttf   -text

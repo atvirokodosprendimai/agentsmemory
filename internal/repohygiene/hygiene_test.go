@@ -347,14 +347,20 @@ func TestNoRealProjectNamesInWings(t *testing.T) {
 // the whole README, inside a command block, with no heading a reader could find
 // it by.
 //
-// The expected set is the directory, so adding an overlay and forgetting the
+// The expected set is what GIT TRACKS, so adding an overlay and forgetting the
 // README fails a build rather than being noticed by someone who never had reason
 // to look.
+//
+// ⚠ It was the DIRECTORY until 2026-09-05, and that made this gate permanently red
+// on any host carrying an untracked local overlay (#178, #296) — asserting README
+// coverage for a file that by construction cannot be in the README. The argument
+// above is unchanged and still holds: a compose file COMMITTED without its README
+// line fails on the commit that adds it. See repohygiene.ComposeFiles.
 func TestEveryComposeFileIsDocumented(t *testing.T) {
 	root := repoRoot(t)
-	files, err := filepath.Glob(filepath.Join(root, "docker-compose*.yml"))
+	files, err := ComposeFiles(root)
 	if err != nil {
-		t.Fatalf("glob compose files: %v", err)
+		t.Fatalf("list tracked compose files: %v", err)
 	}
 	if len(files) < 2 {
 		t.Fatalf("found %d compose files — the glob is wrong, and an empty set would let this "+
