@@ -128,6 +128,42 @@ func TestOnlyACompactionArmsTheWake(t *testing.T) {
 	}
 }
 
+// TestASlashCommandIsNotTheTaskInFlight covers the case a live compaction found
+// and no fixture had: the turn that TRIGGERS a compaction is usually the command
+// that triggered it.
+//
+// Measured 2026-09-05 in this checkout — the real compaction ADR-062's follow-up
+// asked for. The session was compacted by `/compact`, the note recorded
+// `prompt=/compact`, and the injected directive read "your first action is
+// `/amm /compact`". That is a label naming no work, produced on the one occasion
+// the session cannot recover the work any other way, and it degrades the wake as
+// much as the printed pause: the monitor would emit the same empty label.
+func TestASlashCommandIsNotTheTaskInFlight(t *testing.T) {
+	state := t.TempDir()
+	env := regroundEnv(state, true)
+	transcript := filepath.Join(state, "t.jsonl")
+	lines := strings.Join([]string{
+		`{"type":"user","message":{"role":"user","content":"the work that was actually in flight"}}`,
+		`{"type":"user","message":{"role":"user","content":"/compact"}}`,
+	}, "\n") + "\n"
+	if err := os.WriteFile(transcript, []byte(lines), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runHookEnv(t, "agentsmemory-precompact-hook.sh",
+		`{"session_id":"slashprobe","transcript_path":"`+transcript+`","trigger":"manual"}`, env)
+
+	body, err := os.ReadFile(filepath.Join(state, "agentsmemory-precompact", "slashprobe"))
+	if err != nil {
+		t.Fatalf("no note: %v", err)
+	}
+	if strings.Contains(string(body), "prompt=/compact") {
+		t.Errorf("the note names the compaction command as the task in flight:\n%s", body)
+	}
+	if !strings.Contains(string(body), "prompt=the work that was actually in flight") {
+		t.Errorf("the note does not fall back to the last real turn:\n%s", body)
+	}
+}
+
 // regroundEnv builds the child environment for one addressing mode. When
 // explicit is false AGENTSMEMORY_STATE_DIR is REMOVED rather than left to the
 // ambient value, so the fallback the scripts compute from TMPDIR is what runs —

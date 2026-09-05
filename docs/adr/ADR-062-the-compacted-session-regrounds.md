@@ -87,6 +87,25 @@ design that needed a real trigger would not be buildable here, and pretending
 otherwise would ship a mechanism that cannot fire — which is the defect
 §Reachability exists to catch.
 
+⚠⚠ **THE LAST TWO SENTENCES ABOVE WERE WRONG, AND THEY ARE LEFT STANDING BECAUSE
+THE WAY THEY WERE WRONG IS THE TRANSFERABLE PART.** Amended 2026-09-05, the same
+day they were written, at the owner's third asking. Everything before them holds:
+a hook still cannot invoke a skill. The error is the LEAP from that to *no
+trigger is buildable here*, which was never checked — it generalised a fact about
+HOOKS into a claim about the whole harness, and the counter-example was already
+running in the session that wrote it. A persistent `Monitor` emits every stdout
+line as a notification, and **a notification makes the session take a turn**;
+measured that day, a monitor armed before a 15:21:19Z compaction delivered an
+event to the same session after it, because a compaction replaces the CONTEXT and
+not the SESSION. So the hook is not the trigger and never had to be: it writes a
+marker whose APPEARANCE is the event, and a monitor the session armed converts
+that into a turn. The two mechanisms were collapsed into one and the buildable one
+was never tried. ADR-062-T3 ships it; this paragraph is what a reader needs in
+order to distrust the confident sentence above it. **A boundary asserted without a
+probe is a guess with a citation format**, and §Reachability's usual defect —
+shipping something unreachable — has this mirror image: refusing to ship
+something reachable because the record said it could not be done.
+
 **`amm` is a skill, not a command.** `/am` is a command file the installer writes;
 a skill is discovered by Claude Code and can be invoked by name from inside a
 turn, which is what a post-compaction injection needs — the session is mid-turn,
@@ -139,7 +158,9 @@ component. Codex and pi are untouched — neither discovers skills, which is why
 ## Implementation
 
 See `tasks/README.md`. T1 the note's subject and the pause; T2 the skill and the
-derived install set.
+derived install set; T3 the marker and the monitor that turn the pause into a
+wake, added after T1's live compaction showed the instruction is only as good as
+the model's willingness to read it.
 
 ## Consequences
 
@@ -153,7 +174,7 @@ derived install set.
 
 ## Out of Scope
 
-- Making the skill run automatically (permanent: boundary: no hook can invoke a skill; the harness offers no such callback, and a record that assumed one would ship a mechanism that cannot fire)
+- A hook invoking a skill directly, on a timer or otherwise (permanent: boundary: the harness offers no callback that runs a slash command from a hook; T3 wakes the session with a monitor instead, and the model still chooses to run `/amm`)
 - `startup`, `resume` and `clear` (deferred: docs/adr/BACKLOG.md — PR #278 is the open proposal for what a non-compaction start hands back, and two changes writing the same injection is how they drift)
 - Re-grounding a subagent after ITS context is replaced (permanent: boundary: ADR-017 makes a subagent a session, and SubagentStart already recalls; a subagent that compacts is a case nobody has measured)
 - Judging whether the session actually re-grounded (permanent: fact: nothing in a hook can read what the model did next; the only evidence is the transcript, and reading it back is `aiagentmemory mine`; citation: file `clients/claude-code/hooks/agentsmemory-recall-hook.sh:4`)

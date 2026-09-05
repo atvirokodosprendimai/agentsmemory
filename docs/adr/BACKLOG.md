@@ -3782,3 +3782,22 @@ none by a subject or a diff (`docs/measurement/2026-09-05-git-history-twenty-que
 sample bias stated). A record is worth writing, scoped to bodies as verbatim episodes in their own
 room, origin-stamped (ADR-054), measured on this repository first. Awaiting the owner's decision to
 draft it.
+
+## ADR-062: arming the re-ground monitor without `/am` — 2026-09-05
+
+T3 makes a compacted session WOKEN rather than merely instructed: the recall hook leaves a marker
+and a persistent monitor over that directory turns its appearance into a notification, which makes
+the session take a turn. The monitor is armed by `/am` Step 1d, so a session that never ran `/am`
+gets only ADR-062's printed `PAUSE`. That floor is deliberate and stays, but the ceiling is reachable
+for more sessions than it currently is — a `SessionStart` that could arm the watch itself, or the
+kit shipping the loop as a script the command only has to name, would both remove the dependency on
+one command having been typed. Neither is drafted; the shape to avoid is a second copy of the loop,
+since the whole point of extracting it from `am.md` in the test is that one directory is named once.
+
+## ADR-062: `startup`, `resume` and `clear` after a context replacement — 2026-09-05
+
+ADR-062's Out of Scope defers the non-compaction starts, naming PR #278 as the open proposal for
+what such a start hands back, because two changes writing the same injection is how they drift. This
+line is that deferral's receipt in the file it points at — `adr-debt` reported it UNRECEIPTED
+(the destination existed and never named the source ADR), which defeats the sweep that justified
+punting the question in the first place.
