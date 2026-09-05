@@ -93,4 +93,30 @@ and the printed pause would remain the only mechanism.
 
 ## Mutation Log
 
+- 2026-09-05 · 0b8d533* · mutant killed · exit 1 · `clients/claude-code/hooks/agentsmemory-recall-hook.sh` · the hook writes no marker, so the monitor has no event to see and the wake never fires — the pause still prints, which is exactly how this would ship unnoticed · acceptance-sha256:a7041b09bb5c6dda0c8df95d5a20437f8d9e710f3b533d108aeaf25d1d32395f · covers:the marker is written on a compaction
+- 2026-09-05 · 0b8d533* · mutant killed · exit 1 · `clients/claude-code/commands/am.md` · the command watches a directory the hook never writes to: a monitor that is armed, running and structurally unable to fire · acceptance-sha256:a7041b09bb5c6dda0c8df95d5a20437f8d9e710f3b533d108aeaf25d1d32395f · covers:the two halves resolve one directory
+- 2026-09-05 · 0b8d533* · mutant killed · exit 1 · `clients/claude-code/commands/am.md` · the wake fires but names no task, so the session re-grounds on nothing — the failure the live /compact compaction produced for real · acceptance-sha256:a7041b09bb5c6dda0c8df95d5a20437f8d9e710f3b533d108aeaf25d1d32395f · covers:the wake names the task
+- 2026-09-05 · 0b8d533* · mutant killed · exit 1 · `clients/claude-code/hooks/agentsmemory-precompact-hook.sh` · the compaction command becomes the task, so the wake says /amm /compact — measured on a real compaction before the fix · acceptance-sha256:a7041b09bb5c6dda0c8df95d5a20437f8d9e710f3b533d108aeaf25d1d32395f · covers:a slash command is not the task
+- 2026-09-05 · 0b8d533* · mutant killed · exit 1 · `clients/claude-code/commands/am.md` · arming replays every marker already on disk, so each new session is told to re-ground on a previous session finished work; markers outlive sessions by design, so this fires after any past compaction · acceptance-sha256:a7041b09bb5c6dda0c8df95d5a20437f8d9e710f3b533d108aeaf25d1d32395f · covers:a marker already on disk is not an event
+- 2026-09-05 · 0b8d533* · mutant killed · exit 1 · `clients/claude-code/bootstrap.md` · the bootstrap promises codex and pi a trigger they cannot arm, because Monitor is a Claude Code tool and they run this same protocol · acceptance-sha256:a7041b09bb5c6dda0c8df95d5a20437f8d9e710f3b533d108aeaf25d1d32395f · covers:both protocol copies name the wake
+- 2026-09-05 · 0b8d533* · mutant survived · exit 0 · `clients/claude-code/hooks/agentsmemory-recall-hook.sh` · every startup and resume writes a marker, so the wake fires on sessions that were never compacted and sends them re-grounding on stale work · acceptance-sha256:a7041b09bb5c6dda0c8df95d5a20437f8d9e710f3b533d108aeaf25d1d32395f · covers:only on a compaction
+  ```
+  the fence passed with the mechanism broken; it may not materialize, compile, load, or assert on the changed path
+  ```
+- 2026-09-05 · 0b8d533* · mutant survived · exit 0 · `clients/claude-code/hooks/agentsmemory-recall-hook.sh` · every startup and resume writes a marker, so the wake fires on sessions that were never compacted · acceptance-sha256:a7041b09bb5c6dda0c8df95d5a20437f8d9e710f3b533d108aeaf25d1d32395f · covers:only on a compaction
+  ```
+  the fence passed with the mechanism broken; it may not materialize, compile, load, or assert on the changed path
+  ```
+- 2026-09-05 · 1fcc2da* · mutant killed · exit 1 · `clients/claude-code/hooks/agentsmemory-recall-hook.sh` · every startup and resume writes a marker with a note present, so the wake fires on sessions that were never compacted; re-run after the test was fixed to seed the note, which is what makes the source the deciding condition · acceptance-sha256:a7041b09bb5c6dda0c8df95d5a20437f8d9e710f3b533d108aeaf25d1d32395f · covers:only on a compaction
+
 ## Verification Log
+- 2026-09-05 · 0b8d533* · exit 0 · `gofmt -l clients/claude-code | grep -q . && exit 1 …` · acceptance-sha256:a7041b09bb5c6dda0c8df95d5a20437f8d9e710f3b533d108aeaf25d1d32395f · ms:7339
+- 2026-09-05 · 0b8d533* · exit 0 · `gofmt -l clients/claude-code | grep -q . && exit 1 …` · acceptance-sha256:a7041b09bb5c6dda0c8df95d5a20437f8d9e710f3b533d108aeaf25d1d32395f · ms:7157
+- 2026-09-05 · 0b8d533* · exit 0 · `gofmt -l clients/claude-code | grep -q . && exit 1 …` · acceptance-sha256:a7041b09bb5c6dda0c8df95d5a20437f8d9e710f3b533d108aeaf25d1d32395f · ms:7146
+- 2026-09-05 · 0b8d533* · exit 0 · `gofmt -l clients/claude-code | grep -q . && exit 1 …` · acceptance-sha256:a7041b09bb5c6dda0c8df95d5a20437f8d9e710f3b533d108aeaf25d1d32395f · ms:7170
+- 2026-09-05 · 0b8d533* · exit 0 · `gofmt -l clients/claude-code | grep -q . && exit 1 …` · acceptance-sha256:a7041b09bb5c6dda0c8df95d5a20437f8d9e710f3b533d108aeaf25d1d32395f · ms:7283
+- 2026-09-05 · 0b8d533* · exit 0 · `gofmt -l clients/claude-code | grep -q . && exit 1 …` · acceptance-sha256:a7041b09bb5c6dda0c8df95d5a20437f8d9e710f3b533d108aeaf25d1d32395f · ms:7233
+- 2026-09-05 · 0b8d533* · exit 0 · `gofmt -l clients/claude-code | grep -q . && exit 1 …` · acceptance-sha256:a7041b09bb5c6dda0c8df95d5a20437f8d9e710f3b533d108aeaf25d1d32395f · ms:7136
+- 2026-09-05 · 0b8d533* · exit 0 · `gofmt -l clients/claude-code | grep -q . && exit 1 …` · acceptance-sha256:a7041b09bb5c6dda0c8df95d5a20437f8d9e710f3b533d108aeaf25d1d32395f · ms:7308
+- 2026-09-05 · 0b8d533* · exit 0 · `gofmt -l clients/claude-code | grep -q . && exit 1 …` · acceptance-sha256:a7041b09bb5c6dda0c8df95d5a20437f8d9e710f3b533d108aeaf25d1d32395f · ms:7135
+- 2026-09-05 · 1fcc2da* · exit 0 · `gofmt -l clients/claude-code | grep -q . && exit 1 …` · acceptance-sha256:a7041b09bb5c6dda0c8df95d5a20437f8d9e710f3b533d108aeaf25d1d32395f · ms:7636
