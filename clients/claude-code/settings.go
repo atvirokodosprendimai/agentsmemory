@@ -103,6 +103,18 @@ func ensureHooks(path string, regs []hookReg, statusLineCmd string) (map[string]
 		return nil, err
 	}
 
+	// ADR-057 T2: before the kit's own registrations, collapse exact duplicate
+	// entries under every event — ANY command, because the installer that
+	// appends on every run is upstream codebase-memory's, and the four copies of
+	// cbm-session-reminder it left (measured 2026-09-05) cost four processes and
+	// four injections per session start. Counted as a change per event so the
+	// file is written back.
+	for event, n := range dedupeHookEntries(hooks) {
+		if n > 0 {
+			changed[event] = true
+		}
+	}
+
 	for _, reg := range regs {
 		entries, err := childArray(hooks, reg.event)
 		if err != nil {
@@ -427,6 +439,59 @@ func dropHook(stop []any, isObsolete func(string) bool) ([]any, bool) {
 		out = append(out, em)
 	}
 	return out, dropped
+}
+
+// dedupeHookEntries removes, under every event, any hook entry whose
+// (type, command) pair already appeared under that event, and returns how many
+// were removed per event. Exact pairs only: an entry with a different env
+// prefix is a different command and is kept, which is the line between a
+// duplicate and a deliberate second registration.
+func dedupeHookEntries(hooks map[string]any) map[string]int {
+	removed := map[string]int{}
+	for event, raw := range hooks {
+		entries, ok := raw.([]any)
+		if !ok {
+			continue
+		}
+		seen := map[string]bool{}
+		var kept []any
+		for _, entry := range entries {
+			em, ok := entry.(map[string]any)
+			if !ok {
+				kept = append(kept, entry)
+				continue
+			}
+			inner, ok := em["hooks"].([]any)
+			if !ok {
+				kept = append(kept, entry)
+				continue
+			}
+			var keptInner []any
+			for _, h := range inner {
+				hm, ok := h.(map[string]any)
+				if !ok {
+					keptInner = append(keptInner, h)
+					continue
+				}
+				typ, _ := hm["type"].(string)
+				cmd, _ := hm["command"].(string)
+				key := typ + "\x00" + cmd
+				if seen[key] {
+					removed[event]++
+					continue
+				}
+				seen[key] = true
+				keptInner = append(keptInner, h)
+			}
+			if len(keptInner) == 0 {
+				continue // an entry whose every hook was a duplicate goes with them
+			}
+			em["hooks"] = keptInner
+			kept = append(kept, em)
+		}
+		hooks[event] = kept
+	}
+	return removed
 }
 
 // hookTimeoutSeconds is the deadline written into every hook registration, in

@@ -18,7 +18,7 @@ README must be regenerated.
 | ID | Title | Status | Covers | Acceptance |
 |----|-------|--------|--------|------------|
 | T1 | `doctor` reports the codebase-memory peer: ok, absent, DUPLICATE or BROKEN | done | — | `go test ./clients/claude-code/ -run 'TestDoctorReportsTheCodebaseMemoryPeer$' …` |
-| T2 | the installer registers the peer under one name and removes duplicate hook entries | pending | — | `go test ./clients/claude-code/ -run 'TestEveryInstallRemovesDuplicateHookEntries$|TestRecommendedRegistersThePeerOnceUnderUpstreamsName$' …` |
+| T2 | the installer registers the peer under one name and removes duplicate hook entries | done | — | `go test ./clients/claude-code/ -run 'TestEveryInstallRemovesDuplicateHookEntries$|TestRecommendedRegistersThePeerOnceUnderUpstreamsName$' …` |
 
 Status: `pending` | `partial` | `blocked` | `done`.
 

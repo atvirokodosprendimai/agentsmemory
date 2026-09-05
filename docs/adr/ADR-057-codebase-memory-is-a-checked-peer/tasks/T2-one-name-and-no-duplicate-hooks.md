@@ -58,6 +58,10 @@ go test ./clients/claude-code/ -count=1
 
 ## Mutation Log
 
+- 2026-09-05 · 157cce6* · mutant killed · exit 1 · `clients/claude-code/installer.go` · the peer must be registered under upstream's name; the kit's old name is a tool prefix no document names · acceptance-sha256:8120834e0db1b169345c4bceb46098422c8631dfce6abcf094cec31a2585ac7f · covers:the single registration name
+- 2026-09-05 · 157cce6* · mutant killed · exit 1 · `clients/claude-code/settings.go` · every install must collapse exact duplicates; skipping the pass leaves four copies of a peer hook running per session start · acceptance-sha256:8120834e0db1b169345c4bceb46098422c8631dfce6abcf094cec31a2585ac7f · covers:the dedupe of exact duplicate entries
+- 2026-09-05 · 157cce6* · mutant killed · exit 1 · `clients/claude-code/installer.go` · a machine carrying the old name must lose it on the next --recommended install, or two daemons keep running · acceptance-sha256:8120834e0db1b169345c4bceb46098422c8631dfce6abcf094cec31a2585ac7f · covers:the retirement of the old name
+
 ## Invariants
 
 - Dedupe matches the exact `(type, command)` pair; a differing env prefix is a different command.
@@ -78,3 +82,20 @@ Stop if upstream's `install.sh` has changed the name it registers — check the 
 - Upstream's installer (external: DeusData/codebase-memory-mcp: https://github.com/DeusData/codebase-memory-mcp)
 
 ## Verification Log
+- 2026-09-05 · c63dec5* · exit 1 · `set -o pipefail …` · acceptance-sha256:8120834e0db1b169345c4bceb46098422c8631dfce6abcf094cec31a2585ac7f · ms:414
+  ```
+  --- last 10 line(s) of stdout (of 12 after folding 12 raw)
+  clients/claude-code/installer_test.go:2050:54: undefined: retiredCodebaseMemoryName
+  clients/claude-code/installer_test.go:2051:57: undefined: retiredCodebaseMemoryName
+  clients/claude-code/installer_test.go:2054:67: undefined: codebaseMemoryMCPName
+  clients/claude-code/installer_test.go:2055:79: undefined: codebaseMemoryMCPName
+  clients/claude-code/installer_test.go:2057:67: undefined: retiredCodebaseMemoryName
+  clients/claude-code/installer_test.go:2058:53: undefined: retiredCodebaseMemoryName
+  clients/claude-code/installer_test.go:2073:32: undefined: codebaseMemoryMCPName
+  clients/claude-code/installer_test.go:2074:69: undefined: codebaseMemoryMCPName
+  FAIL	github.com/atvirokodosprendimai/agentsmemory/clients/claude-code [build failed]
+  FAIL
+  ```
+- 2026-09-05 · 157cce6* · exit 0 · `set -o pipefail …` · acceptance-sha256:8120834e0db1b169345c4bceb46098422c8631dfce6abcf094cec31a2585ac7f · ms:15149
+- 2026-09-05 · 157cce6* · exit 0 · `set -o pipefail …` · acceptance-sha256:8120834e0db1b169345c4bceb46098422c8631dfce6abcf094cec31a2585ac7f · ms:13952
+- 2026-09-05 · 157cce6* · exit 0 · `set -o pipefail …` · acceptance-sha256:8120834e0db1b169345c4bceb46098422c8631dfce6abcf094cec31a2585ac7f · ms:14484

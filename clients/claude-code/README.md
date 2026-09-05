@@ -206,7 +206,7 @@ reporting success.
 
 | Tool | How it is installed |
 |------|---------------------|
-| [codebase-memory-mcp](https://github.com/DeusData/codebase-memory-mcp) | Upstream `curl \| bash` installer, then registered as the `codebasememory` stdio MCP. |
+| [codebase-memory-mcp](https://github.com/DeusData/codebase-memory-mcp) | Upstream `curl \| bash` installer, which registers the `codebase-memory-mcp` stdio MCP itself; the kit registers that name only if upstream did not, removes the `codebasememory` name it used to write (ADR-057), and never registers the peer twice. |
 | [codex](https://github.com/openai/codex-plugin-cc) plugin | `plugin marketplace add openai/codex-plugin-cc` + `plugin install codex@openai-codex`. |
 
 Recommended steps are best-effort: a plugin that is already installed or a

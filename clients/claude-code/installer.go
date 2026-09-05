@@ -2540,14 +2540,27 @@ func (i *Installer) installRecommended() {
 		i.ok("installed codebase-memory-mcp")
 	}
 	bin := expandTilde(codebaseMemoryBin)
+	// ADR-057 T2: ONE name, upstream's. This kit used to register the same
+	// binary a second time as codebasememory after upstream's install.sh had
+	// already registered it as codebase-memory-mcp — two daemons, and a tool
+	// prefix no document names. The retired name is removed unconditionally
+	// (ignoreErr: absent is fine), and upstream's is registered only when the
+	// registry this install's Claude reads does not already carry it.
+	i.removeStdioMCP(retiredCodebaseMemoryName)
 	if shellErr == nil || i.dryRun {
-		if err := i.addStdioMCP(codebaseMemoryName, bin); err != nil {
-			i.warn("register codebasememory MCP failed: %v", err)
+		registered, err := codebaseMemoryMCPCommands(claudeMCPRegistry(i.kit, i.targetDir))
+		if err != nil {
+			i.warn("could not read the MCP registry to check for %s: %v", codebaseMemoryMCPName, err)
+		}
+		if _, have := registered[codebaseMemoryMCPName]; have {
+			i.ok("MCP %q already registered by upstream's installer — not registering it twice", codebaseMemoryMCPName)
+		} else if err := i.addStdioMCP(codebaseMemoryMCPName, bin); err != nil {
+			i.warn("register %s MCP failed: %v", codebaseMemoryMCPName, err)
 		} else {
-			i.ok("registered MCP %q → %s", codebaseMemoryName, bin)
+			i.ok("registered MCP %q → %s", codebaseMemoryMCPName, bin)
 		}
 	} else {
-		i.warn("skipping codebasememory MCP registration — installer did not complete")
+		i.warn("skipping %s MCP registration — installer did not complete", codebaseMemoryMCPName)
 	}
 
 	if i.kit.name == agentCodex {
@@ -2566,6 +2579,17 @@ func (i *Installer) installRecommended() {
 	} else {
 		i.ok("installed plugin codex@openai-codex")
 	}
+}
+
+// removeStdioMCP drops a registration by name and ignores "not registered":
+// it exists for retiring a name this kit no longer writes, where absence is
+// the state being asked for.
+func (i *Installer) removeStdioMCP(name string) {
+	if i.kit.name == agentCodex {
+		i.agent(true, "mcp", "remove", name)
+		return
+	}
+	i.agent(true, "mcp", "remove", "--scope", i.scope, name)
 }
 
 // addStdioMCP registers a local stdio MCP server, remove-then-add so a re-run is

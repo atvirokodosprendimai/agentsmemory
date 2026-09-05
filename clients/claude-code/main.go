@@ -29,11 +29,13 @@ const (
 	// the common case needs no --mcp-url at all.
 	localMCPURL = "http://localhost:8080/mcp"
 
-	// mcpName and codebaseMemoryName are the server names registered with the
-	// Claude CLI. A server name doubles as the tool prefix (mcp__<name>__<tool>),
-	// which the /am and /M commands reference, so these must stay stable.
-	mcpName            = "agentsmemory"
-	codebaseMemoryName = "codebasememory"
+	// mcpName is the server name registered with the Claude CLI for this
+	// project's own MCP. A server name doubles as the tool prefix
+	// (mcp__<name>__<tool>), which the /am command references, so it must stay
+	// stable. The codebase-memory peer's names — upstream's codebaseMemoryMCPName
+	// and the retiredCodebaseMemoryName this kit used to write — are declared
+	// beside the doctor rung that judges them (ADR-057).
+	mcpName = "agentsmemory"
 
 	// codebaseMemoryInstall is the upstream one-liner that drops the
 	// codebase-memory-mcp binary into ~/.local/bin. Run only with --recommended.

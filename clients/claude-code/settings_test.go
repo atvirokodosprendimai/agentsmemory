@@ -594,3 +594,89 @@ func TestCursorMCPRefusesUnparseableJSON(t *testing.T) {
 		t.Errorf("the unparseable file was modified:\n got: %s\nwant: %s", after, broken)
 	}
 }
+
+// TestEveryInstallRemovesDuplicateHookEntries is ADR-057 T2's settings half:
+// exact-duplicate hook entries within an event — any command, not only the
+// kit's — collapse to one on every install, the collapse counts as a change,
+// and a second run changes nothing. The fixture is the owner's real file of
+// 2026-09-05: cbm-session-reminder four times on SessionStart, appended by an
+// upstream installer that never dedupes.
+func TestEveryInstallRemovesDuplicateHookEntries(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "settings.json")
+	cbm := `"$HOME/.claude/hooks/cbm-session-reminder"`
+	other := `"$HOME/.claude/hooks/someone-elses-hook"`
+	entry := func(cmd string) map[string]any {
+		return map[string]any{"hooks": []any{map[string]any{"type": "command", "command": cmd}}}
+	}
+	seed := map[string]any{"hooks": map[string]any{
+		"SessionStart": []any{entry(cbm), entry(cbm), entry(cbm), entry(cbm), entry(other), entry(other)},
+		"Stop":         []any{entry(other)},
+	}}
+	raw, _ := json.Marshal(seed)
+	if err := os.WriteFile(path, raw, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	kit := "bash -- /tmp/agentsmemory-recall-hook.sh"
+	changed, err := ensureHook(path, "SessionStart", kit, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !changed {
+		t.Fatal("six entries collapsing to two was reported as no change")
+	}
+	count := func(event, cmd string) int {
+		n := 0
+		for _, c := range hookCommandsUnder(t, path, event) {
+			if c == cmd {
+				n++
+			}
+		}
+		return n
+	}
+	if got := count("SessionStart", cbm); got != 1 {
+		t.Errorf("cbm-session-reminder registered %d time(s) after install, want 1", got)
+	}
+	if got := count("SessionStart", other); got != 1 {
+		t.Errorf("an unrelated duplicated command was left at %d, want 1 — the dedupe is for every command", got)
+	}
+	if got := count("Stop", other); got != 1 {
+		t.Errorf("a single entry on another event was touched: %d", got)
+	}
+	if got := count("SessionStart", kit); got != 1 {
+		t.Errorf("the kit's own registration = %d, want 1", got)
+	}
+	// Idempotent.
+	changed, err = ensureHook(path, "SessionStart", kit, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changed {
+		t.Fatal("a deduplicated file was rewritten on the next run")
+	}
+}
+
+// hookCommandsUnder lists every hook command registered under event.
+func hookCommandsUnder(t *testing.T, path, event string) []string {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		Hooks map[string][]struct {
+			Hooks []struct {
+				Command string `json:"command"`
+			} `json:"hooks"`
+		} `json:"hooks"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	var out []string
+	for _, m := range doc.Hooks[event] {
+		for _, h := range m.Hooks {
+			out = append(out, h.Command)
+		}
+	}
+	return out
+}
