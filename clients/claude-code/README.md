@@ -333,7 +333,24 @@ aiagentmemory mcp search "auth bug"                # semantic recall
 aiagentmemory mcp search "auth bug" -a limit=3 -a wing=wing_api
 aiagentmemory mcp get_drawer <id>
 aiagentmemory mcp search "auth bug" | jq '.hits[].room'
+aiagentmemory mcp search "auth bug" --digest 1600      # plain text, what the recall hooks inject (ADR-058)
 ```
+
+`--digest <chars>` renders the page as text for a model's context instead of a
+JSON page for an agent's next call: three lines per hit in the server's order
+(the memory's first line; `wing/room`, date, `STALE` when the pinned code
+drifted; the first matched region that is not already the first line), one
+line per in-wing fact, and a final line when the budget withheld hits — a hit
+is whole or absent, never cut:
+
+```
+WHY DOES doctor RUN THE REGISTRATION'S OWN ENVIRONMENT?
+  wing_alpha/decisions 2026-08-31
+  doctor RAN A RECONSTRUCTION, NOT THE REGISTRATION. It parsed a hook command…
+the local stack → serves_version → v0.0.118
+1 more hit(s) withheld by the budget; am_search "doctor environment" for the rest
+```
+
 
 - **The bare positional fills the tool's first required argument**, so
   `mcp search "x"` means `-a query=x`. Everything else goes in as `-a key=value`
