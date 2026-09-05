@@ -150,6 +150,13 @@ TMP="$(mktemp "$DIR/.$SESSION.XXXXXX" 2>/dev/null)" || { trace "cannot write und
     CHROME="$CHROME|^<local-command|^<task-notification|^<system-reminder"  # bracketed harness chrome
     CHROME="$CHROME|^This session is being continued from a previous conversation" # the post-compaction preamble
     CHROME="$CHROME|^Another Claude session sent a message"                # a peer session's relayed message
+    # A hook's own output, handed back to the model as a plain user turn. Found
+    # 2026-09-05 in THIS session's transcript and in two OTHER sessions' notes
+    # on the same machine, all three reading
+    #   prompt=Stop hook feedback:\n[... bash -- '.../agentsmemory-stop-hook.sh']
+    # — the kit labelling the wake with its own command line, which names no
+    # work at all. Prose, so no bracket rule reaches it.
+    CHROME="$CHROME|^Stop hook feedback"                                   # this kit's own Stop hook, fed back as a user turn
     PENDING="$(grep -v '"isSidechain":[[:space:]]*true' "$TRANSCRIPT" 2>/dev/null \
       | sed -n 's/.*"role"[[:space:]]*:[[:space:]]*"user"[[:space:]]*,[[:space:]]*"content"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
       | grep -Ev "$CHROME" \
