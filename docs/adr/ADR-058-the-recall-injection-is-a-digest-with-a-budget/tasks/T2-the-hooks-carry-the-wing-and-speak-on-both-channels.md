@@ -8,21 +8,21 @@
 **Consumes:** `--digest` (T1)
 **Data dependency:** hermetic
 **Proof map:** v1
-**Rests-on:** `the wing reaches the search when set`, `the digest is what the hook prints`, `the could-not-look line on additionalContext`
+**Rests-on:** `the wing reaches the search when set`, `the craft call beside the project call`, `the digest is what the hook prints`, `the could-not-look line on additionalContext`
 
 ## Goal
 
-Every UserPromptSubmit and SessionStart recall injects the digest, scoped to the installed wing when there is one, and names a failed recall to the model as well as the transcript.
+Every UserPromptSubmit and SessionStart recall injects the digest — the installed wing's page and then `wing_craft`'s under one budget when a wing is set — and names a failed recall to the model as well as the transcript.
 
 ## Affected Files
 
 | File | Change | Why |
 |------|--------|-----|
-| `clients/claude-code/hooks/agentsmemory-task-recall-hook.sh` | edit | `--digest 1600` on the search; `-a wing="$AGENTSMEMORY_WING"` when set; the preamble's "different project" sentence only when unset; on failure, the one-line "could not look" through `hookSpecificOutput.additionalContext` beside stderr |
+| `clients/claude-code/hooks/agentsmemory-task-recall-hook.sh` | edit | with the wing set: two searches, `-a wing="$AGENTSMEMORY_WING" --digest 1200` then `-a wing=wing_craft --digest 400` printed under a `craft:` line (review of #268: one call reads one wing, and craft must reach every project); without it: today's one unscoped call with `--digest 1600`; the preamble's "different project" sentence only when unset; on failure, the one-line "could not look" through `hookSpecificOutput.additionalContext` beside stderr |
 | `clients/claude-code/hooks/agentsmemory-recall-hook.sh` | edit | the same three changes for SessionStart |
 | `clients/claude-code/installer.go` | edit | the Claude hook environment prefix carries `AGENTSMEMORY_WING='<wing>'` beside the URL when `--wing` was given — this is what SELECTS the wing for the hook, and the test deletes it |
 | `clients/claude-code/doctor.go` | edit | the hook environment `doctor` prints and runs with includes the wing, so a reinstall that added it is visible |
-| `clients/claude-code/hooks_test.go` | edit | `TestTheRecallHookCarriesTheInstalledWing` (fake MCP server records the request; with the env set the search carries the wing, without it none), `TestARecallThatCouldNotLookSaysSoOnBothChannels` (server down: stdout carries `additionalContext` with "could not look", stderr carries the same line) |
+| `clients/claude-code/hooks_test.go` | edit | `TestTheRecallHookCarriesTheInstalledWing` (fake MCP server records the requests; with the env set there are TWO searches, the first carrying the wing and the second `wing_craft`, and the craft page's hits appear under `craft:`; without it exactly one search carrying no wing), `TestARecallThatCouldNotLookSaysSoOnBothChannels` (server down: stdout carries `additionalContext` with "could not look", stderr carries the same line) |
 | `clients/claude-code/installer_test.go` | edit | `TestTheHookPrefixCarriesTheWing` |
 | `clients/claude-code/README.md` | edit | the hooks paragraph: what is injected now, and what `AGENTSMEMORY_WING` does |
 
@@ -32,7 +32,7 @@ Every UserPromptSubmit and SessionStart recall injects the digest, scoped to the
 2. [S2] Hooks: digest, wing, preamble, both-channel failure line. [proof: mutation]
 3. [S3] Installer prefix and doctor's echo of it. [proof: mutation]
 4. [S4] README. [proof: human: the reviewer reads the paragraph against a real injection]
-5. [S5] Mutants, one per Rests-on mechanism: drop the `-a wing=` argument; print `$HITS` raw instead of the digest; send the failure line to stderr only. [proof: mutation]
+5. [S5] Mutants, one per Rests-on mechanism: drop the `-a wing=` argument; drop the craft call; print `$HITS` raw instead of the digest; send the failure line to stderr only. [proof: mutation]
 6. [S6] Re-measure the injection on the same prompt as the record's Context and write the figure into the ADR's Follow-ups. [proof: human: the reviewer compares the two figures]
 
 ## Acceptance
@@ -65,6 +65,7 @@ go test ./clients/claude-code/ -count=1
 ## Invariants
 
 - Without `AGENTSMEMORY_WING` the hooks behave exactly as before this record, preamble included.
+- With it, `wing_craft` is always the second call: a project-scoped recall never drops craft.
 - The stderr line stays; the structured line is added, never substituted.
 - `hookSpecificOutput` keeps the shape ADR-051's gates check.
 

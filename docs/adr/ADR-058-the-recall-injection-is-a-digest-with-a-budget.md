@@ -84,9 +84,15 @@ their region lines and a handful of facts; a hook that wants more says so on the
 Both recall hooks call it with the digest, and both carry the installed wing: the installer
 writes `AGENTSMEMORY_WING='<wing>'` into the hook's environment prefix beside the URL, and the
 hook passes `-a wing="$AGENTSMEMORY_WING"` when the variable is set, which makes the fact block
-in-wing and the hits project-scoped. When it is unset — an install without `--wing` — the hook
-does what it does today, and the preamble keeps its "may be about a different project" sentence
-for exactly that case and drops it otherwise.
+in-wing and the hits project-scoped. **And it makes a second call for `wing_craft`**, because the
+protocol says craft "belongs in `wing_craft`, which every project reads" and `am_search` reads
+one wing per call — a project-scoped recall alone would silently cut the one cross-wing case
+that was always intended (review of #268, after the accept: 487 memories nobody would notice
+going quiet). The two pages share ONE digest budget, project first, craft second under a
+`craft:` line, so the injection is never larger than before and craft is never absent from it.
+When the variable is unset — an install without `--wing` — the hook does what it does today,
+one unscoped call, and the preamble keeps its "may be about a different project" sentence for
+exactly that case and drops it otherwise.
 
 When the recall cannot run — no token, server unreachable, the client's `--timeout` fired — the
 hook prints ONE line to stderr as today AND the same line through
@@ -116,6 +122,16 @@ search request carries no wing; an unreachable-server run whose stdout carries n
   line would reprint the line above it — the single-window failure ADR-019's `SnippetRegions`
   exists to prevent, re-created one layer up. Rejected for the first region not contained in the
   identity.
+- **Scope the recall to the installed wing alone:** the first draft of this record, and what
+  the Decision's wing paragraph read as until review of #268 traced it: `wing_craft` is read by
+  every project by protocol, one call reads one wing, so a project-only recall silently loses
+  craft — and "recall got quieter and more on-topic" is what that loss looks like from outside.
+  Rejected for two calls under one budget. Also rejected, as the record's own alternative: a
+  deliberate project-only recall with craft reached by hand — defensible, but it undoes the
+  reason `wing_craft` exists.
+- **A wing SET on `am_search`:** would make it one call. Rejected here because it is a server
+  change to a tool every caller uses, and this record is the kit's rendering of what the server
+  already returns; worth its own record if the second call ever measures as too slow.
 - **Drop the fact block from the hook entirely:** simplest. Rejected because in-wing facts are the
   cheapest thing the palace returns (one line each) and the one thing a dormant wing can still
   answer (ADR-041's reasoning for the block).
@@ -132,7 +148,7 @@ every other caller.
 |---------|--------|----------|-------------|
 | `aiagentmemory mcp search --digest <chars>` | new flag; plain-text digest instead of the JSON page | mcpcall.go | the two recall hooks, operators |
 | hook environment prefix | `AGENTSMEMORY_WING='<wing>'` written beside `AGENTSMEMORY_MCP_URL` when the install has a wing | installer.go | the two recall hooks |
-| recall injection | bounded digest with a trailing "N more" line; facts in-wing when a wing is set; "could not look" on `additionalContext` and stderr | the two hooks | the model, the transcript |
+| recall injection | bounded digest with a trailing "N more" line; the installed wing's page then `wing_craft`'s under one budget when a wing is set; "could not look" on `additionalContext` and stderr | the two hooks | the model, the transcript |
 
 ## Inter-task Contracts
 
