@@ -3811,9 +3811,17 @@ second. Claude Code's hooks reference lists **five** SessionStart matcher values
 2026-09-05 with a real last-turn note on disk: `source=startup` opens with the `Last turn (…)` block,
 `source=fork` does not, and falls straight to the recalled memories. A forked session is a context
 that continues work someone else was doing, so it is arguably the case that most wants the note. Not
-changed on discovery because which note a fork should read is a design question, not a typo: it
-inherits the parent's transcript but is a different session id, so the per-session marker and note
-keys do not resolve to the parent's. `clear` is deliberately excluded and stays so — a cleared
+changed on discovery because the open question is INTENT, not mechanism, and the mechanism is nearly
+free: the last-turn note's key is per PROJECT on both sides (`basename $CLAUDE_PROJECT_DIR` plus a
+checksum of its path, `agentsmemory-stop-hook.sh` and `agentsmemory-recall-hook.sh`), so a fork in
+the same directory already resolves the key its parent wrote — `lastturn_test.go` writes the note
+under session `s1` and reads it back under `s2`, which is exactly that case, tested. The cost of
+handling `fork` is one token at the `startup`/`resume` test. What is not free is deciding whether a
+fork WANTS the parent's last turn, since a fork is often a deliberate divergence — the same argument
+shape as `clear` below. The PreCompact note and the re-ground marker are per SESSION and would not
+resolve for a fork; only the last-turn note would. Review of #293 caught the first version of this
+entry giving a mechanical reason that does not hold, which made a one-token change look like design
+work. `clear` is deliberately excluded and stays so — a cleared
 context is a deliberate reset, and handing back what was cleared would defeat the user's own action.
 Found while checking M's collected references (Reddit, claudikins, anthropics/claude-code#32407)
 against what this kit already ships.
