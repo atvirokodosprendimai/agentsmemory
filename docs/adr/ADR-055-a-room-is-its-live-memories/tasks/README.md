@@ -16,7 +16,7 @@ README must be regenerated.
 
 | ID | Title | Status | Covers | Acceptance |
 |----|-------|--------|--------|------------|
-| T1 | Every surface that lists or counts rooms reads live rows, and one test asks them all | pending | — | `go test ./internal/palace/ -run TestEveryRoomListingAgreesOnARetractedRoom …` |
+| T1 | Every surface that lists or counts rooms reads live rows, and one test asks them all | done | — | `go test ./internal/palace/ -run TestEveryRoomListingAgreesOnARetractedRoom …` |
 
 Status: `pending` | `partial` | `blocked` | `done`.
 

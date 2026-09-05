@@ -262,7 +262,11 @@ func (r *Repo) GraphRoomWings(ctx context.Context, teamID string) ([]RoomWing, e
 	if err := r.reader.WithContext(ctx).
 		Model(&drawerRow{}).
 		Select("room, wing, COUNT(*) AS count, MAX(content_date) AS recent").
-		Where("team_id = ? AND wing != '' AND room != '' AND room != ?", teamID, "general").
+		// Live rows only, the rule Repo.Rooms and Repo.Wings already follow: a room
+		// is its live memories (ADR-055). Without this GraphStats counted a room
+		// whose every memory was retracted while am_list_rooms did not, and the two
+		// disagreed about the same wing in the same minute.
+		Where("team_id = ? AND wing != '' AND room != '' AND room != ? AND valid_to = ''", teamID, "general").
 		Group("room, wing").
 		Scan(&rows).Error; err != nil {
 		return nil, err

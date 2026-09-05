@@ -67,6 +67,8 @@ go test ./internal/palace/ ./internal/mcpserver/ -count=1
 
 ## Mutation Log
 
+- 2026-09-05 · db7cac4* · mutant killed · exit 1 · `internal/palace/graph.go` · GraphRoomWings counts ended rows again, so GraphStats reports the retracted room; TestEveryRoomListingAgreesOnARetractedRoom must see total=2 · acceptance-sha256:6e849b455cec8e9fd116a0497017b87dae33879797d6d421185dca98c422d354
+
 ## Invariants
 
 - No row is deleted or rewritten; ended rows stay readable by id.
@@ -85,3 +87,18 @@ Stop if `GraphStats`' room count is consumed by something that expects the histo
 - Closets, hallways and tunnels that name a room as a label (the ADR's Out of Scope).
 
 ## Verification Log
+- 2026-09-05 · db7cac4* · exit 1 · `set -o pipefail …` · acceptance-sha256:6e849b455cec8e9fd116a0497017b87dae33879797d6d421185dca98c422d354 · ms:1167
+  ```
+  --- last 10 line(s) of stdout (of 41 after folding 41 raw)
+  2026/09/05 09:19:43 OK   00033_drawers_superseded_by_idx.sql (619.92µs)
+  2026/09/05 09:19:43 OK   00034_billing_checkout_intents.sql (451.83µs)
+  2026/09/05 09:19:43 OK   00035_billing_applied_orders.sql (1.46ms)
+  2026/09/05 09:19:43 OK   00036_drawer_fetches.sql (2.85ms)
+  2026/09/05 09:19:43 goose: successfully migrated database to version: 36
+  --- FAIL: TestEveryRoomListingAgreesOnARetractedRoom (0.01s)
+      roomlife_test.go:59: GraphStats counts total=2 per-wing=map[wing_acme:2]; the retracted room is still counted
+  FAIL
+  FAIL	github.com/atvirokodosprendimai/agentsmemory/internal/palace	0.352s
+  FAIL
+  ```
+- 2026-09-05 · db7cac4* · exit 0 · `set -o pipefail …` · acceptance-sha256:6e849b455cec8e9fd116a0497017b87dae33879797d6d421185dca98c422d354 · ms:18911
