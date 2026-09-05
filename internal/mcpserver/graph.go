@@ -222,7 +222,7 @@ func registerFollowTunnels(reg *registrar, drawers *palace.Service, usageSvc *us
 
 func registerListHallways(reg *registrar, drawers *palace.Service, usageSvc *usage.Service, scopeSearchToWing bool) {
 	tool := newTool("list_hallways",
-		mcp.WithDescription("List within-wing hallways (entity-to-entity co-occurrence links), optionally filtered by wing. Omitted, scoped to this registration's default_wing only when one is configured and SEARCH_SCOPE is not workspace; otherwise omission lists every wing. Pass \"*\" to list every wing deliberately."),
+		mcp.WithDescription("List within-wing hallways (entity-to-entity co-occurrence links), optionally filtered by wing. Omitted, scoped to this registration's default_wing only when one is configured and SEARCH_SCOPE is not workspace; otherwise omission lists every wing. Pass \"*\" to list every wing deliberately. A note appears when the list is empty because the derived graph does not exist yet — the state of every palace populated only through am_add_drawer — because that answer is otherwise byte-identical to a graph that genuinely holds no hallway."),
 		mcp.WithString("wing", mcp.Description("Only hallways in this wing. Omitted, scoped to this registration's default_wing only when one is configured and SEARCH_SCOPE is not workspace; otherwise every wing. Pass \"*\" for every wing deliberately."), searchWingProperty()),
 	)
 	reg.add(tool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -258,7 +258,7 @@ func registerListHallways(reg *registrar, drawers *palace.Service, usageSvc *usa
 
 func registerTraverse(reg *registrar, drawers *palace.Service, usageSvc *usage.Service) {
 	tool := newTool("traverse",
-		mcp.WithDescription("Walk the graph from a starting room across rooms that share a wing, out to max_hops."),
+		mcp.WithDescription("Walk the graph from a starting room across rooms that share a wing, out to max_hops. A note appears when the walk describes a palace whose derived graph does not exist yet — an empty answer for that reason is byte-identical to one from a graph that simply holds nothing, and the walk alone cannot say which it is."),
 		mcp.WithString("start_room", mcp.Required(), mcp.Description("The room to start the walk from.")),
 		mcp.WithNumber("max_hops", mcp.Description("How many hops to walk, 1-10 (default 2).")),
 	)
