@@ -199,10 +199,17 @@ func TestACompactStartHandsBackTheStateNote(t *testing.T) {
 		t.Fatalf("expected two recall calls (project, checkpoint), got %d:\n%s", len(calls), strings.Join(calls, "\n"))
 	}
 	second := calls[1]
-	for _, want := range []string{"room=llm_open_threads", "wing=wing_acme", "limit=1", "WHERE SHOULD WORK RESUME AFTER A CRASH"} {
+	// ⚠ max_distance=0 AND the branch in the query, both measured (see the hook's
+	// comment): under the 0.42 floor the fixed sentence returned zero checkpoints.
+	for _, want := range []string{"room=llm_open_threads", "wing=wing_acme", "limit=1", "max_distance=0 ", "WHERE SHOULD WORK RESUME AFTER A CRASH task/note "} {
 		if !strings.Contains(second, want) {
 			t.Errorf("the checkpoint call lacks %q: %s", want, second)
 		}
+	}
+	// The branch, NOT the branch-work query: measured 2026-09-05, appending the
+	// changed basenames ranked a day-old checkpoint about those files first.
+	if strings.Contains(second, "a.go") {
+		t.Errorf("the checkpoint call carries changed file names, which pull the rank toward the wrong checkpoint: %s", second)
 	}
 	for _, c := range calls {
 		if strings.Contains(c, "wing=wing_craft") {

@@ -79,8 +79,17 @@ ten lines rendered from the note — `Before compaction (<at>, <trigger>): branc
 <dirty> uncommitted file(s); edited this session: <files> (+N more)` — before the recalled
 memories. And the second recall call, which on every other `source` asks `wing_craft` with the
 400-character slot, on `compact` asks the installed wing's `llm_open_threads` room with the query
-`WHERE SHOULD WORK RESUME AFTER A CRASH`, `limit=1`, under the same 400 characters, rendered under
-a `checkpoint:` line. Only with `AGENTSMEMORY_WING` set: an unscoped checkpoint query returns some
+`WHERE SHOULD WORK RESUME AFTER A CRASH` followed by the branch NAME, `limit=1`, and NO
+distance floor, under the same 400 characters, rendered under a `checkpoint:` line. Measured
+2026-09-05 on this palace during T2's hand-run: under the hook's 0.42 floor the fixed sentence
+alone returned zero hits (the three checkpoints sat at 0.428–0.463, every record in that room
+opens with the same words); the sentence plus the branch name with the floor off put the
+session's own checkpoint first (blended 0.735 against 0.65 for the next); and the sentence plus
+the full branch-work query — branch plus eight changed basenames — ranked a day-old checkpoint
+about a local reinstall first, because file names pull toward whichever record mentions those
+files. The room is the scope — it
+holds nothing but checkpoints — so the floor guarded against nothing there.
+Only with `AGENTSMEMORY_WING` set: an unscoped checkpoint query returns some
 other project's open thread, which is worse than silence. On `startup`, `resume` and `clear` the
 hook behaves exactly as ADR-058 left it — the note is not read, because a note from a session that
 was resumed a day later describes a tree that has moved.

@@ -262,12 +262,12 @@ WING="${AGENTSMEMORY_WING:-}"
 recall() {
   # $1 = wing or empty, $2 = digest budget in characters,
   # $3 = room (empty means the shipped default), $4 = limit (default 3),
-  # $5 = query (default $QUERY)
+  # $5 = query (default $QUERY), $6 = distance floor (default 0.42; 0 disables)
   local args=(mcp search "${5:-$QUERY}" -a "limit=${4:-3}" -a snippet_chars=300)
   # The default room is spelled as a literal on purpose: ADR-041 T4's record pins
   # it, and TestTheRecallHookAsksTheRoomItsRecordShips reads it from this file.
   if [ -n "${3:-}" ]; then args+=(-a "room=$3"); else args+=(-a room=diary); fi
-  args+=(-a max_distance=0.42 --digest "$2")
+  args+=(-a "max_distance=${6:-0.42}" --digest "$2")
   [ -n "$1" ] && args+=(-a "wing=$1")
   [ -n "$TOKEN" ] && args+=(--token "$TOKEN")
   aiagentmemory "${args[@]}" 2>"$ERRFILE"
@@ -313,7 +313,21 @@ if [ -n "$WING" ]; then
     # summary or is not; the checkpoint is the record written for exactly this
     # moment. Wing-scoped only: an unscoped checkpoint is another project's
     # open thread, which is worse than silence.
-    CHECKPOINT="$(recall "$WING" 400 llm_open_threads 1 'WHERE SHOULD WORK RESUME AFTER A CRASH')" || CHECKPOINT=""
+    #
+    # ⚠ NO DISTANCE FLOOR, AND THE BRANCH IN THE QUERY. Measured 2026-09-05 on
+    # this project's palace, the first version asked the fixed sentence under
+    # the 0.42 floor and got ZERO hits: the three checkpoints sat at 0.428-0.463,
+    # and the one filed that morning was not in the top three by distance at
+    # all — every record in the room opens with the same words, so the fixed
+    # sentence cannot tell them apart. The room is the scope here (it holds
+    # nothing but checkpoints), so the floor guards against nothing; and adding
+    # the BRANCH NAME put the session's own checkpoint first at 0.377 (blended
+    # 0.735) against 0.65 for the next. THE BRANCH, NOT THE BRANCH-WORK QUERY:
+    # with the eight changed basenames appended, the same palace ranked a
+    # 2026-09-04 checkpoint about a local reinstall first, because file names
+    # pull toward whichever record mentions those files. The hand-run that
+    # found both is in ADR-059 T2.
+    CHECKPOINT="$(recall "$WING" 400 llm_open_threads 1 "WHERE SHOULD WORK RESUME AFTER A CRASH ${BRANCH:-}" 0)" || CHECKPOINT=""
   else
     CRAFT="$(recall wing_craft 400)" || CRAFT=""
   fi

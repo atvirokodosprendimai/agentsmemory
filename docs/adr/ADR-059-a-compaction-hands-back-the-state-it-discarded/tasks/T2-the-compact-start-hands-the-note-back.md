@@ -8,7 +8,7 @@
 **Consumes:** the note file and its `key=value` format (T1)
 **Data dependency:** hermetic for the fence; the sign-off records one live compaction in this checkout
 **Proof map:** v1
-**Rests-on:** `the note block`, `the checkpoint recall replaces craft on compact`, `the source gate`
+**Rests-on:** `the note block`, `the checkpoint recall replaces craft on compact`, `the source gate`, `the checkpoint call has no distance floor`
 
 ## Goal
 
@@ -63,6 +63,8 @@ go test ./clients/claude-code/ -run 'TestF6AHookIsSilentInTheCommonCase$|TestThe
 - 2026-09-05 · 42137b9* · mutant killed · exit 1 · `clients/claude-code/hooks/agentsmemory-recall-hook.sh` · the note block is never rendered, so a compaction hands nothing back (re-recorded after the fence named the real regression test) · acceptance-sha256:7ed5f00de21c3b659caa2052903f3386d3669b1e299189896623bdcc54d53a18 · covers:the note block
 - 2026-09-05 · 42137b9* · mutant killed · exit 1 · `clients/claude-code/hooks/agentsmemory-recall-hook.sh` · a compact start asks wing_craft like a cold start, so the checkpoint is never recalled (re-recorded) · acceptance-sha256:7ed5f00de21c3b659caa2052903f3386d3669b1e299189896623bdcc54d53a18 · covers:the checkpoint recall replaces craft on compact
 - 2026-09-05 · 42137b9* · mutant killed · exit 1 · `clients/claude-code/hooks/agentsmemory-recall-hook.sh` · the source field is ignored and every start is treated as a compaction (re-recorded) · acceptance-sha256:7ed5f00de21c3b659caa2052903f3386d3669b1e299189896623bdcc54d53a18 · covers:the source gate
+- 2026-09-05 · 6df040d* · mutant killed · exit 1 · `clients/claude-code/hooks/agentsmemory-recall-hook.sh` · the checkpoint call keeps the 0.42 floor, under which the fixed sentence returned zero checkpoints on 2026-09-05 · acceptance-sha256:7ed5f00de21c3b659caa2052903f3386d3669b1e299189896623bdcc54d53a18 · covers:the checkpoint call has no distance floor
+- 2026-09-05 · 6df040d* · mutant killed · exit 1 · `clients/claude-code/hooks/agentsmemory-recall-hook.sh` · the checkpoint query carries the changed basenames, which ranked a day-old checkpoint first on 2026-09-05 · acceptance-sha256:7ed5f00de21c3b659caa2052903f3386d3669b1e299189896623bdcc54d53a18 · covers:the checkpoint recall replaces craft on compact
 
 ## Invariants
 
@@ -103,3 +105,5 @@ Stop and reopen the record if S4's live compaction injects no `Before compaction
 - 2026-09-05 · 42137b9* · exit 0 · `set -o pipefail …` · acceptance-sha256:7ed5f00de21c3b659caa2052903f3386d3669b1e299189896623bdcc54d53a18 · ms:8351
 - 2026-09-05 · 42137b9* · exit 0 · `set -o pipefail …` · acceptance-sha256:7ed5f00de21c3b659caa2052903f3386d3669b1e299189896623bdcc54d53a18 · ms:7010
 - 2026-09-05 · 42137b9* · exit 0 · `set -o pipefail …` · acceptance-sha256:7ed5f00de21c3b659caa2052903f3386d3669b1e299189896623bdcc54d53a18 · ms:7422
+- 2026-09-05 · 6df040d* · exit 0 · `set -o pipefail …` · acceptance-sha256:7ed5f00de21c3b659caa2052903f3386d3669b1e299189896623bdcc54d53a18 · ms:7972
+- 2026-09-05 · 6df040d* · exit 0 · `set -o pipefail …` · acceptance-sha256:7ed5f00de21c3b659caa2052903f3386d3669b1e299189896623bdcc54d53a18 · ms:8429
