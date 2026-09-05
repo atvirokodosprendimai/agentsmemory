@@ -556,19 +556,34 @@ func runHookDoctor(ctx context.Context, c *cli.Command, out io.Writer) error {
 	return reportServerBin(out, kit, dir, bad, len(verdicts), srv)
 }
 
-// hookAssetFiles pairs every embedded hook asset with the filename install
-// writes it to. It is the one place the two names are tied together, so a hook
-// added to the //go:embed list and not to install — or the reverse — shows up
-// here as a missing entry rather than as a silently unchecked file.
+// hookAssetFiles pairs every embedded hook script with the filename install
+// writes it to — every script under the embedded `hooks/` directory, keyed by
+// its basename, because install writes each one flat into the config dir under
+// exactly that name.
+//
+// ⚠ IT IS DERIVED, NOT LISTED, AND THE LIST IT REPLACES WAS WRONG BY FOUR. The
+// previous version named six scripts by hand; the touched, anchor-cue,
+// task-recall and precompact hooks were installed, registered and judged for
+// their channel, and never compared against the embedded copy — so an operator
+// whose `update` refreshed the binary and left those four behind was told
+// nothing had drifted. A list kept beside the embed goes stale one script at a
+// time, and each new hook is added by someone who does not know this map
+// exists. Reading the embed makes the tenth hook join on the same commit as the
+// first. TestEveryShippedHookIsCheckedForDrift edits every script a real
+// install writes and requires each to be named. Found 2026-09-05.
 func hookAssetFiles() map[string]string {
-	return map[string]string{
-		hookFile:           hookAsset,
-		verifyHookFile:     verifyHookAsset,
-		sessionEndHookFile: sessionEndHookAsset,
-		subagentHookFile:   subagentHookAsset,
-		recallHookFile:     recallHookAsset,
-		statsHelperFile:    statsHelperAsset,
+	out := map[string]string{}
+	entries, err := assets.ReadDir("hooks")
+	if err != nil {
+		return out // no embedded hooks in this build; nothing to compare against
 	}
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".sh") {
+			continue
+		}
+		out[e.Name()] = "hooks/" + e.Name()
+	}
+	return out
 }
 
 // staleHooksIn reports installed hooks whose bytes differ from this binary's
