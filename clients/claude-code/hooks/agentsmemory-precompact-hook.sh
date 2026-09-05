@@ -157,7 +157,35 @@ TMP="$(mktemp "$DIR/.$SESSION.XXXXXX" 2>/dev/null)" || { trace "cannot write und
     # — the kit labelling the wake with its own command line, which names no
     # work at all. Prose, so no bracket rule reaches it.
     CHROME="$CHROME|^Stop hook feedback"                                   # this kit's own Stop hook, fed back as a user turn
+    # ⚠ THE grep PREFILTER IS NOT A TIDY-UP; IT IS WHY THIS HOOK FINISHES.
+    # The `sed` below opens with `.*`, and sed BACKTRACKS: it retries the match
+    # from every position on the line. Measured 2026-09-05 against this
+    # checkout's own transcript — 29MB, 16,406 lines, longest line 243,820
+    # characters — that one stage took 47.25s of the hook's 49.19s total, while
+    # READING the whole file takes 0.01s. So the cost is not I/O and not the
+    # file's size; it is the length of the longest LINE, which a tool result
+    # sets and nothing bounds.
+    #
+    # ⚠ AND THE FAILURE IS SILENT AND TOTAL, NOT SLOW. The hook is registered
+    # with `timeout: 75`, so a session slightly longer than the one measured is
+    # KILLED before the note is written — and with no note the recall hook's
+    # `[ -s "$NOTE" ]` skips its whole block, so no re-ground marker is written
+    # and the monitor armed by `/am` Step 1d waits for ever with nothing to see.
+    # Reported by the owner as "/compact and nothing happens for 1 minute", on a
+    # session started with `--autocompact 600000`, which is exactly the flag that
+    # lets a transcript grow this far before compacting.
+    #
+    # `grep` runs a DFA and never backtracks, so restricting sed to the lines
+    # that CAN match takes the same work from 47.25s to 0.10s — 271 lines in and
+    # 271 lines out, byte-identical. The pattern is the sed's own middle, kept
+    # beside it: if one is edited the other must be, and a prefilter narrower
+    # than the extraction would drop turns silently.
+    #
+    # Every test over this pipeline drives a short fixture, which is why nothing
+    # caught it — the §Reachability defect in its performance spelling.
+    USERTURN='"role"[[:space:]]*:[[:space:]]*"user"[[:space:]]*,[[:space:]]*"content"[[:space:]]*:[[:space:]]*"'
     PENDING="$(grep -v '"isSidechain":[[:space:]]*true' "$TRANSCRIPT" 2>/dev/null \
+      | grep -E "$USERTURN" \
       | sed -n 's/.*"role"[[:space:]]*:[[:space:]]*"user"[[:space:]]*,[[:space:]]*"content"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
       | grep -Ev "$CHROME" \
       | tail -n 1 | tr '\n\r\t' '   ' | cut -c1-200 \
