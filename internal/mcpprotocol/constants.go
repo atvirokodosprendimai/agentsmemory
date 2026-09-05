@@ -7,6 +7,15 @@ const (
 	ToolPrefix = "am_"
 	// WingHeader binds an MCP registration to its project wing.
 	WingHeader = "X-Agentsmemory-Wing"
+	// OriginHeader names WHO is calling — `hook:<script>` for the kit's automatic
+	// recalls, absent for a person or an agent acting on its own judgement — so a
+	// search's row can record it (ADR-054). It rides the same route as the wing
+	// and, like it, is set by the kit rather than by anything an agent types.
+	OriginHeader = "X-Agentsmemory-Origin"
+	// OriginEnvVar is the process-level origin a hook exports before calling
+	// `aiagentmemory mcp`; the kit turns it into OriginHeader, and the server's own
+	// in-process `mcp` path reads it directly.
+	OriginEnvVar = "AGENTSMEMORY_ORIGIN"
 	// TokenEnvVar is the workspace bearer every MCP client presents. The server
 	// CLI, the stdio proxy, and the installer all read this one name.
 	TokenEnvVar = "AGENTSMEMORY_TOKEN"

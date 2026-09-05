@@ -165,10 +165,12 @@ composition root, the two surfaces, the domain and the adapters. The remaining 4
 modules this view does not name, and `internal/archguard` is what checks all of them.
 
 Solid arrows are imports; dotted arrows are implementations, which point the other way — the
-adapter depends on the port, never the reverse. `internal/palace` imports two first-party
-packages (`internal/store` and `internal/telemetry`) and `internal/tenant` imports none, which is
-what lets nine modules share identity without a cycle. Telemetry is not a D2 surface: palace
-records semantic stages; it does not know which transport asked.
+adapter depends on the port, never the reverse. `internal/palace` imports three first-party
+packages (`internal/store`, `internal/telemetry` and, since ADR-054, `internal/auth` for the
+context values a request carries — tenant, default wing, origin) and `internal/tenant` imports
+none, which is what lets nine modules share identity without a cycle. Neither telemetry nor auth
+is a D2 surface: palace records semantic stages and reads decisions off the context; it does not
+know which transport asked.
 
 ## Dependency Contracts
 

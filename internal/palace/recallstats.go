@@ -23,11 +23,15 @@ import (
 
 // searchEventRow is the gorm view of one recorded recall.
 type searchEventRow struct {
-	ID         string  `gorm:"column:id;primaryKey"`
-	TeamID     string  `gorm:"column:team_id"`
-	Wing       string  `gorm:"column:wing"`
-	Room       string  `gorm:"column:room"`
-	Query      string  `gorm:"column:query"`
+	ID     string `gorm:"column:id;primaryKey"`
+	TeamID string `gorm:"column:team_id"`
+	Wing   string `gorm:"column:wing"`
+	Room   string `gorm:"column:room"`
+	Query  string `gorm:"column:query"`
+	// Origin is WHO asked: '' for a person or an agent acting on its own
+	// judgement, `hook:<script>` for the kit's automatic recalls (ADR-054). The
+	// to-write list is built from the rows where it is empty.
+	Origin     string  `gorm:"column:origin"`
 	Candidates int     `gorm:"column:candidates"`
 	Hits       int     `gorm:"column:hits"`
 	TopScore   float64 `gorm:"column:top_score"`

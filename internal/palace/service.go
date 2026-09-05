@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/atvirokodosprendimai/agentsmemory/internal/auth"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/store"
 	"github.com/atvirokodosprendimai/agentsmemory/internal/telemetry"
 
@@ -1818,6 +1819,10 @@ func (s *Service) SearchPage(ctx context.Context, teamID string, q SearchQuery) 
 		// SELECTS the value T1 returns: without it the reason is computed, put on
 		// the span, and never reaches a row anyone can aggregate.
 		RerankSkipReason: skipReason,
+		// WHO asked, from the context the bridge (or the CLI path) filled. This is
+		// the line that SELECTS the origin for every search: without it the header
+		// is lifted, carried, and never reaches a row (ADR-054).
+		Origin: auth.OriginFrom(ctx),
 	}
 	if len(results) > 0 {
 		ev.TopScore = results[0].Score
