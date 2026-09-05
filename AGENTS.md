@@ -129,8 +129,15 @@ ref, and both looked equally confident.
 
 **3. The local stack tracks `main`.** After any merge that changes served code,
 redeploy — the palace this session reads and writes must be the code under work,
-or every `am_*` call measures the previous release. The procedure that works, in
-full, because three of its steps failed silently today:
+or every `am_*` call measures the previous release. ⚠ **THE MERGE IS THE TRIGGER,
+in the same turn, before the next item.** Owner, 2026-09-05, after #240 merged and
+the session moved on while the local palace kept serving the previous release:
+*"after merging to main — ensure that we ourselves are running the latest version.
+This has to be a rule."* Not the next release, not when the session gets to it;
+a merge is not done until `am_status` reports the merged version. A docs-only merge
+changes nothing served — say so in one line rather than skipping silently. The
+procedure that works, in full, because three of its steps failed silently the day
+it was written:
 
     git clone -q --no-local --branch <tag-or-sha> . "$DIR"   # a CLONE, never a worktree
     cp .env.docker "$DIR/"                                    # a clone has no untracked files
