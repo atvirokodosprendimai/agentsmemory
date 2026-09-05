@@ -157,32 +157,48 @@ TMP="$(mktemp "$DIR/.$SESSION.XXXXXX" 2>/dev/null)" || { trace "cannot write und
     # — the kit labelling the wake with its own command line, which names no
     # work at all. Prose, so no bracket rule reaches it.
     CHROME="$CHROME|^Stop hook feedback"                                   # this kit's own Stop hook, fed back as a user turn
-    # ⚠ THE grep PREFILTER IS NOT A TIDY-UP; IT IS WHY THIS HOOK FINISHES.
-    # The `sed` below opens with `.*`, and sed BACKTRACKS: it retries the match
-    # from every position on the line. Measured 2026-09-05 against this
-    # checkout's own transcript — 29MB, 16,406 lines, longest line 243,820
-    # characters — that one stage took 47.25s of the hook's 49.19s total, while
-    # READING the whole file takes 0.01s. So the cost is not I/O and not the
-    # file's size; it is the length of the longest LINE, which a tool result
-    # sets and nothing bounds.
+    # ⚠ THE grep PREFILTER IS NOT A TIDY-UP; IT IS WHAT KEEPS THIS HOOK CHEAP.
+    # The `sed` below opens with `.*`, which on a backtracking engine is retried
+    # from many positions per line. `grep` runs a DFA and never backtracks, so
+    # restricting sed to the lines that CAN match is free. Measured 2026-09-05
+    # under GNU sed 4.9 on Linux:
     #
-    # ⚠ AND THE FAILURE IS SILENT AND TOTAL, NOT SLOW. The hook is registered
-    # with `timeout: 75`, so a session slightly longer than the one measured is
-    # KILLED before the note is written — and with no note the recall hook's
-    # `[ -s "$NOTE" ]` skips its whole block, so no re-ground marker is written
-    # and the monitor armed by `/am` Step 1d waits for ever with nothing to see.
-    # Reported by the owner as "/compact and nothing happens for 1 minute", on a
-    # session started with `--autocompact 600000`, which is exactly the flag that
-    # lets a transcript grow this far before compacting.
+    #   29MB / 16,406-line transcript   47.25s -> 0.10s   (271 lines in and out)
+    #   1.5MB / 302-line transcript     16.67s -> 0.02s
     #
-    # `grep` runs a DFA and never backtracks, so restricting sed to the lines
-    # that CAN match takes the same work from 47.25s to 0.10s — 271 lines in and
-    # 271 lines out, byte-identical. The pattern is the sed's own middle, kept
+    # Output is byte-identical in both. The pattern is the sed's own middle, kept
     # beside it: if one is edited the other must be, and a prefilter narrower
     # than the extraction would drop turns silently.
     #
+    # ⚠ WHAT IS EXPENSIVE IS A LINE SHAPE, NOT A LINE LENGTH — AND THE FIRST
+    # VERSION OF THIS COMMENT SAID OTHERWISE. It claimed the cost was quadratic
+    # in the longest line, and the corpus refutes that: 1.5MB costs 16.67s while
+    # a file 19x larger costs 47.25s, and within one file the SHORTEST expensive
+    # line (34,081 chars, 1499ms) outcosts one nearly 3x longer (96,777 chars,
+    # 1373ms). What every expensive line does have is `"role":"user"` NOT
+    # followed by `"content":"` — array content, which is every tool result — so
+    # the pattern's whole prefix matches and only then fails. Lines with no
+    # `"role"` at all cost ~7ms whatever their length. The prefilter removes
+    # exactly the first set. The precise cost driver is NOT known; it is left
+    # unstated here rather than guessed at a second time.
+    #
+    # ⚠ AND IT IS ENGINE-DEPENDENT, SO NO SINGLE FACTOR TRAVELS. A reviewer on
+    # BSD sed measured 1.88s -> 0.12s (15x) over a 118MB file whose longest line
+    # is 2.7M characters — bigger input, far smaller cost, and the three
+    # synthetic shapes ranked in the opposite order from GNU sed's. Same fix,
+    # same byte-identical output, different magnitude. Quote a speedup with the
+    # engine it was measured on or not at all.
+    #
+    # ⚠ THIS DOES NOT EXPLAIN A MISSING NOTE. An earlier version of this comment
+    # said the hook was KILLED by its `timeout: 75` registration, costing the
+    # note, the marker and the wake. That was extrapolation, not measurement: the
+    # transcript from the session that prompted this took 16.67s, nowhere near
+    # 75s. The owner's "/compact and nothing happens for 1 minute" is consistent
+    # with the SLOWNESS alone. A note that is missing entirely has some other
+    # cause, and this hook is not it.
+    #
     # Every test over this pipeline drives a short fixture, which is why nothing
-    # caught it — the §Reachability defect in its performance spelling.
+    # caught the cost — the §Reachability defect in its performance spelling.
     USERTURN='"role"[[:space:]]*:[[:space:]]*"user"[[:space:]]*,[[:space:]]*"content"[[:space:]]*:[[:space:]]*"'
     PENDING="$(grep -v '"isSidechain":[[:space:]]*true' "$TRANSCRIPT" 2>/dev/null \
       | grep -E "$USERTURN" \

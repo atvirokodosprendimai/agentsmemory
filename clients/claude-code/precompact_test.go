@@ -238,41 +238,41 @@ func TestAColdStartDoesNotReadTheNote(t *testing.T) {
 	}
 }
 
-// TestThePreCompactHookSurvivesALongTranscriptLine drives the SCRIPT over a
-// transcript whose lines are the length a real one reaches, and holds it to a
-// wall-clock bound.
+// TestThePreCompactHookDoesNotScanEveryTranscriptLine drives the SCRIPT over a
+// transcript built from the line shape a real one is expensive on, and holds it
+// to a wall-clock bound.
 //
 // It exists because every other test over the task-in-flight extraction drives a
-// fixture of short lines, and the stage is quadratic in LINE LENGTH rather than
-// in file size: `sed`'s `s/.*"role"…/` retries from every position, so one
-// 243,820-character line costs more than the other 16,405 lines together.
-// Measured 2026-09-05 on this checkout's own 29MB transcript, the stage took
-// 47.25s of a 49.19s run while reading the whole file took 0.01s.
+// fixture of short lines, so none of them can see what the stage costs on a real
+// transcript: 47.25s of a 49.19s run on a 29MB one, against 0.01s to read the
+// whole file (GNU sed 4.9, Linux, 2026-09-05).
 //
-// A bound rather than a benchmark, because what broke was not slowness. The hook
-// is registered with `timeout: 75`; past that it is killed, writes no note, and
-// the recall hook's `[ -s "$NOTE" ]` then skips the re-ground marker entirely —
-// so the compaction completes and the monitor waits for ever on a file nobody
-// will write. The owner saw only "/compact and nothing happens".
+// ⚠ THE FIXTURE MUST BE TOOL RESULTS, AND THE FIRST VERSION WAS NOT — THE MUTANT
+// SURVIVED IT. Long ASSISTANT lines are free (0.02s for 20 x 200,000
+// characters): `.*"role"…"user"` fails on them early. Every expensive line
+// carries `"role":"user"` NOT followed by `"content":"` — array content, which
+// is every tool result — so the pattern's whole prefix matches and only then
+// fails. The shape is spelled out here because the one a reader reaches for
+// first pins nothing.
 //
-// ⚠ THE LINE MUST BE A TOOL RESULT, AND THE FIRST VERSION OF THIS FIXTURE WAS
-// NOT — THE MUTANT SURVIVED IT. Long ASSISTANT lines cost nothing (0.02s for 20
-// x 200,000 characters, measured): `.*"role"…"user"` fails on them early and sed
-// gives up. The expensive shape is a user turn whose `content` is an ARRAY, which
-// a tool result always is: `"role":"user","content":[` matches the pattern's
-// whole prefix and only then hits `[` where a quote was required, so every one of
-// those lines is a full backtracking scan. That is the same array-valued content
-// this extraction already documents as unreachable — it is not merely skipped,
-// it is what the scan spends its time on. A fixture built from the shape a reader
-// would reach for first pins nothing, which is why the shape is spelled out here
-// rather than left to the generator below.
+// ⚠ AND THE SHAPE IS ALL THIS PINS. An earlier version of this comment claimed
+// the cost was quadratic in LINE LENGTH; the corpus refutes it. A 1.5MB
+// transcript costs 16.67s while one 19x larger costs 47.25s, and inside a single
+// file the shortest expensive line (34,081 chars) costs 1499ms against 1373ms
+// for one nearly 3x longer (96,777 chars), with the near-match at a constant
+// offset on both. The driver is not known and is deliberately not asserted.
+// The same comment also claimed the hook was KILLED by its `timeout: 75`
+// registration, costing the note and the wake — extrapolation, not measurement:
+// the transcript from the session that prompted this took 16.67s. A missing note
+// has some other cause.
 //
-// Sized and bounded from measurement, not from taste. Against a 29MB fixture —
-// the size this checkout's real transcript had reached — the hook takes 0.13s
-// with the prefilter and 12.72s without it. The 5s bound therefore leaves ~38x
-// headroom on the passing side while the mutant misses it by 2.5x, so neither a
-// loaded CI box nor a fast one changes the verdict.
-func TestThePreCompactHookSurvivesALongTranscriptLine(t *testing.T) {
+// Sized and bounded from measurement. Against a 29MB fixture the hook takes
+// 0.13s with the prefilter and 12.72s without, so the 5s bound leaves ~38x
+// headroom on the passing side while the mutant misses it by 2.5x — neither a
+// loaded CI box nor a fast one changes the verdict. On an engine that does not
+// backtrack this way the margin is smaller (a reviewer measured 15x on BSD sed),
+// which the bound's headroom absorbs.
+func TestThePreCompactHookDoesNotScanEveryTranscriptLine(t *testing.T) {
 	state, repo := t.TempDir(), gitRepoWithOneDirtyFile(t)
 
 	// 120 tool-result turns of 250,000 characters, then the one plain user turn
@@ -298,8 +298,8 @@ func TestThePreCompactHookSurvivesALongTranscriptLine(t *testing.T) {
 
 	if elapsed > 5*time.Second {
 		t.Errorf("the hook took %s over a %d-byte transcript of %d-character tool-result lines; "+
-			"the task-in-flight extraction is scanning them with a backtracking regexp, and at 75s "+
-			"the harness kills it — which costs the note, the marker and the re-ground wake, silently",
+			"the task-in-flight extraction is scanning lines that cannot match, which on a real "+
+			"transcript costs tens of seconds per compaction — put the grep prefilter back",
 			elapsed, b.Len(), len(huge))
 	}
 
