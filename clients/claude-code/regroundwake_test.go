@@ -183,28 +183,44 @@ func TestOnlyACompactionArmsTheWake(t *testing.T) {
 // the session cannot recover the work any other way, and it degrades the wake as
 // much as the printed pause: the monitor would emit the same empty label.
 func TestASlashCommandIsNotTheTaskInFlight(t *testing.T) {
-	state := t.TempDir()
-	env := regroundEnv(state, true)
-	transcript := filepath.Join(state, "t.jsonl")
-	lines := strings.Join([]string{
-		`{"type":"user","message":{"role":"user","content":"the work that was actually in flight"}}`,
-		`{"type":"user","message":{"role":"user","content":"/compact"}}`,
-	}, "\n") + "\n"
-	if err := os.WriteFile(transcript, []byte(lines), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	runHookEnv(t, "agentsmemory-precompact-hook.sh",
-		`{"session_id":"slashprobe","transcript_path":"`+transcript+`","trigger":"manual"}`, env)
+	// Each case is the LAST turn before the compaction. Every one of them is
+	// harness chrome that names no work, and the note must fall back past it.
+	//
+	// ⚠ THE WRAPPED CASE IS THE ONE THE FIXTURES MISSED, and only a live wake
+	// found it: `^/` matches the bare spelling, but a slash command reaches the
+	// transcript inside <command-name> tags, so its content starts with `<`.
+	for _, tc := range []struct {
+		name string
+		last string
+	}{
+		{"bare slash command", `/compact`},
+		{"wrapped slash command", `<command-message>am</command-message>\n<command-name>/am</command-name>\n<command-args>recall</command-args>`},
+		{"local command stdout", `<local-command-stdout>Compacted</local-command-stdout>`},
+		{"task notification", `<task-notification>\n<task-id>bz4bkmjl3</task-id>`},
+		{"system reminder", `<system-reminder>background context</system-reminder>`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			state := t.TempDir()
+			env := regroundEnv(state, true)
+			transcript := filepath.Join(state, "t.jsonl")
+			lines := strings.Join([]string{
+				`{"type":"user","message":{"role":"user","content":"the work that was actually in flight"}}`,
+				`{"type":"user","message":{"role":"user","content":"` + tc.last + `"}}`,
+			}, "\n") + "\n"
+			if err := os.WriteFile(transcript, []byte(lines), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			runHookEnv(t, "agentsmemory-precompact-hook.sh",
+				`{"session_id":"slashprobe","transcript_path":"`+transcript+`","trigger":"manual"}`, env)
 
-	body, err := os.ReadFile(filepath.Join(state, "agentsmemory-precompact", "slashprobe"))
-	if err != nil {
-		t.Fatalf("no note: %v", err)
-	}
-	if strings.Contains(string(body), "prompt=/compact") {
-		t.Errorf("the note names the compaction command as the task in flight:\n%s", body)
-	}
-	if !strings.Contains(string(body), "prompt=the work that was actually in flight") {
-		t.Errorf("the note does not fall back to the last real turn:\n%s", body)
+			body, err := os.ReadFile(filepath.Join(state, "agentsmemory-precompact", "slashprobe"))
+			if err != nil {
+				t.Fatalf("no note: %v", err)
+			}
+			if !strings.Contains(string(body), "prompt=the work that was actually in flight") {
+				t.Errorf("the note does not fall back past %s to the last real turn:\n%s", tc.name, body)
+			}
+		})
 	}
 }
 

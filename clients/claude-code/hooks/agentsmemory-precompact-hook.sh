@@ -99,10 +99,23 @@ TMP="$(mktemp "$DIR/.$SESSION.XXXXXX" 2>/dev/null)" || { trace "cannot write und
   # other way. The turn that TRIGGERS a compaction is usually the command that
   # triggered it, so the last plain turn is the wrong one exactly when this fires.
   # Dropping a turn that opens with `/` falls back to the work actually in flight.
+  #
+  # ⚠ AND `^/` IS ONLY ONE OF THE SPELLINGS — THE LIVE WAKE PROVED IT.
+  # Measured 2026-09-05, on the first compaction with the monitor armed: the
+  # emitted line read "/amm <command-message>am</command-message>
+  # <command-name>/am</command-name><command-args>recall</command-args>". A slash
+  # command reaches the transcript WRAPPED in those tags, so its content does not
+  # begin with `/` and the guard above passed it through — as it would for
+  # `<local-command-stdout>`, a `<task-notification>` and a `<system-reminder>`,
+  # all of which are harness chrome that names no work. The `^/` case is real and
+  # stays; this is the same defect in the spelling the fixture did not have.
+  # Named rather than `^<`, because a user turn may legitimately open with `<`.
   if [ "${AGENTSMEMORY_LAST_TURN:-on}" != "off" ] && [ -n "$TRANSCRIPT" ] && [ -r "$TRANSCRIPT" ]; then
     PENDING="$(grep -v '"isSidechain":[[:space:]]*true' "$TRANSCRIPT" 2>/dev/null \
       | sed -n 's/.*"role"[[:space:]]*:[[:space:]]*"user"[[:space:]]*,[[:space:]]*"content"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
-      | grep -v '^agentsmemory recalled' | grep -v '^/' | tail -n 1 | tr '\n\r\t' '   ' | cut -c1-200 \
+      | grep -v '^agentsmemory recalled' | grep -v '^/' \
+      | grep -v '^<command-\|^<local-command\|^<task-notification\|^<system-reminder' \
+      | tail -n 1 | tr '\n\r\t' '   ' | cut -c1-200 \
       | sed -e 's/[[:space:]][[:space:]]*/ /g' -e 's/^ //' -e 's/ $//')"
     [ -n "$PENDING" ] && printf 'prompt=%s\n' "$PENDING"
   fi
