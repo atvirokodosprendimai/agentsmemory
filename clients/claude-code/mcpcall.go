@@ -137,7 +137,7 @@ func runRemoteMCP(ctx context.Context, c *cli.Command, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(os.Stderr, "aiagentmemory: token from %s\n", source)
+	fmt.Fprintf(os.Stderr, tokenNoticeFormat, source)
 
 	ctx, cancel := context.WithTimeout(ctx, c.Duration("timeout"))
 	defer cancel()
@@ -384,3 +384,13 @@ func tokenFromClaudeJSON(path string) string {
 	auth := cfg.MCPServers[mcpName].Headers["Authorization"]
 	return strings.TrimSpace(strings.TrimPrefix(auth, "Bearer "))
 }
+
+// tokenNoticeFormat is the stderr line `mcp` prints once the credential is
+// resolved, before anything can fail. Named because the two recall hooks filter
+// it out when naming the cause of a failed recall — a hook that reported
+// `head -n1` of stderr named this notice as the error twice on 2026-09-05 — and
+// a literal in a shell script is coupled to this one by nothing but
+// TestTheHooksSkipTheNoticeTheCLIActuallyPrints, which renders this format and
+// checks each hook's filter against the rendered line rather than against a
+// second copy of the text.
+const tokenNoticeFormat = "aiagentmemory: token from %s\n"

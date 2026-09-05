@@ -362,6 +362,9 @@ if [ "$RC" -ne 0 ]; then
   # reported it as the cause on 2026-09-05 — twice, in this project's own
   # wake-up — and the real error (the second line) was never shown.
   ERR="$(grep -v '^aiagentmemory: token from' "$ERRFILE" 2>/dev/null | head -n1)"
+  # Stderr holding ONLY the notice and a non-zero exit would leave nothing to
+  # say; the unfiltered first line is then better than an empty reason.
+  [ -n "$ERR" ] || ERR="$(head -n1 "$ERRFILE" 2>/dev/null)"
   rm -f "$ERRFILE"
   # ⚠ NO CREDENTIAL CONFIGURED IS A STATE, NOT A FAULT — and it is the state a
   # Claude HOSTED install is in today. That install puts the token in the MCP
