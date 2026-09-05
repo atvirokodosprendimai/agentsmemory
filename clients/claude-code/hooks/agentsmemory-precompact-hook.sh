@@ -110,11 +110,22 @@ TMP="$(mktemp "$DIR/.$SESSION.XXXXXX" 2>/dev/null)" || { trace "cannot write und
   # all of which are harness chrome that names no work. The `^/` case is real and
   # stays; this is the same defect in the spelling the fixture did not have.
   # Named rather than `^<`, because a user turn may legitimately open with `<`.
+  #
+  # ⚠ AND THE CONTINUATION PREAMBLE IS THE FORM THAT COMPOUNDS. Found by running
+  # this hook against the REAL transcript rather than a fixture: after any
+  # compaction the harness injects a plain `type=user` turn opening "This session
+  # is being continued from a previous conversation…". It is prose, so no
+  # bracket rule reaches it — and it is the LAST plain turn for as long as the
+  # resumed session works without the user typing, so the SECOND compaction of a
+  # session would label its wake with the FIRST compaction's preamble. The label
+  # would degrade exactly as the session got longer, which is when re-grounding
+  # matters most.
   if [ "${AGENTSMEMORY_LAST_TURN:-on}" != "off" ] && [ -n "$TRANSCRIPT" ] && [ -r "$TRANSCRIPT" ]; then
     PENDING="$(grep -v '"isSidechain":[[:space:]]*true' "$TRANSCRIPT" 2>/dev/null \
       | sed -n 's/.*"role"[[:space:]]*:[[:space:]]*"user"[[:space:]]*,[[:space:]]*"content"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
       | grep -v '^agentsmemory recalled' | grep -v '^/' \
       | grep -v '^<command-\|^<local-command\|^<task-notification\|^<system-reminder' \
+      | grep -v '^This session is being continued from a previous conversation' \
       | tail -n 1 | tr '\n\r\t' '   ' | cut -c1-200 \
       | sed -e 's/[[:space:]][[:space:]]*/ /g' -e 's/^ //' -e 's/ $//')"
     [ -n "$PENDING" ] && printf 'prompt=%s\n' "$PENDING"

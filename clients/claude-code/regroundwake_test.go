@@ -198,6 +198,10 @@ func TestASlashCommandIsNotTheTaskInFlight(t *testing.T) {
 		{"local command stdout", `<local-command-stdout>Compacted</local-command-stdout>`},
 		{"task notification", `<task-notification>\n<task-id>bz4bkmjl3</task-id>`},
 		{"system reminder", `<system-reminder>background context</system-reminder>`},
+		// The compounding one: after any compaction the harness injects this as a
+		// plain user turn, so a session's SECOND compaction would label its wake
+		// with the FIRST one's preamble. Prose, so no bracket rule reaches it.
+		{"continuation preamble", `This session is being continued from a previous conversation that ran out of context.`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			state := t.TempDir()
