@@ -149,7 +149,7 @@ of its steps failed silently the day it was written:
 
     git checkout main && git pull --ff-only                    # FIRST: the clone below reads LOCAL main
     git clone -q --no-local --branch <tag-or-sha> . "$DIR"   # a CLONE, never a worktree
-    [ "$(git -C "$DIR" rev-parse --short HEAD)" = <sha> ] || exit 1   # the stamp must be what the clone IS
+    [ "$(git -C "$DIR" rev-parse HEAD)" = "$(git rev-parse '<tag-or-sha>^{}')" ] || exit 1   # the clone is at the ref you named
     cp .env.docker "$DIR/"                                    # a clone has no untracked files
     cd "$DIR" && AGENTSMEMORY_VERSION=<tag> scripts/redeploy.sh
     # then the kit, from the same tree — THREE binaries, not two: the Claude Desktop
@@ -167,8 +167,11 @@ of its steps failed silently the day it was written:
 one commit behind, the clone came out at the old commit, and `-X main.version=<new
 sha>` produced a kit binary that NAMED a commit it was not — the identity failure
 §Reachability keeps recording, caught only because `doctor` lacked the line the
-new commit adds. Pull first, and refuse to build when the clone's `rev-parse`
-disagrees with the stamp.
+new commit adds. Pull first, and refuse to build when the clone is not at the
+ref you named — compared as RESOLVED COMMITS (`^{}` dereferences an annotated
+tag), because the first draft of this guard compared the clone's sha to the
+stamp string and so refused every tag-stamped release, the documented normal
+path; review caught it against `v0.0.114` before it shipped.
 ⚠ A git worktree's `.git` is a pointer file the container does not mount, so
 every test that shells out to git goes red — four did, at a tag whose suite was
 green. ⚠ `AGENTSMEMORY_VERSION` is per-build, not sticky: a rebuild without it
