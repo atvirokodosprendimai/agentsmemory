@@ -63,6 +63,47 @@ could_not_look() {
 
 INPUT="$(cat || true)"
 
+# ADR-059: WHICH KIND OF START THIS IS. `source` is `startup`, `resume`, `clear`
+# or `compact`; only `compact` has a note waiting (the PreCompact hook writes
+# one keyed by this session id), and only on `compact` is that note about the
+# tree in front of the model — a resumed session's note may be hours old.
+FLAT="$(printf '%s' "$INPUT" | tr '\n' ' ')"
+SOURCE="$(printf '%s' "$FLAT" | sed -n 's/.*"source"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
+SESSION="$(printf '%s' "$FLAT" | sed -n 's/.*"session_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
+case "$SESSION" in *[!A-Za-z0-9_-]*) SESSION="" ;; esac
+NOTE="${AGENTSMEMORY_STATE_DIR:-${TMPDIR:-/tmp}}/agentsmemory-precompact/${SESSION:-none}"
+if [ "$SOURCE" = "compact" ] && [ -n "$SESSION" ] && [ -s "$NOTE" ]; then
+  # Printed FIRST and before any early exit below: the note is the one thing
+  # this hook knows for certain after a compaction, and a thin query or a missing
+  # credential must not cost the model its branch and its uncommitted count.
+  # key=value lines, read with a case rather than sourced — the file is data.
+  N_AT=""; N_TRIGGER=""; N_BRANCH=""; N_HEAD=""; N_DIRTY=0; N_TOUCHED=0; N_FILES=""; N_SHOWN=0
+  while IFS= read -r line; do
+    case "$line" in
+      at=*) N_AT="${line#at=}" ;;
+      trigger=*) N_TRIGGER="${line#trigger=}" ;;
+      branch=*) N_BRANCH="${line#branch=}" ;;
+      head=*) N_HEAD="${line#head=}" ;;
+      dirty=*) N_DIRTY="${line#dirty=}" ;;
+      touched=*) N_TOUCHED="${line#touched=}" ;;
+      file=*) N_FILES="${N_FILES:+$N_FILES, }${line#file=}"; N_SHOWN=$((N_SHOWN + 1)) ;;
+    esac
+  done < "$NOTE"
+  # The counts come from a file, and a file can be half-written or hand-edited;
+  # an arithmetic comparison on "" or "abc" aborts the block under set -u.
+  case "$N_TOUCHED" in ''|*[!0-9]*) N_TOUCHED=0 ;; esac
+  case "$N_DIRTY" in ''|*[!0-9]*) N_DIRTY=0 ;; esac
+  printf 'Before compaction (%s, %s): branch %s at %s, %s uncommitted file(s)\n' \
+    "$N_AT" "$N_TRIGGER" "${N_BRANCH:-?}" "${N_HEAD:-?}" "$N_DIRTY"
+  if [ "$N_SHOWN" -gt 0 ]; then
+    MORE=""
+    [ "$N_TOUCHED" -gt "$N_SHOWN" ] && MORE=" (+$((N_TOUCHED - N_SHOWN)) more)"
+    printf 'edited this session: %s%s\n' "$N_FILES" "$MORE"
+  fi
+  printf '\n'
+  trace "handed back the pre-compaction note $NOTE"
+fi
+
 [ "${AGENTSMEMORY_RECALL:-on}" = "off" ] && { trace "off (AGENTSMEMORY_RECALL=off)"; exit 0; }
 command -v aiagentmemory >/dev/null 2>&1 || { trace "no aiagentmemory on PATH"; exit 0; }
 
@@ -219,8 +260,14 @@ export AGENTSMEMORY_ORIGIN="hook:$(basename "$0")"
 TOKEN="${AGENTSMEMORY_LOCAL_TOKEN:-${AGENTSMEMORY_TOKEN:-}}"
 WING="${AGENTSMEMORY_WING:-}"
 recall() {
-  # $1 = wing or empty, $2 = digest budget in characters
-  local args=(mcp search "$QUERY" -a limit=3 -a snippet_chars=300 -a room=diary -a max_distance=0.42 --digest "$2")
+  # $1 = wing or empty, $2 = digest budget in characters,
+  # $3 = room (empty means the shipped default), $4 = limit (default 3),
+  # $5 = query (default $QUERY)
+  local args=(mcp search "${5:-$QUERY}" -a "limit=${4:-3}" -a snippet_chars=300)
+  # The default room is spelled as a literal on purpose: ADR-041 T4's record pins
+  # it, and TestTheRecallHookAsksTheRoomItsRecordShips reads it from this file.
+  if [ -n "${3:-}" ]; then args+=(-a "room=$3"); else args+=(-a room=diary); fi
+  args+=(-a max_distance=0.42 --digest "$2")
   [ -n "$1" ] && args+=(-a "wing=$1")
   [ -n "$TOKEN" ] && args+=(--token "$TOKEN")
   aiagentmemory "${args[@]}" 2>"$ERRFILE"
@@ -256,11 +303,23 @@ if [ "$RC" -ne 0 ]; then
   exit 0
 fi
 CRAFT=""
+CHECKPOINT=""
 if [ -n "$WING" ]; then
-  CRAFT="$(recall wing_craft 400)" || CRAFT=""
+  if [ "$SOURCE" = "compact" ]; then
+    # ADR-059: after a compaction the 400-character second slot goes to the
+    # session's OWN crash-resume checkpoint (AGENTS.md §The working loop, item
+    # 4 tells every session to file one before its first edit) rather than to
+    # craft — the craft fact was injected at the cold start and is in the
+    # summary or is not; the checkpoint is the record written for exactly this
+    # moment. Wing-scoped only: an unscoped checkpoint is another project's
+    # open thread, which is worse than silence.
+    CHECKPOINT="$(recall "$WING" 400 llm_open_threads 1 'WHERE SHOULD WORK RESUME AFTER A CRASH')" || CHECKPOINT=""
+  else
+    CRAFT="$(recall wing_craft 400)" || CRAFT=""
+  fi
 fi
 rm -f "$ERRFILE"
-[ -n "$HITS$CRAFT" ] || { trace "the server returned nothing at all"; exit 0; }
+[ -n "$HITS$CRAFT$CHECKPOINT" ] || { trace "the server returned nothing at all"; exit 0; }
 
 # ⚠ ON STDERR, WHICH IS WHY IT IS ALLOWED TO EXIST. F-6 governs what reaches the
 # MODEL, and Claude Code injects only stdout; stderr costs no context and is where
@@ -268,9 +327,9 @@ rm -f "$ERRFILE"
 # indistinguishable from a mute one from the outside, which is exactly how the wrong
 # room survived two repairs: every gate asked whether the script printed, and the
 # one fact that would have settled it — asked room X, got 0 — was never written down.
-trace "query=$QUERY room=diary max_distance=0.42 wing=${WING:-<none>} chars=$(( ${#HITS} + ${#CRAFT} ))"
-
+trace "query=$QUERY room=diary max_distance=0.42 wing=${WING:-<none>} source=${SOURCE:-<none>} chars=$(( ${#HITS} + ${#CRAFT} + ${#CHECKPOINT} ))"
 # The payload is the recall RESULT, not an instruction to recall. An instruction
+
 # is what three layers of protocol already deliver, and what ADR-017 measured as
 # the least promising intervention.
 # ⚠ THE HEADER MUST NOT CLAIM A PROVENANCE THE QUERY CANNOT GUARANTEE. This search
@@ -288,6 +347,7 @@ else
 fi
 [ -n "$HITS" ] && printf '%s\n' "$HITS"
 [ -n "$CRAFT" ] && printf 'craft:\n%s\n' "$CRAFT"
+[ -n "$CHECKPOINT" ] && printf 'checkpoint:\n%s\n' "$CHECKPOINT"
 
 # Always succeed: the last line above is a conditional print, and a hook whose
 # final test is false must not hand the session a non-zero exit.

@@ -3731,3 +3731,12 @@ appending a two-line state note (wing, the open thread the diary would record) f
 SessionStart to hand back. Not in ADR-058 because that record is about the SIZE and SCOPE of what
 one recall injects, and these are new events with their own reachability questions (which stdout
 each injects — ADR-051's four-event set is the gate to extend).
+
+**RESOLVED by `docs/adr/ADR-059-a-compaction-hands-back-the-state-it-discarded.md`, 2026-09-05 —
+and the first half was already true.** The SessionStart hooks are registered matcher-less, so
+they fire on `compact` and the wake-up recall was re-emitted after every compaction all along; a
+`compact` matcher would have registered a duplicate. What was missing was a note written BEFORE
+the summary (a `PreCompact` hook, T1) and a post-compaction recall that asks for the session's own
+`llm_open_threads` checkpoint instead of the cold-start question (T2). Still deferred under
+ADR-059's name: reading the note on `resume`, where a note from the same session id may be hours
+old and the tree may have moved under it.

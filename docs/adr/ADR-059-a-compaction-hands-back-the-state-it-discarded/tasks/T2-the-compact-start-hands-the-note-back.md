@@ -35,7 +35,7 @@ After a compaction the recall injection opens with the pre-compaction note and c
 ```bash
 set -o pipefail
 go test ./clients/claude-code/ -run 'TestACompactStartHandsBackTheStateNote$|TestAColdStartDoesNotReadTheNote$' -count=1 2>&1 | tee /tmp/acc.out && ! grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/acc.out && \
-go test ./clients/claude-code/ -run 'TestF6AHookIsSilentInTheCommonCase$|TestTheQueryCarriesTheBranchWorkOnACleanTree$|TestNoCredentialIsSilentButABadOneSpeaks$|TestTheRecallHookAsksTheRoomItsRecordShips$|TestAThinQueryIsWidenedOnEveryBranch$|TestTheRecallInjectionIsScopedToTheInstalledWing$' -count=1 2>&1 | tee /tmp/acc2.out && ! grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/acc2.out
+go test ./clients/claude-code/ -run 'TestF6AHookIsSilentInTheCommonCase$|TestTheQueryCarriesTheBranchWorkOnACleanTree$|TestNoCredentialIsSilentButABadOneSpeaks$|TestTheRecallHookAsksTheRoomItsRecordShips$|TestAThinQueryIsWidenedOnEveryBranch$|TestTheRecallHookCarriesTheInstalledWing$' -count=1 2>&1 | tee /tmp/acc2.out && ! grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/acc2.out
 ```
 
 ## Tests
@@ -44,7 +44,7 @@ go test ./clients/claude-code/ -run 'TestF6AHookIsSilentInTheCommonCase$|TestThe
 |-----------|------|----------|--------|-------|
 | `TestACompactStartHandsBackTheStateNote` | `clients/claude-code/precompact_test.go` | on `compact` the injection opens with the note and the second call asks `llm_open_threads` in the installed wing, not `wing_craft` | — | S1, S2 |
 | `TestAColdStartDoesNotReadTheNote` | `clients/claude-code/precompact_test.go` | on `startup` the note is ignored and craft is still asked | — | S1, S2 |
-| `TestTheRecallInjectionIsScopedToTheInstalledWing` | `clients/claude-code/recallscope_test.go` | ADR-058's wing scoping survives the edit (regression) | — | — |
+| `TestTheRecallHookCarriesTheInstalledWing` | `clients/claude-code/recallscope_test.go` | ADR-058's wing scoping survives the edit (regression) | — | — |
 
 ## Reachability
 
@@ -56,6 +56,13 @@ go test ./clients/claude-code/ -run 'TestF6AHookIsSilentInTheCommonCase$|TestThe
 | 4 — it is used | S4's live compaction; nothing counts it afterwards (Follow-up in the record) |
 
 ## Mutation Log
+
+- 2026-09-05 · 42137b9* · mutant killed · exit 1 · `clients/claude-code/hooks/agentsmemory-recall-hook.sh` · the note block is never rendered, so a compaction hands nothing back · acceptance-sha256:c0f4ddf49ed44371576d94e63bb5c24dcb6ca606f6e951c0876353861d23d586 · covers:the note block
+- 2026-09-05 · 42137b9* · mutant killed · exit 1 · `clients/claude-code/hooks/agentsmemory-recall-hook.sh` · a compact start asks wing_craft like a cold start, so the checkpoint is never recalled · acceptance-sha256:c0f4ddf49ed44371576d94e63bb5c24dcb6ca606f6e951c0876353861d23d586 · covers:the checkpoint recall replaces craft on compact
+- 2026-09-05 · 42137b9* · mutant killed · exit 1 · `clients/claude-code/hooks/agentsmemory-recall-hook.sh` · the source field is ignored and every start is treated as a compaction, so a cold start reads a stale note and skips craft · acceptance-sha256:c0f4ddf49ed44371576d94e63bb5c24dcb6ca606f6e951c0876353861d23d586 · covers:the source gate
+- 2026-09-05 · 42137b9* · mutant killed · exit 1 · `clients/claude-code/hooks/agentsmemory-recall-hook.sh` · the note block is never rendered, so a compaction hands nothing back (re-recorded after the fence named the real regression test) · acceptance-sha256:7ed5f00de21c3b659caa2052903f3386d3669b1e299189896623bdcc54d53a18 · covers:the note block
+- 2026-09-05 · 42137b9* · mutant killed · exit 1 · `clients/claude-code/hooks/agentsmemory-recall-hook.sh` · a compact start asks wing_craft like a cold start, so the checkpoint is never recalled (re-recorded) · acceptance-sha256:7ed5f00de21c3b659caa2052903f3386d3669b1e299189896623bdcc54d53a18 · covers:the checkpoint recall replaces craft on compact
+- 2026-09-05 · 42137b9* · mutant killed · exit 1 · `clients/claude-code/hooks/agentsmemory-recall-hook.sh` · the source field is ignored and every start is treated as a compaction (re-recorded) · acceptance-sha256:7ed5f00de21c3b659caa2052903f3386d3669b1e299189896623bdcc54d53a18 · covers:the source gate
 
 ## Invariants
 
@@ -76,3 +83,23 @@ Stop and reopen the record if S4's live compaction injects no `Before compaction
 - Reading the note on `resume` (deferred: `docs/adr/BACKLOG.md`, under ADR-059's name).
 
 ## Verification Log
+- 2026-09-05 · 42137b9* · exit 1 · `set -o pipefail …` · acceptance-sha256:c0f4ddf49ed44371576d94e63bb5c24dcb6ca606f6e951c0876353861d23d586 · ms:3757
+  ```
+  --- last 10 line(s) of stdout (of 51 after folding 51 raw)
+          craft:
+          a hit
+      precompact_test.go:204: the checkpoint call lacks "room=llm_open_threads": mcp search task/note a.go -a limit=3 -a snippet_chars=300 -a room=diary -a max_distance=0.42 --digest 400 -a wing=wing_craft --token t
+      precompact_test.go:204: the checkpoint call lacks "wing=wing_acme": mcp search task/note a.go -a limit=3 -a snippet_chars=300 -a room=diary -a max_distance=0.42 --digest 400 -a wing=wing_craft --token t
+      precompact_test.go:204: the checkpoint call lacks "limit=1": mcp search task/note a.go -a limit=3 -a snippet_chars=300 -a room=diary -a max_distance=0.42 --digest 400 -a wing=wing_craft --token t
+      precompact_test.go:204: the checkpoint call lacks "WHERE SHOULD WORK RESUME AFTER A CRASH": mcp search task/note a.go -a limit=3 -a snippet_chars=300 -a room=diary -a max_distance=0.42 --digest 400 -a wing=wing_craft --token t
+      precompact_test.go:209: a compact start still asks wing_craft: mcp search task/note a.go -a limit=3 -a snippet_chars=300 -a room=diary -a max_distance=0.42 --digest 400 -a wing=wing_craft --token t
+  FAIL
+  FAIL	github.com/atvirokodosprendimai/agentsmemory/clients/claude-code	1.315s
+  FAIL
+  ```
+- 2026-09-05 · 42137b9* · exit 0 · `set -o pipefail …` · acceptance-sha256:c0f4ddf49ed44371576d94e63bb5c24dcb6ca606f6e951c0876353861d23d586 · ms:8354
+- 2026-09-05 · 42137b9* · exit 0 · `set -o pipefail …` · acceptance-sha256:c0f4ddf49ed44371576d94e63bb5c24dcb6ca606f6e951c0876353861d23d586 · ms:6481
+- 2026-09-05 · 42137b9* · exit 0 · `set -o pipefail …` · acceptance-sha256:c0f4ddf49ed44371576d94e63bb5c24dcb6ca606f6e951c0876353861d23d586 · ms:6332
+- 2026-09-05 · 42137b9* · exit 0 · `set -o pipefail …` · acceptance-sha256:7ed5f00de21c3b659caa2052903f3386d3669b1e299189896623bdcc54d53a18 · ms:8351
+- 2026-09-05 · 42137b9* · exit 0 · `set -o pipefail …` · acceptance-sha256:7ed5f00de21c3b659caa2052903f3386d3669b1e299189896623bdcc54d53a18 · ms:7010
+- 2026-09-05 · 42137b9* · exit 0 · `set -o pipefail …` · acceptance-sha256:7ed5f00de21c3b659caa2052903f3386d3669b1e299189896623bdcc54d53a18 · ms:7422

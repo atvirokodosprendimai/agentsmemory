@@ -18,7 +18,7 @@ README must be regenerated.
 | ID | Title | Status | Covers | Acceptance |
 |----|-------|--------|--------|------------|
 | T1 | A PreCompact hook writes the session's state note before the context is summarised | done | — | `go test ./clients/claude-code/ -run 'TestThePreCompactHookWritesTheStateNote$\|TestThePreCompactHookIsRegistered$' …` |
-| T2 | The SessionStart recall on `source=compact` hands the note back and recalls the session's checkpoint | pending | — | `go test ./clients/claude-code/ -run 'TestACompactStartHandsBackTheStateNote$\|TestAColdStartDoesNotReadTheNote$' …` |
+| T2 | The SessionStart recall on `source=compact` hands the note back and recalls the session's checkpoint | partial | — | `go test ./clients/claude-code/ -run 'TestACompactStartHandsBackTheStateNote$\|TestAColdStartDoesNotReadTheNote$' …` |
 
 Status: `pending` | `partial` | `blocked` | `done`.
 
@@ -30,4 +30,4 @@ Status: `pending` | `partial` | `blocked` | `done`.
 
 ## Notes
 
-- T2's fence is hermetic; its S4 live compaction is recorded in the sign-off, and a silent one is the Stop Condition, not a pass.
+- T2's fence is hermetic and green with three mutants killed; it stays `partial` until its S4 live compaction is recorded with `adr-verify --human`, and a silent one is the Stop Condition, not a pass.

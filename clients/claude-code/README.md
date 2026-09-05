@@ -173,7 +173,13 @@ reporting success.
   the URL in each hook's environment; with it set the hook searches that wing
   and then `wing_craft` (the wing every project reads) under a `craft:` line,
   both within the same budget, and its preamble stops disclaiming provenance.
-  Without it the hook searches the whole workspace, as before, and says so. A
+  Without it the hook searches the whole workspace, as before, and says so. After
+  a COMPACTION (`source` is `compact` in the event) the injection opens with the
+  note the `PreCompact` hook wrote — branch, HEAD, uncommitted count, the files
+  edited this session — and the second call asks the installed wing's
+  `llm_open_threads` room for the session's own crash-resume checkpoint under a
+  `checkpoint:` line instead of `wing_craft` (ADR-059); on `startup`, `resume`
+  and `clear` nothing changes. A
   recall that could not run says `could not look` to the model through
   `additionalContext` as well as on stderr. Both recall hooks export `AGENTSMEMORY_ORIGIN=hook:<script>`
   before searching (ADR-054): the kit sends it as `X-Agentsmemory-Origin`, the
