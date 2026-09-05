@@ -3761,3 +3761,24 @@ measurement over a day of real prompts with hit QUALITY judged, not hit count, b
 that one call moves; ADR-054's `am_recall_stats` is the instrument. Not changed in ADR-059 because
 `wing_craft` is a whole wing of mixed material, unlike `llm_open_threads`, where the room is the
 scope and the floor guarded against nothing.
+
+## The task-recall hook recalls on `<task-notification>` payloads — 2026-09-05
+
+Found while sampling `search_events` for the git-history measurement
+(`docs/measurement/2026-09-05-git-history-twenty-queries.md`): rows whose query is a
+`<task-notification>…` block, i.e. the UserPromptSubmit hook ran its recall on text the harness
+generated when a background task finished, not on anything a human typed. Four such rows on
+2026-09-04 in one sample; each is a search round-trip at the moment the model is waiting, and each
+enters `am_recall_stats`' to-write list as an unanswered question nobody asked. The hook already
+refuses a slash command by design (ADR-051 T4); a payload opening with `<task-notification>` or
+`<system-reminder>` is the same class and should be refused the same way, with the refusal on
+stderr. Small; its own change.
+
+## Git-history minting passed its gate at 7 of 20 — 2026-09-05
+
+The parity note's precondition (twenty real queries, would history hold the answer, under a quarter
+means distraction) was measured on 2026-09-05: 7 of 20, all answered by commit or PR BODIES and
+none by a subject or a diff (`docs/measurement/2026-09-05-git-history-twenty-queries.md`, with its
+sample bias stated). A record is worth writing, scoped to bodies as verbatim episodes in their own
+room, origin-stamped (ADR-054), measured on this repository first. Awaiting the owner's decision to
+draft it.
