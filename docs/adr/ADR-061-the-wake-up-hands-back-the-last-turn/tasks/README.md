@@ -19,7 +19,7 @@ README must be regenerated.
 | ID | Title | Status | Covers | Acceptance |
 |----|-------|--------|--------|------------|
 | T1 | The Stop hook writes the project's last-turn note | done | — | `go test ./clients/claude-code/ -run 'TestTheStopHookWritesTheLastTurnNote$\|TestTheLastTurnNoteIsOffWhenAsked$' …` |
-| T2 | A `startup` or `resume` opens with the last-turn note and asks the checkpoint when the branch matches | pending | — | `go test ./clients/claude-code/ -run 'TestAColdStartOnTheSameBranchHandsBackTheLastTurn$\|TestAColdStartOnAnotherBranchKeepsCraft$' …` |
+| T2 | A `startup` or `resume` opens with the last-turn note and asks the checkpoint when the branch matches | partial | — | `go test ./clients/claude-code/ -run 'TestAColdStartOnTheSameBranchHandsBackTheLastTurn$\|TestAColdStartOnAnotherBranchKeepsCraft$' …` |
 | T3 | `/am` and the bootstrap protocol read the wake-up before planning | pending | — | `go test ./clients/claude-code/ -run 'TestBothProtocolsReadTheWakeUp$' …` |
 
 Status: `pending` | `partial` | `blocked` | `done`.

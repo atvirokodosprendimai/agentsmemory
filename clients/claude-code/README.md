@@ -179,7 +179,12 @@ reporting success.
   edited this session — and the second call asks the installed wing's
   `llm_open_threads` room for the session's own crash-resume checkpoint under a
   `checkpoint:` line instead of `wing_craft` (ADR-059); on `startup`, `resume`
-  and `clear` nothing changes. A
+  and `clear` nothing changes there — but on `startup` and `resume` the injection
+  opens with the LAST-TURN note the Stop hook wrote (ADR-061): branch, HEAD,
+  uncommitted count, the files edited, the last user prompts, as facts. When that
+  note's branch is the current branch the second call asks the checkpoint room as
+  on `compact` (the same work, continued); otherwise `wing_craft`.
+  `AGENTSMEMORY_LAST_TURN=off` turns both halves off. A
   recall that could not run says `could not look` to the model through
   `additionalContext` as well as on stderr. Both recall hooks export `AGENTSMEMORY_ORIGIN=hook:<script>`
   before searching (ADR-054): the kit sends it as `X-Agentsmemory-Origin`, the
