@@ -3720,3 +3720,14 @@ check of the peer is to spawn it and ask whether this repository's index is read
 files because a diagnostic that starts a daemon inherits that daemon's stale-IPC start (recorded
 2026-08-31: a leftover socket makes start poll to a 30 s timeout). Worth doing once that start is
 bounded upstream.
+
+## A session that compacts loses its wake-up, and nothing hands it back — 2026-09-05
+
+Deferred from `docs/adr/ADR-058-the-recall-injection-is-a-digest-with-a-budget.md` (Out of Scope),
+from a quality-harness session's finding the same day. Two hook events worth wiring: SessionStart
+with matcher `compact`, re-emitting the wake-up (am_status summary, wing, inbox count) after
+compaction — which is exactly when a session starts acting on stale assumptions; and PreCompact,
+appending a two-line state note (wing, the open thread the diary would record) for the post-compact
+SessionStart to hand back. Not in ADR-058 because that record is about the SIZE and SCOPE of what
+one recall injects, and these are new events with their own reachability questions (which stdout
+each injects — ADR-051's four-event set is the gate to extend).
