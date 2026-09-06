@@ -883,6 +883,44 @@ rejects a `done` whose logged command no longer matches), so it is a deliberate 
 drive-by: strip the guards, re-run adr-verify on every completed task, commit between runs. Until
 then, scope a multi-package acceptance to the package that holds the tests.
 
+## MOSTLY RESOLVED 2026-09-06 — the multi-chunk refusals are gone; re-chunking on a content update is what remains (filed 2026-08-20)
+
+⚠ **THIS ENTRY'S CENTRAL CLAIM IS NO LONGER TRUE.** It says `Update` "now refuses when the drawer
+belongs to a multi-chunk memory". It does not, and the code says so in its own comment
+(`internal/palace/repo.go`): *"Service.Update used to REFUSE a multi-chunk content edit and this
+comment said so; ADR-038 T4 moved corrections onto supersede and ADR-045 removed the refusal's
+remaining half, so the guard named here no longer exists."*
+
+So a correction of a memory of any chunk count is ACCEPTED, addressed through any chunk's id, and
+files the replacement through the chunking path. Verified in this session by superseding a
+two-chunk record twice.
+
+**The MOVE half is resolved too**, and this entry lists it as still open. `Service.Update`
+(`internal/palace/service.go`) now resolves `MemoryChunks` and moves every row in one transaction;
+the comment there records why the refusal was never protecting an invariant — *"it was the honest
+answer of a function doing 1/N of the job, and it was the last row-scoped write path in this
+package"* — and why removing it was safe: a move changes no CONTENT, so chunk boundaries and
+`chunk_index` are unchanged, no row is minted or destroyed, and every fact, anchor and pinned tunnel
+keeps pointing at a live id.
+
+**WHAT ACTUALLY REMAINS** is the first of the two items, unchanged and correctly stated:
+re-chunking on a CONTENT update. The same comment ends *"Re-chunking on a CONTENT update remains
+unsolved and remains in the backlog"*, and it is still an ADR rather than a bug fix, because it
+changes how many rows exist and which ids they carry — ADR-027's open question about a reference
+into a chunk a re-chunk would delete.
+
+⚠ **AND A SHIPPED SKILL STILL TEACHES THE REMOVED REFUSAL.** The centralised `start-here` skill
+says "WHAT IS STILL REFUSED IS THE MOVE — sending only wing/room for a multi-chunk memory is
+rejected", and concludes "born long = never RELOCATABLE". The server's own live `am_add_drawer`
+description already contradicts it: *"a memory of ANY length can be corrected … and relocated
+(wing/room moves every chunk in one transaction), so length costs you no capability — do not spend
+turns trimming to fit."* A session reading the skill will size records around a constraint that was
+removed, which is the cost this corpus records against stale prose. Not edited here: a centralised
+skill is shared by every project and its correction is the owner's call, not a drive-by from one
+repository.
+
+Original entry, kept because the incident is the record:
+
 ## A memory is several rows and most operations treat it as one
 
 Found in production 2026-08-20 by a session correcting one of its own memories, and reproduced here
