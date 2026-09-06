@@ -268,7 +268,7 @@ aiagentmemory wrap [args]                      run Claude against the global con
 aiagentmemory wrap --agent codex [args]        run codex against ~/.codex
 aiagentmemory mcp                              list the memory tools you can call
 aiagentmemory mcp <tool> [arg] [-a k=v]        call one and print what it returns
-aiagentmemory doctor [--agent <a>]             can the installed hooks reach a session?
+aiagentmemory doctor [--agent <a>]             is ONE agent's install actually wired?
 ```
 
 `--agent` is only read in the leading position of `run`/`wrap` — everything after
@@ -293,13 +293,24 @@ project: ~/code/your-repo
   all 2 injecting hook(s) are registered on an injecting event and ran
 ```
 
-It exits non-zero on three states, and only these three:
+It judges ONE kit per run — the one `--agent` names, `claude` by default — so a
+green report says nothing about your other installs. Run it once per agent.
+
+These are the HOOK verdicts it exits non-zero on:
 
 | verdict | what it means |
 |---|---|
 | `UNREGISTERED` | the script is installed and no event runs it — re-run `install` |
 | `DISCARDED` | registered on an event whose PLAIN stdout goes to the debug log; only `SessionStart`, `UserPromptSubmit`, `UserPromptExpansion` and `PostModelSwitch` reach the model that way. A hook declaring a structured channel is not judged here — it injects via `additionalContext` instead |
 | `FAILED` | it exited non-zero; the indented line under it is the hook's own stderr |
+
+Three more rows are judged beside the hooks, and each has its own verdicts and its
+own exit contribution: **`codebase-memory`** (below), the **bridge binary** — only
+for `--agent claude-desktop`, the one kit that registers one — and the **server**
+the install points at, read from its MCP handshake (`UNSTAMPED` for a build naming
+no version, `UNREACHABLE` for an endpoint that did not answer). An earlier version
+of this page said doctor exited non-zero on "three states, and only these three",
+which the `codebase-memory` table two paragraphs down already contradicted.
 
 **The `codebase-memory` row** (ADR-057) judges the peer the session protocol tells
 every agent to call first, from the two files `doctor` already reads — `settings.json`
