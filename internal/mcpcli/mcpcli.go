@@ -318,7 +318,8 @@ func ParseArgs(argFlags, rawTail []string, properties map[string]any, primaryKey
 			add(token)
 		case positional == "":
 			positional = token
-		// An undeclared key=value with the positional already spoken for has no
+		// A key=value isArgToken turned down — an undeclared key, or a declared
+		// one carrying whitespace — with the positional already spoken for has no
 		// role left to play, so it travels as the argument the caller typed and
 		// the server rejects it by name. Dropping it instead would be the same
 		// silence this whole branch exists to remove, and it is the documented
