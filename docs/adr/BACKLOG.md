@@ -2263,6 +2263,47 @@ dedup, which turns 2 of its 4 subtests red.
 
 Only the hash-or-drop options still need the ADR owner, and neither gates T3.
 
+⚠ **UPDATE 2026-09-06 — T3 IS BLOCKED AFTER ALL, ON A SECOND PRECONDITION THIS ENTRY DID NOT HAVE.**
+Option 1 was executed and it works: `mine-claude --wing wing_acme --limit 0` mined 146 sessions,
+`wing_acme` reached 210 distinct sources, and D1 admitted **76** against its floor of 40. The
+source-file arithmetic this entry got right twice is right a third time. But **D2 cannot be taken at
+all**, and the reason is Option 1 itself.
+
+`--style real` replays RECORDED search traffic. A wing mined for the first time has never been
+searched, so `search_events` holds nothing for it and the eval refuses:
+
+```
+no recorded searches to replay in wing_acme of workspace "local" — real-query cases
+need search telemetry; run some sessions against this palace first, or use a
+generated --style
+```
+
+Measured: `wing_acme` 0 rows, `wing_agentmemories` 1,486. So forcing an explicit `--wing` to make
+the evidence committable is exactly what makes D2 unobtainable — the declared wing is committable
+BECAUSE nobody works in it, and it has no telemetry for the same reason. The two requirements are
+in tension by construction, and no `--n`, `--pool` or re-run reaches around it.
+
+**Both closes were refused.** Generating traffic against `wing_acme` manufactures the telemetry the
+`real` category is defined as replaying, so the cell would measure the runner's own questions; and
+the derived wing has the traffic but step 3 forbids committing its `cells.json`. D2 is Table 2's
+VETO, so the three cells that WERE taken (D1 76/13, R1 38/0, R2 17/0, one binary at `fa93749`,
+`dirty:false`) do not decide the ADR.
+
+Filed as PR #342, a DRAFT carrying the three records and `TestClosetEvidenceIsComplete` red on the
+missing fourth, so `main` stays green and the task stays not-done.
+
+**What would close it:** real sessions searching `wing_acme` until `search_events` holds enough for
+D2's floor of 10 admitted cases, then re-run D2 alone with the same binary. Nothing else in the
+evidence set needs re-taking. ⚠ An owner decision is available and cheaper — declaring that D2 may
+be taken on a wing that has organic traffic, with the `wing` field hashed as the hash-or-drop option
+above already proposes — but that is the same decision this entry has been holding open since
+2026-08-28, now with a second reason to take it.
+
+⚠ **One more trap, found by hitting it:** T3 step 2 builds the shared binary in
+`golang:1.26-alpine`. That is a LINUX artifact and all four runs exit 126 on macOS. A native build
+carries the identical stamp (`vcs.revision`, `vcs.modified=false`), so the invariant that matters —
+four records, one commit, clean tree — still holds. Step 2's wording assumes a Linux host.
+
 ## Four spellings of one entry point, and the served document teaches a fifth — 2026-08-28
 
 **Fourth framing. The three before it each named a single CAUSE and each died to one more query;
