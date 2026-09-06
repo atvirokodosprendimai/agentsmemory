@@ -24,14 +24,21 @@ const (
 	// MaxEmbedRunes bounds a single string handed to the embedder as ONE vector.
 	// Set to 4000 by M, 2026-08-25.
 	//
-	// It exists because ChunkText bounds the ADD path and nothing bounds the
-	// UPDATE path: Update re-embeds its whole content with EmbedOne, never
-	// re-chunking (deliberately — see Service.Update), so a memory created small
-	// and grown in place is the one input that can exceed the model's window. The
-	// TEI client asks for truncation so an over-long input cannot fail a whole
-	// batch, which means the server answers 200 with a vector for the PREFIX: the
-	// tail stays stored, still comes back from am_get_drawer, and is simply
-	// unfindable. Silent, and only on this path.
+	// ⚠IT BEGAN AS A REFUSAL AND IS NOW AN INVARIANT, and a reader who takes it
+	// for the first will go looking for a check that is not there. It existed
+	// because ChunkText bounded the ADD path while the UPDATE path re-embedded a
+	// whole memory with EmbedOne and never re-chunked, so a memory created small
+	// and grown in place was the one input that could exceed the model's window:
+	// the TEI client asks for truncation, so an over-long input came back 200 with
+	// a vector for the PREFIX, and the tail stayed stored, still readable through
+	// am_get_drawer, and simply unfindable. ADR-038 T4 made a content change a
+	// supersede filed through Add, which chunks, and the check that read this
+	// constant was deleted with the path it guarded (bfe0b65).
+	//
+	// So nothing in the serving code reads this today. What keeps the number
+	// honest is TestCorrectingWithLongContentChunksInsteadOfTruncating, which
+	// drives a real oversized correction through Update and fails if any string
+	// reaching the embedder is longer than this.
 	//
 	// ⚠IT IS CONSERVATIVE HEADROOM, NOT A MEASURED CEILING, and saying so matters
 	// because the obvious reading is wrong. Both shipped backends run bge-m3 —
