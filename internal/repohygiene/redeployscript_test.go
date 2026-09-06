@@ -1,6 +1,9 @@
 package repohygiene
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -630,25 +633,109 @@ echo "==> deployed and verified"
 }
 
 // TestTheRedeployGateIsAppliedToTheTree is the rung the gate cannot reach:
-// delete the two lines that point it at this repository and its fixtures keep
+// delete the line that points a check at this repository and its fixtures keep
 // passing, with the gate's own name printed as PASS. Demonstrated on a sibling
 // gate in review of PR #316.
+//
+// ⚠ THE UNIVERSE IS DERIVED, AND IT WAS A KEPT LIST UNTIL 2026-09-06 — WHICH WENT
+// STALE TWICE IN TWO DAYS. The list named four checks. #343 added
+// checkShadowWarning and #344 added checkNeedlePreflight, both with a real-tree
+// call, and neither was added to the list. Measured in review of #344:
+// commenting out `checkNeedlePreflight(t, root)` left the whole package at exit 0
+// — this guard green, and #333's falsifiability gate green too, because the
+// recorder-driven subtests still existed and it only asks whether a negative case
+// is wired. So the newest check could stop being applied to the real script and
+// nothing in the tree would say so, which is verbatim the defect this test's own
+// first paragraph describes.
+//
+// Two consecutive PRs missed the same list, which is the argument: a list kept
+// beside the truth goes stale, and this repository's own rules say so. The
+// universe is now every predicate DECLARED IN THIS FILE taking (testing.TB,
+// string), so a check joins the check on the commit that adds it.
+//
+// ⚠ THE COST, STATED RATHER THAN HIDDEN: a future top-level helper in this file
+// with that exact signature and no business running against the tree would be
+// flagged and would need renaming or an exemption. That is a loud, one-line
+// problem, and it is the trade taken deliberately over the silent one this
+// replaces — today the signature belongs to the six checks and nothing else.
 func TestTheRedeployGateIsAppliedToTheTree(t *testing.T) {
-	src, err := os.ReadFile("redeployscript_test.go")
+	const self = "redeployscript_test.go"
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, self, nil, 0)
 	if err != nil {
-		t.Fatalf("read this file: %v", err)
+		t.Fatalf("parse %s: %v", self, err)
 	}
-	body := string(src)
-	for _, call := range []string{
-		"checkRedeployScript(t, root)",
-		"checkNoEmptySections(t, root)",
-		"checkStageSequence(t, root)",
-		"checkDocumentedClone(t, root)",
-	} {
-		if !strings.Contains(body, call) {
-			t.Errorf("TestTheRedeployPathKeepsItsWindowsFixes never runs %s against the "+
-				"repository root; its fixtures would still pass and the package would still "+
-				"report PASS over a tree carrying the retired constructs", call)
+
+	var predicates []string
+	for _, d := range f.Decls {
+		fn, ok := d.(*ast.FuncDecl)
+		if !ok || fn.Recv != nil || fn.Type.Params == nil || len(fn.Type.Params.List) != 2 {
+			continue
+		}
+		sel, ok := fn.Type.Params.List[0].Type.(*ast.SelectorExpr)
+		if !ok || sel.Sel.Name != "TB" {
+			continue
+		}
+		if pkg, ok := sel.X.(*ast.Ident); !ok || pkg.Name != "testing" {
+			continue
+		}
+		if id, ok := fn.Type.Params.List[1].Type.(*ast.Ident); !ok || id.Name != "string" {
+			continue
+		}
+		predicates = append(predicates, fn.Name.Name)
+	}
+	// A derived universe that comes back empty is the failure mode a kept list
+	// cannot have: it would report a clean run over a file whose checks are all
+	// unapplied.
+	if len(predicates) == 0 {
+		t.Fatalf("%s declares no (testing.TB, string) predicate; either they were renamed or "+
+			"this extractor stopped seeing them, and both make the loop below vacuous", self)
+	}
+
+	// ⚠ THE SATISFACTION SIDE IS READ FROM THE AST TOO, AND THE FIRST DRAFT OF
+	// THIS LOOP WAS A strings.Contains. A commented-out call still contains its
+	// own text, so `// checkNeedlePreflight(t, root)` satisfied it and the mutant
+	// that removes the call passed — measured while writing this. That is the same
+	// hole checkShadowWarning records one screen up, reproduced here by reaching
+	// for a substring: a gate whose universe includes the prose cannot see the
+	// mechanism leave.
+	const rootTest = "TestTheRedeployPathKeepsItsWindowsFixes"
+	applied := map[string]bool{}
+	found := false
+	for _, d := range f.Decls {
+		fn, ok := d.(*ast.FuncDecl)
+		if !ok || fn.Name.Name != rootTest || fn.Body == nil {
+			continue
+		}
+		found = true
+		ast.Inspect(fn.Body, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok || len(call.Args) != 2 {
+				return true
+			}
+			id, ok := call.Fun.(*ast.Ident)
+			if !ok {
+				return true
+			}
+			a0, ok0 := call.Args[0].(*ast.Ident)
+			a1, ok1 := call.Args[1].(*ast.Ident)
+			if ok0 && ok1 && a0.Name == "t" && a1.Name == "root" {
+				applied[id.Name] = true
+			}
+			return true
+		})
+	}
+	if !found {
+		t.Fatalf("%s declares no %s; the checks below are applied by nothing and this test "+
+			"would report a clean run over that", self, rootTest)
+	}
+
+	for _, name := range predicates {
+		if !applied[name] {
+			t.Errorf("%s never runs %s(t, root) against the repository root; its fixtures would "+
+				"still pass and the package would still report PASS over a tree carrying the very "+
+				"defect %s exists to catch", rootTest, name, name)
 		}
 	}
+	t.Logf("checked %d predicate(s) against the tree", len(predicates))
 }
