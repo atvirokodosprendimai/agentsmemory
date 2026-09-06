@@ -273,6 +273,56 @@ func writeRedeployFixture(t *testing.T, stages []string) string {
 	return root
 }
 
+// checkShadowWarning requires redeploy.sh's kit check to resolve a symlink hop
+// and to warn when the remedy directory is shadowed.
+//
+// BACKLOG "redeploy.sh's kit check reads a different binary than its own remedy
+// writes" (2026-09-03) recorded the defect: the check resolves the kit with
+// `command -v`, which is PATH-first, while the remedy it prints writes to
+// $AIAGENTMEMORY_BIN_DIR. When a second copy shadows that directory the check
+// reads one file and the fix writes another, so following the advice changes
+// nothing and the verdict never moves. f80e12c fixed it a day later and nothing
+// was left holding the fix in place.
+//
+// ⚠ THE SYMLINK HOP IS HALF THE MECHANISM, NOT A DETAIL. The sanctioned layout
+// on this project's own machine is ~/.claude/bin/aiagentmemory symlinked into
+// the remedy directory; without the readlink the warning fires on every correct
+// install, which is issue #204 — a warning that cried wolf until the file it
+// named was not the problem. So both halves are asserted: the comparison must
+// exist AND the link must be resolved before it.
+func checkShadowWarning(tb testing.TB, root string) {
+	tb.Helper()
+	raw, err := os.ReadFile(filepath.Join(root, "scripts", "redeploy.sh"))
+	if err != nil {
+		tb.Fatalf("read redeploy.sh: %v", err)
+	}
+	// ⚠ CODE, NOT WORDS. The first draft of this gate matched the bare strings
+	// "SHADOWED" and "readlink", and a mutant that replaced the readlink CALL
+	// left it green — because the word also appears in the comment three lines
+	// above the code. A gate whose universe includes the prose explaining the
+	// mechanism cannot see the mechanism leave.
+	var code []string
+	for _, line := range strings.Split(string(raw), "\n") {
+		if t := strings.TrimSpace(line); !strings.HasPrefix(t, "#") {
+			code = append(code, line)
+		}
+	}
+	body := strings.Join(code, "\n")
+	for _, want := range []struct{ needle, why string }{
+		{`which is SHADOWED.`, "the kit check no longer warns when the remedy directory is " +
+			"shadowed, so `command -v` can read one binary while the printed Fix writes another " +
+			"and the verdict never moves however often an operator runs it"},
+		{`readlink "$bin_path"`, "the shadow comparison no longer resolves a symlink hop, so the " +
+			"sanctioned layout (a link into the remedy directory) is reported as a shadow on " +
+			"every correct install — issue #204, a warning that fires until nobody reads it"},
+	} {
+		if !strings.Contains(body, want.needle) {
+			tb.Errorf("scripts/redeploy.sh no longer contains %s outside its comments: %s",
+				want.needle, want.why)
+		}
+	}
+}
+
 // checkNeedlePreflight requires the script to reject a needle that is in no Go
 // string literal, and to do it without a pipefail-poisoned pipeline.
 //
@@ -321,8 +371,9 @@ func checkNeedlePreflight(tb testing.TB, root string) {
 // TestTheRedeployPathKeepsItsWindowsFixes is the gate.
 func TestTheRedeployPathKeepsItsWindowsFixes(t *testing.T) {
 	root := repoRoot(t)
-	checkRedeployScript(t, root)
+	checkShadowWarning(t, root)
 	checkNeedlePreflight(t, root)
+	checkRedeployScript(t, root)
 	checkNoEmptySections(t, root)
 	checkStageSequence(t, root)
 	checkDocumentedClone(t, root)
@@ -437,6 +488,61 @@ code=$(curl -s -o /tmp/redeploy-smoke.json -w '%{http_code}' -m 60 -X POST "$BAS
 		if quiet.errors != 0 {
 			t.Errorf("reported %d finding(s) over a correct check; a gate that cannot pass is one "+
 				"somebody deletes", quiet.errors)
+		}
+	})
+
+	t.Run("a kit check without the shadow warning is caught", func(t *testing.T) {
+		// The real script carries both halves, so the reporting branch cannot run
+		// against it. Driven over fixtures that ARE offenders — and one that is
+		// not, because a check that flags everything pins nothing either.
+		write := func(t *testing.T, body string) string {
+			t.Helper()
+			dir := t.TempDir()
+			if err := os.MkdirAll(filepath.Join(dir, "scripts"), 0o750); err != nil {
+				t.Fatalf("mkdir: %v", err)
+			}
+			if err := os.WriteFile(filepath.Join(dir, "scripts", "redeploy.sh"),
+				[]byte(body), 0o600); err != nil {
+				t.Fatalf("write: %v", err)
+			}
+			return dir
+		}
+
+		// ⚠ EACH OFFENDER KEEPS THE WORDS IN A COMMENT, which is the shape that
+		// defeated this gate's first draft: it matched the bare words, and a
+		// mutant replacing the readlink CALL left it green because the comment
+		// three lines above still said "readlink".
+		noWarn := write(t, `#!/usr/bin/env bash
+# one hop of readlink is resolved, and we warn when the dir is SHADOWED.
+real_path="$(readlink "$bin_path")"
+`)
+		rec := &recordingTB{}
+		checkShadowWarning(rec, noWarn)
+		if rec.errors != 1 {
+			t.Errorf("reported %d finding(s) over a script whose SHADOWED warning survives only "+
+				"in a comment; that is the substring hole this gate was rewritten for", rec.errors)
+		}
+
+		noLink := write(t, `#!/usr/bin/env bash
+# a symlink hop is resolved with readlink before comparing.
+echo "    ⚠ PATH resolves aiagentmemory to $bin_path; the Fix below writes to $remedy_dir, which is SHADOWED."
+`)
+		rec2 := &recordingTB{}
+		checkShadowWarning(rec2, noLink)
+		if rec2.errors != 1 {
+			t.Errorf("reported %d finding(s) over a script that warns but never resolves the "+
+				"symlink hop — issue #204's every-install false alarm", rec2.errors)
+		}
+
+		whole := write(t, `#!/usr/bin/env bash
+real_path="$(readlink "$bin_path")"
+echo "    ⚠ PATH resolves aiagentmemory to $bin_path; the Fix below writes to $remedy_dir, which is SHADOWED."
+`)
+		quiet := &recordingTB{}
+		checkShadowWarning(quiet, whole)
+		if quiet.errors != 0 {
+			t.Errorf("reported %d finding(s) over a script carrying both halves; a gate that "+
+				"cannot pass is one somebody deletes", quiet.errors)
 		}
 	})
 
