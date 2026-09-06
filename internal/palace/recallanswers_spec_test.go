@@ -733,7 +733,7 @@ func TestATruncatedBootstrapSaysWhatItDropped(t *testing.T) {
 	svc := newTestService(t)
 
 	// More records than the eager tier can hold, so the response must truncate.
-	total := bootstrapEagerLimit + 4
+	total := BootstrapEagerLimit + 4
 	for i := 0; i < total; i++ {
 		if _, err := svc.Add(ctx, team, AddInput{
 			Wing: "wing_acme", Room: EntryRoom,
@@ -748,8 +748,8 @@ func TestATruncatedBootstrapSaysWhatItDropped(t *testing.T) {
 		t.Fatalf("bootstrap: %v", err)
 	}
 	// The eager tier is BOUNDED, which is what makes this a truncated response.
-	if len(res.Eager) > bootstrapEagerLimit {
-		t.Errorf("eager tier holds %d, over its bound of %d", len(res.Eager), bootstrapEagerLimit)
+	if len(res.Eager) > BootstrapEagerLimit {
+		t.Errorf("eager tier holds %d, over its bound of %d", len(res.Eager), BootstrapEagerLimit)
 	}
 	if len(res.OnDemand) == 0 {
 		t.Fatal("more records than the bound and nothing deferred; the response is not truncated and this test proves nothing")
@@ -837,7 +837,7 @@ func TestTheBootstrapCostsFewerTokensThanTheProtocolItReplaces(t *testing.T) {
 	// assembly path being removed. Measured: with a single entry, deleting eager,
 	// pointer or correction assembly still passed "semantic parity".
 	var ids []string
-	for i := 0; i < bootstrapEagerLimit+3; i++ {
+	for i := 0; i < BootstrapEagerLimit+3; i++ {
 		res, err := svc.Add(ctx, team, AddInput{
 			Wing: "wing_acme", Room: EntryRoom,
 			Content: fmt.Sprintf("start-here entry %d, with enough text to be a real memory", i),
