@@ -125,10 +125,26 @@ if [ ${#} -gt 0 ] && [ -z "${REDEPLOY_SKIP_NEEDLE_CHECK:-}" ]; then
     # needle that IS present reads as absent and the guard refuses a correct
     # deploy. Measured while writing this guard: `chunks_matched` is in four
     # literals and was refused anyway. Count into a variable instead.
-    found=$(grep -rhoE --include='*.go' '"([^"\\]|\\.)*"|`[^`]*`' . 2>/dev/null \
+    # ⚠ AND A `_test.go` IS IN NO BINARY EITHER. `--include='*.go'` covered test
+    # source, so a literal living only in a test CLEARED this preflight and was
+    # then reported MISSING at the real check below — the bad needle read as a bad
+    # deploy that this guard exists to prevent, arriving through the guard's own
+    # universe. Demonstrated on main 2026-09-06: `ID: 0 Namelen: 255` is in
+    # clients/claude-code/hooks_test.go and nowhere else, and counted 1 here.
+    # ⚠ THE EXCLUSION STOPS AT TEST FILES ON PURPOSE. A test file is in NO binary,
+    # so dropping it is categorical. Dropping a DIRECTORY would be a judgement
+    # about WHICH binary — a literal in clients/, or in an internal package
+    # cmd/server never imports, is just as absent from the server — and answering
+    # that needs `go list -deps ./cmd/server`, a toolchain. Every Go step in this
+    # script runs inside golang:1.26-alpine and none on the host, so that precision
+    # would put a container start in front of a check whose whole point is to
+    # refuse in under a second. The narrower claim is the one this grep can make.
+    found=$(grep -rhoE --include='*.go' --exclude='*_test.go' '"([^"\\]|\\.)*"|`[^`]*`' . 2>/dev/null \
             | grep -cF -- "$n" || true)
     if [ "${found:-0}" -eq 0 ]; then
-      echo "==> refusing: the needle '$n' appears in no Go string literal in this checkout."
+      echo "==> refusing: the needle '$n' appears in no compilable Go string literal here."
+      echo "    Test files are not searched: a literal that lives only in a _test.go is in no binary,"
+      echo "    so admitting it here would move the failure to the artifact check and blame the deploy."
       echo "    A needle proves a change only if the change introduced a STRING. An identifier"
       echo "    (a constant or function name) is not present in a compiled binary, so this would"
       echo "    report MISSING over a binary that carries the change — a bad needle read as a bad"
