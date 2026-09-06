@@ -58,32 +58,46 @@ func TestScenarioTheLocalEdgeInjectsItsAdministrator(t *testing.T) {
 }
 
 // TestScenarioTheLocalEdgeIgnoresAnInboundCredential is the half that makes the
-// first one mean something.
+// first one mean something, and it needs a caller CLAIMING a different workspace
+// to say anything at all.
 //
-// A middleware that merely PASSED THROUGH whatever the caller sent would satisfy
-// every assertion above, because the harness's own client sends a workspace
-// header. The local edge is documented to ignore inbound credentials and serve
-// its fixed administrator instead; a caller claiming another workspace must
-// therefore still be answered as the local one.
+// ⚠ ITS FIRST VERSION WAS A DUPLICATE OF THE SCENARIO ABOVE WEARING A STRONGER
+// NAME, and review of PR #322 proved it by building the middleware it was written
+// against — one that passes the inbound credential through instead of injecting
+// the fixed administrator — and watching both scenarios stay green over it. The
+// reason is that `NewLocalWithWing` dials as `TeamID` and the injected tenant IS
+// `TeamID`, so "passed through" and "injected" are byte-identical from the wire.
+// Asserting local mode and a readable write does not separate them; only a
+// mismatched claim does.
+//
+// Ignoring an inbound credential is a real property of this edge — it is what
+// makes a stray bearer left in an agent's config harmless — so it is worth the
+// one constructor rather than a rename.
 func TestScenarioTheLocalEdgeIgnoresAnInboundCredential(t *testing.T) {
-	h := mcptest.NewLocalWithWing(t, "wing_local")
-	h.MustCall(t, "am_add_drawer", map[string]any{
-		"room": "decisions", "content": "the local workspace holds exactly this",
-	})
+	h := mcptest.NewLocalAs(t, "wing_local", mcptest.OtherTeamID)
 
-	// The team the harness names in its header is the same one the middleware
-	// injects, so the two are told apart by what the SERVER reports rather than by
-	// what the client asked for: a status carrying the local workspace, and a
-	// search that finds the memory the injected tenant just filed.
 	status := h.MustCall(t, "am_status", map[string]any{})
-	if !strings.Contains(status, `"mode":"local"`) {
-		t.Fatalf("not local mode, so the rest of this scenario is measuring something else:\n  %s", status)
+	if strings.Contains(status, mcptest.OtherTeamID) {
+		t.Errorf("the local edge answered as the workspace the CALLER claimed (%s):\n  %s\n"+
+			"  It is documented to ignore inbound credentials and serve its fixed administrator, "+
+			"and an edge that honours them makes a stray bearer in an agent config decide which "+
+			"palace answers.", mcptest.OtherTeamID, status)
 	}
-	out := h.MustCall(t, "am_search", map[string]any{"query": "the local workspace holds"})
+	if !strings.Contains(status, mcptest.TeamID) {
+		t.Errorf("the local edge did not answer as the workspace it injects (%s):\n  %s",
+			mcptest.TeamID, status)
+	}
+
+	// And the injected identity is the one that WRITES, not merely the one the
+	// status reports: a memory filed by the mismatched caller must be readable
+	// back through the same edge, which is where it lands only if both calls were
+	// served as the same injected tenant.
+	h.MustCall(t, "am_add_drawer", map[string]any{
+		"room": "decisions", "content": "filed by a caller claiming another workspace",
+	})
+	out := h.MustCall(t, "am_search", map[string]any{"query": "claiming another workspace"})
 	if strings.Contains(out, `"count":0`) {
-		t.Errorf("the memory filed a moment ago through this same edge is not visible to a "+
-			"search through it:\n  %s\n"+
-			"  That is what a per-request identity looks like from the outside — the write and "+
-			"the read landing in different workspaces.", out)
+		t.Errorf("the memory filed a moment ago through this edge is not visible to a search "+
+			"through it:\n  %s", out)
 	}
 }
