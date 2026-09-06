@@ -5,7 +5,7 @@
 **Owner:** unassigned
 **Spec:** None — no spec stage. `docs/specs/2026-08-28-a-read-as-cheap-as-a-grep.md` names this decision in its Non-Goals ("Deciding which entry-point layer is canonical … an ADR-level decision") and proceeds independently of it; this record is that decision, not an implementation of that spec.
 **Cross-references:** `docs/adr/BACKLOG.md` (§"Four spellings of one entry point, and the served document teaches a fifth"), `docs/adr/ADR-027-a-maintained-document-is-a-set-of-records.md`, `docs/adr/ADR-036-a-recall-that-answers.md` (T7, T8), `docs/adr/ADR-038-refer-by-the-id-and-end-instead-of-overwrite.md`, `docs/specs/2026-08-28-a-read-as-cheap-as-a-grep.md`, `internal/palace/graphquery.go`, `internal/palace/bootstrap.go`, `internal/web/bootstrap-memory.md`, `AGENTS.md`, `README.md`, `model/draf1.md`, and — in flight and unmerged, so named by PR rather than by number — PR #75 (a store you address by name), PR #77 (the schema carries the pairing), PR #79 (the seeded playbook routes to an entry protocol)
-**Governs:**
+**Governs:** None — declared by its tasks
 - type: path
   pattern: "internal/web/bootstrap-memory.md"
 - type: path

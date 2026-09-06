@@ -6,7 +6,7 @@
 **Owner:** unassigned
 **Spec:** None — no spec stage
 **Cross-references:** docs/adr/ADR-006-knobs-that-do-nothing.md, docs/ARCHITECTURE.md
-**Governs:**
+**Governs:** None — declared by its tasks
 - type: path
   pattern: "internal/billing/**"
 - type: path
