@@ -36,22 +36,32 @@ BIN=/usr/local/bin/agentsmemory
 # fallback: deploying a different stack silently is the defect being removed.
 chain="${COMPOSE_FILE:-}"
 chain_from="COMPOSE_FILE"
+# The separator belongs to the SOURCE, and conflating them refused every Windows
+# redeploy (issue #328). Compose's label joins with ',' and its COMPOSE_FILE uses
+# the platform's path separator, so a single IFS=':,' split cut 'C:\...\
+# docker-compose.yml' at the drive letter and the guard went looking for a file
+# named 'C'. Splitting by source needs no platform detection and no special case
+# for a path that happens to contain a colon.
+chain_sep=':'
+case "$chain" in *';'*) chain_sep=';' ;; esac
 if [ -z "$chain" ]; then
   chain="$(docker inspect "$CONTAINER" --format '{{index .Config.Labels "com.docker.compose.project.config_files"}}' 2>/dev/null || true)"
   chain_from="the running $CONTAINER"
+  chain_sep=','
 fi
 if [ -z "$chain" ]; then
   chain="docker-compose.yml:docker-compose.full.yml"
   chain_from="the default: no such container and COMPOSE_FILE is unset"
+  chain_sep=':'
 fi
 COMPOSE=(docker compose)
 chain_names=""
-# Split on ':' (COMPOSE_FILE) or ',' (the label). The ${arr[@]+"${arr[@]}"}
+# Split on the separator this chain's SOURCE uses. The ${arr[@]+"${arr[@]}"}
 # form is the bash 3.2 idiom for "expand an array that may be empty" — a bare
 # "${arr[@]}" on an empty array is an unbound-variable death under set -u, the
 # trap AUTH_HEADER below already records. Blank parts (adjacent separators,
 # a trailing one) are skipped rather than resolved to a blank filename.
-IFS=':,' read -r -a chain_parts <<< "$chain"
+IFS="$chain_sep" read -r -a chain_parts <<< "$chain"
 for f in ${chain_parts[@]+"${chain_parts[@]}"}; do
   [ -n "$f" ] || continue
   name="$(basename "$f")"
@@ -223,18 +233,28 @@ echo "==> what the running server resolved"
 # Informational, and NEVER fatal. Under `set -o pipefail` a grep that matches
 # nothing returns 1 and kills the deploy — which is what happened the first time
 # this ran against a container that had not just restarted, so there were no
-# startup lines inside the window. A line that only REPORTS must not be able to
-# fail the thing it reports on.
-docker logs --since 10m "$CONTAINER" 2>&1 | grep -E "(ranking:|fusion:|reranker:)" | tail -3 | sed 's/^/    /' || echo "    (no startup lines in the window — the container did not restart)"
-
-echo "==> smoke: one real search through the endpoint agents call"
 start=$(date +%s)
+# ⚠ TWO ANSWERS, NEVER CONCATENATED. This was `code=$(curl … || echo 000)`, which
+# APPENDS on failure: curl printing a perfectly good 200 and then exiting 23
+# (write error) produced `200000`, and the script failed a deploy that had passed
+# every other check — measured on Windows, where mingw64 curl needs MSYS path
+# conversion ON while the docker steps in this same script need it OFF (issue
+# #329). The body is read below, so a write failure is a real finding; it is just
+# a different finding from "the endpoint did not answer", and folding them made
+# the true one unreportable.
+smoke_rc=0
 code=$(curl -s -o /tmp/redeploy-smoke.json -w '%{http_code}' -m 60 -X POST "$BASE/mcp" \
   -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' \
   ${AUTH_HEADER:+-H "$AUTH_HEADER"} \
-  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"am_search","arguments":{"query":"reachability","limit":3,"snippet_chars":1}}}' || echo 000)
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"am_search","arguments":{"query":"reachability","limit":3,"snippet_chars":1}}}') || smoke_rc=$?
 elapsed=$(( $(date +%s) - start ))
-printf "    HTTP %s in %ss\n" "$code" "$elapsed"
+printf "    HTTP %s in %ss\n" "${code:-none}" "$elapsed"
+if [ "$smoke_rc" -ne 0 ]; then
+  echo "    curl exited $smoke_rc after reporting HTTP ${code:-none}."
+  echo "    23 is a WRITE error: the request was answered and the body did not reach"
+  echo "    /tmp/redeploy-smoke.json, which the checks below read. Fix the path, not the server."
+  exit 1
+fi
 [ "$code" = "200" ] || { echo "    the endpoint agents call did not answer"; exit 1; }
 # HTTP 200 is not a successful search. MCP returns tool FAILURES inside a 200
 # JSON-RPC envelope, so a dead embedder answers 200 with an error in the body and
