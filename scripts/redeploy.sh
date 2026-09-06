@@ -40,10 +40,18 @@ chain_from="COMPOSE_FILE"
 # redeploy (issue #328). Compose's label joins with ',' and its COMPOSE_FILE uses
 # the platform's path separator, so a single IFS=':,' split cut 'C:\...\
 # docker-compose.yml' at the drive letter and the guard went looking for a file
-# named 'C'. Splitting by source needs no platform detection and no special case
-# for a path that happens to contain a colon.
-chain_sep=':'
-case "$chain" in *';'*) chain_sep=';' ;; esac
+# named 'C'. Splitting by source needs no special case for a path that happens to
+# contain a colon.
+# ⚠ COMPOSE'S OWN RULE, NOT A SNIFF OF THE VALUE. The first fix for #328 read the
+# separator off the string — ';' if the chain contained one, ':' otherwise — which
+# is right for a Windows chain of TWO files and wrong for a chain of ONE, where
+# there is no separator to find and 'C:\...\docker-compose.yml' splits at the
+# drive letter all over again. Compose decides this by platform plus
+# COMPOSE_PATH_SEPARATOR, so implementing that is more faithful than detecting
+# nothing. Review of PR #330 measured three of five shapes still refused before
+# this.
+case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) chain_sep=';' ;; *) chain_sep=':' ;; esac
+chain_sep="${COMPOSE_PATH_SEPARATOR:-$chain_sep}"
 if [ -z "$chain" ]; then
   chain="$(docker inspect "$CONTAINER" --format '{{index .Config.Labels "com.docker.compose.project.config_files"}}' 2>/dev/null || true)"
   chain_from="the running $CONTAINER"
@@ -63,8 +71,11 @@ chain_names=""
 # a trailing one) are skipped rather than resolved to a blank filename.
 IFS="$chain_sep" read -r -a chain_parts <<< "$chain"
 for f in ${chain_parts[@]+"${chain_parts[@]}"}; do
-  [ -n "$f" ] || continue
-  name="$(basename "$f")"
+  # ⚠ NOT basename(1), WHICH KNOWS ONLY '/'. Handed a Windows path it returns the
+  # whole string, so the label split correctly at ',' and then put the drive
+  # letter straight back — the refusal moved one line down and changed its text.
+  # This strips to the last '/' OR '\', which is the one thing basename cannot do.
+  name="${f##*[/\\]}"
   [ -f "$name" ] || { echo "compose file $name (from $chain_from) is not in this checkout — refusing to deploy a different stack"; exit 1; }
   COMPOSE+=(-f "$name")
   chain_names="$chain_names $name"
@@ -233,6 +244,11 @@ echo "==> what the running server resolved"
 # Informational, and NEVER fatal. Under `set -o pipefail` a grep that matches
 # nothing returns 1 and kills the deploy — which is what happened the first time
 # this ran against a container that had not just restarted, so there were no
+# startup lines inside the window. A line that only REPORTS must not be able to
+# fail the thing it reports on.
+docker logs --since 10m "$CONTAINER" 2>&1 | grep -E "(ranking:|fusion:|reranker:)" | tail -3 | sed 's/^/    /' || echo "    (no startup lines in the window — the container did not restart)"
+
+echo "==> smoke: one real search through the endpoint agents call"
 start=$(date +%s)
 # ⚠ TWO ANSWERS, NEVER CONCATENATED. This was `code=$(curl … || echo 000)`, which
 # APPENDS on failure: curl printing a perfectly good 200 and then exiting 23

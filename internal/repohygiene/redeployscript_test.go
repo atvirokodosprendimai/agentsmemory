@@ -37,6 +37,21 @@ var retiredRedeployShapes = []struct {
 			"',' for the container label, the platform's path separator for COMPOSE_FILE",
 	},
 	{
+		regexp.MustCompile(`name="?\$\(basename `),
+		"#328 (second half)",
+		"basename(1) knows only '/', so on a Windows path it returns the WHOLE string — the " +
+			"chain split at ',' correctly and then put the drive letter straight back, moving " +
+			"the refusal one line down. `${f##*[/\\\\]}` strips to the last separator of either " +
+			"kind, which is the one thing basename cannot do",
+	},
+	{
+		regexp.MustCompile(`case "\$chain" in \*';'\*`),
+		"#328 (second half)",
+		"reading the separator OFF THE VALUE is right for a Windows chain of two files and " +
+			"wrong for a chain of one, where there is no separator to find and the drive letter " +
+			"splits again. Compose decides this by platform plus COMPOSE_PATH_SEPARATOR",
+	},
+	{
 		regexp.MustCompile(`%\{http_code\}[\s\S]{0,600}?\|\|\s*echo\s+000\s*\)`),
 		"#329",
 		"`code=$(curl … || echo 000)` APPENDS on failure, so curl reporting 200 and then " +
@@ -79,6 +94,67 @@ func checkRedeployScript(tb testing.TB, root string) {
 	}
 }
 
+// checkNoEmptySections requires every `==>` heading the script prints to be
+// followed by something that produces output.
+//
+// ⚠ WRITTEN AFTER I DELETED FOUR LINES AND MERGED IT. A hunk meant to replace the
+// smoke capture took the tail of a comment, the `docker logs` line it explained,
+// and the next heading with it — so the script printed "what the running server
+// resolved" with nothing under it, and filed the smoke result beneath that
+// heading. A heading with no output reads as "it resolved nothing", which is a
+// worse answer than the heading not being there.
+//
+// Nothing caught it: `bash -n` is clean because a truncated comment is valid
+// bash, and no test read that region. Found by review of PR #330, after merge.
+func checkNoEmptySections(tb testing.TB, root string) {
+	tb.Helper()
+	raw, err := os.ReadFile(filepath.Join(root, "scripts", "redeploy.sh"))
+	if err != nil {
+		tb.Fatalf("read the redeploy script: %v", err)
+	}
+	heading := regexp.MustCompile(`^echo "==> `)
+	lines := strings.Split(string(raw), "\n")
+	// ⚠ THE LAST HEADING IS THE VERDICT, NOT A SECTION. `==> deployed and verified`
+	// IS the output — there is nothing to print under it — and the first version of
+	// this gate flagged it, which would have made the check something to work
+	// around on its first run. The cost is stated rather than hidden: a deletion
+	// that truncated the script at its final heading looks identical from here, and
+	// that position is the one where the heading is the message.
+	last := -1
+	for i, line := range lines {
+		if heading.MatchString(line) {
+			last = i
+		}
+	}
+	sections := 0
+	for i, line := range lines {
+		if !heading.MatchString(line) || i == last {
+			continue
+		}
+		sections++
+		produces := false
+		for _, next := range lines[i+1:] {
+			t := strings.TrimSpace(next)
+			if t == "" || strings.HasPrefix(t, "#") {
+				continue
+			}
+			if heading.MatchString(next) {
+				break
+			}
+			produces = true
+			break
+		}
+		if !produces {
+			tb.Errorf("scripts/redeploy.sh:%d prints a heading with nothing under it:\n    %s\n"+
+				"  An operator reads the promise and sees a blank, then reads the NEXT step's "+
+				"output filed beneath it. That is worse than no heading at all.", i+1, line)
+		}
+	}
+	if sections == 0 {
+		tb.Fatal("the script prints no ==> heading at all; this gate is checking nothing")
+	}
+}
+
 // checkDocumentedClone requires the procedure AGENTS.md prints to survive a
 // checkout that fails halfway.
 func checkDocumentedClone(tb testing.TB, root string) {
@@ -111,6 +187,7 @@ func checkDocumentedClone(tb testing.TB, root string) {
 func TestTheRedeployPathKeepsItsWindowsFixes(t *testing.T) {
 	root := repoRoot(t)
 	checkRedeployScript(t, root)
+	checkNoEmptySections(t, root)
 	checkDocumentedClone(t, root)
 
 	t.Run("each retired construct is caught", func(t *testing.T) {
@@ -122,6 +199,9 @@ func TestTheRedeployPathKeepsItsWindowsFixes(t *testing.T) {
 		}
 		if err := os.WriteFile(filepath.Join(fixture, "scripts", "redeploy.sh"), []byte(`#!/usr/bin/env bash
 IFS=':,' read -r -a chain_parts <<< "$chain"
+chain_sep=':'
+case "$chain" in *';'*) chain_sep=';' ;; esac
+name="$(basename "$f")"
 code=$(curl -s -o /tmp/redeploy-smoke.json -w '%{http_code}' -m 60 -X POST "$BASE/mcp" \
   -H 'Content-Type: application/json' \
   -d '{"jsonrpc":"2.0"}' || echo 000)
@@ -143,6 +223,8 @@ code=$(curl -s -o /tmp/redeploy-smoke.json -w '%{http_code}' -m 60 -X POST "$BAS
 		}
 		if err := os.WriteFile(filepath.Join(clean, "scripts", "redeploy.sh"), []byte(`#!/usr/bin/env bash
 IFS="$chain_sep" read -r -a chain_parts <<< "$chain"
+case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) chain_sep=';' ;; *) chain_sep=':' ;; esac
+name="${f##*[/\\]}"
 smoke_rc=0
 code=$(curl -s -o /tmp/redeploy-smoke.json -w '%{http_code}' -m 60 -X POST "$BASE/mcp" \
   -d '{"jsonrpc":"2.0"}') || smoke_rc=$?
@@ -182,7 +264,11 @@ func TestTheRedeployGateIsAppliedToTheTree(t *testing.T) {
 		t.Fatalf("read this file: %v", err)
 	}
 	body := string(src)
-	for _, call := range []string{"checkRedeployScript(t, root)", "checkDocumentedClone(t, root)"} {
+	for _, call := range []string{
+		"checkRedeployScript(t, root)",
+		"checkNoEmptySections(t, root)",
+		"checkDocumentedClone(t, root)",
+	} {
 		if !strings.Contains(body, call) {
 			t.Errorf("TestTheRedeployPathKeepsItsWindowsFixes never runs %s against the "+
 				"repository root; its fixtures would still pass and the package would still "+
