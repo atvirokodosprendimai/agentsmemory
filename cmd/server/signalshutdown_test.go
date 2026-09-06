@@ -224,3 +224,78 @@ func waitUntilServing(t *testing.T, addr string) {
 	}
 	t.Fatalf("nothing answered on %s", addr)
 }
+
+// TestTheCommandTreeRunsOnTheSignalContext is the clause review of PR #323 found
+// missing, and it is the one that decides whether any of the rest matters.
+//
+// ⚠ EVERY OTHER TEST HERE PASSES WITH THE BINDING SEVERED. Change one argument —
+// `Run(context.Background(), os.Args)` while leaving the NotifyContext line, the
+// deferred stop and the goroutine exactly as they are — and the whole package
+// stays green: the handler is installed, the disposition is restored, serveHTTP
+// can drain, and no cancellation ever arrives, so the flush is as unreachable as
+// it was before the fix. Measured, not imagined.
+//
+// That is §Reachability's signature defect sitting inside the change that repairs
+// an instance of it: the code works, the tests pass, and the one line that lets
+// anything select it is the whole mechanism.
+//
+// It reads the source because the property is which VALUE crosses a call
+// boundary in main, and no in-process test can observe main's own arguments.
+func TestTheCommandTreeRunsOnTheSignalContext(t *testing.T) {
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "main.go", nil, parser.ParseComments)
+	if err != nil {
+		t.Fatalf("parse main.go: %v", err)
+	}
+
+	const notAnIdentifier = "<not an identifier>"
+	var bound, ranOn string
+	for _, d := range f.Decls {
+		fn, ok := d.(*ast.FuncDecl)
+		if !ok || fn.Name.Name != "main" || fn.Body == nil {
+			continue
+		}
+		ast.Inspect(fn.Body, func(n ast.Node) bool {
+			switch v := n.(type) {
+			case *ast.AssignStmt:
+				// ctx, stop := signal.NotifyContext(...)
+				for _, rhs := range v.Rhs {
+					call, ok := rhs.(*ast.CallExpr)
+					if !ok {
+						continue
+					}
+					sel, ok := call.Fun.(*ast.SelectorExpr)
+					if !ok || sel.Sel.Name != "NotifyContext" || len(v.Lhs) == 0 {
+						continue
+					}
+					if id, ok := v.Lhs[0].(*ast.Ident); ok {
+						bound = id.Name
+					}
+				}
+			case *ast.CallExpr:
+				// rootCommand(...).Run(ctx, os.Args)
+				sel, ok := v.Fun.(*ast.SelectorExpr)
+				if !ok || sel.Sel.Name != "Run" || len(v.Args) == 0 {
+					return true
+				}
+				if id, ok := v.Args[0].(*ast.Ident); ok {
+					ranOn = id.Name
+					return true
+				}
+				ranOn = notAnIdentifier
+			}
+			return true
+		})
+	}
+
+	if bound == "" {
+		t.Fatal("main binds no signal-aware context, so SIGTERM kills the process outright " +
+			"and withTelemetry's deferred flush never runs (issue #140)")
+	}
+	if ranOn != bound {
+		t.Errorf("main installs a signal-aware context as %q but runs the command tree on %q.\n"+
+			"  Every other test in this file passes in that state: the handler is installed, the "+
+			"disposition is restored, serveHTTP can drain — and no cancellation ever arrives, so "+
+			"the fix is inert and looks complete.", bound, ranOn)
+	}
+}
