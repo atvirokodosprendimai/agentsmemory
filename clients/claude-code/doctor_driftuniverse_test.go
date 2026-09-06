@@ -123,6 +123,18 @@ func TestEveryVerbatimAssetIsCheckedForDrift(t *testing.T) {
 				len(nativeSkillAssets()), want)
 		}
 	}
+	// ⚠ The unattended permission boundary, asserted by name. A stale copy means
+	// an unattended run enforcing an older boundary than this repo decided on.
+	var sawUnattended bool
+	for _, n := range want {
+		if n == "agentsmemory-unattended-settings.json" {
+			sawUnattended = true
+		}
+	}
+	if !sawUnattended {
+		t.Errorf("the drift universe does not include agentsmemory-unattended-settings.json, "+
+			"the permission boundary an unattended run is given with --settings; it wrote %v", want)
+	}
 	// ⚠ AGENT DEFINITIONS MUST STAY OUT. registerAgents substitutes the MCP
 	// endpoint before writing, so a healthy install never matches the embed and
 	// including them would report drift on every correct machine.

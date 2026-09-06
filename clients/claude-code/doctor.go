@@ -618,6 +618,23 @@ func verbatimAssetFiles(kit agentKit) map[string]string {
 	if _, err := assets.ReadFile(bootstrapAsset); err == nil {
 		out[bootstrapFile] = bootstrapAsset
 	}
+	// ⚠ THE UNATTENDED PERMISSION BOUNDARY, AND IT IS THE SHARPEST FILE HERE.
+	// agentsmemory-unattended-settings.json is written verbatim in the same loop
+	// as the hooks, but its asset sits at the embed ROOT rather than under
+	// hooks/, so hookAssetFiles never saw it — and its installed name is
+	// prefixed, which is the second case for keying this map by INSTALLED path.
+	//
+	// What makes it worth naming separately: that file IS the permission boundary
+	// an unattended run gets via --settings, the one plugin_test.go's
+	// unattendedRules gates so it cannot quietly empty, carrying all twelve deny
+	// entries on purpose because an unattended run has no human to be the decision
+	// point the prompt was. A stale copy on disk means a run enforcing an OLDER
+	// boundary than this repository has decided on, and nothing said so. Found by
+	// review of PR #350, with a probe that drove a real install rather than
+	// reasoning about the asset list.
+	if _, err := assets.ReadFile(unattendedSettingsAsset); err == nil {
+		out["agentsmemory-unattended-settings.json"] = unattendedSettingsAsset
+	}
 	// Skills are written verbatim too — writeSkills reads skills/<name>/SKILL.md
 	// and hands the same bytes to writeFile — and land at skills/<name>/SKILL.md
 	// under the config dir. Claude-only, which the kit name carries.
