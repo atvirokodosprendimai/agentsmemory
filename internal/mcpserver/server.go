@@ -658,6 +658,51 @@ func admit(ctx context.Context, usageSvc *usage.Service) (tenant.Tenant, *mcp.Ca
 	return t, nil, true
 }
 
+// scopeTaxonomy serves the caller's own wing in full and every other wing as its
+// name and counts alone.
+//
+// am_status is the call the wake-up protocol mandates first, so its cost is paid
+// once per session per project before any work happens — and 84% of it was rooms
+// belonging to projects the caller is not in. Measured against this palace: 11,995
+// bytes total, 10,145 of them the wings array, 20 wings each carrying its full
+// room-by-room breakdown. The scoped shape is about 2,761, so roughly 1,850 tokens
+// come back to every session in every project (#306).
+//
+// ⚠ WHAT IS DELIBERATELY KEPT is every wing's NAME and counts. Scoping to the
+// caller's wing alone would save a few hundred bytes more and would break the
+// check this tool exists for: start-here tells sessions that the wing list is how
+// they confirm WHICH PALACE ANSWERED, and that a wing they expected but do not see
+// means nobody has written it yet rather than that they are in the wrong place. A
+// token from another project answers every probe happily; the names are what
+// catches it. Deleting that check to save a rounding error is the trade this
+// refuses.
+//
+// ⚠ THE WITHHELD ROOMS RENDER AS `"rooms": null`, NOT AS AN ABSENT KEY, and that
+// is deliberate. `omitempty` would save 247 of the 4,812 remaining bytes and would
+// make a wing whose rooms were WITHHELD indistinguishable from one that has none —
+// the empty-versus-unknown conflation this corpus refuses everywhere else
+// (am_kg_query's resolution, coverage's `known`). It would also pull the key into
+// TestEveryOmitemptyWireKeyInThisPackageIsDescribed, which is a description
+// obligation for a 5% saving on a block that just shrank by 71%.
+//
+// An unresolvable wing returns the full taxonomy — today's behaviour, for exactly
+// the callers who cannot benefit from scoping. A registration made without a wing
+// has no "own wing" to serve in full, and inventing one here would be a guess of
+// the kind #305 records the cost of.
+func scopeTaxonomy(wings []palace.TaxonomyWing, own string) []palace.TaxonomyWing {
+	if own == "" {
+		return wings
+	}
+	out := make([]palace.TaxonomyWing, 0, len(wings))
+	for _, w := range wings {
+		if w.Wing != own {
+			w.Rooms = nil // name and counts survive; the room breakdown does not
+		}
+		out = append(out, w)
+	}
+	return out
+}
+
 // coverageBlockFor builds the am_status coverage block. It mirrors inboxStatus's
 // Known discipline: a failed audit reports as unknown rather than as a number,
 // because a zero report's Coverage() reads 1.0 — indistinguishable from genuine
@@ -785,7 +830,7 @@ func registerStatus(reg *registrar, drawers *palace.Service, skills *skill.Servi
 			"workspace":     workspace,
 			"default_wing":  defaultWing,
 			"total_drawers": total,
-			"wings":         tax.Wings, // [{wing, drawers, rooms:[{wing, room, drawers}]}]
+			"wings":         scopeTaxonomy(tax.Wings, defaultWing),
 			"coverage":      coverageBlock,
 			"inbox":         inbox,
 			"usage": map[string]any{
