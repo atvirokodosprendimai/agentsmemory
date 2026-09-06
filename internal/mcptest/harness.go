@@ -184,6 +184,23 @@ func NewLocalWithWing(t *testing.T, wing string) *Harness {
 	return newClient(t, srv, drawers, wing)
 }
 
+// NewLocalAs is NewLocalWithWing with the client CLAIMING a different workspace,
+// so a scenario can tell an edge that INJECTS its administrator from one that
+// merely passes the caller's credential through.
+//
+// ⚠ WITHOUT IT THAT PROPERTY IS UNOBSERVABLE, and a scenario asserting it passes
+// over a middleware doing the opposite. NewLocalWithWing dials through newClient,
+// which sends TeamID, and newLocalServer injects a tenant whose TeamID is that
+// same constant — so pass-through and injection produce byte-identical responses
+// for every assertion a test can make. Review of PR #322 built the pass-through
+// middleware and watched both original scenarios stay green over it.
+func NewLocalAs(t *testing.T, wing, team string) *Harness {
+	t.Helper()
+	gdb := openDB(t, filepath.Join(t.TempDir(), "mcptest.db"))
+	srv, drawers := newLocalServer(t, gdb)
+	return newClientAs(t, srv, drawers, wing, team)
+}
+
 // NewHosted stands up the production hosted authentication chain: bearer
 // resolution, OAuth challenge/endpoints, MCP HTTP transport, Bridge, admission,
 // and handlers. Tests seed workspaces through Tenants and connect through Client.
