@@ -34,6 +34,26 @@ Neither wants a code change. What would help, if anyone touches the script: reje
 that matches no string literal anywhere in the SOURCE before deploying, so a bad needle is
 caught as a bad needle rather than reported as a bad deploy.
 
+## RESOLVED 2026-09-06 — `redeploy.sh`'s kit check reads a different binary than its own remedy writes (filed 2026-09-03)
+
+**Fixed in `f80e12c` (2026-09-04), one day after this entry was written, and nothing held the fix
+in place until now.** The script resolves one symlink hop before comparing and warns when the
+remedy directory is shadowed (`scripts/redeploy.sh`, the `remedy_dir` / `readlink` / `SHADOWED`
+block) — the entry's own second option, which needed no install-layout decision. The hash-or-drop
+options it lists were never the blocker for this half.
+
+`checkShadowWarning` (`internal/repohygiene/redeployscript_test.go`) now gates both halves, because
+an ungated fix to a §Reachability defect is the same defect one level up.
+
+⚠ **Its first draft matched the bare words `SHADOWED` and `readlink`, and a mutant replacing the
+readlink CALL left it green** — the word also appears in the comment three lines above the code. The
+gate now strips `#` comment lines before matching and asserts the code forms
+(`readlink "$bin_path"`, `which is SHADOWED.`). Both mutants — deleting the warning line, and
+dropping the readlink so `real_path` is never resolved — turn it red; the file was restored
+byte-identical after each.
+
+Original entry, kept because the reasoning is what makes the gate legible:
+
 ## `redeploy.sh`'s kit check reads a different binary than its own remedy writes — 2026-09-03
 
 Observed on the machine this project is developed on. Two `aiagentmemory` binaries exist:
