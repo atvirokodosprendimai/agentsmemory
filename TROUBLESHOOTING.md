@@ -8,11 +8,13 @@ reranker that times out returns the unranked order; an unread environment variab
 cannot warn you; a stale binary answers confidently. So the first question is
 rarely "what is the error" — it is "which of these is quietly true right now".
 
-Two commands answer most of it:
+Three commands answer most of it, and the second is a SEPARATE run because
+`doctor` checks one kit per invocation:
 
 ```bash
-aiagentmemory doctor            # registrations, hook events, the binary a bridge spawns, the server's version
-aiagentmemory mcp am_status     # which palace answered, which workspace, which version
+aiagentmemory doctor                          # registrations, hook events, the server's version
+aiagentmemory doctor --agent claude-desktop   # the Desktop bridge binary — ONE kit per run
+aiagentmemory mcp am_status                   # which palace answered, which workspace, which version
 ```
 
 ---
@@ -196,8 +198,10 @@ Two separate causes:
   go build -o ~/.local/bin/aiagentmemory-server ./cmd/server   # or: --server-bin <path>
   ```
 
-Either way, `aiagentmemory doctor` judges the binary the bridge spawns — trust it
-over the installer's exit code.
+Either way, `aiagentmemory doctor --agent claude-desktop` judges the binary the
+bridge spawns — trust it over the installer's exit code. The `--agent` is not
+optional here: bare `doctor` checks the Claude Code kit, which has no bridge, and
+answers cleanly about something you did not ask.
 
 ---
 

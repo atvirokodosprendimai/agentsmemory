@@ -194,7 +194,8 @@ to every project in the workspace. Nothing errors; recall just gets worse.
 ## Verify after updating
 
 ```bash
-aiagentmemory doctor            # registrations, hook events, the Desktop bridge binary
+aiagentmemory doctor                          # registrations, hook events, the server
+aiagentmemory doctor --agent claude-desktop   # the Desktop bridge binary — a SEPARATE run
 aiagentmemory mcp am_status     # which palace answered, and at what version
 ```
 
