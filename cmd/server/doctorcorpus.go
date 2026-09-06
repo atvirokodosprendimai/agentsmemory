@@ -14,6 +14,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -49,6 +50,16 @@ type corpusFindings struct {
 	LostParents []string
 	LostAnchors []string
 	LostFacts   []string
+	// LostEdges are drawer ids named as the SUBJECT or OBJECT of a current fact
+	// with no row behind them (issue #71). The leg above reads source_drawer_id
+	// and only that, so it sees neither end of an authored edge: a leaf in the
+	// must./ref. tier carries the drawer id as its object, and a wing root carries
+	// it as the subject of everything hanging off it. Deleting the drawer leaves
+	// both current — DropDerivedEdgesFor filters on derived = true, and leaving an
+	// authored edge for a human is deliberate (service.go, purgeSource) — and the
+	// traversal that reads the tier then loads one record fewer with no error and
+	// no count. This is the half that tells the human.
+	LostEdges []string
 
 	// UnlabelledAnchors are drawers carrying an anchor with no repo (ADR-056). NOT
 	// a finding: an anchor without a label is a legal write — the write side
@@ -63,13 +74,32 @@ type corpusFindings struct {
 	// which is the distinction the ad-hoc queries could not make because endings
 	// did not exist when they were written.
 	EndedFactSources int
+	// EndedEdgeTargets are current facts naming a drawer that was retracted or
+	// superseded. NOT a finding, and for a sharper reason than the provenance case
+	// above: reading an ended id ERRORS and names its successor, so a tier pointing
+	// at one fails loudly at the moment it is read. Counted rather than reported
+	// because the number moves whenever anyone corrects a record a tier names.
+	EndedEdgeTargets int
 }
 
 // clean reports whether the walk found anything an operator must act on.
+// clean reports whether the walk found anything an operator must act on.
 func (f corpusFindings) clean() bool {
 	return len(f.DriftedKeys) == 0 && len(f.LostParents) == 0 &&
-		len(f.LostAnchors) == 0 && len(f.LostFacts) == 0
+		len(f.LostAnchors) == 0 && len(f.LostFacts) == 0 && len(f.LostEdges) == 0
 }
+
+// drawerIDShape matches a value that IS a drawer id: DrawerID returns sha256 as
+// lowercase hex, so 64 hex characters is the shape and nothing else can be one.
+//
+// ⚠ IT IS WHAT MAKES THE EDGE LEG POSSIBLE AT ALL. subject and object are entity
+// labels in a schemaless graph — "wing_craft.root", "ADR-052", a service name —
+// so "this value names no drawer" is true of almost every row in the table, and a
+// check reporting that would be nothing but false alarms on its first run. An
+// id-shaped value is a POINTER by construction and can be judged; a label cannot.
+// The cost is a real miss (an id mangled into a non-hex string is unjudgeable) and
+// the purchase is a check an operator still trusts on the tenth run.
+var drawerIDShape = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
 // corpusRow is the subset of a drawer this check reads.
 //
@@ -187,11 +217,39 @@ func walkCorpus(ctx context.Context, svc *services, teamID string) (corpusFindin
 		}
 	}
 
+	// The other end of the same question: not "where did this fact come from" but
+	// "what does this edge point at". Current rows only — an ended fact is history,
+	// and history naming a deleted drawer is not something an operator repairs.
+	var edges []struct {
+		Subject string
+		Object  string
+	}
+	if err := svc.gdb.WithContext(ctx).Table("kg_triples").
+		Select("subject", "object").
+		Where("team_id = ? AND valid_to = ?", teamID, "").Scan(&edges).Error; err != nil {
+		return f, fmt.Errorf("walk edge endpoints: %w", err)
+	}
+	for _, e := range edges {
+		for _, endpoint := range []string{e.Subject, e.Object} {
+			if !drawerIDShape.MatchString(endpoint) {
+				continue
+			}
+			validTo, ok := live[endpoint]
+			switch {
+			case !ok:
+				f.LostEdges = append(f.LostEdges, endpoint)
+			case validTo != "":
+				f.EndedEdgeTargets++
+			}
+		}
+	}
+
 	sort.Strings(f.DriftedKeys)
 	sort.Strings(f.LostParents)
 	sort.Strings(f.LostAnchors)
 	sort.Strings(f.UnlabelledAnchors)
 	sort.Strings(f.LostFacts)
+	sort.Strings(f.LostEdges)
 	return f, nil
 }
 
@@ -216,6 +274,10 @@ func reportCorpus(out io.Writer, slug string, f corpusFindings) error {
 	// reassuring.
 	fmt.Fprintf(out, "  %d fact(s) cite a retracted or superseded drawer — expected: provenance is historical\n",
 		f.EndedFactSources)
+	// Printed at every run for the same reason: an edge naming an ended drawer is
+	// loud when read, so it is a count rather than a verdict.
+	fmt.Fprintf(out, "  %d current edge(s) name a retracted or superseded drawer — reading one errors and names its successor\n",
+		f.EndedEdgeTargets)
 	// Printed at every run, including zero, and never a verdict (ADR-056): the
 	// population is refilled by legal writes and drained only by labelling.
 	fmt.Fprintf(out, "  %d anchor(s) carry no repo — no tree can verify them; label each with "+
@@ -238,6 +300,7 @@ func reportCorpus(out io.Writer, slug string, f corpusFindings) error {
 		{"parent_id names no row", f.LostParents, "a chunk whose memory is gone"},
 		{"anchors name no row", f.LostAnchors, "a pin on text nobody can read"},
 		{"facts name no row", f.LostFacts, "provenance that resolves to nothing — NOT the same as citing an ended drawer, above"},
+		{"edges name no row", f.LostEdges, "a must./ref. pointer the traversal skips in silence — the authored tier is read at every wake-up"},
 	} {
 		if len(group.ids) == 0 {
 			continue
