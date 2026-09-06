@@ -306,7 +306,6 @@ func short(id string) string {
 }
 
 // anchorCounts is what one verification pass concluded, by kind.
-// anchorCounts is what one verification pass concluded, by kind.
 //
 // unattributable is its own bucket rather than part of elsewhere, because the two
 // have DIFFERENT REMEDIES and folding them together hides the one a human can act
