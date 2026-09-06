@@ -16,6 +16,11 @@ var governsLine = regexp.MustCompile(`(?m)^\*\*Governs:\*\*[ \t]*(.*)$`)
 // only, because the tail is prose and four records already vary it in whitespace.
 var governsNone = regexp.MustCompile(`(?i)^none\b`)
 
+// recordStatus reads the record's own Status header. A record is a work order
+// only once it is Accepted, and that distinction decides what an unresolvable
+// path MEANS rather than merely how loudly to report it.
+var recordStatus = regexp.MustCompile(`(?m)^\*\*Status:\*\*\s*(\w+)`)
+
 // governsPaths returns the paths one record's Governs header names.
 //
 // It accepts BOTH spellings, and that is not tolerance for its own sake: of the
@@ -30,12 +35,28 @@ var governsNone = regexp.MustCompile(`(?i)^none\b`)
 // nothing after it promises a pointer and delivers none. Only the caller can tell
 // them apart, so this does not collapse them.
 func governsPaths(text string) (paths []string, present bool) {
-	m := governsLine.FindStringSubmatch(text)
-	if m == nil {
+	loc := governsLine.FindStringSubmatchIndex(text)
+	if loc == nil {
 		return nil, false
 	}
-	body := strings.TrimSpace(m[1])
-	if body == "" || governsNone.MatchString(body) {
+	body := strings.TrimSpace(text[loc[2]:loc[3]])
+
+	// ⚠ AN EMPTY HEADER LINE IS NOT AN EMPTY HEADER. Two records declare their
+	// paths in the adrkit TYPED BLOCK that follows the header:
+	//
+	//	**Governs:**
+	//	- type: path
+	//	  pattern: "internal/billing/**"
+	//
+	// The first version of this parser read the line only, concluded those records
+	// governed nothing, and a two-line "fix" wrote `None` above four live
+	// declarations that `adr-context` still resolves. Caught in review of #307. The
+	// line and the block are one header, and reading half of it is the same
+	// universe hole this gate was written against.
+	if body == "" {
+		return typedGovernsPaths(text[loc[1]:]), true
+	}
+	if governsNone.MatchString(body) {
 		return nil, true
 	}
 	for _, raw := range strings.Split(body, ",") {
@@ -45,6 +66,42 @@ func governsPaths(text string) (paths []string, present bool) {
 		}
 	}
 	return paths, true
+}
+
+// governsPattern matches one `pattern: "…"` line of the adrkit typed block.
+var governsPattern = regexp.MustCompile(`(?m)^\s*pattern:\s*"([^"]+)"\s*$`)
+
+// typedGovernsPaths reads the `- type: path` block that follows an empty Governs
+// header, stopping at the first line that is neither part of the list nor blank.
+//
+// Bounded deliberately: the block is followed by an HTML comment carrying the
+// class definition, and a reader that ran to the end of the document would take
+// patterns out of prose that only discusses them.
+func typedGovernsPaths(rest string) []string {
+	var out []string
+	for _, line := range strings.Split(rest, "\n") {
+		t := strings.TrimSpace(line)
+		if t == "" || strings.HasPrefix(t, "- type:") || strings.HasPrefix(t, "pattern:") {
+			if m := governsPattern.FindStringSubmatch(line); m != nil {
+				out = append(out, m[1])
+			}
+			continue
+		}
+		break
+	}
+	return out
+}
+
+// inlineGoverns returns the text on the Governs header LINE, which is where the
+// None sentinel lives. Separated from governsPaths because the two questions
+// differ: what does this record govern, and did it say so on the line or in the
+// block beneath it.
+func inlineGoverns(text string) string {
+	m := governsLine.FindStringSubmatch(text)
+	if m == nil {
+		return ""
+	}
+	return m[1]
 }
 
 // unresolvedGoverns returns every path that names nothing in the tree.
@@ -122,7 +179,7 @@ func TestEveryGovernsPathResolves(t *testing.T) {
 			"is vacuous rather than clean", len(records))
 	}
 
-	withHeader, pathsSeen := 0, 0
+	withHeader, pathsSeen, forward := 0, 0, 0
 	for _, path := range records {
 		body, err := os.ReadFile(path)
 		if err != nil {
@@ -136,12 +193,37 @@ func TestEveryGovernsPathResolves(t *testing.T) {
 		withHeader++
 		pathsSeen += len(paths)
 
-		if m := governsLine.FindStringSubmatch(string(body)); m != nil && strings.TrimSpace(m[1]) == "" {
-			t.Errorf("%s: the Governs header is EMPTY.\n"+
+		// ⚠ A PROPOSED RECORD MAY NAME A PATH ITS TASKS WILL CREATE, and refusing
+		// that would be refusing the corpus's own workflow. ADR-043 (Proposed)
+		// governs internal/repohygiene/entryroom_test.go, and its T1 lists that file
+		// as `add` — the record declares what it WILL govern, which is the whole
+		// point of writing the record before the code. Holding it to the tree as it
+		// stands today would force an author to either omit the pointer or land the
+		// file first, and `adr-next` already draws this exact line: a record is a
+		// work order only once it is Accepted.
+		//
+		// An ACCEPTED record is a different claim. Its paths are the route to code
+		// that exists, and one that resolves to nothing is the silent rot this gate
+		// was written for.
+		status := ""
+		if m := recordStatus.FindStringSubmatch(string(body)); m != nil {
+			status = strings.ToLower(m[1])
+		}
+		if status != "accepted" {
+			forward += len(unresolvedGoverns(root, paths))
+			continue
+		}
+
+		// ⚠ "EMPTY" MEANS NO PATHS AND NO SENTINEL — not an empty header LINE.
+		// The first version of this check read the line alone and reported ADR-042
+		// as empty while its typed block declared two live paths. That is the same
+		// misreading that produced the two-line "fix" review rejected, surviving
+		// inside the gate written to prevent it.
+		if len(paths) == 0 && !governsNone.MatchString(strings.TrimSpace(inlineGoverns(string(body)))) {
+			t.Errorf("%s: the Governs header names nothing — no path, no typed block, and not "+
+				"the `None — declared by its tasks` sentinel.\n"+
 				"  It promises the route from this decision to the code it decides and gives "+
-				"none, which is the failure this gate exists to catch in its most complete form. "+
-				"A record whose scope lives in its tasks says so: `**Governs:** None — declared "+
-				"by its tasks`.", rel)
+				"none, which is this gate's subject in its most complete form.", rel)
 		}
 		for _, bad := range unresolvedGoverns(root, paths) {
 			t.Errorf("%s: Governs names %q, which resolves to nothing.\n"+
@@ -156,7 +238,8 @@ func TestEveryGovernsPathResolves(t *testing.T) {
 			"corpus, so the parser stopped matching rather than the tree being clean",
 			withHeader, pathsSeen)
 	}
-	t.Logf("resolved %d Governs paths across %d records", pathsSeen, withHeader)
+	t.Logf("resolved %d Governs paths across %d records; %d forward declaration(s) in "+
+		"records that are not yet Accepted", pathsSeen, withHeader, forward)
 
 	// A corpus with zero unresolvable paths cannot exercise the branch that reports
 	// one, so the negative case is a SUBTEST driving the same resolver over inputs
