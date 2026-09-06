@@ -1318,11 +1318,18 @@ func (s *Service) Update(ctx context.Context, teamID, id string, patch DrawerPat
 
 	// A content change is a CORRECTION, and it leaves this function here.
 	//
-	// This branch is placed BEFORE the multi-chunk refusal below deliberately. That
-	// refusal told the caller to "delete the memory and file it again as one
-	// piece"; a supersede is that instruction performed correctly and without the
-	// delete, so keeping the guard ahead of it would make correction impossible for
-	// exactly the long documents that most need it.
+	// ⚠ THE REFUSAL THIS ORDER WAS CHOSEN AGAINST IS GONE, AND THE ORDER STILL
+	// MATTERS. A multi-chunk refusal once stood below and told the caller to
+	// "delete the memory and file it again as one piece"; a supersede is that
+	// instruction performed correctly and without the delete, so a guard ahead of
+	// this branch would have made correction impossible for exactly the long
+	// documents that most need it. ADR-045 removed it — the move path below says
+	// so — and nothing there would stop a correction today.
+	//
+	// What keeps the order is the patch that carries BOTH: this branch returns, so
+	// content plus wing/room is one correction minted into the new location
+	// (supersedeInto takes them), rather than a move of the old record followed by
+	// a supersede of the moved one. Two operations where the caller asked for one.
 	if patch.Content != nil {
 		wing, room := current.Wing, current.Room
 		if patch.Wing != nil {
