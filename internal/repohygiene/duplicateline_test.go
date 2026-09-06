@@ -6,6 +6,7 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -171,11 +172,21 @@ func TestNoCommentLineIsRepeatedVerbatim(t *testing.T) {
 // sibling gate in review of PR #316, which is why it is written on the same day as
 // the gate rather than after the first time somebody deletes the line.
 func TestTheDuplicateLineGateIsAppliedToTheTree(t *testing.T) {
-	const (
-		gate    = "TestNoCommentLineIsRepeatedVerbatim"
-		applies = "checkDuplicatedCommentLines"
-		toTree  = "repoRoot"
-	)
+	const toTree = "repoRoot"
+	// Both gates, because the markdown half arrived a day after the Go half and a
+	// registration test that covers one of two is the same absence with a name.
+	for _, g := range []struct{ gate, applies string }{
+		{"TestNoCommentLineIsRepeatedVerbatim", "checkDuplicatedCommentLines"},
+		{"TestNoMarkdownLineIsRepeatedVerbatim", "checkDuplicatedProseLines"},
+	} {
+		assertGateIsApplied(t, g.gate, g.applies, toTree)
+	}
+}
+
+// assertGateIsApplied reads this file's own source and requires the named gate to
+// hand the named check the repository root.
+func assertGateIsApplied(t *testing.T, gate, applies, toTree string) {
+	t.Helper()
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, "duplicateline_test.go", nil, parser.ParseComments)
 	if err != nil {
@@ -217,4 +228,126 @@ func TestTheDuplicateLineGateIsAppliedToTheTree(t *testing.T) {
 			"the package would still report PASS over a tree carrying real duplicates",
 			gate, applies)
 	}
+}
+
+// verificationEntryRE matches an `adr-verify` Verification Log line:
+// `- 2026-09-01 · f1d3468* · exit 0 · ...`.
+//
+// ⚠ THIS EXCLUSION IS THE WHOLE REASON THE MARKDOWN HALF IS A SEPARATE DECISION
+// rather than one HasSuffix on the Go gate. Measured over every tracked .md when
+// it was written: 23 adjacent repetitions, 22 of them this one shape — an
+// identical acceptance run appended twice — and ONE real prose duplicate. A naive
+// extension is 95% false alarms on its first run, which is how a gate teaches
+// people to ignore it.
+//
+// Two identical entries are either legitimate (the same acceptance re-run, which
+// the log is entitled to record twice) or a defect in `adr-verify`'s append. Both
+// are somebody else's question; neither is a wrap-tail write, which is the only
+// thing this file judges.
+//
+// It matches the SHAPE rather than a `## Verification Log` heading on purpose: a
+// section rule needs the heading state to be tracked correctly through fences and
+// sub-headings, and the first draft of this measurement got that wrong and
+// reported four of these as real.
+var verificationEntryRE = regexp.MustCompile(`^-\s+\d{4}-\d{2}-\d{2}\s+·`)
+
+// duplicatedProseLines is the markdown half. AGENTS.md §7's own record of this
+// defect is in the ADR corpus — "Three such duplicates shipped in ADR-052's record
+// and the repair produced a fourth" — so the Go gate was pointed at the smaller
+// half of the tree.
+//
+// ⚠ FENCED BLOCKS ARE SKIPPED, and this file is why: a document explaining the
+// defect SHOWS it, so the sample would be reported as an instance of itself.
+func duplicatedProseLines(tb testing.TB, root string, ignored func(string, bool) bool) (dups []duplicateLine, scanned int) {
+	tb.Helper()
+	for _, path := range walk(tb, root, ignored) {
+		if !strings.HasSuffix(path, ".md") {
+			continue
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			continue
+		}
+		src, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		var prev string
+		var fenced bool
+		for i, raw := range strings.Split(string(src), "\n") {
+			line := strings.TrimSpace(raw)
+			if strings.HasPrefix(line, "```") {
+				fenced = !fenced
+				prev = ""
+				continue
+			}
+			if fenced {
+				continue
+			}
+			scanned++
+			if line != "" && line == prev && len(line) >= minDuplicateLen &&
+				!verificationEntryRE.MatchString(line) {
+				dups = append(dups, duplicateLine{file: rel, line: i + 1, text: line})
+			}
+			prev = line
+		}
+	}
+	return dups, scanned
+}
+
+// checkDuplicatedProseLines is the markdown verdict, through a substitutable
+// testing.TB for the reason the Go one is.
+func checkDuplicatedProseLines(tb testing.TB, root string, ignored func(string, bool) bool) {
+	tb.Helper()
+	dups, scanned := duplicatedProseLines(tb, root, ignored)
+	if scanned == 0 {
+		tb.Errorf("the scan read no markdown line anywhere in the tree; that is not a clean bill " +
+			"of health, it is a gate that did not run")
+	}
+	for _, d := range dups {
+		tb.Errorf("%s:%d repeats the line above it verbatim:\n    %s\n"+
+			"  AGENTS.md §7's wrap-tail write, in the corpus where that section recorded it. "+
+			"Delete the second copy.", d.file, d.line, d.text)
+	}
+}
+
+// TestNoMarkdownLineIsRepeatedVerbatim is the gate over the documents.
+func TestNoMarkdownLineIsRepeatedVerbatim(t *testing.T) {
+	root := repoRoot(t)
+	checkDuplicatedProseLines(t, root, gitignoreMatcher(t, root))
+
+	t.Run("a repeated prose line is caught", func(t *testing.T) {
+		fixture := t.TempDir()
+		body := "# A record\n\n" +
+			"Repoint the two commands and run the existing suite; it is inside the fence.\n" +
+			"Repoint the two commands and run the existing suite; it is inside the fence.\n\n" +
+			"```\n" +
+			"// a duplicated line shown as an EXAMPLE of the defect, not an instance\n" +
+			"// a duplicated line shown as an EXAMPLE of the defect, not an instance\n" +
+			"```\n\n" +
+			"## Verification Log\n\n" +
+			"- 2026-09-01 · f1d3468* · exit 0 · `set -o pipefail …` · acceptance-sha256:d5f7\n" +
+			"- 2026-09-01 · f1d3468* · exit 0 · `set -o pipefail …` · acceptance-sha256:d5f7\n"
+		if err := os.WriteFile(filepath.Join(fixture, "record.md"), []byte(body), 0o600); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+		rec := &recordingTB{}
+		checkDuplicatedProseLines(rec, fixture, func(string, bool) bool { return false })
+		if rec.errors != 1 {
+			t.Fatalf("the gate reported %d finding(s) over a fixture with one real duplicate, one "+
+				"inside a fence and one repeated acceptance entry; the two exclusions are what "+
+				"make this gate obeyable rather than argued with", rec.errors)
+		}
+
+		blind := t.TempDir()
+		if err := os.WriteFile(filepath.Join(blind, "empty.txt"), []byte("not markdown\n"), 0o600); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+		mute := &recordingTB{}
+		checkDuplicatedProseLines(mute, blind, func(string, bool) bool { return false })
+		if mute.errors == 0 {
+			t.Error("a scan that read no markdown at all reported success; an empty finding list " +
+				"and a gate that never ran are byte-identical without the floor")
+		}
+	})
 }
