@@ -97,9 +97,14 @@ type BootstrapResult struct {
 	Truncation BootstrapTruncation `json:"truncation"`
 }
 
-// bootstrapEagerLimit bounds the inline tier. A bootstrap that grows without
+// BootstrapEagerLimit bounds the inline tier. A bootstrap that grows without
 // limit becomes the thing it replaced.
-const bootstrapEagerLimit = 10
+// ⚠ EXPORTED SO THE SENTENCES DESCRIBING IT CANNOT FREEZE. Review of PR #325:
+// "first ten" had just been typed into three shipped surfaces, deriving from an
+// unexported constant, which is how "roughly 800 characters" came to sit in seven
+// documents against a ChunkSize of 1600. am_add_drawer's description already
+// interpolates palace.ChunkSize for exactly this reason.
+const BootstrapEagerLimit = 10
 
 // bootstrapTierLimit bounds the tier pointers. A pointer with a hint is ~200
 // bytes, and the protocol's own invariant is at most ~35 leaves per node, so a
@@ -150,8 +155,8 @@ func (s *Service) Bootstrap(ctx context.Context, teamID, wing string) (Bootstrap
 
 	// Everything past the eager bound becomes a pointer rather than vanishing.
 	inline, deferred := ids, []string(nil)
-	if len(ids) > bootstrapEagerLimit {
-		inline, deferred = ids[:bootstrapEagerLimit], ids[bootstrapEagerLimit:]
+	if len(ids) > BootstrapEagerLimit {
+		inline, deferred = ids[:BootstrapEagerLimit], ids[BootstrapEagerLimit:]
 	}
 
 	// Omitted means: a record the wing offered that this response NEITHER inlined
@@ -190,7 +195,7 @@ func (s *Service) Bootstrap(ctx context.Context, teamID, wing string) (Bootstrap
 		// existed to prevent, which made the refusal a workaround for this bug.
 		//
 		// ByRoots and not per id: this is the one call no session skips, and
-		// resolving up to bootstrapEagerLimit memories one at a time would be N
+		// resolving up to BootstrapEagerLimit memories one at a time would be N
 		// queries for an answer one query gives. Reassembly is reassembleMemory,
 		// the SAME function the search path uses (memory_search.go) — a second
 		// implementation would be a second answer to one question, and the seam it

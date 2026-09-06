@@ -148,8 +148,9 @@ rather than skipping silently. The procedure that works, in full, because three
 of its steps failed silently the day it was written:
 
     git checkout main && git pull --ff-only                    # FIRST: the clone below reads LOCAL main
-    git clone -q --no-local --branch <tag-or-sha> . "$DIR"   # a CLONE, never a worktree
+    git clone -q -c core.longpaths=true --no-local --branch <tag-or-sha> . "$DIR"   # a CLONE, never a worktree
     [ "$(git -C "$DIR" rev-parse HEAD)" = "$(git rev-parse '<tag-or-sha>^{}')" ] || exit 1   # the clone is at the ref you named
+    [ -z "$(git -C "$DIR" status --porcelain)" ] || exit 1   # AND THE TREE IS WHOLE, which the line above cannot see
     cp .env.docker "$DIR/"; [ -f .env ] && cp .env "$DIR/"     # a clone has no untracked files; .env carries RERANK_URL on a Mac
     cd "$DIR" && AGENTSMEMORY_VERSION=<tag> scripts/redeploy.sh
     # then the kit, from the same tree — THREE binaries, not two: the Claude Desktop
@@ -172,6 +173,16 @@ ref you named — compared as RESOLVED COMMITS (`^{}` dereferences an annotated
 tag), because the first draft of this guard compared the clone's sha to the
 stamp string and so refused every tag-stamped release, the documented normal
 path; review caught it against `v0.0.114` before it shipped.
+⚠ AND "AT THE RIGHT COMMIT" IS NOT "WHOLE". Measured on Windows 11 / Git Bash
+(issue #327): `git clone` failed to write five ADR task files whose paths exceed
+the filename limit, printed `unable to checkout working tree`, and EXITED 0 — so
+the script ran on under `set -e` and the ref guard passed, because the clone was
+at exactly the commit named. A deploy built from a tree missing five files, and
+the doc-corpus gates that would have noticed run INSIDE that tree, where the
+files are absent rather than wrong. `core.longpaths=true` prevents it and
+`status --porcelain` catches it: a checkout that could not write a tracked file
+leaves it staged as deleted, which is the one question the sha comparison cannot
+ask.
 ⚠ A git worktree's `.git` is a pointer file the container does not mount, so
 every test that shells out to git goes red — four did, at a tag whose suite was
 green. ⚠ `AGENTSMEMORY_VERSION` is per-build, not sticky: a rebuild without it

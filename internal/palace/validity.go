@@ -112,7 +112,30 @@ func (s *Service) EndDrawer(ctx context.Context, teamID, id, reason string) erro
 		}
 		// The server's derived edges go with it; an authored pointer survives,
 		// because retracting a record does not retract someone's reference to it.
-		return endDerivedEdgesFor(tx, teamID, []string{id}, now,
-			"the drawer this derived edge points at was retracted")
+		if err := endDerivedEdgesFor(tx, teamID, []string{id}, now,
+			"the drawer this derived edge points at was retracted"); err != nil {
+			return err
+		}
+
+		// ⚠ THE FOURTH DOOR OUT OF THE ENTRY ROOM. Found by review of PR #325 after
+		// that PR closed the third and its author called it the last one.
+		//
+		// Retracting the last live entry record ends the row and its holds edge and
+		// left the wing's by-name root current over a room that now holds nothing —
+		// the same confident empty answer, reached through a tool on the agent
+		// surface. The strongest evidence that this was always meant to be here is
+		// endWingRootIfEntryRoomIsEmpty's own comment, which already claims this
+		// population: "no live edge" covers a room whose records are all retracted
+		// as well as one whose records have left. The condition was written for the
+		// retract case and nothing invoked it there.
+		//
+		// In EndDrawer rather than InvalidateDrawer so the multi-chunk loop works
+		// for free: while any chunk is still live its holds edge keeps the count
+		// above zero, so the release fires on the last one.
+		if current.Room != EntryRoom {
+			return nil
+		}
+		return endWingRootIfEntryRoomIsEmpty(tx, teamID, current.Wing, now,
+			"the last live record in this wing's entry room was retracted")
 	})
 }

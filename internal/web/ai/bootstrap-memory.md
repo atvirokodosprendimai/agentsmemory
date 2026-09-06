@@ -35,7 +35,8 @@ What it carries, and what teams most often get wrong:
 - **Continuity** — how a session picks up work the previous one left unfinished, which is the
   part that makes memory feel like memory rather than an archive.
 - **Writing rules** — titling a record with the question a reader will ask, why writing *about*
-  a probe degrades that probe, and why a document you intend to maintain must fit in one chunk.
+  a probe degrades that probe, and why a maintained document is one chunk for RECALL rather than
+  because anything refuses a longer one.
 - **An acceptance test** to run rather than assume, and an honest list of the model's limits.
 
 Every rule in it was measured, usually after being got wrong first.
