@@ -899,6 +899,63 @@ so the sweep grows with every task rather than staying still. That is the argume
 sooner or deciding not to do it at all — a backlog item whose cost rises on its own is not one that
 can be left indefinitely without that being a decision.
 
+## MOSTLY RESOLVED 2026-09-06 — the multi-chunk refusals are gone; re-chunking on a content update is what remains (filed 2026-08-20)
+
+⚠ **THIS ENTRY'S CENTRAL CLAIM IS NO LONGER TRUE.** It says `Update` "now refuses when the drawer
+belongs to a multi-chunk memory". It does not, and the code says so in its own comment
+(`internal/palace/repo.go`): *"Service.Update used to REFUSE a multi-chunk content edit and this
+comment said so; ADR-038 T4 moved corrections onto supersede and ADR-045 removed the refusal's
+remaining half, so the guard named here no longer exists."*
+
+So a correction of a memory of any chunk count is ACCEPTED, addressed through any chunk's id, and
+files the replacement through the chunking path. Verified in this session by superseding a
+two-chunk record twice.
+
+**The MOVE half is resolved too**, and this entry lists it as still open. `Service.Update`
+(`internal/palace/service.go`) now resolves `MemoryChunks` and moves every row in one transaction;
+the comment there records why the refusal was never protecting an invariant — *"it was the honest
+answer of a function doing 1/N of the job, and it was the last row-scoped write path in this
+package"* — and why removing it was safe: a move changes no CONTENT, so chunk boundaries and
+`chunk_index` are unchanged, no row is minted or destroyed, and every fact, anchor and pinned tunnel
+keeps pointing at a live id.
+
+**WHAT ACTUALLY REMAINS** is the first of the two items, unchanged and correctly stated:
+re-chunking on a CONTENT update. The same comment ends *"Re-chunking on a CONTENT update remains
+unsolved and remains in the backlog"*, and it is still an ADR rather than a bug fix, because it
+changes how many rows exist and which ids they carry — ADR-027's open question about a reference
+into a chunk a re-chunk would delete.
+
+⚠ **THE TWO PALACES SERVE DIFFERENT VERSIONS OF `start-here`, AND ONLY ONE IS CORRECT.**
+Established 2026-09-06 by two sessions comparing what each was served, after one blocked the other's
+first version of this paragraph for quoting a sentence the other could not find.
+
+- **HOSTED serves v18** (`updated_at 2026-09-01`). It carries the retraction: *"DO NOT SPEND TURNS
+  TRIMMING A RECORD TO FIT. THIS DOCUMENT TAUGHT THE OPPOSITE UNTIL 2026-09-01 AND IT WAS WRONG"*,
+  naming ADR-045 and citing `am_add_drawer`'s live description. Correct, and nothing is owed there.
+- **LOCAL serves v1** (`updated_at 2026-08-30`), and it still teaches the retired rule verbatim:
+  *"⚠ WHAT IS STILL REFUSED IS THE MOVE … So: born long = never RELOCATABLE, still fully
+  CORRECTABLE"*, plus *"Still create anything you intend to maintain at or under 1600 runes —
+  because you may later want to MOVE it."*
+
+So the finding is not that the skill's text is wrong. **It is that this repository's ordinary
+development setup points sessions at the palace serving the stale copy** — `am_status` here returns
+`mode: "local"`, workspace `local` — and every session that loads the entry protocol on it is taught
+to size records around a constraint ADR-045 removed. The cost is measured: four measure-and-trim
+rounds on one record, 2026-09-01.
+
+The remedy is a SKILL REDEPLOY to the local palace, not an edit: the correct body already exists at
+v18 on hosted. ⚠ And do not fix it by pasting v18's text over v1 — the retired clause is physically
+present INSIDE its own retraction there, so a careless copy can reintroduce what it retracts. That
+is the trap `TestNoToolDescriptionClaimsALongMemoryCannotBeMoved` exists for, which matches the
+retired CLAUSE rather than the topic *"because a gate that forbids the true sentence along with the
+false one is a gate somebody deletes."*
+
+AGENTS.md already records these two palaces diverging on this exact skill (v13 hosted against `not
+found` local, catalogue split both ways). This is the same divergence, still live, now with a
+measured cost attached.
+
+Original entry, kept because the incident is the record:
+
 ## A memory is several rows and most operations treat it as one
 
 Found in production 2026-08-20 by a session correcting one of its own memories, and reproduced here
