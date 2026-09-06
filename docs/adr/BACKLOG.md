@@ -878,10 +878,26 @@ ran the task's tests perfectly well. ADR-004 T3 hit it: `./internal/palace/` ran
 signature appears AND no evidence of a real run appears anywhere in the output. The per-task guards
 predate that and are now both redundant and stricter than the thing they duplicate.
 
-Removing all nineteen would invalidate every Verification Log entry taken under them (adr-lint
+Removing them all would invalidate every Verification Log entry taken under them (adr-lint
 rejects a `done` whose logged command no longer matches), so it is a deliberate sweep rather than a
 drive-by: strip the guards, re-run adr-verify on every completed task, commit between runs. Until
 then, scope a multi-package acceptance to the package that holds the tests.
+
+⚠ **RE-MEASURED 2026-09-06: THE SWEEP IS ~7× THE SIZE THIS ENTRY SAYS.** It said "all nineteen".
+Today **128** task files carry the guard and **69 of those are marked `done`**, so the sweep would
+invalidate sixty-nine Verification Log entries rather than a handful — each needing its own
+`adr-verify` re-run and commit. The number is not restated as a new frozen figure for the reason
+this corpus keeps recording; re-measure before planning:
+
+```
+grep -l 'no tests to run|\^FAIL' docs/adr/*/tasks/T*.md | wc -l
+```
+
+The defect and the workaround are unchanged and still correct. What changed is the cost, and it
+changed silently: every task authored since this entry was filed copied the guard from the template,
+so the sweep grows with every task rather than staying still. That is the argument for doing it
+sooner or deciding not to do it at all — a backlog item whose cost rises on its own is not one that
+can be left indefinitely without that being a decision.
 
 ## A memory is several rows and most operations treat it as one
 
