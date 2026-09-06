@@ -63,6 +63,14 @@ type rerankProbe struct {
 // is a guess wearing a verdict.
 const minMeasurableSpread = time.Millisecond
 
+// reportablePoolCeiling is where a fitted pool stops being worth naming.
+//
+// The default pool is 50 and a cross-encoder is linear in pool size, so nobody
+// configures a thousand; past this line the figure says "not the constraint"
+// rather than anything about the box. Naming it anyway is how a check that is
+// right about the verdict loses the reader's trust in the number beside it.
+const reportablePoolCeiling = 1000
+
 // affordablePool is the largest pool whose predicted wall time fits within the
 // budget, never below zero.
 func (p rerankProbe) affordablePool(budget time.Duration) int {
@@ -197,7 +205,25 @@ func doctorRerank(ctx context.Context, cfg config.Config, out io.Writer) error {
 	}
 
 	affordable := probe.affordablePool(budget)
-	fmt.Fprintf(out, "  largest pool that fits %s: %d\n", budget, affordable)
+	if affordable > reportablePoolCeiling {
+		// ⚠ A NUMBER THIS LARGE IS JITTER, NOT A MEASUREMENT, and printing it spends
+		// the check's credibility on a figure nobody acts on. minMeasurableSpread is
+		// an absolute wall-clock floor; scheduling jitter is not, and it grows with
+		// whatever else the box is doing — so a genuinely fast cross-encoder on a
+		// busy host produces a 1ms-to-3ms spread from scheduling alone and gets a
+		// fitted slope out of it. Review of PR #324 measured exactly that under the
+		// race detector: 5,227, and 457,832 before the floor existed.
+		//
+		// Capping rather than thresholding, on the reviewer's argument: it is robust
+		// to jitter in both directions and needs no second sample. The verdict is
+		// unaffected either way, because a pool anyone configures fits far below
+		// this line.
+		fmt.Fprintf(out, "  the pool is not what limits you: this reranker scores far more than "+
+			"%d documents inside %s, so any pool you would configure fits\n",
+			reportablePoolCeiling, budget)
+	} else {
+		fmt.Fprintf(out, "  largest pool that fits %s: %d\n", budget, affordable)
+	}
 
 	// ⚠ REORDER-ONLY, and it is reported at every run rather than only when it
 	// bites. The retrieve floor is max(limit×3, pool), so a request whose limit

@@ -283,6 +283,13 @@ func TestAColdStartIsNotReportedAsAnUnaffordablePool(t *testing.T) {
 // A pre-flight that cries wolf on a healthy box is the one an operator disables,
 // which is the argument the no-reranker branch already makes.
 func TestAnUnfittableProbeIsInconclusiveRatherThanAVerdict(t *testing.T) {
+	// ⚠ AND NOTHING ELSE NOW EXERCISES A FITTED-FROM-JITTER SLOPE. The instant
+	// fixture was demonstrating that by accident — it is what produced 5,227 under
+	// -race and 457,832 before the noise floor — and inverting it correctly stops
+	// it doing so. The case is covered deliberately instead, by
+	// TestAnAbsurdlyLargeFittedPoolIsNotNamed below, which is where a reader should
+	// look for it rather than concluding it was never considered.
+	//
 	// ⚠ THE LARGE BATCH IS DELIBERATELY THE FAST ONE, and the first version of this
 	// fixture answered "instantly" for every size instead. That relies on the two
 	// calls differing by less than the noise floor, which held locally and did not
@@ -327,5 +334,49 @@ func TestAnUnfittableProbeIsInconclusiveRatherThanAVerdict(t *testing.T) {
 	}
 	if strings.Contains(out.String(), "largest pool that fits") {
 		t.Errorf("the report names an affordable pool it could not measure:\n%s", out.String())
+	}
+}
+
+// TestAnAbsurdlyLargeFittedPoolIsNotNamed is the residual review of PR #324
+// raised after that PR merged: minMeasurableSpread is an absolute floor and
+// scheduling jitter is not, so a fast reranker on a busy host still fits a slope
+// to noise and the check printed the result with a measurement's confidence.
+//
+// The verdict was never wrong — a pool anyone configures fits — but the number
+// beside it was derived from jitter, which is the class this file already rejects
+// twice. Capping is robust in both directions and needs no second sample.
+func TestAnAbsurdlyLargeFittedPoolIsNotNamed(t *testing.T) {
+	// A spread over the noise floor, and tiny per document: the geometry of a fast
+	// cross-encoder, or of jitter on a busy box. Either way the fit is real
+	// arithmetic over a difference nobody should act on.
+	_, url := slowReranker(t, 2*time.Millisecond, 300*time.Microsecond)
+	cfg := config.Default()
+	cfg.RerankURL = url
+	// ⚠ A WIDE BUDGET, BECAUSE THE WINDOW IS OTHERWISE NARROWER THAN THE JITTER.
+	// The fitted pool must land above the ceiling, which at a 1s budget means a
+	// spread inside roughly 1ms-7ms — and review of this PR measured 6 failures in
+	// 200 concurrent -race runs on a 40-core box, where a nominal 2.1ms spread was
+	// observed at 11ms and the fitted pool swung 5x. At 10s the same spread has
+	// 70ms of room.
+	//
+	// That flake is evidence FOR what this test pins rather than against it: the
+	// production number moved five-fold with machine load, which is precisely why
+	// it should not be printed. The code was more right than the test.
+	cfg.RerankTimeout = 10 * time.Second
+	cfg.RerankPool = 50
+
+	var out bytes.Buffer
+	if err := doctorRerank(context.Background(), cfg, &out); err != nil {
+		t.Fatalf("a pool of 50 against a fast reranker was reported as unaffordable: %v\n%s",
+			err, out.String())
+	}
+	if !strings.Contains(out.String(), "not what limits you") {
+		t.Errorf("the report names a fitted pool instead of saying the pool is not the "+
+			"constraint:\n%s\n"+
+			"  Past a thousand the figure is arithmetic over a spread near the noise floor, and "+
+			"printing it spends the check's credibility on a number nobody acts on.", out.String())
+	}
+	if strings.Contains(out.String(), "largest pool that fits") {
+		t.Errorf("the report still names the number:\n%s", out.String())
 	}
 }
