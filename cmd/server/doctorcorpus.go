@@ -83,7 +83,6 @@ type corpusFindings struct {
 }
 
 // clean reports whether the walk found anything an operator must act on.
-// clean reports whether the walk found anything an operator must act on.
 func (f corpusFindings) clean() bool {
 	return len(f.DriftedKeys) == 0 && len(f.LostParents) == 0 &&
 		len(f.LostAnchors) == 0 && len(f.LostFacts) == 0 && len(f.LostEdges) == 0
