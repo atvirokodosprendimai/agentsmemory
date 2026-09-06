@@ -925,15 +925,34 @@ unsolved and remains in the backlog"*, and it is still an ADR rather than a bug 
 changes how many rows exist and which ids they carry — ADR-027's open question about a reference
 into a chunk a re-chunk would delete.
 
-⚠ **AND A SHIPPED SKILL STILL TEACHES THE REMOVED REFUSAL.** The centralised `start-here` skill
-says "WHAT IS STILL REFUSED IS THE MOVE — sending only wing/room for a multi-chunk memory is
-rejected", and concludes "born long = never RELOCATABLE". The server's own live `am_add_drawer`
-description already contradicts it: *"a memory of ANY length can be corrected … and relocated
-(wing/room moves every chunk in one transaction), so length costs you no capability — do not spend
-turns trimming to fit."* A session reading the skill will size records around a constraint that was
-removed, which is the cost this corpus records against stale prose. Not edited here: a centralised
-skill is shared by every project and its correction is the owner's call, not a drive-by from one
-repository.
+⚠ **THE TWO PALACES SERVE DIFFERENT VERSIONS OF `start-here`, AND ONLY ONE IS CORRECT.**
+Established 2026-09-06 by two sessions comparing what each was served, after one blocked the other's
+first version of this paragraph for quoting a sentence the other could not find.
+
+- **HOSTED serves v18** (`updated_at 2026-09-01`). It carries the retraction: *"DO NOT SPEND TURNS
+  TRIMMING A RECORD TO FIT. THIS DOCUMENT TAUGHT THE OPPOSITE UNTIL 2026-09-01 AND IT WAS WRONG"*,
+  naming ADR-045 and citing `am_add_drawer`'s live description. Correct, and nothing is owed there.
+- **LOCAL serves v1** (`updated_at 2026-08-30`), and it still teaches the retired rule verbatim:
+  *"⚠ WHAT IS STILL REFUSED IS THE MOVE … So: born long = never RELOCATABLE, still fully
+  CORRECTABLE"*, plus *"Still create anything you intend to maintain at or under 1600 runes —
+  because you may later want to MOVE it."*
+
+So the finding is not that the skill's text is wrong. **It is that this repository's ordinary
+development setup points sessions at the palace serving the stale copy** — `am_status` here returns
+`mode: "local"`, workspace `local` — and every session that loads the entry protocol on it is taught
+to size records around a constraint ADR-045 removed. The cost is measured: four measure-and-trim
+rounds on one record, 2026-09-01.
+
+The remedy is a SKILL REDEPLOY to the local palace, not an edit: the correct body already exists at
+v18 on hosted. ⚠ And do not fix it by pasting v18's text over v1 — the retired clause is physically
+present INSIDE its own retraction there, so a careless copy can reintroduce what it retracts. That
+is the trap `TestNoToolDescriptionClaimsALongMemoryCannotBeMoved` exists for, which matches the
+retired CLAUSE rather than the topic *"because a gate that forbids the true sentence along with the
+false one is a gate somebody deletes."*
+
+AGENTS.md already records these two palaces diverging on this exact skill (v13 hosted against `not
+found` local, catalogue split both ways). This is the same divergence, still live, now with a
+measured cost attached.
 
 Original entry, kept because the incident is the record:
 
