@@ -179,7 +179,7 @@ func TestEveryGovernsPathResolves(t *testing.T) {
 			"is vacuous rather than clean", len(records))
 	}
 
-	withHeader, pathsSeen, forward := 0, 0, 0
+	withHeader, pathsSeen, forward, accepted := 0, 0, 0, 0
 	for _, path := range records {
 		body, err := os.ReadFile(path)
 		if err != nil {
@@ -205,14 +205,36 @@ func TestEveryGovernsPathResolves(t *testing.T) {
 		// An ACCEPTED record is a different claim. Its paths are the route to code
 		// that exists, and one that resolves to nothing is the silent rot this gate
 		// was written for.
-		status := ""
-		if m := recordStatus.FindStringSubmatch(string(body)); m != nil {
-			status = strings.ToLower(m[1])
+		// ⚠ "NOT ACCEPTED" AND "I COULD NOT READ THE STATUS" ARE DIFFERENT ANSWERS,
+		// and collapsing them made this gate disarmable by one character. Spelling a
+		// header `**Status**:` instead of `**Status:**` — an ordinary Markdown typo —
+		// made every record parse as not-Accepted, skipped every assertion below, and
+		// produced output BYTE-IDENTICAL to the healthy run. A real dangling pointer
+		// injected under that mutant was silently reclassified as a forward
+		// declaration and the suite stayed green; the typed-block parser lost its
+		// binding at the same time, because the record that binds it stopped being
+		// Accepted. One regex, two mechanisms unbound, one green suite.
+		//
+		// This is the distinction am_kg_query already draws between
+		// known_term_no_facts and unknown_term, for exactly this reason: an empty
+		// answer and an unreadable question must not look the same.
+		m := recordStatus.FindStringSubmatch(string(body))
+		if m == nil {
+			t.Errorf("%s: carries a Governs header and no readable **Status:** line.\n"+
+				"  Resolution means different things either side of acceptance, so a status "+
+				"this gate cannot read is a record it cannot judge — and skipping it silently "+
+				"is how one header typo ungates one record with nothing to show for it.", rel)
+			continue
 		}
-		if status != "accepted" {
+		if status := strings.ToLower(m[1]); status != "accepted" {
+			// A Proposed record declares what it WILL govern; its tasks create the
+			// files. Counted, not failed — and the count is asserted below rather
+			// than merely logged, because an exemption nothing bounds is the shape
+			// TestNotOperatorFacingIsJustified and its siblings exist to refuse.
 			forward += len(unresolvedGoverns(root, paths))
 			continue
 		}
+		accepted++
 
 		// ⚠ "EMPTY" MEANS NO PATHS AND NO SENTINEL — not an empty header LINE.
 		// The first version of this check read the line alone and reported ADR-042
@@ -233,13 +255,23 @@ func TestEveryGovernsPathResolves(t *testing.T) {
 		}
 	}
 
+	// ⚠ A FLOOR ON THE ACCEPTED POPULATION, not only on the corpus. The checks that
+	// matter run for Accepted records alone, so counting records and paths says
+	// nothing about whether any of them were JUDGED. 23 of the 24 carrying the
+	// header are Accepted today, so a run finding fewer than ten has failed to read
+	// statuses rather than found a corpus of drafts.
+	if accepted < 10 {
+		t.Errorf("only %d record(s) parsed as Accepted, so almost nothing was judged — "+
+			"the Status header moved or stopped matching, and every resolution check "+
+			"below it was skipped rather than passed", accepted)
+	}
 	if withHeader < 10 || pathsSeen < 20 {
 		t.Errorf("examined %d records with a Governs header and %d paths — too few for this "+
 			"corpus, so the parser stopped matching rather than the tree being clean",
 			withHeader, pathsSeen)
 	}
 	t.Logf("resolved %d Governs paths across %d records; %d forward declaration(s) in "+
-		"records that are not yet Accepted", pathsSeen, withHeader, forward)
+		"records that are not yet Accepted; %d Accepted", pathsSeen, withHeader, forward, accepted)
 
 	// A corpus with zero unresolvable paths cannot exercise the branch that reports
 	// one, so the negative case is a SUBTEST driving the same resolver over inputs
