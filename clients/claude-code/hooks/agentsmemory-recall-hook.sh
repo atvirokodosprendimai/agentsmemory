@@ -361,7 +361,62 @@ export AGENTSMEMORY_ORIGIN="hook:$(basename "$0")"
 # reads craft; a single scoped call would silently drop it (review of #268).
 # Without a wing: one unscoped call, as before the record.
 TOKEN="${AGENTSMEMORY_LOCAL_TOKEN:-${AGENTSMEMORY_TOKEN:-}}"
-WING="${AGENTSMEMORY_WING:-}"
+# ⚠ THE PROJECT'S PIN OUTRANKS THE INSTALLED DEFAULT, and the order is the fix.
+#
+# The installer bakes AGENTSMEMORY_WING into this hook's command line
+# (hookCommandWithWing), and a LEADING ASSIGNMENT overrides the inherited
+# environment — so the baked value beat everything, including a wing the sandbox
+# launcher had resolved correctly. Hook registrations live in the user-level
+# settings.json whatever --scope says (i.scope reaches `claude mcp add` and
+# nothing else), so one project's wing was recalled in EVERY project on the
+# machine. Measured: a session working in another repository was handed this
+# project's diary and open-threads checkpoint (#305).
+#
+# The reason the bake exists (ADR-058 T2) is that "the hooks cannot know which
+# one is theirs". They can: PROJECT_DIR is resolved above, and .aiagentmemory
+# carries `wing=` — the same key the installer writes and readProjectConfig
+# parses. So the pin is consulted first and the baked value is the fallback for
+# a project that has not pinned one, which leaves every existing install
+# behaving exactly as before.
+#
+# ⚠ NOT DERIVED FROM THE GIT REMOTE, deliberately. Measured on this machine:
+# the remote's basename yields a wing one letter from the populated one — a
+# singular where the real wing is plural (wing_acme against wing_acmee, in the
+# neutral names this repository is allowed to write down) — and two sibling
+# projects have the same shape, a suffix the wing name never carried. Roughly
+# 1,900 drawers would have gone unreachable at recall. A pin is a statement; a
+# basename is a guess, and a wrong guess silently swaps a populated wing for an
+# empty one, which reads identically to a wing nobody has written to yet.
+#
+# .aiagentmemory.local wins over .aiagentmemory: same precedence readProjectConfig
+# uses, so the two cannot disagree about which file is more specific.
+project_wing() {
+  local f k v
+  for f in "$PROJECT_DIR/.aiagentmemory.local" "$PROJECT_DIR/.aiagentmemory"; do
+    [ -r "$f" ] || continue
+    while IFS= read -r line || [ -n "$line" ]; do
+      case "$line" in \#*|"") continue ;; esac
+      k="${line%%=*}"; v="${line#*=}"
+      [ "$k" = "$line" ] && continue          # a line with no '=' is not a setting
+      k="$(printf '%s' "$k" | tr -d '[:space:]')"
+      v="$(printf '%s' "$v" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+      if [ "$k" = "wing" ] && [ -n "$v" ]; then printf '%s' "$v"; return 0; fi
+    done < "$f"
+  done
+  return 1
+}
+# Both branches trace, and that is the operator-facing half of #305. The defect
+# was diagnosed only by grepping settings.json, because nothing the hook emitted
+# said WHICH source its wing came from — a session recalling another project's
+# memories looked identical to one recalling its own. `doctor` prints this stderr
+# verbatim, so the source is now legible without reading the registration.
+WING="$(project_wing || true)"
+if [ -n "$WING" ]; then
+  trace "wing from the project's pin: $WING"
+else
+  WING="${AGENTSMEMORY_WING:-}"
+  [ -n "$WING" ] && trace "wing from the installed default: $WING (no .aiagentmemory pin in $PROJECT_DIR)"
+fi
 recall() {
   # $1 = wing or empty, $2 = digest budget in characters,
   # $3 = room (empty means the shipped default), $4 = limit (default 3),
