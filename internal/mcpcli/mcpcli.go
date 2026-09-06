@@ -235,9 +235,49 @@ func TailArgs(args []string) []string {
 	return args[1:]
 }
 
+// isArgToken reports whether a bare tail token is a key=value argument rather
+// than the positional value, deciding it against the tool's own schema.
+//
+// A token qualifies only when the text before the first "=" names a property the
+// tool actually declares. That keeps `limit=3` an argument and leaves a query
+// like "key=value pair" — or any prose carrying an equals sign — as the
+// positional it plainly is.
+//
+// ⚠ WITH NO SCHEMA IN HAND THERE IS NOTHING TO ASK, so an empty property map
+// answers yes and the pre-schema shape stands. The alternative fails in the
+// direction that has no floor: every argument to every tool would become a
+// positional at once, which is a far wider break than the defect being fixed.
+func isArgToken(token string, properties map[string]any) bool {
+	key, _, ok := strings.Cut(token, "=")
+	if !ok {
+		return false
+	}
+	// ⚠ AN ARGUMENT IS ONE SHELL WORD; PROSE IS NOT. The declared-key test alone
+	// leaves the defect live for any query that OPENS with a property name —
+	// "wing=wing_acme is what I set" cuts to the declared key "wing" and vanishes
+	// into raw exactly as before. That is not a corner: a session working this
+	// repository types "wing", "room" and "limit" in prose all day. Whitespace is
+	// what the shell already used to tell the two apart, so nothing that arrives
+	// as a single token is refused by it, and an explicit -a never reaches here.
+	if strings.ContainsAny(token, " \t\n") {
+		return false
+	}
+	if len(properties) == 0 {
+		return true
+	}
+	_, declared := properties[strings.TrimSpace(key)]
+	return declared
+}
+
 // ParseArgs folds CLI key=value arguments and one bare positional into a map
 // typed according to the live JSON schema. Explicit key=value input wins over
 // the positional for the same key.
+//
+// A tail token that is not introduced by -a is an argument only when isArgToken
+// says so — the tool's own schema and the absence of whitespace decide it. That
+// is narrower than it once was, and deliberately: testing for "=" alone made any
+// positional carrying an equals sign disappear into the argument map, which on
+// the recall path meant a session silently got no memory at all.
 func ParseArgs(argFlags, rawTail []string, properties map[string]any, primaryKey string) map[string]any {
 	raw := map[string]string{}
 	add := func(kv string) {
@@ -258,10 +298,34 @@ func ParseArgs(argFlags, rawTail []string, properties map[string]any, primaryKey
 				add(rawTail[i+1])
 				i++
 			}
-		case strings.Contains(token, "="):
+		// ⚠ A BARE TOKEN IS ONLY AN ARGUMENT IF ITS KEY IS ONE. Testing for "="
+		// alone made any positional containing an equals sign disappear into raw
+		// as a key nobody asked for, and the primary key then arrived empty — the
+		// server answering `required argument "query" not found` while the caller
+		// could see the query in their own command line.
+		//
+		// The cost was silent and it was on the recall path: the UserPromptSubmit
+		// hook builds its query from the user's prompt, so any prompt containing an
+		// "=" — a URL, a snippet, `key=value`, an XML-ish attribute — lost its
+		// recall entirely and reported only "agentsmemory could not look". Measured
+		// 2026-09-06 after a peer session saw it on "roughly half" its prompts;
+		// deterministic once the query was the variable rather than load.
+		//
+		// The schema is the discriminator and it was already in hand: `limit=3` is
+		// an argument because "limit" is a property of the tool, and "key=value
+		// pair" is a query because "key" is not. Nothing new is passed in.
+		case isArgToken(token, properties):
 			add(token)
 		case positional == "":
 			positional = token
+		// An undeclared key=value with the positional already spoken for has no
+		// role left to play, so it travels as the argument the caller typed and
+		// the server rejects it by name. Dropping it instead would be the same
+		// silence this whole branch exists to remove, and it is the documented
+		// hybrid syntax: TestParseToolArgsHybridSyntax passes wing= and room=
+		// against a schema that declares neither.
+		case strings.Contains(token, "="):
+			add(token)
 		}
 	}
 	if positional != "" && primaryKey != "" {
