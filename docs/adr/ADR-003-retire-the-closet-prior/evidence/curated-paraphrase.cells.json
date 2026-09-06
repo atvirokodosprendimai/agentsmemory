@@ -1,0 +1,35 @@
+{
+ "bm25_weight": "auto",
+ "case_set_id": "cs-6a3f4c454729",
+ "case_set_origin": "generated",
+ "cases": 40,
+ "cells": [
+  {
+   "Category": "single",
+   "Admitted": 38,
+   "Unreachable": 2,
+   "NoGold": 0,
+   "DeltaMRR": 0,
+   "Interval": {
+    "Lo": 0,
+    "Hi": 0
+   },
+   "DeltaRecall1": 0,
+   "Moved": 0
+  }
+ ],
+ "closet_scale": 0,
+ "commit": "fa93749c81bedb4a4d2d4d0c6e749ff37bc531a7",
+ "corpus_drawers": 0,
+ "created": "2026-09-06T18:57:01Z",
+ "dirty": false,
+ "generator": "",
+ "pool": 50,
+ "ranking": "fusion=rrf lex-weight=n/a lex-norm=n/a closet-boost=0.00 rerank=on(pool=10,weight=0.50,norm=sigmoid) unit=memory evidence=lexical",
+ "rerank_configured": true,
+ "rerank_pool": 10,
+ "rerank_weight": 0.5,
+ "style": "",
+ "warnings": null,
+ "wing": ""
+}
