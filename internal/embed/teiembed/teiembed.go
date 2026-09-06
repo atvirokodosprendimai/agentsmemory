@@ -182,13 +182,23 @@ func New(baseURL string, timeout time.Duration) *Embedder {
 // ⚠It is a LAST resort, not a reason to relax about input size, and this comment
 // used to say otherwise. It claimed truncation "should never actually trigger"
 // because chunking bounds our inputs below bge-m3's 8192 tokens — true of the add
-// path, which chunks at 1600 characters, and false of the update path, which
-// re-embeds a whole memory with EmbedOne and never chunks it. Nothing on that path
-// was bounded, so an oversized update got a prefix vector and a 200, and the tail
-// of the memory became unfindable while still reading back whole. The caller is
-// what fixes this: palace.MaxEmbedRunes now refuses before the request is built,
-// set well below any shipped model's window so that swapping the model stays
-// survivable rather than sized to the one in front of us.
+// path, which chunks at 1600 characters, and false of the update path as it stood
+// then, which re-embedded a whole memory with EmbedOne and never chunked it.
+// Nothing on that path was bounded, so an oversized update got a prefix vector and
+// a 200, and the tail of the memory became unfindable while still reading back
+// whole.
+//
+// What bounds it now is the WRITE PATH, not a check in front of this request:
+// since ADR-038 T4 a content change is a supersede that files the new text
+// through Add, so a memory is embedded chunk by chunk whichever call stores it,
+// at most palace.ChunkSize characters in one piece.
+//
+// ⚠An earlier version of this paragraph named a caller-side constant as a guard
+// that stopped an oversized input before the request was built. That check was
+// deleted along with the unbounded update path it protected, and the sentence
+// outlived it by ten days. Half a comment that is still true is the dangerous
+// kind — the paragraph below was checked, found correct, and lent its credibility
+// to a sentence pointing at code nobody runs.
 //
 // ⚠Truncation here is therefore still REACHABLE, and not only through a bug:
 // palace.CheckDuplicate embeds caller-supplied content through EmbedOne with no
