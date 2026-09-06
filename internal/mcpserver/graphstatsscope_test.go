@@ -33,10 +33,18 @@ import (
 // excludedGraphRoom reads the room name GraphRoomWings filters out, from the
 // palace package's own source.
 //
-// It takes the last string literal handed to the Where call whose query text
-// mentions a room comparison, because that is the argument bound to the `room != ?`
-// placeholder — reading the value rather than trusting a copy of it here is the
-// whole point of the gate.
+// It binds the argument by the room placeholder's POSITION in the query, counting
+// the `?` that precede it — which is how the driver binds it too. Reading the
+// value rather than trusting a copy of it here is the whole point of the gate.
+//
+// ⚠ IT USED TO TAKE THE LAST ARGUMENT, and that was right only by coincidence.
+// Review of PR #320: the room's `?` happens to be last today, so appending one
+// more wing-exclusion placeholder to the same Where call silently rebound the
+// extractor to that new literal, and the gate failed naming a WING as the
+// excluded ROOM. It failed, which is the safe direction, but with a confidently
+// wrong message that would send the next reader to disclose the wrong thing.
+// This is the one step where the gate stopped deriving and started counting from
+// the end.
 func excludedGraphRoom(tb testing.TB, path string) string {
 	tb.Helper()
 	fset := token.NewFileSet()
@@ -58,7 +66,16 @@ func excludedGraphRoom(tb testing.TB, path string) string {
 		if !ok || !strings.Contains(query, "room != ?") {
 			return true
 		}
-		if lit, ok := stringLiteral(call.Args[len(call.Args)-1]); ok {
+		// Args[0] is the query, so the Nth placeholder binds Args[1+N]. Count only
+		// the `?` strictly BEFORE `room != ?`, never its own.
+		at := strings.Index(query, "room != ?")
+		idx := 1 + strings.Count(query[:at], "?")
+		if idx >= len(call.Args) {
+			tb.Fatalf("%s: the room placeholder is the %d(th) but the Where call passes %d "+
+				"argument(s); the query and its bindings disagree, and a gate that guessed here "+
+				"would report whichever literal it happened to land on", path, idx, len(call.Args)-1)
+		}
+		if lit, ok := stringLiteral(call.Args[idx]); ok {
 			room = lit
 		}
 		return true
