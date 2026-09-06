@@ -2,6 +2,7 @@ package web
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -89,11 +90,44 @@ func retiredClaimIn(line string) string {
 // on the commit that adds it.
 func protocolDocPaths(t *testing.T) []string {
 	t.Helper()
-	docs := []string{
-		"bootstrap-memory.md",
-		"claude-guide.md",
-		filepath.Join("..", "..", "clients", "claude-code", "bootstrap.md"),
+	// ⚠ WALKED, NOT LISTED, AND THAT IS THE WHOLE FIX. The list this replaced named
+	// three files and missed a SECOND SERVED BUNDLE: internal/web/ai is embedded by
+	// sitemap.go's //go:embed and served at /ai/*, and ai/bootstrap-memory.md
+	// carried a sentence this very gate's regexp matches. The gate was green, its
+	// name was true, and nobody asked what lay outside it — which is the sentence
+	// the gate's own comment used about the gate it replaced (issue #155).
+	//
+	// So the universe is every Markdown file in this package's tree, which is what
+	// //go:embed ships, plus the client kit. A file added to either joins the check
+	// on the commit that adds it rather than when somebody remembers a list.
+	var docs []string
+	if err := filepath.WalkDir(".", func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() && strings.HasSuffix(path, ".md") {
+			docs = append(docs, path)
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("walk the served documents: %v", err)
 	}
+	// A served bundle and the served page beside it: two roots, so a walk that
+	// silently stopped at one is not mistakable for a corpus that has one.
+	var served, bundled int
+	for _, d := range docs {
+		if strings.HasPrefix(d, "ai"+string(filepath.Separator)) {
+			bundled++
+			continue
+		}
+		served++
+	}
+	if served == 0 || bundled == 0 {
+		t.Fatalf("walked %d served page(s) and %d bundle document(s); this gate needs both, and "+
+			"a zero on either side means the walk broke rather than that the corpus is small",
+			served, bundled)
+	}
+	docs = append(docs, filepath.Join("..", "..", "clients", "claude-code", "bootstrap.md"))
 	cmds, err := filepath.Glob(filepath.Join("..", "..", "clients", "claude-code", "commands", "*.md"))
 	if err != nil {
 		t.Fatalf("glob shipped commands: %v", err)

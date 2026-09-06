@@ -257,8 +257,9 @@ func registerAddDrawer(reg *registrar, drawers *palace.Service, usageSvc *usage.
 		mcp.WithString("room", mcp.Required(), mcp.Description(fmt.Sprintf(
 			"Aspect within the wing, e.g. \"backend\" or \"decisions\". ⚠%q is the ENTRY room and "+
 				"behaves differently: it is what am_entry_point and am_bootstrap resolve, filing here "+
-				"mints the wing's by-name root, and its records are served WHOLE at every wake-up — "+
-				"so length here is paid by every session, not only by a search that matches.",
+				"mints the wing's by-name root, and its first ten records are served WHOLE at every "+
+				"wake-up while the eleventh onward arrive as pointers — so length here is paid by "+
+				"every session, not only by a search that matches.",
 			palace.EntryRoom))),
 		mcp.WithString("content", mcp.Required(), mcp.Description("The verbatim text to remember — stored exactly, never summarised.")),
 		mcp.WithString("source_file", mcp.Description("Optional provenance of the content (a path or label).")),
