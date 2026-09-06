@@ -606,8 +606,20 @@ func hookAssetFiles() map[string]string {
 // list — this function names the three write paths that call writeFile with
 // unmodified asset bytes, and nothing else can join it by accident.
 //
-// The universe is derived from the embed, so an asset added tomorrow joins the
-// check on the commit that adds it.
+// ⚠ WHAT "DERIVED" DOES AND DOES NOT BUY, because the first version of this
+// comment overstated it. A new HOOK joins automatically (hookAssetFiles walks
+// hooks/) and so does a new SKILL (nativeSkillAssets walks skills/) — but a new
+// KIND of verbatim asset does not, because each kind is a separate branch below.
+// That is not hypothetical: agentsmemory-unattended-settings.json was written
+// verbatim by a real install and missed by two readings of the asset list, since
+// its asset is at the embed root and its installed name is prefixed. It was
+// found by DRIVING an install and walking what landed, not by reading.
+//
+// So the honest statement is: derived WITHIN each kind, hand-enumerated ACROSS
+// kinds. Closing that gap wants a gate that installs, walks the result, and
+// requires every written file to be either checked here or justified as
+// transformed — the shape TestNotOperatorFacingIsJustified already uses. Filed
+// rather than built here.
 func verbatimAssetFiles(kit agentKit) map[string]string {
 	out := map[string]string{}
 	for name, asset := range hookAssetFiles() {
