@@ -338,6 +338,29 @@ func bounded() int { return 1 }
 
 // Unwired refuses an oversized input before the request is built.
 func stale() int { return 2 }
+
+// UnwiredBytes and WiredBytes are DIFFERENT SYMBOLS that merely begin with those
+// names, and neither line below is a citation of anything.
+//
+// ⚠ THIS IS THE PIN FOR THE PROPERTY THE SCAN RESTS ON. Whole-word matching used
+// to be held by the regexp engine — \bUnwired\b cannot match inside
+// UnwiredBytes, because letters are word characters — and tokenising moved that
+// guarantee into a map lookup in this file. The sentence claiming the two are
+// equivalent was, for one commit, the only thing standing behind it: a comment
+// naming a property nothing executes, which is the defect this whole gate exists
+// to catch. Review of #316 broke the lookup to a substring fallback and the
+// package stayed green, because no fixture held an identifier CONTAINING a
+// constant's name. Now one does.
+func neighbours() int { return UnwiredBytes + WiredBytes }
+`)
+		// Declared in a third file so the fixture's own decl.go keeps saying one
+		// thing: these exist only to be near-misses for the two names above.
+		write("neighbours.go", `package p
+
+const (
+	UnwiredBytes = 8000
+	WiredBytes   = 3200
+)
 `)
 
 		rec := &recordingTB{}
