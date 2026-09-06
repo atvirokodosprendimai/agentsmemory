@@ -312,6 +312,21 @@ func verifyBinary(ctx context.Context, p string) error {
 	return err
 }
 
+// binaryVersionOutput runs `<p> --version` and returns what it printed.
+//
+// It is separate from verifyBinaryOutput because that one CHMODS first, which is
+// right for a binary just downloaded into a staging path and wrong for one an
+// operator already installed: `doctor` must never mutate the artifact it is
+// judging. Sharing the exec keeps one answer to "what does this binary call
+// itself" rather than two that can drift apart.
+func binaryVersionOutput(ctx context.Context, p string) (string, error) {
+	out, err := exec.CommandContext(ctx, p, "--version").CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("the binary does not run (%w): %s", err, strings.TrimSpace(string(out)))
+	}
+	return string(out), nil
+}
+
 // verifyBinaryOutput is verifyBinary keeping what --version printed, for a
 // caller that judges IDENTITY as well as liveness: the Desktop bridge fetch
 // requires the output to name the release tag, and reading it here means one
@@ -320,11 +335,7 @@ func verifyBinaryOutput(ctx context.Context, p string) (string, error) {
 	if err := os.Chmod(p, 0o755); err != nil {
 		return "", err
 	}
-	out, err := exec.CommandContext(ctx, p, "--version").CombinedOutput()
-	if err != nil {
-		return "", fmt.Errorf("the downloaded binary does not run (%w): %s", err, strings.TrimSpace(string(out)))
-	}
-	return string(out), nil
+	return binaryVersionOutput(ctx, p)
 }
 
 // replaceBinary swaps the staged file over the target. Renaming within a

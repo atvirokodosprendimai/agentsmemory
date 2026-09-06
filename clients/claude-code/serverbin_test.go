@@ -285,7 +285,13 @@ func TestDoctorActuallyPrintsTheBinaryVerdict(t *testing.T) {
 	kit := desktopKit(t)
 	dir := t.TempDir()
 	bin := filepath.Join(dir, "server")
-	if err := os.WriteFile(bin, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+	// ⚠ IT MUST NAME A BUILD, and matching the package's stubbed server version is
+	// what makes this fixture HEALTHY rather than merely present. `exit 0` was
+	// enough while doctor judged the binary's existence alone; since #207 it also
+	// asks the bridge which build it is, and a bridge that answers nothing is a
+	// finding — a real one, since the bridge is this project's own binary and
+	// always prints. The stub is the fixture's whole claim to being an install.
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\necho 'agentsmemory version v0.0.0-test-stub'\n"), 0o755); err != nil {
 		t.Fatalf("write binary: %v", err)
 	}
 	writeMCPConfig(t, dir, kit.mcpConfigFile, bin)

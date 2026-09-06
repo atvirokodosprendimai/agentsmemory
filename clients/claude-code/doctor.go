@@ -553,7 +553,7 @@ func runHookDoctor(ctx context.Context, c *cli.Command, out io.Writer) error {
 	if reportCodebaseMemory(out, kit, dir) {
 		bad++
 	}
-	return reportServerBin(out, kit, dir, bad, len(verdicts), srv)
+	return reportServerBin(ctx, out, kit, dir, bad, len(verdicts), srv, c.Duration("timeout"))
 }
 
 // hookAssetFiles pairs every embedded hook script with the filename install
@@ -769,6 +769,62 @@ func uninstalledRegistrations(dir string, scripts map[string]string, registered 
 	return out
 }
 
+// bridgeBuild asks an installed bridge binary what build it is, by running it.
+//
+// ⚠ THE ISSUE ASKED FOR `vcs.revision` AND THAT PAIR DOES NOT EXIST. Measured on
+// a correct install 2026-09-06: the bridge's buildinfo carries vcs.revision (a
+// 40-character commit) and no recoverable main.version, while the server exposes
+// only the tag string its handshake reports. There is nothing to compare a commit
+// with, so the comparable pair is the one both sides stamp the same way — the
+// `-X main.version` string, which `--version` prints. It reads the ARTIFACT, which
+// is the property that mattered; it is the binary's self-report only in the sense
+// that every version string is.
+//
+// It never chmods: doctor judges an operator's install and must not modify it.
+func bridgeBuild(ctx context.Context, path string, timeout time.Duration) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	out, err := binaryVersionOutput(ctx, path)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(out), "agentsmemory version ")), nil
+}
+
+// judgeBridgeAgainstServer decides whether an installed bridge is the build the
+// server it points at is running, and it reports THREE outcomes rather than two.
+//
+// ⚠ "COULD NOT COMPARE" IS NOT AGREEMENT, and conflating them is how this whole
+// class of defect survives. When the server is UNREACHABLE or UNSTAMPED there is
+// no right-hand side, and answering "ok" would report a healthy install on the
+// strength of evidence that never arrived — the same reading of absence as a pass
+// that TestDoctorDoesNotFailOnSilence exists to refuse. It is reported and not
+// failed, because judgeServer has already failed on those states and counting one
+// cause twice tells an operator there are two problems.
+//
+// A pure function of its inputs, for the reason judgeServerBin's comment gives: a
+// verdict that depends on ambient environment cannot be pinned by a test.
+func judgeBridgeAgainstServer(bridge string, readErr error, srv serverVerdict) (label, detail string, bad bool) {
+	switch {
+	case readErr != nil:
+		return "UNREADABLE", "the registered bridge did not answer --version, so its build is unknown: " +
+			readErr.Error(), true
+	case bridge == "" || bridge == "dev":
+		return "UNSTAMPED", "the bridge reports version " + strconv.Quote(bridge) + ", which names no build, " +
+			"so nothing can tell it from a stale one — rebuild it with " +
+			"-ldflags \"-X main.version=$(git describe --tags)\" (issue #210 for the server half)", true
+	case srv.version == "" || srv.label == "UNREACHABLE" || srv.label == "UNSTAMPED":
+		return "no-comparison", "the bridge is " + bridge + "; the server row above says why there is " +
+			"nothing to compare it with. This is NOT a clean bill of health for the bridge", false
+	case bridge != srv.version:
+		return "STALE-BRIDGE", "the bridge is " + bridge + " and the server it points at is " + srv.version +
+			". A bridge behind its server speaks an older wire contract inside the agent, where the error " +
+			"reads as ours — rebuild and re-run `aiagentmemory install` (issue #207)", true
+	default:
+		return "ok", "", false
+	}
+}
+
 // reportServerBin prints the bridge-binary verdict, then the command's summary.
 //
 // ⚠ IT IS CALLED UNCONDITIONALLY, and that is the whole point. The verdict used to
@@ -776,7 +832,7 @@ func uninstalledRegistrations(dir string, scripts map[string]string, registered 
 // kit without hooks — and the only kit that HAS a bridge binary is exactly a kit
 // without hooks. Reporting it from here, past no guard, is what makes it reachable
 // at all.
-func reportServerBin(out io.Writer, kit agentKit, dir string, bad, hooks int, srv serverVerdict) error {
+func reportServerBin(ctx context.Context, out io.Writer, kit agentKit, dir string, bad, hooks int, srv serverVerdict, timeout time.Duration) error {
 	// ⚠ RESOLVED HERE, NOT INSIDE THE JUDGEMENT. judgeServerBin used to call
 	// resolveServerBin itself, which made its verdict depend on the $PATH of
 	// whoever ran it — including the developer running the tests, where a real
@@ -798,6 +854,23 @@ func reportServerBin(out io.Writer, kit agentKit, dir string, bad, hooks int, sr
 			fmt.Fprintf(out, "      | %s\n", bv.detail)
 		}
 	}
+	// The bridge judged against the SERVER it bridges to, which is the finding
+	// nothing else here can reach. judgeServerBin compares the registration with
+	// whatever is on PATH, and #204's own case is two copies that are stale
+	// TOGETHER — the ordinary outcome, since the installer copies the bridge from
+	// the first aiagentmemory-server it finds — where that comparison agrees and
+	// reports ok over a bridge a full release behind the server (issue #207).
+	if bv != nil && !bv.bad {
+		got, verr := bridgeBuild(ctx, bv.recorded, timeout)
+		lbl, detail, isBad := judgeBridgeAgainstServer(got, verr, srv)
+		if isBad {
+			bad++
+		}
+		fmt.Fprintf(out, "  %-38s %-14s %-12s %s\n", "mcp bridge build", bv.kit, lbl, got)
+		if detail != "" {
+			fmt.Fprintf(out, "      | %s\n", detail)
+		}
+	}
 	fmt.Fprintln(out)
 
 	if bad > 0 {
@@ -814,6 +887,8 @@ func reportServerBin(out io.Writer, kit agentKit, dir string, bad, hooks int, sr
 			"  NOT-EXECUTABLE: the MCP registration names a binary that cannot be spawned.\n"+
 			"  UNSTAMPED:      the server reports version dev, so nothing can tell it from a\n"+
 			"                  stale one; rebuild it stamped (issue #210).\n"+
+			"  STALE-BRIDGE:   the bridge binary is a different build from the server it points\n"+
+			"                  at; it speaks an older wire contract inside the agent (issue #207).\n"+
 			"  UNREACHABLE:    the endpoint this install points at did not complete a handshake.\n"+
 			"  Re-running `aiagentmemory install` rewrites the registrations",
 			bad, hooks, kit.hooksFile, kit.hooksFile, strings.Join(sortedInjectingEvents(), ", "))
