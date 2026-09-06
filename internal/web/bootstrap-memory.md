@@ -858,7 +858,7 @@ single-chunk drawers, each opening with the question it answers, is *better* by 
 record too big for one chunk is usually answering more than one question. Splitting by byte
 count instead is what produces a fragment that answers nothing completely.
 
-⚠ **One room costs differently.** The entry room's first ten records are served WHOLE at every
+⚠ **One room costs differently.** The entry room's first 10 records are served WHOLE at every
 wake-up (ADR-046), on the one call no session skips, and the eleventh onward arrive as pointers
 to fetch on demand. So length there is paid by every session rather than only by a search that
 matches. Keep an entry record a spine that POINTS at ordinary memories — because that is cheaper

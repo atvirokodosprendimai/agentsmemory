@@ -150,7 +150,7 @@ func TestTruncationCountsWhatIsNeitherInlinedNorPointedAt(t *testing.T) {
 
 	// Enough local records to fill the eager tier and spill into deferred.
 	var local []string
-	for i := 0; i < bootstrapEagerLimit+2; i++ {
+	for i := 0; i < BootstrapEagerLimit+2; i++ {
 		res, err := svc.Add(ctx, team, AddInput{
 			Wing: "wing_acme", Room: EntryRoom,
 			Content: "local start-here record number " + string(rune('a'+i)) + " with real text",

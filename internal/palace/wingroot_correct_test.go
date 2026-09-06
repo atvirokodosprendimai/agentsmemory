@@ -2,6 +2,7 @@ package palace
 
 import (
 	"context"
+	"strings"
 	"testing"
 )
 
@@ -127,5 +128,103 @@ func TestACorrectionOutOfTheEntryRoomKeepsARootTheRoomStillEarns(t *testing.T) {
 	if !liveWingRoot(t, svc, team, wing) {
 		t.Error("the wing root was released while another live entry record remains. The release " +
 			"must fire on the LAST record leaving, not the first")
+	}
+}
+
+// TestRetractingTheLastEntryRecordEndsTheWingRoot is the FOURTH door, found by
+// review of PR #325 after that PR closed the third and called it the last.
+//
+// InvalidateDrawer → EndDrawer ended the row and its derived holds edge and
+// called endWingRootIfEntryRoomIsEmpty zero times, so retracting the last live
+// entry record left <wing>.root current over a room holding nothing — through a
+// tool on the agent surface, not an internal path.
+//
+// ⚠ THE HELPER'S OWN COMMENT ALREADY CLAIMED THIS POPULATION: "no live edge"
+// covers a room whose records are all retracted as well as one whose records have
+// left. The condition was written for this case and nothing invoked it here,
+// which is §Reachability's defect one layer in from where #325 found it.
+func TestRetractingTheLastEntryRecordEndsTheWingRoot(t *testing.T) {
+	ctx := context.Background()
+	svc := newTestService(t)
+	const team, wing = "team-root-retract", "wing_alpha"
+
+	added, err := svc.Add(ctx, team, AddInput{
+		Wing: wing, Room: EntryRoom, SourceFile: "root",
+		Content: "WHAT MUST I LOAD AT THE START OF A SESSION? The craft tier, then this project's root.",
+	})
+	if err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	if !liveWingRoot(t, svc, team, wing) {
+		t.Fatal("filing into the entry room did not mint a wing root; the fixture is wrong")
+	}
+
+	if err := svc.InvalidateDrawer(ctx, team, added.Drawers[0].ID, "the entry record was withdrawn"); err != nil {
+		t.Fatalf("retract: %v", err)
+	}
+
+	if liveWingRoot(t, svc, team, wing) {
+		t.Error("the wing root still resolves after the last entry record was RETRACTED. " +
+			"A session's first call answers `matched` and the hop it makes next holds nothing")
+	}
+}
+
+// TestRetractingOneOfTwoEntryRecordsKeepsTheWingRoot is the over-firing half. A
+// release on any retraction would take the front door off a wing whose entry room
+// is still readable, which is worse than the dangling root.
+func TestRetractingOneOfTwoEntryRecordsKeepsTheWingRoot(t *testing.T) {
+	ctx := context.Background()
+	svc := newTestService(t)
+	const team, wing = "team-root-retract-keep", "wing_alpha"
+
+	first, err := svc.Add(ctx, team, AddInput{
+		Wing: wing, Room: EntryRoom, SourceFile: "root-a",
+		Content: "WHAT MUST I LOAD AT THE START OF A SESSION? The craft tier first.",
+	})
+	if err != nil {
+		t.Fatalf("add first: %v", err)
+	}
+	if _, err := svc.Add(ctx, team, AddInput{
+		Wing: wing, Room: EntryRoom, SourceFile: "root-b",
+		Content: "WHAT MUST I LOAD AT THE START OF A SESSION? And the corrections index after it.",
+	}); err != nil {
+		t.Fatalf("add second: %v", err)
+	}
+
+	if err := svc.InvalidateDrawer(ctx, team, first.Drawers[0].ID, "one of two was withdrawn"); err != nil {
+		t.Fatalf("retract: %v", err)
+	}
+	if !liveWingRoot(t, svc, team, wing) {
+		t.Error("the wing root was released while another live entry record remains")
+	}
+}
+
+// TestRetractingAMultiChunkEntryRecordReleasesOnTheLastChunk covers why the
+// release sits in EndDrawer rather than InvalidateDrawer: the multi-chunk loop
+// then works for free, because each live chunk's own holds edge keeps the count
+// above zero until the last one ends.
+func TestRetractingAMultiChunkEntryRecordReleasesOnTheLastChunk(t *testing.T) {
+	ctx := context.Background()
+	svc := newTestService(t)
+	const team, wing = "team-root-retract-chunks", "wing_alpha"
+
+	long := "WHAT MUST I LOAD AT THE START OF A SESSION? " +
+		strings.Repeat("A spine that points at ordinary memories, said at length so this record "+
+			"is stored as several chunks sharing one parent. ", 30)
+	added, err := svc.Add(ctx, team, AddInput{
+		Wing: wing, Room: EntryRoom, SourceFile: "root-long", Content: long,
+	})
+	if err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	if len(added.Drawers) < 2 {
+		t.Fatalf("the fixture produced %d chunk(s); this test needs a multi-chunk memory to say "+
+			"anything about the last one", len(added.Drawers))
+	}
+	if err := svc.InvalidateDrawer(ctx, team, added.Drawers[0].ID, "the long entry record was withdrawn"); err != nil {
+		t.Fatalf("retract: %v", err)
+	}
+	if liveWingRoot(t, svc, team, wing) {
+		t.Error("the wing root survived the retraction of every chunk of the only entry record")
 	}
 }

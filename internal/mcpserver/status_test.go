@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -292,5 +293,33 @@ func TestAddDrawerDescribesTheEntryRoomsDifferentRules(t *testing.T) {
 	if !strings.Contains(string(raw), palace.EntryRoom) {
 		t.Errorf("the `room` parameter description never names %q, so a caller choosing a room "+
 			"cannot learn that one of them behaves differently", palace.EntryRoom)
+	}
+
+	// ⚠ BOTH DESCRIPTIONS, AND THE BOUND IN EACH. Review of PR #325 reverted the
+	// room parameter's corrected sentence and watched 45 packages stay green: this
+	// test read tool.Tool.Description only, and its `WHOLE` check was satisfied by
+	// the OTHER description — the one that was still un-qualified. Two sentences
+	// about one behaviour, fifteen lines apart, disagreeing, with the more
+	// prominent one wrong: a caller reads the tool description first, and hosted
+	// v0.0.121 served the un-qualified sentence in the catalogue.
+	//
+	// The limit is asserted from the constant rather than as a word, because "first
+	// ten" is exactly the shape of "roughly 800 characters" — a number frozen into
+	// prose that outlived the code. Change BootstrapEagerLimit and this fails until
+	// both sentences follow.
+	limit := strconv.Itoa(palace.BootstrapEagerLimit)
+	for _, part := range []struct{ what, text string }{
+		{"tool description", desc},
+		{"`room` parameter description", string(raw)},
+	} {
+		if !strings.Contains(part.text, limit) {
+			t.Errorf("the %s says entry-room records are served whole without naming the bound "+
+				"(%s). Records past it arrive as POINTERS, so the unqualified sentence promises "+
+				"a cost model the server does not have:\n%s", part.what, limit, part.text)
+		}
+		if !strings.Contains(part.text, "pointers") {
+			t.Errorf("the %s never says what happens past the bound; a reader takes the first "+
+				"sentence for the whole rule:\n%s", part.what, part.text)
+		}
 	}
 }

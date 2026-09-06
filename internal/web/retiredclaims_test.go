@@ -97,8 +97,8 @@ func protocolDocPaths(t *testing.T) []string {
 	// name was true, and nobody asked what lay outside it — which is the sentence
 	// the gate's own comment used about the gate it replaced (issue #155).
 	//
-	// So the universe is every Markdown file in this package's tree, which is what
-	// //go:embed ships, plus the client kit. A file added to either joins the check
+	// So the universe is every Markdown file in this package's tree, which covers
+	// everything //go:embed ships and a little more, plus the client kit. A file added to either joins the check
 	// on the commit that adds it rather than when somebody remembers a list.
 	var docs []string
 	if err := filepath.WalkDir(".", func(path string, d fs.DirEntry, err error) error {
@@ -112,8 +112,15 @@ func protocolDocPaths(t *testing.T) []string {
 	}); err != nil {
 		t.Fatalf("walk the served documents: %v", err)
 	}
-	// A served bundle and the served page beside it: two roots, so a walk that
-	// silently stopped at one is not mistakable for a corpus that has one.
+	// ⚠ ONLY THE BUNDLE SIDE OF THIS TRIPWIRE IS ARMED, and saying so is the point.
+	// Everything outside ai/ counts as "served", which includes three CLAUDE.md
+	// files that are repo instructions shipped by nothing — so `served == 0` cannot
+	// fire while they exist. The bundled side is the real guard: a walk that
+	// stopped before the embedded bundle is what this catches. Wider coverage is
+	// the safe direction, so the walk stays as it is and the claim shrinks to what
+	// is true. (Nor is every file here embedded: //go:embed ai ships the bundle and
+	// guide.go embeds three named files; the CLAUDE.md files are shipped by
+	// neither.) Raised in review of PR #325.
 	var served, bundled int
 	for _, d := range docs {
 		if strings.HasPrefix(d, "ai"+string(filepath.Separator)) {
@@ -262,4 +269,67 @@ func TestNoShippedProtocolAdvertisesAStaleChunkThreshold(t *testing.T) {
 		t.Fatal("no protocol documents were examined, so this gate is asserting nothing")
 	}
 	t.Logf("examined %d document(s) against ChunkSize=%s", checked, real)
+}
+
+// TestNoShippedProtocolClaimsTheWholeEntryRoomIsServedEagerly is the numeric
+// sibling of the stale-threshold gate, for the bound that replaced a retired
+// claim in PR #325.
+//
+// ⚠ A FROZEN NUMBER REPLACED A FROZEN CLAIM, which is the trade this repository
+// keeps making by accident. "roughly 800 characters" sat in seven documents
+// against a ChunkSize of 1600 and no prose gate noticed, because every sentence
+// around it was true. "the first ten records" is the same shape: correct today,
+// derived from palace.BootstrapEagerLimit, and typed into three shipped surfaces
+// by hand.
+//
+// So a line claiming entry-room records are served WHOLE has to carry the current
+// bound. The tool descriptions interpolate the constant and are pinned in
+// internal/mcpserver; documents cannot interpolate, so they are pinned here.
+func TestNoShippedProtocolClaimsTheWholeEntryRoomIsServedEagerly(t *testing.T) {
+	limit := strconv.Itoa(palace.BootstrapEagerLimit)
+	// The claim, however it is worded around the capitalised word this corpus uses
+	// for it. Matching "WHOLE" alone would flag prose about whole memories.
+	claim := regexp.MustCompile(`(?i)served WHOLE at every wake-?up`)
+
+	checked, found := 0, 0
+	for _, rel := range protocolDocPaths(t) {
+		raw, err := os.ReadFile(rel)
+		if err != nil {
+			t.Fatalf("read the shipped protocol %s: %v", rel, err)
+		}
+		checked++
+		// ⚠ PARAGRAPHS, NOT LINES, and the line-based first draft found ONE of the
+		// two claims in this corpus. Prose wraps: internal/web/bootstrap-memory.md
+		// breaks "served WHOLE at every / wake-up" across a line, so a per-line
+		// matcher saw neither half and reported a clean run over an unqualified
+		// sentence. A gate whose universe is the physical line asks a question
+		// about formatting, not about what the document says.
+		line := 1
+		for _, para := range strings.Split(string(raw), "\n\n") {
+			start := line
+			line += strings.Count(para, "\n") + 2
+			flat := strings.Join(strings.Fields(para), " ")
+			if !claim.MatchString(flat) {
+				continue
+			}
+			found++
+			if !strings.Contains(flat, limit) {
+				t.Errorf("%s:%d says entry-room records are served whole and does not name the "+
+					"bound (%s):\n    %s\n"+
+					"  Records past it arrive as POINTERS. An unqualified sentence tells a session "+
+					"the whole room is paid for at every wake-up, which is a cost model the server "+
+					"does not have — and it is the shape \"roughly 800 characters\" had.",
+					rel, start, limit, flat)
+			}
+		}
+	}
+	if checked == 0 {
+		t.Fatal("no protocol documents were examined")
+	}
+	if found == 0 {
+		t.Fatal("no shipped document makes the eager-serving claim at all. Either the walk broke " +
+			"or the sentence was deleted everywhere — and this gate would pass on both, so it " +
+			"says so rather than reporting a clean run")
+	}
+	t.Logf("checked %d document(s); %d line(s) make the claim", checked, found)
 }
