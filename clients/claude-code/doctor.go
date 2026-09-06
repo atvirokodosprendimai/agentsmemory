@@ -616,10 +616,13 @@ func hookAssetFiles() map[string]string {
 // found by DRIVING an install and walking what landed, not by reading.
 //
 // So the honest statement is: derived WITHIN each kind, hand-enumerated ACROSS
-// kinds. Closing that gap wants a gate that installs, walks the result, and
-// requires every written file to be either checked here or justified as
-// transformed — the shape TestNotOperatorFacingIsJustified already uses. Filed
-// rather than built here.
+// kinds. THAT GAP IS NOW GATED RATHER THAN ONLY NAMED:
+// TestEveryWrittenFileIsCheckedOrJustified drives a real install for each kit,
+// walks what landed, and requires every written file to be either declared here
+// or carried in a justified exclusion list. The list is what makes a new KIND
+// loud — adding one and not declaring it fails the walk by name — and it is the
+// shape TestNotOperatorFacingIsJustified already uses. It found the pi bridge
+// extension on its first run.
 func verbatimAssetFiles(kit agentKit) map[string]string {
 	out := map[string]string{}
 	for name, asset := range hookAssetFiles() {
@@ -658,8 +661,19 @@ func verbatimAssetFiles(kit agentKit) map[string]string {
 			}
 		}
 	}
+	// The pi bridge extension is written verbatim by registerPiMCP — ReadFile
+	// then writeFile with the same bytes — at the same relative path as its
+	// asset. It is the whole MCP client on that agent: pi has none of its own,
+	// so a stale extension is a stale tool surface rather than a stale
+	// convenience. Found by the per-kit walk that TestEveryWrittenFileIsCheckedOrJustified
+	// now runs; it was outside the universe while every other kind was inside.
+	if kit.name == agentPi {
+		if _, err := assets.ReadFile(piExtensionAsset); err == nil {
+			out[filepath.FromSlash(piExtensionAsset)] = piExtensionAsset
+		}
+	}
 	// ⚠ AGENT DEFINITIONS ARE DELIBERATELY OUT, and the reason is not that they
-	// are unimportant — it is that they are TRANSFORMED. registerAgents
+	// are unimportant — it is that they are TRANSFORMED. writeAgentDefinitions
 	// substitutes mcpURLPlaceholder with the endpoint this install registered
 	// before writing (installer.go:898), so a correctly installed
 	// agentsmemory-researcher.md NEVER matches the embed. Including them would
@@ -670,7 +684,7 @@ func verbatimAssetFiles(kit agentKit) map[string]string {
 	// are embedded, installed, and not checked" is a question the next reader will
 	// have too.
 	//
-	// Commands are written verbatim — registerCommands reads the asset and hands
+	// Commands are written verbatim — writeCommands reads the asset and hands
 	// the same bytes to writeFile — and land under the kit's own directory, which
 	// is empty for a kit that ships none.
 	if kit.commandsDir != "" {
