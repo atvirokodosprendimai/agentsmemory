@@ -257,7 +257,7 @@ Write back what this session produced so the next one recalls it:
   the server mints the wing's by-name root from that write, so the address
   resolves for every session afterwards.
   ⚠ **The entry room's first 10 records are served WHOLE at every wake-up**, on the one call no
-  session skips, and the eleventh onward arrive as pointers instead — so length there is paid by
+  session skips, and the rest arrive as pointers instead — so length there is paid by
   every session rather than only by a search that matches. Nothing
   refuses a long one — keep it a spine that POINTS at ordinary memories because that is
   cheaper for every reader. And put in it only what a session cannot notice it needed until
