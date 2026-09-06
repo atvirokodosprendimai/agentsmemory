@@ -109,6 +109,30 @@ func TestEveryVerbatimAssetIsCheckedForDrift(t *testing.T) {
 	if kit.commandsDir != "" && !sawCommand {
 		t.Errorf("the drift universe includes no command under %s; it wrote %v", kit.commandsDir, want)
 	}
+	// Skills are verbatim and Claude-only; asserted by name for the same reason
+	// the protocol is — so the universe cannot shrink back without saying so.
+	if kit.name == agentClaude && len(nativeSkillAssets()) > 0 {
+		var sawSkill bool
+		for _, n := range want {
+			if strings.HasPrefix(n, "skills"+string(filepath.Separator)) {
+				sawSkill = true
+			}
+		}
+		if !sawSkill {
+			t.Errorf("the drift universe includes no skill, though this kit installs %d; it wrote %v",
+				len(nativeSkillAssets()), want)
+		}
+	}
+	// ⚠ AGENT DEFINITIONS MUST STAY OUT. registerAgents substitutes the MCP
+	// endpoint before writing, so a healthy install never matches the embed and
+	// including them would report drift on every correct machine.
+	for _, n := range want {
+		if strings.HasPrefix(n, "agents"+string(filepath.Separator)) {
+			t.Errorf("the drift universe includes %s, but agent definitions are TRANSFORMED at "+
+				"install (the MCP endpoint is substituted), so every healthy install would be "+
+				"reported as drifted", n)
+		}
+	}
 
 	got := staleAssetsIn(dir, kit)
 	if strings.Join(got, ",") != strings.Join(want, ",") {

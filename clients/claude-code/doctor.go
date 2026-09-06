@@ -618,6 +618,29 @@ func verbatimAssetFiles(kit agentKit) map[string]string {
 	if _, err := assets.ReadFile(bootstrapAsset); err == nil {
 		out[bootstrapFile] = bootstrapAsset
 	}
+	// Skills are written verbatim too — writeSkills reads skills/<name>/SKILL.md
+	// and hands the same bytes to writeFile — and land at skills/<name>/SKILL.md
+	// under the config dir. Claude-only, which the kit name carries.
+	if kit.name == agentClaude {
+		for _, name := range nativeSkillAssets() {
+			asset := "skills/" + name + "/SKILL.md"
+			if _, err := assets.ReadFile(asset); err == nil {
+				out[filepath.Join("skills", name, "SKILL.md")] = asset
+			}
+		}
+	}
+	// ⚠ AGENT DEFINITIONS ARE DELIBERATELY OUT, and the reason is not that they
+	// are unimportant — it is that they are TRANSFORMED. registerAgents
+	// substitutes mcpURLPlaceholder with the endpoint this install registered
+	// before writing (installer.go:898), so a correctly installed
+	// agentsmemory-researcher.md NEVER matches the embed. Including them would
+	// report drift on every healthy install, which is the failure judgeServerBin's
+	// own comment names: a check that fires on the normal case is one an operator
+	// learns to ignore. They join the merged settings.json and the managed memory
+	// block as the transformed class. Established by review of PR #350; "agents
+	// are embedded, installed, and not checked" is a question the next reader will
+	// have too.
+	//
 	// Commands are written verbatim — registerCommands reads the asset and hands
 	// the same bytes to writeFile — and land under the kit's own directory, which
 	// is empty for a kit that ships none.
