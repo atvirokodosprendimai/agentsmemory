@@ -2619,6 +2619,43 @@ says whether the accumulation is worth anything. Filed rather than done.
 
 **One number that would make this urgent or moot:** see the next entry.
 
+## PARTLY RESOLVED 2026-09-06 — the instrument shipped, fired, and is starved at 0.27% (filed 2026-08-28)
+
+Both of this entry's blocking claims are now stale, and the finding that replaces them is worse than
+either.
+
+**"The measurement is unrunnable" — no longer true.** ADR-028 T3 shipped: `db/migrations/00036_drawer_fetches.sql`
+records one row per drawer fetched while naming the recall that sent the caller there. The join this
+entry says has no left side now has one.
+
+**"Its trigger cannot fire, nothing passes `search_id`" — falsified.** Measured 2026-09-06 against
+the live palace: **11 rows, every one carrying a non-empty `search_id`, and all 11 join a real
+`search_events` row.** They span 2026-08-29 to 2026-09-06 and land across ten distinct wing/room
+pairs in six different wings — no wing contributed more than three — so this is several sessions
+occasionally doing it, not one session doing it once. (The wings are not named here:
+`TestNoRealProjectNamesInWings` refuses a real project name in a committed file, and it caught this
+paragraph's first draft doing exactly that. The counts are the finding; the names are not.)
+
+⚠ **THE NEW FINDING IS THE RATIO, AND IT IS THE SAME DEFECT ONE LEVEL UP.** In the window those
+fetches span, the palace served **4,016 searches**. Eleven of them were followed by a fetch that
+named the recall: **0.27%**. The instrument is reachable, correct, and receives almost nothing.
+
+So the original question — *what fraction of filed drawers has ever been returned to anyone* — is
+still unanswerable, for a new reason. It is no longer that nothing records drawer identity; it is
+that the signal depends on a client volunteering `search_id` and clients essentially do not. A
+figure computed from 11 rows would measure which agents happened to read a tool description, and
+report it as the corpus's value — which is precisely the error the 2026-08-29 correction on this
+entry warns about, arriving from the other side.
+
+⚠ **Do not read 11/12,554 drawers as a usage figure.** `drawer_fetches` began on 2026-08-29 and only
+ever sees fetches that name a recall, so it bounds nothing about the other 12,543.
+
+**What would change it:** something that passes `search_id` without an agent choosing to. The
+sender is still missing — the tool schema asks for it, and asking is what produces 0.27%. That is
+ADR-017's finding again, and it stays open here rather than being restated as a new record.
+
+Original entry, kept because its reasoning and its self-correction are the record:
+
 ## Nothing measures whether a filed drawer is ever read — 2026-08-28
 
 `am_recall_stats` reports searches, `answered_pct`, drawers held and the queries that found nothing.
