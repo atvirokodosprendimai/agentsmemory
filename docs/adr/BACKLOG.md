@@ -3395,19 +3395,20 @@ one, make its condition true and watch the exit code.
   second caller of the reassembly path, or the first entry record that reads with a duplicated
   passage.**
 
-- **`mcptest.NewLocalWithWing` is dead, and the local-mode tenant edge it proved is now covered by
-  nothing.** ADR-038 removed the local-only tools (`am_delete_wing` and the three sibling deletes),
-  which were this constructor's only consumers. The constructor survived them: at the commit before
-  this entry, grep found exactly one reference outside its own definition, and it was the Test
-  Doubles row in `docs/architecture.md` — removed in the same commit as this entry, so the only
-  mention left anywhere is this bullet. That doc row was the only thing making the constructor look
-  reachable, which is why the removal read as clean. Its comment still
-  promises it "proves the HTTP edge injects the fixed local administrator that makes their handlers
-  reachable"; no test asks that any more. `internal/auth/local_test.go` covers `auth.LocalTenant`
-  as a unit, so the middleware is not unproven — what is unproven is that the mounted local server
-  wires it. Either delete the constructor, or give it back a scenario. **Trigger: the next tool
-  registered behind `Deps.Local`, or the next time a local-mode auth change needs an end-to-end
-  test to land on.**
+- **~~`mcptest.NewLocalWithWing` is dead, and the local-mode tenant edge it proved is now covered by
+  nothing.~~ CLOSED 2026-09-06 (issue #161), by giving it back a scenario rather than deleting it.**
+  ADR-038 removed the local-only tools (`am_delete_wing` and the three sibling deletes), which were
+  this constructor's only consumers; the constructor survived them, and the `docs/architecture.md`
+  Test Doubles row was the only thing left making it look reachable. Its comment promised it "proves
+  the HTTP edge injects the fixed local administrator that makes their handlers reachable" and no
+  test asked that any more — `internal/auth/local_test.go` covers `auth.LocalTenant` as a unit, so
+  the middleware was never unproven; what was unproven was that the mounted local server WIRES it.
+  `internal/mcptest/localedge_test.go` now drives the real server through that edge with no
+  credential, asserts local mode, and writes and reads back through it, so a per-request identity or
+  a read-only one fails it. Both scenarios go red when the middleware is unmounted from
+  `newLocalServer`, which is the mutant that decided keeping it was worth a file. Deleting the
+  constructor was the alternative and was rejected for one reason: the cost lands on whoever adds
+  the next tool behind `Deps.Local`, at the moment they are least inclined to rebuild a harness.
 
 ## From ADR-047 (measure the writing rule, not only the ranking knob)
 
