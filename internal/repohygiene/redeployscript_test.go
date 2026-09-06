@@ -245,6 +245,34 @@ func checkDocumentedClone(tb testing.TB, root string) {
 	}
 }
 
+// writeRedeployFixture renders a script whose `==>` headings are exactly the
+// stages named, each with a line under it, and returns a root to check.
+//
+// The LAST stage deliberately gets nothing under it, because that is the shape
+// of the real script: its final heading is the verdict rather than a section,
+// and checkNoEmptySections exempts that position on purpose. A fixture builder
+// that filled it would quietly stop exercising the exemption.
+func writeRedeployFixture(t *testing.T, stages []string) string {
+	t.Helper()
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "scripts"), 0o750); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	var b strings.Builder
+	b.WriteString("#!/usr/bin/env bash\n")
+	for i, stage := range stages {
+		b.WriteString(`echo "==> ` + stage + "\"\n")
+		if i < len(stages)-1 {
+			b.WriteString("docker compose ps\n")
+		}
+	}
+	if err := os.WriteFile(filepath.Join(root, "scripts", "redeploy.sh"),
+		[]byte(b.String()), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	return root
+}
+
 // TestTheRedeployPathKeepsItsWindowsFixes is the gate.
 func TestTheRedeployPathKeepsItsWindowsFixes(t *testing.T) {
 	root := repoRoot(t)
@@ -313,6 +341,88 @@ code=$(curl -s -o /tmp/redeploy-smoke.json -w '%{http_code}' -m 60 -X POST "$BAS
 		if rec.errors != 2 {
 			t.Errorf("the gate reported %d finding(s) over a procedure with neither the long-path "+
 				"flag nor a wholeness check; both are the issue", rec.errors)
+		}
+	})
+
+	t.Run("a heading with nothing under it is caught", func(t *testing.T) {
+		// #330's deletion reduced to its shape: a hunk took a heading's body and
+		// left the banner. The corpus is intact, so the branch that reports one
+		// cannot run against it — without this the check is a name that has never
+		// executed the line it exists for.
+		empty := t.TempDir()
+		if err := os.MkdirAll(filepath.Join(empty, "scripts"), 0o750); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(empty, "scripts", "redeploy.sh"), []byte(
+			`#!/usr/bin/env bash
+echo "==> build"
+docker build .
+echo "==> what the running server resolved"
+echo "==> deployed and verified"
+`), 0o600); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+		emptyRec := &recordingTB{}
+		checkNoEmptySections(emptyRec, empty)
+		if emptyRec.errors != 1 {
+			t.Errorf("the gate reported %d finding(s) over a script whose middle heading has "+
+				"nothing under it; that is the deletion it was written for", emptyRec.errors)
+		}
+
+		// And the other direction, which also pins the exemption: the SAME script
+		// with the body restored must be silent, final heading and all. A gate that
+		// flagged the verdict banner would be one somebody works around.
+		whole := writeRedeployFixture(t, []string{
+			"build", "what the running server resolved", "deployed and verified",
+		})
+		wholeRec := &recordingTB{}
+		checkNoEmptySections(wholeRec, whole)
+		if wholeRec.errors != 0 {
+			t.Errorf("the gate reported %d finding(s) over a script where every section produces "+
+				"output and only the closing verdict stands alone", wholeRec.errors)
+		}
+	})
+
+	t.Run("a stage that disappears, moves or is added is caught", func(t *testing.T) {
+		// THREE fixtures, because this check has two branches that fail
+		// independently and a single fixture pins only one of them. A missing stage
+		// trips the count AND the order, so it cannot tell them apart; an appended
+		// one trips ONLY the count; a renamed one trips ONLY the order. An earlier
+		// draft used the missing case alone, and severing the ordering loop left it
+		// green.
+		missing := append(append([]string{}, redeployStages[:3]...), redeployStages[4:]...)
+		missingRec := &recordingTB{}
+		checkStageSequence(missingRec, writeRedeployFixture(t, missing))
+		if missingRec.errors < 2 {
+			t.Errorf("the gate reported %d finding(s) over a script missing stage 4 (%q); it should "+
+				"see both the short count and the stages that shifted up into its place",
+				missingRec.errors, redeployStages[3])
+		}
+
+		appended := append(append([]string{}, redeployStages...), "a stage nobody declared")
+		appendedRec := &recordingTB{}
+		checkStageSequence(appendedRec, writeRedeployFixture(t, appended))
+		if appendedRec.errors != 1 {
+			t.Errorf("the gate reported %d finding(s) over a script announcing one stage more than "+
+				"this list names; every declared stage is still in place, so the count is the only "+
+				"thing that can see it", appendedRec.errors)
+		}
+
+		renamed := append([]string{}, redeployStages...)
+		renamed[4] = "hold until the container reports healthy"
+		renamedRec := &recordingTB{}
+		checkStageSequence(renamedRec, writeRedeployFixture(t, renamed))
+		if renamedRec.errors != 1 {
+			t.Errorf("the gate reported %d finding(s) over a script whose stage 5 was reworded; the "+
+				"count still agrees, so the ordering comparison is the only thing that can see it",
+				renamedRec.errors)
+		}
+
+		quietRec := &recordingTB{}
+		checkStageSequence(quietRec, writeRedeployFixture(t, redeployStages))
+		if quietRec.errors != 0 {
+			t.Errorf("the gate reported %d finding(s) over a script announcing exactly the stages "+
+				"this list names; a gate that cannot pass is one somebody deletes", quietRec.errors)
 		}
 	})
 }
