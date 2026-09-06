@@ -34,6 +34,50 @@ So the question this ADR settles is not "should we have a knowledge graph" — w
 - **`PairedDelta` / `BootstrapMRR`** (`internal/palace/evalstats.go`) — the paired bootstrap. `PairedDelta` is reused unchanged for the MRR non-inferiority check, which is what it is for: every arm answers the same cases, so the per-case difference cancels the question's difficulty. `BootstrapMRR` is NOT reused for the supersession rate — a proportion resampled by percentile prints a zero-width interval at 0 and at 1, which are the values this gate is most likely to meet.
 - **`KGAdd` / `KGInvalidate` / `KGQuery`** with `valid_from`/`valid_to` (`internal/palace/kg.go`) — the supersession primitive itself. Untouched here: it is the thing being judged, not the thing being built.
 
+## Verdict 2026-09-06 — the gate ran, and it says UNRESOLVED
+
+The pre-registered measurement has spoken for the first time. **Nothing about the graph is
+authorised**: `unresolved` is neither `justified` nor `not justified`, so population and any
+ranking use stay barred exactly as before the run.
+
+```
+supersession gate — UNRESOLVED
+  arm rrf+rerank norm=sigmoid (pre-registered from the SERVED ranking, never chosen by score)
+  37 verified non-vacuous pair(s) at --pool 300
+  stale-above 8.1% [0.03–0.21] against a bar of 0.20; excluding unreachable corrections: 5.6%
+```
+
+**Both `unresolved` conditions fired, independently.** The Wilson interval `[0.03–0.21]` straddles
+the bar of 0.20; and the two defensible treatments of the single case whose correction was never
+retrieved land on different verdicts — counting it as a failure gives `unresolved` (0.081),
+excluding it gives `not justified` (0.056). The pre-registration says that when those disagree the
+command "prints both and resolves nothing", and it did.
+
+**Provenance.** Binary at `62b5079`, tree clean (`dirty: false`). Ranking
+`fusion=rrf lex-weight=n/a lex-norm=n/a closet-boost=0.00 rerank=on(pool=10,weight=0.50,norm=sigmoid)
+unit=memory evidence=lexical`. Case set `cs-f8f5f418fe87`, generated `--style temporal`, judge
+`qwen2.5-coder:7b`, 47 verified pairs from 1,912 sampled dated sources, scored at `--pool 300`.
+The case file carries queries and drawer ids from a private palace and is not committed; its
+sha256 is `7315cb93b4c381688a07b82802e938bb8fa24dfbde3d330ef9487fa572761a4a`. The run record is
+committed at `evidence/supersession-2026-09-06.cells.json`.
+
+⚠ **The pre-registered remedy is not available on this corpus, and that is the finding.** This
+record says the honest answer to "we cannot tell yet" is *more cases, not a decision*. There are no
+more cases. `--n` is a ceiling on distinct `source_file` values, not on drawers, and a request for
+2,600 returned **1,912** — every dated source the palace holds. Those 1,912 yielded 47
+judge-verified pairs and 37 non-vacuous ones at `--pool 300`. So the sample is not small because
+the run was small; it is small because supersession is rare in this corpus, and the only way to
+`justified` or `not justified` is to wait for the palace to grow. Raising `--pool` is exhausted
+too: it moved 18→23→37 non-vacuous across `--pool` 50, 300 and 300-with-more-cases, and the
+remaining 10 vacuous cases are ones where the superseded version never entered a 300-candidate
+pool at all.
+
+**What this does NOT license.** Not a smaller floor, not a wider `--pair-max-distance`, not a
+different arm. The point estimate sitting well under the bar (8.1% against 20%) is *suggestive* that
+ranking already prefers corrections often enough — but that is exactly the reading the interval rule
+exists to refuse, and the first draft of this ADR was corrected for making a decision the interval
+did not support. It stays `unresolved` until the corpus can answer.
+
 ## Decision
 
 Harden the supersession measurement first and make it the knowledge graph's acceptance criterion. Nothing about the graph is populated, wired or changed until that measurement exists and has spoken. Five parts, and everything the verdict turns on — the bar, the arm it is read from, the interval rule, the case floor and the non-inferiority margin — is written down before any of the numbers are known.
