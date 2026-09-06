@@ -72,10 +72,27 @@ func TestTheSupersessionCellSeesACaseThroughTheRealReport(t *testing.T) {
 	}
 }
 
-// TestTheReportCarriesTheDistractorFieldsItComputed is the narrower half, and it
-// is what fails first when somebody adds a field to caseOutcome and forgets the
-// literal that copies it — the mistake this test exists for, which cost the
-// measurement its entire ability to answer.
+// TestTheReportCarriesTheDistractorFieldsItComputed is the narrower half: it
+// asserts that a case detail carries the TWO fields whose absence cost ADR-004's
+// measurement its ability to answer, by driving the real pipeline rather than a
+// hand-built report.
+//
+// ⚠ IT DOES NOT COVER THE GENERAL CASE, AND ITS FIRST COMMENT SAID IT DID. That
+// sentence claimed this "fails first when somebody adds a field to caseOutcome and
+// forgets the literal that copies it". It cannot: it names DistractorRanks and
+// DistractorPoolRank, so a THIRD field added to both structs and dropped from the
+// same literal reproduces the original defect with this test green. Measured — a
+// NewlyComputed float64 added to caseOutcome and EvalCaseResult and left out of
+// the detail literal leaves this test at exit 0. A claim that outruns its
+// assertions is worse than no comment, because it reads as coverage and stops the
+// next reader looking; that this shipped inside the PR fixing a reachability
+// defect is the whole reason it is written down here rather than quietly deleted.
+//
+// The general case is TestEveryFieldComputedForACaseReachesItsDetail
+// (detailfields_test.go), which derives its universe from the intersection of the
+// two structs, so a field joins the check on the commit that adds it. This test
+// stays because it is the BEHAVIOURAL half — it runs evalCaseResult and reads what
+// StaleAboveRate actually receives, which an AST gate cannot do.
 func TestTheReportCarriesTheDistractorFieldsItComputed(t *testing.T) {
 	ctx := context.Background()
 	svc := newTestService(t)
