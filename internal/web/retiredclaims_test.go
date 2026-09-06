@@ -285,6 +285,15 @@ func TestNoShippedProtocolAdvertisesAStaleChunkThreshold(t *testing.T) {
 // So a line claiming entry-room records are served WHOLE has to carry the current
 // bound. The tool descriptions interpolate the constant and are pinned in
 // internal/mcpserver; documents cannot interpolate, so they are pinned here.
+//
+// ⚠ AND THE PARAGRAPH NOW CARRIES EXACTLY ONE DERIVED NUMBER, WHICH IS WHY THE
+// ORDINAL IS GONE. Both shipped copies used to say "the eleventh onward arrive as
+// pointers" beside the bound — a SECOND figure derived from the same constant,
+// checked by nothing. This gate would not have caught it: raise the limit, do
+// exactly what the message below asks (name the new bound), and the paragraph is
+// green with a stale ordinal in it, half true. Deleting the second number beat
+// checking it, because "the rest" is already determined by the figure in the same
+// clause and there is then nothing left to disagree.
 func TestNoShippedProtocolClaimsTheWholeEntryRoomIsServedEagerly(t *testing.T) {
 	limit := strconv.Itoa(palace.BootstrapEagerLimit)
 	// The claim, however it is worded around the capitalised word this corpus uses
