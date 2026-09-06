@@ -28,6 +28,17 @@ type rerankProbe struct {
 	Small, Large     int
 	SmallAt, LargeAt time.Duration
 
+	// Fitted says whether the two points produced a usable slope. When they do not
+	// — the larger batch came back no slower than the smaller one — the answer is
+	// INCONCLUSIVE and must be reported as such.
+	//
+	// ⚠ THE FIRST VERSION HAD ONE BRANCH DOING TWO JOBS: "too fast to measure" and
+	// "the measurement broke" both resolved to the largest batch observed, and the
+	// verdict below then FAILED THE RUN over it. A pre-flight that cries wolf on a
+	// healthy box is the one an operator disables, which is the argument the
+	// no-reranker branch already makes.
+	Fitted bool
+
 	// Fixed is the per-CALL cost — connection, request framing, model warm-up —
 	// and PerDoc the marginal cost of one more document.
 	//
@@ -39,6 +50,18 @@ type rerankProbe struct {
 	// the slope.
 	Fixed, PerDoc time.Duration
 }
+
+// minMeasurableSpread is how much slower the large batch must be before a slope
+// is worth fitting.
+//
+// ⚠ A SPREAD SMALLER THAN THIS IS NOISE, AND FITTING IT PRODUCES A CONFIDENT
+// ABSURDITY. Against a reranker answering in microseconds the two points differed
+// by a few hundred nanoseconds, the fit divided by that, and the check reported a
+// largest affordable pool of 457,832 — arithmetic, not a measurement. The other
+// half of the same branch is the cold-start case review of PR #324 found. Both
+// belong in "could not measure", which is an answer; a number derived from noise
+// is a guess wearing a verdict.
+const minMeasurableSpread = time.Millisecond
 
 // affordablePool is the largest pool whose predicted wall time fits within the
 // budget, never below zero.
@@ -83,6 +106,23 @@ func probeReranker(ctx context.Context, r palace.Reranker, small, large int) (re
 		return time.Since(start), nil
 	}
 
+	// ⚠ ONE DISCARDED CALL FIRST, because a warm-up lands entirely on whichever
+	// point is timed first and there is no way to fit it out afterwards. llama.cpp
+	// on CPU — the deployment issue #145 measured — loads and warms on first use,
+	// and this struct's own comment calls model warm-up part of the fixed cost
+	// while the probe was measuring it into one of two samples.
+	//
+	// Review of PR #324 gave the fixture a one-off warm-up and changed nothing
+	// else: the 1-document call came back at 504ms and the 8-document call at
+	// 218ms, so the slope guard below skipped the fit, the degenerate branch
+	// returned 8, and an operator was told to cut a pool of 100 on a box that
+	// affords about four hundred. That is the single-point model's failure —
+	// an understated pool, told to shrink one that was fine — arriving through a
+	// different door.
+	if _, err := timeOne(small); err != nil {
+		return rerankProbe{}, fmt.Errorf("rerank warm-up: %w", err)
+	}
+
 	smallAt, err := timeOne(small)
 	if err != nil {
 		return rerankProbe{}, fmt.Errorf("rerank %d document(s): %w", small, err)
@@ -93,12 +133,13 @@ func probeReranker(ctx context.Context, r palace.Reranker, small, large int) (re
 	}
 
 	p := rerankProbe{Small: small, Large: large, SmallAt: smallAt, LargeAt: largeAt}
-	if large > small && largeAt > smallAt {
+	if large > small && largeAt-smallAt >= minMeasurableSpread {
 		p.PerDoc = (largeAt - smallAt) / time.Duration(large-small)
 		p.Fixed = smallAt - p.PerDoc*time.Duration(small)
 		if p.Fixed < 0 {
 			p.Fixed = 0
 		}
+		p.Fitted = true
 	}
 	return p, nil
 }
@@ -142,6 +183,18 @@ func doctorRerank(ctx context.Context, cfg config.Config, out io.Writer) error {
 		probe.Small, probe.SmallAt.Round(time.Millisecond),
 		probe.Large, probe.LargeAt.Round(time.Millisecond),
 		probe.Fixed.Round(time.Millisecond), probe.PerDoc.Round(time.Millisecond))
+
+	if !probe.Fitted {
+		// Print the timings and stop. Saying "I could not measure this" is an
+		// answer; resolving it to a number and failing the run is a guess wearing
+		// a verdict.
+		fmt.Fprintf(out, "  INCONCLUSIVE: %d documents came back within %s of %d, so no "+
+			"per-document cost can be fitted. Either this reranker is fast enough that the pool "+
+			"is not what limits you, or something outside it moved between the two calls. "+
+			"Re-run before acting on it.\n",
+			probe.Large, minMeasurableSpread, probe.Small)
+		return nil
+	}
 
 	affordable := probe.affordablePool(budget)
 	fmt.Fprintf(out, "  largest pool that fits %s: %d\n", budget, affordable)
