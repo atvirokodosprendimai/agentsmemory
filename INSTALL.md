@@ -330,8 +330,13 @@ variable to pin — the same reason it is refused for Cursor.
 "quit Claude Desktop" (issue #208). Do not trust the exit code here:
 
 ```bash
-aiagentmemory doctor      # judges the binary the bridge spawns, not just the file
+aiagentmemory doctor --agent claude-desktop   # ⚠ the --agent is what makes this check DESKTOP
 ```
+
+Without `--agent claude-desktop` you get a clean report about **Claude Code** —
+`doctor` defaults to `--agent claude`, and only the Desktop kit has a bridge
+binary to judge. Verifying a Desktop install with the bare command is the shape
+this whole page warns about: a green answer to a question nobody asked.
 
 ### Registering by hand, and over a Unix socket
 
@@ -411,12 +416,18 @@ aiagentmemory doctor
 `doctor` reads the registration your agent will actually use and reports three
 states an install cannot: a hook installed and registered by no event, a hook
 registered on an event whose stdout goes to the debug log, and a hook that will
-not run. It also judges the binary a Desktop bridge spawns, and the server the
-install points at: it reads the version out of the MCP handshake and fails on
+not run. Against `--agent claude-desktop` it also judges the bridge binary that
+kit registers — that it exists, can be spawned, and is the same build as the
+server it bridges to. And for every kit it judges the server the install points
+at: it reads the version out of the MCP handshake and fails on
 `UNSTAMPED` — a server reporting the bare word `dev`, which is an image built
 without `AGENTSMEMORY_VERSION` and cannot be told from a stale one (issue #210) —
 and on `UNREACHABLE`. A `dev-<commit>` build is reported as `unreleased` and
 passes, because the string names a commit you can compare against your checkout.
+
+⚠ **`doctor` checks ONE kit per run, the one `--agent` names.** If you installed
+for more than one agent, run it once per agent; a green report for `claude` says
+nothing whatever about your Desktop or Cursor install.
 
 ⚠ **`doctor` cannot fail on silence, and that limit is deliberate.** Both shipped
 injecting hooks are silent when healthy — the verify hook prints only on drift,
@@ -458,7 +469,8 @@ The same information as above, gathered per-OS.
 - **Quit Claude Desktop before `--agent claude-desktop`.** A running Desktop holds
   its config file, and the install currently exits 0 after failing to register,
   reporting a rename error rather than saying so (issue #208). Verify with
-  `aiagentmemory doctor` rather than trusting the exit code.
+  `aiagentmemory doctor --agent claude-desktop` rather than trusting the exit
+  code — the bare command reports on Claude Code and can exit 0 just as happily.
 - **Watch for two binaries on PATH.** If you use the quality-harness tools,
   `~/.claude/bin` can shadow `~/.local/bin`, and the shadow is what runs (issue
   #204). `command -v aiagentmemory` tells you which one you have.
