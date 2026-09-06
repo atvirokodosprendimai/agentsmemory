@@ -20,10 +20,12 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/signal"
 	"runtime"
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/atvirokodosprendimai/agentsmemory/db"
@@ -71,7 +73,28 @@ func main() {
 	// in a local file during development; real env vars still take precedence.
 	_ = godotenv.Load()
 
-	if err := rootCommand(config.Default()).Run(context.Background(), os.Args); err != nil {
+	// signal.NotifyContext, so SIGINT and SIGTERM CANCEL rather than kill. That
+	// is what lets the serving action return through withTelemetry's deferred
+	// flush: the OTLP path batches on a 2s timer, and a process killed outright
+	// drops whatever accumulated since the last one — silently, on the ordinary
+	// container and systemd stop path, in the process that emits by far the most
+	// spans (issue #140).
+	//
+	// ⚠ THE SECOND SIGNAL MUST STILL KILL, AND THAT NEEDS THE GOROUTINE. A
+	// deferred stop() alone runs only when main returns, so the handler stays
+	// installed for the whole drain and a second SIGTERM is SWALLOWED — an
+	// operator who sends it because the first looked ignored gets nothing, from a
+	// process that has decided its shutdown matters more than their instruction.
+	// Calling stop() as soon as the context is cancelled restores the default
+	// disposition, so the next signal ends the process outright.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	go func() {
+		<-ctx.Done()
+		stop()
+	}()
+
+	if err := rootCommand(config.Default()).Run(ctx, os.Args); err != nil {
 		log.Fatal(err)
 	}
 }
@@ -724,8 +747,47 @@ func serveLocal(ctx context.Context, cfg config.Config, svc *services, r chi.Rou
 // goroutine because nothing may wait on GitHub.
 func serveHTTP(ctx context.Context, ln net.Listener, h http.Handler) error {
 	go announceUpdate(ctx, buildinfo.Effective(version))
-	return http.Serve(ln, telemetry.HTTPHandler(h))
+
+	// An *http.Server rather than http.Serve, because http.Serve has no way to be
+	// told to stop: it blocks until the listener breaks, ignores the context it
+	// was handed, and the only thing that ended it was the signal killing the
+	// process — which is the whole of issue #140.
+	srv := &http.Server{Handler: telemetry.HTTPHandler(h)}
+	served := make(chan error, 1)
+	go func() { served <- srv.Serve(ln) }()
+
+	select {
+	case err := <-served:
+		// A listener that broke on its own. ErrServerClosed cannot arrive here —
+		// nothing called Shutdown on this path — but it is cheap to be explicit
+		// rather than to rely on that staying true.
+		if errors.Is(err, http.ErrServerClosed) {
+			return nil
+		}
+		return err
+	case <-ctx.Done():
+		log.Printf("agentsmemory: signal received, draining for up to %s", shutdownGrace)
+		// ⚠ FROM Background, NOT from ctx, and for the same reason the telemetry
+		// flush is: ctx is ALREADY CANCELLED — that is why we are here — so a
+		// Shutdown deriving from it would return instantly, drop every in-flight
+		// request, and report a graceful stop it did not perform.
+		drain, cancel := context.WithTimeout(context.Background(), shutdownGrace)
+		defer cancel()
+		if err := srv.Shutdown(drain); err != nil {
+			// Say so rather than swallow it: a deadline reached here means
+			// requests WERE cut off, and an operator reading a silent exit would
+			// conclude the drain succeeded.
+			return fmt.Errorf("draining connections: %w", err)
+		}
+		return nil
+	}
 }
+
+// shutdownGrace bounds the drain. Long enough for an ordinary MCP call to finish
+// — a search with a reranker configured is the slow one — and comfortably inside
+// Docker's default 10s between SIGTERM and SIGKILL, because a grace period the
+// supervisor will not wait for is a number that only looks like a promise.
+const shutdownGrace = 5 * time.Second
 
 // agentEndpoint renders the /mcp URL to hand an agent for a given listen
 // address.
