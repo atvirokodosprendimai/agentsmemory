@@ -38,7 +38,10 @@ func doctorCommand(def config.Config) *cli.Command {
 			"    --roles    which active API keys authenticate but are refused every write?\n" +
 			"    --corpus   do content keys still match their rows, and does every parent_id,\n" +
 			"               anchor and fact provenance still resolve? (an ENDED drawer is not a\n" +
-			"               finding — it is the system working; a reference to NOTHING is)\n\n" +
+			"               finding — it is the system working; a reference to NOTHING is)\n" +
+			"    --rerank   can the configured cross-encoder score RERANK_POOL documents inside\n" +
+			"               RERANK_TIMEOUT, or does every search silently fall back to hybrid\n" +
+			"               order? (no reranker configured is not a finding)\n\n" +
 			"  diagnostic reports (measure a question; they do not declare palace health):\n" +
 			"    --graph    what graph would current entity extraction derive from this corpus?\n" +
 			"    --windows  which snippet windows compete for QUERY against --drawer?\n\n" +
@@ -56,13 +59,14 @@ func doctorCommand(def config.Config) *cli.Command {
 			&cli.BoolFlag{Name: "roles", Usage: "count active API keys refused every write: deliberate member roles, missing membership rows, and empty roles"},
 			&cli.BoolFlag{Name: "schema", Usage: "check that every table the migrations declare actually exists — catches a goose version recorded without its effect"},
 			&cli.BoolFlag{Name: "corpus", Usage: "check that content keys match their rows and that parent_id, anchors and fact provenance still resolve — distinguishes an ENDED drawer (fine) from a reference to nothing (not)"},
+			&cli.BoolFlag{Name: "rerank", Usage: "probe the live cross-encoder and report the largest pool it can score inside the timeout — a pool that does not fit degrades every search to hybrid order, visible only as reranked=false"},
 			&cli.StringFlag{Name: "windows", Usage: "report every candidate snippet window for this QUERY against --drawer, and which one search returns (read-only)"},
 			&cli.StringFlag{Name: "drawer", Usage: "the memory id --windows reports on"},
 		),
 		Action: func(ctx context.Context, c *cli.Command) error {
 			if !c.Bool("index") && !c.Bool("graph") && !c.Bool("roles") && !c.Bool("schema") &&
-				!c.Bool("corpus") && c.String("windows") == "" {
-				return fmt.Errorf("nothing to check: pass --index, --corpus, --graph, --roles, --schema or --windows")
+				!c.Bool("corpus") && !c.Bool("rerank") && c.String("windows") == "" {
+				return fmt.Errorf("nothing to check: pass --index, --corpus, --rerank, --graph, --roles, --schema or --windows")
 			}
 			cfg := configFromCmd(c, def)
 			// The command's own writer, not os.Stdout. Every doctor check already
@@ -102,6 +106,11 @@ func doctorCommand(def config.Config) *cli.Command {
 			var failures []error
 			if c.Bool("corpus") {
 				if err := doctorCorpus(ctx, cfg, c.String("project"), out); err != nil {
+					failures = append(failures, err)
+				}
+			}
+			if c.Bool("rerank") {
+				if err := doctorRerank(ctx, cfg, out); err != nil {
 					failures = append(failures, err)
 				}
 			}
