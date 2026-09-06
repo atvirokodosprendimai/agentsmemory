@@ -45,11 +45,21 @@ type constCitation struct {
 	declaredIn string
 }
 
-// wordRE matches a constant name as a whole word, so `ChunkSize` in a comment is
-// a citation and `ChunkSizeBytes` is a different symbol.
-func wordRE(name string) *regexp.Regexp {
-	return regexp.MustCompile(`\b` + regexp.QuoteMeta(name) + `\b`)
-}
+// identRE matches a Go identifier in comment prose. Comments are read ONCE
+// against it and the tokens looked up in a map, rather than each constant name
+// being matched against each comment.
+//
+// ⚠ THAT IS AN ALGORITHM CHOICE, NOT A MICRO-OPTIMISATION, and the measurement is
+// why it is written down. Matching per name per comment is every exported
+// constant against every comment in the tree: ~0.6s with an early skip hiding it,
+// 10.3s once the citation floor removed the skip, measured on the reviewer's
+// machine — 85% of this package's runtime for one hygiene gate. Tokenising is one
+// pass over each comment whatever the constant count.
+//
+// Whole-word semantics are unchanged: a token is the entire identifier, so
+// `ChunkSize` is a citation and `ChunkSizeBytes` is a different symbol, exactly as
+// `\bChunkSize\b` behaved.
+var identRE = regexp.MustCompile(`[A-Za-z_][A-Za-z0-9_]*`)
 
 // unreadConstantCitations is the whole scan: it derives its universe from the
 // source rather than from a list, so a constant that stops being read joins the
@@ -156,34 +166,31 @@ func unreadConstantCitations(tb testing.TB, root string, ignored func(string, bo
 	// that is where the reasoning for the number belongs, and requiring the
 	// declaration to avoid its own name would be absurd.
 	//
-	// The matchers are compiled ONCE, not per comment: this is every exported
-	// constant against every comment in the tree, and compiling inside the loop
-	// took the gate from 0.2s to 10.8s — measured, after the citation floor
-	// removed the early skip that had been hiding the cost.
-	matcher := make(map[string]*regexp.Regexp, len(declaredIn))
-	for name := range declaredIn {
-		matcher[name] = wordRE(name)
-	}
 	for rel, f := range files {
 		for _, group := range f.Comments {
 			for _, c := range group.List {
-				for name, decl := range declaredIn {
-					if decl == rel || !matcher[name].MatchString(c.Text) {
+				seen := map[string]bool{}
+				for _, token := range identRE.FindAllString(c.Text, -1) {
+					decl, isConst := declaredIn[token]
+					// One comment naming the same constant twice is one citation:
+					// the report is about the sentence, not the occurrences.
+					if !isConst || decl == rel || seen[token] {
 						continue
 					}
+					seen[token] = true
 					// Counted whether or not it offends: the floor asks "did this
 					// scan look at the tree", and only a citation the walk, the
 					// parse and the cross-file comparison all survived can answer
 					// that. Counting offenders alone would make the floor read
 					// zero on exactly the tree the gate is happy with.
 					citations++
-					if read[name] {
+					if read[token] {
 						continue
 					}
 					offenders = append(offenders, constCitation{
 						file:       rel,
 						line:       fset.Position(c.Pos()).Line,
-						name:       name,
+						name:       token,
 						declaredIn: decl,
 					})
 				}
