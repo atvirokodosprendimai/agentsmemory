@@ -530,7 +530,7 @@ func runHookDoctor(ctx context.Context, c *cli.Command, out io.Writer) error {
 	// its own, for the reason judgeServerBin gives about STALE-PATH: an operator
 	// may be running a hand-edited hook deliberately, and a check that fails a
 	// legitimate choice is one that gets switched off.
-	for _, name := range staleHooksIn(dir) {
+	for _, name := range staleAssetsIn(dir, kit) {
 		fmt.Fprintf(out, "  %-38s %-14s %-12s %s\n", name, "—", "STALE",
 			"differs from this binary's embedded copy — `aiagentmemory install` rewrites it")
 	}
@@ -586,6 +586,104 @@ func hookAssetFiles() map[string]string {
 	return out
 }
 
+// verbatimAssetFiles returns every embedded asset a real install writes BYTE FOR
+// BYTE, keyed by its path relative to the install directory.
+//
+// ⚠ THE DRIFT CHECK COVERED HOOKS ONLY, AND THE FILES IT MISSED ARE THE ONES A
+// SESSION ACTUALLY READS. `update` refreshes the BINARY in place and says so —
+// "configs, sandboxes and MCP registration are untouched" — so a current binary
+// beside a year-old protocol file is not an edge case, it is what following the
+// documented upgrade produces. A stale hook eventually misbehaves and somebody
+// debugs it; a stale `agentsmemory-bootstrap.md` keeps teaching a rule the
+// project has RETIRED, to a model that cannot know. Not hypothetical: PR #334
+// corrected wording in `commands/am.md` because the old sentence was wrong, and
+// every kit installed before it still serves the retired one. Reported by
+// nothing until now (issue #349).
+//
+// ⚠ ONLY VERBATIM WRITES BELONG HERE, because the comparison is bytes. The
+// installer MERGES the memory protocol into a user-owned CLAUDE.md block and
+// MERGES settings.json; those are excluded by construction rather than by a
+// list — this function names the three write paths that call writeFile with
+// unmodified asset bytes, and nothing else can join it by accident.
+//
+// ⚠ WHAT "DERIVED" DOES AND DOES NOT BUY, because the first version of this
+// comment overstated it. A new HOOK joins automatically (hookAssetFiles walks
+// hooks/) and so does a new SKILL (nativeSkillAssets walks skills/) — but a new
+// KIND of verbatim asset does not, because each kind is a separate branch below.
+// That is not hypothetical: agentsmemory-unattended-settings.json was written
+// verbatim by a real install and missed by two readings of the asset list, since
+// its asset is at the embed root and its installed name is prefixed. It was
+// found by DRIVING an install and walking what landed, not by reading.
+//
+// So the honest statement is: derived WITHIN each kind, hand-enumerated ACROSS
+// kinds. Closing that gap wants a gate that installs, walks the result, and
+// requires every written file to be either checked here or justified as
+// transformed — the shape TestNotOperatorFacingIsJustified already uses. Filed
+// rather than built here.
+func verbatimAssetFiles(kit agentKit) map[string]string {
+	out := map[string]string{}
+	for name, asset := range hookAssetFiles() {
+		out[name] = asset
+	}
+	// ⚠ The one asset whose installed name differs from its asset name. Keying
+	// this map by INSTALLED path rather than asset name is what carries that.
+	if _, err := assets.ReadFile(bootstrapAsset); err == nil {
+		out[bootstrapFile] = bootstrapAsset
+	}
+	// ⚠ THE UNATTENDED PERMISSION BOUNDARY, AND IT IS THE SHARPEST FILE HERE.
+	// agentsmemory-unattended-settings.json is written verbatim in the same loop
+	// as the hooks, but its asset sits at the embed ROOT rather than under
+	// hooks/, so hookAssetFiles never saw it — and its installed name is
+	// prefixed, which is the second case for keying this map by INSTALLED path.
+	//
+	// What makes it worth naming separately: that file IS the permission boundary
+	// an unattended run gets via --settings, the one plugin_test.go's
+	// unattendedRules gates so it cannot quietly empty, carrying all twelve deny
+	// entries on purpose because an unattended run has no human to be the decision
+	// point the prompt was. A stale copy on disk means a run enforcing an OLDER
+	// boundary than this repository has decided on, and nothing said so. Found by
+	// review of PR #350, with a probe that drove a real install rather than
+	// reasoning about the asset list.
+	if _, err := assets.ReadFile(unattendedSettingsAsset); err == nil {
+		out["agentsmemory-unattended-settings.json"] = unattendedSettingsAsset
+	}
+	// Skills are written verbatim too — writeSkills reads skills/<name>/SKILL.md
+	// and hands the same bytes to writeFile — and land at skills/<name>/SKILL.md
+	// under the config dir. Claude-only, which the kit name carries.
+	if kit.name == agentClaude {
+		for _, name := range nativeSkillAssets() {
+			asset := "skills/" + name + "/SKILL.md"
+			if _, err := assets.ReadFile(asset); err == nil {
+				out[filepath.Join("skills", name, "SKILL.md")] = asset
+			}
+		}
+	}
+	// ⚠ AGENT DEFINITIONS ARE DELIBERATELY OUT, and the reason is not that they
+	// are unimportant — it is that they are TRANSFORMED. registerAgents
+	// substitutes mcpURLPlaceholder with the endpoint this install registered
+	// before writing (installer.go:898), so a correctly installed
+	// agentsmemory-researcher.md NEVER matches the embed. Including them would
+	// report drift on every healthy install, which is the failure judgeServerBin's
+	// own comment names: a check that fires on the normal case is one an operator
+	// learns to ignore. They join the merged settings.json and the managed memory
+	// block as the transformed class. Established by review of PR #350; "agents
+	// are embedded, installed, and not checked" is a question the next reader will
+	// have too.
+	//
+	// Commands are written verbatim — registerCommands reads the asset and hands
+	// the same bytes to writeFile — and land under the kit's own directory, which
+	// is empty for a kit that ships none.
+	if kit.commandsDir != "" {
+		for _, name := range commandAssets {
+			asset := "commands/" + name
+			if _, err := assets.ReadFile(asset); err == nil {
+				out[filepath.Join(kit.commandsDir, name)] = asset
+			}
+		}
+	}
+	return out
+}
+
 // staleHooksIn reports installed hooks whose bytes differ from this binary's
 // embedded copy, sorted so the output is stable.
 //
@@ -608,9 +706,14 @@ func hookAssetFiles() map[string]string {
 // A file that is ABSENT is not drift: kits install different subsets, and an
 // unreadable one is reported by the checks that try to run it rather than
 // guessed at here.
-func staleHooksIn(dir string) []string {
+func staleHooksIn(dir string) []string { return staleAssetsIn(dir, agentKit{}) }
+
+// staleAssetsIn reports installed files whose bytes differ from this binary's
+// embedded copy, sorted so the output is stable. Pass the kit so the check
+// reaches the commands it installed; the zero kit checks hooks and the protocol.
+func staleAssetsIn(dir string, kit agentKit) []string {
 	var stale []string
-	for name, asset := range hookAssetFiles() {
+	for name, asset := range verbatimAssetFiles(kit) {
 		want, err := assets.ReadFile(asset)
 		if err != nil {
 			continue // not embedded in this build; nothing to compare against
