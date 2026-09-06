@@ -8,6 +8,40 @@ An entry leaves this file in one of two ways: it becomes an ADR, or it is re-tag
 `(permanent: <why>)` in its originating ADR because we decided it should never happen.
 
 
+## RESOLVED 2026-09-06 — A needle that is an identifier proves nothing, and a piped exit code hides the refusal (filed 2026-09-03)
+
+Both halves taken, as the entry asked: *"reject a needle that matches no string literal anywhere in
+the SOURCE before deploying, so a bad needle is caught as a bad needle rather than reported as a bad
+deploy."*
+
+`scripts/redeploy.sh` now refuses a caller-supplied needle that appears in no Go string literal,
+BEFORE the suite runs — an hour of build and test spent to be told the grep was wrong is an hour
+spent on nothing. Only caller-supplied needles are checked; a drifted default should still deploy
+and report MISSING, which is a finding about the tree rather than a typo. `REDEPLOY_SKIP_NEEDLE_CHECK`
+covers a literal genuinely built by concatenation, and is named in the refusal. The usage header now
+carries the pipe warning too.
+
+⚠ **BOTH HALVES OF THE GUARD WERE GOT WRONG WHILE WRITING IT, each reproducing the defect it was
+written for.**
+
+1. The first draft grepped the `.go` SOURCE for the needle — which matches an IDENTIFIER, the one
+   thing that cannot be in a compiled binary. It admitted `evalPromptAbsent` (a real identifier
+   here, in no literal) and refused `SocketAuthority` only because that name is absent from this
+   tree entirely: it passed its own test for the wrong reason. Quoted segments are extracted first
+   now.
+2. The second piped those literals into `grep -qF`. Under `set -o pipefail` the early exit gives
+   the upstream grep SIGPIPE (141) and the pipeline reports failure — so `chunks_matched`, present
+   in four literals, was refused. That is this entry's own second half, committed inside the fix for
+   its first. The count goes into a variable instead.
+
+Verified after each: `evalPromptAbsent` refused, `SocketAuthority` refused, `chunks_matched` passes
+the guard and stops at the next check.
+
+`checkNeedlePreflight` (`internal/repohygiene/redeployscript_test.go`) gates all three properties —
+literal extraction, no `grep -q` in the pipeline, and the escape hatch — with four fixtures.
+
+Original entry, kept because its reasoning is what the guard implements:
+
 ## A needle that is an identifier proves nothing, and a piped exit code hides the refusal — 2026-09-03
 
 Two mistakes made against `scripts/redeploy.sh` in one run, both mine and neither a defect in

@@ -6,6 +6,9 @@
 # evidence that a change is live is reading the artifact that is serving.
 #
 # Usage: scripts/redeploy.sh [needle ...]
+#   ⚠ NEVER READ THIS SCRIPT'S EXIT CODE THROUGH A PIPE. `… | tail -14` reports
+#   tail's zero, so a refusal is printed and discarded in the same breath — this
+#   script's whole purpose is a verdict. Redirect to a file and read $?.
 #   Each needle is a string the NEW binary must contain — one per change, so an
 #   absent one names which change is missing. With no arguments it checks a
 #   standing set plus a control.
@@ -91,6 +94,49 @@ CONTROL=am_search
 needles=("$@")
 if [ ${#needles[@]} -eq 0 ]; then
   needles=("ranking: " "chunks_matched" "reranked" "lex-norm" "BEST over " "case_set_id")
+fi
+
+# ⚠ A NEEDLE THE SOURCE NEVER SPELLS IS A BAD NEEDLE, NOT A BAD DEPLOY, and the
+# caller picks the needle. Identifiers are not in a compiled binary — only string
+# literals are — so passing a Go CONSTANT NAME greps for something that cannot be
+# there, and the run reports MISSING over a binary that carries the change. That
+# happened on 2026-09-03 with `SocketAuthority`: `strings` found one hit for the
+# literal `does not address this machine` and zero for the identifier beside it.
+# Checked BEFORE the suite for the same reason the version is: an hour of build
+# and test spent to be told the grep was wrong is an hour spent on nothing.
+#
+# Only CALLER-SUPPLIED needles are checked. The defaults below are the script's
+# own and a drifted one should still deploy and report MISSING, which is a real
+# finding about the tree rather than a typo at the command line.
+#
+# A literal split across concatenation is a real false alarm; the escape hatch is
+# named in the refusal rather than left to be discovered.
+if [ ${#} -gt 0 ] && [ -z "${REDEPLOY_SKIP_NEEDLE_CHECK:-}" ]; then
+  for n in "$@"; do
+    # ⚠ SEARCH THE LITERALS, NOT THE SOURCE. The first draft of this guard grepped
+    # the .go files for the needle, which MATCHES AN IDENTIFIER — the exact thing
+    # that cannot be in a compiled binary. It admitted `evalPromptAbsent` (a real
+    # identifier here, in no string literal) and only refused `SocketAuthority`
+    # because that name is absent from this tree entirely: it passed for the wrong
+    # reason. Quoted segments are extracted first, then searched.
+    # ⚠ NO `-q` ON THE RIGHT OF THIS PIPE, and the reason is this entry's own
+    # second half. `grep -q` exits at the first match, the upstream grep takes
+    # SIGPIPE (141), and `set -o pipefail` reports the PIPELINE as failed — so a
+    # needle that IS present reads as absent and the guard refuses a correct
+    # deploy. Measured while writing this guard: `chunks_matched` is in four
+    # literals and was refused anyway. Count into a variable instead.
+    found=$(grep -rhoE --include='*.go' '"([^"\\]|\\.)*"|`[^`]*`' . 2>/dev/null \
+            | grep -cF -- "$n" || true)
+    if [ "${found:-0}" -eq 0 ]; then
+      echo "==> refusing: the needle '$n' appears in no Go string literal in this checkout."
+      echo "    A needle proves a change only if the change introduced a STRING. An identifier"
+      echo "    (a constant or function name) is not present in a compiled binary, so this would"
+      echo "    report MISSING over a binary that carries the change — a bad needle read as a bad"
+      echo "    deploy. Pass the literal the change introduced."
+      echo "    If the literal is genuinely built by concatenation: REDEPLOY_SKIP_NEEDLE_CHECK=1"
+      exit 1
+    fi
+  done
 fi
 
 # The version is compiled in, so a build without it is a DIFFERENT artifact that

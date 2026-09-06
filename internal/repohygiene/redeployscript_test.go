@@ -323,10 +323,56 @@ func checkShadowWarning(tb testing.TB, root string) {
 	}
 }
 
+// checkNeedlePreflight requires the script to reject a needle that is in no Go
+// string literal, and to do it without a pipefail-poisoned pipeline.
+//
+// BACKLOG "A needle that is an identifier proves nothing, and a piped exit code
+// hides the refusal" (2026-09-03) asked for exactly this: a bad needle should be
+// caught as a bad needle rather than reported as a bad deploy. Identifiers are
+// not in a compiled binary — only string literals are.
+//
+// ⚠ BOTH HALVES OF THIS GUARD WERE GOT WRONG WHILE WRITING IT, each reproducing
+// the defect it was written for. The first grepped the .go SOURCE, which matches
+// an identifier — the one thing that cannot be in the binary — so it admitted
+// `evalPromptAbsent` and refused `SocketAuthority` only because that name is
+// absent from the tree entirely. The second piped the extracted literals into
+// `grep -q`, and under `set -o pipefail` the early exit gives the upstream grep
+// SIGPIPE (141), so a needle present in four literals was refused. That is this
+// entry's own second half, committed inside the fix for its first.
+func checkNeedlePreflight(tb testing.TB, root string) {
+	tb.Helper()
+	raw, err := os.ReadFile(filepath.Join(root, "scripts", "redeploy.sh"))
+	if err != nil {
+		tb.Fatalf("read redeploy.sh: %v", err)
+	}
+	var code []string
+	for _, line := range strings.Split(string(raw), "\n") {
+		if t := strings.TrimSpace(line); !strings.HasPrefix(t, "#") {
+			code = append(code, line)
+		}
+	}
+	body := strings.Join(code, "\n")
+	if !strings.Contains(body, "grep -rhoE") {
+		tb.Errorf("scripts/redeploy.sh no longer extracts Go string literals before checking a " +
+			"needle. A plain grep over the source matches an IDENTIFIER, which is never in a " +
+			"compiled binary, so a bad needle would again be reported as a bad deploy.")
+	}
+	if strings.Contains(body, `| grep -qF -- "$n"`) {
+		tb.Errorf("the needle check pipes into `grep -q` again. Under `set -o pipefail` the early " +
+			"exit gives the upstream grep SIGPIPE and the pipeline reports failure, so a needle " +
+			"that IS present reads as absent and a correct deploy is refused.")
+	}
+	if !strings.Contains(body, "REDEPLOY_SKIP_NEEDLE_CHECK") {
+		tb.Errorf("the needle check has no escape hatch. A literal built by concatenation is a " +
+			"real false alarm, and a guard with no way past it is one somebody deletes.")
+	}
+}
+
 // TestTheRedeployPathKeepsItsWindowsFixes is the gate.
 func TestTheRedeployPathKeepsItsWindowsFixes(t *testing.T) {
 	root := repoRoot(t)
 	checkShadowWarning(t, root)
+	checkNeedlePreflight(t, root)
 	checkRedeployScript(t, root)
 	checkNoEmptySections(t, root)
 	checkStageSequence(t, root)
@@ -392,6 +438,56 @@ code=$(curl -s -o /tmp/redeploy-smoke.json -w '%{http_code}' -m 60 -X POST "$BAS
 		if rec.errors != 2 {
 			t.Errorf("the gate reported %d finding(s) over a procedure with neither the long-path "+
 				"flag nor a wholeness check; both are the issue", rec.errors)
+		}
+	})
+
+	t.Run("a needle check that greps the source or pipes into grep -q is caught", func(t *testing.T) {
+		write := func(t *testing.T, body string) string {
+			t.Helper()
+			dir := t.TempDir()
+			if err := os.MkdirAll(filepath.Join(dir, "scripts"), 0o750); err != nil {
+				t.Fatalf("mkdir: %v", err)
+			}
+			if err := os.WriteFile(filepath.Join(dir, "scripts", "redeploy.sh"),
+				[]byte(body), 0o600); err != nil {
+				t.Fatalf("write: %v", err)
+			}
+			return dir
+		}
+		const hatch = "REDEPLOY_SKIP_NEEDLE_CHECK=\n"
+		const extract = "found=$(grep -rhoE --include='*.go' 'x' . | grep -cF -- \"$n\" || true)\n"
+
+		// Greps the SOURCE rather than its literals: the identifier hole, which
+		// admits a Go constant name that can never be in a compiled binary.
+		rec := &recordingTB{}
+		checkNeedlePreflight(rec, write(t, "#!/usr/bin/env bash\ngrep -rqF -- \"$n\" .\n"+hatch))
+		if rec.errors != 1 {
+			t.Errorf("reported %d finding(s) over a check that greps the source rather than its "+
+				"string literals", rec.errors)
+		}
+
+		// Pipes into grep -q: under pipefail the SIGPIPE makes a present needle
+		// read as absent, refusing a correct deploy.
+		rec2 := &recordingTB{}
+		checkNeedlePreflight(rec2, write(t, "#!/usr/bin/env bash\n"+
+			"grep -rhoE --include='*.go' 'x' . | grep -qF -- \"$n\"\n"+hatch))
+		if rec2.errors != 1 {
+			t.Errorf("reported %d finding(s) over a check piping into grep -q under pipefail",
+				rec2.errors)
+		}
+
+		// No escape hatch: a literal built by concatenation is a real false alarm.
+		rec3 := &recordingTB{}
+		checkNeedlePreflight(rec3, write(t, "#!/usr/bin/env bash\n"+extract))
+		if rec3.errors != 1 {
+			t.Errorf("reported %d finding(s) over a check with no escape hatch", rec3.errors)
+		}
+
+		quiet := &recordingTB{}
+		checkNeedlePreflight(quiet, write(t, "#!/usr/bin/env bash\n"+extract+hatch))
+		if quiet.errors != 0 {
+			t.Errorf("reported %d finding(s) over a correct check; a gate that cannot pass is one "+
+				"somebody deletes", quiet.errors)
 		}
 	})
 
