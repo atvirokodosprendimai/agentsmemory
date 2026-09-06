@@ -352,7 +352,17 @@ func TestAnAbsurdlyLargeFittedPoolIsNotNamed(t *testing.T) {
 	_, url := slowReranker(t, 2*time.Millisecond, 300*time.Microsecond)
 	cfg := config.Default()
 	cfg.RerankURL = url
-	cfg.RerankTimeout = time.Second
+	// ⚠ A WIDE BUDGET, BECAUSE THE WINDOW IS OTHERWISE NARROWER THAN THE JITTER.
+	// The fitted pool must land above the ceiling, which at a 1s budget means a
+	// spread inside roughly 1ms-7ms — and review of this PR measured 6 failures in
+	// 200 concurrent -race runs on a 40-core box, where a nominal 2.1ms spread was
+	// observed at 11ms and the fitted pool swung 5x. At 10s the same spread has
+	// 70ms of room.
+	//
+	// That flake is evidence FOR what this test pins rather than against it: the
+	// production number moved five-fold with machine load, which is precisely why
+	// it should not be printed. The code was more right than the test.
+	cfg.RerankTimeout = 10 * time.Second
 	cfg.RerankPool = 50
 
 	var out bytes.Buffer
