@@ -351,10 +351,7 @@ func generateTemporalCases(ctx context.Context, c *cli.Command, svc *services, t
 		cases = append(cases, temporalCase(q, wing, d, older))
 	}
 	if len(cases) == 0 {
-		// Distinct from the generic "no eval cases": every sampled drawer was
-		// dated, yet none had a dated older neighbour — the corpus has chronology
-		// but no supersession to measure, which no --wing change will fix.
-		return nil, "", caseFileMeta{}, fmt.Errorf("sampled %d dated drawer(s) but none has a dated older semantic neighbour — temporal cases need at least two dated memories about the same fact; file corrections with dates, or run another --style", len(drawers))
+		return nil, "", caseFileMeta{}, temporalRefusal(len(drawers), pairCandidates, verifiedPairs)
 	}
 	fmt.Fprintf(out, "generated %d case(s) in %s\n", len(cases), time.Since(genStart).Round(time.Second))
 	// Built here and RETURNED, rather than built inside the --cases branch and
@@ -490,6 +487,49 @@ Answer YES only if the OLDER note states something about the same specific subje
 Answer NO if they are about different subjects, if the older note is merely related, or if both can be true at once.
 
 Reply with YES or NO and nothing else.`
+
+// temporalRefusal says why no temporal case could be built, choosing between
+// three causes the loop's own counters already distinguish.
+//
+// ⚠ IT USED TO NAME ONE CAUSE AND HAD THE NUMBERS TO KNOW BETTER. The single
+// message said "none has a dated older semantic neighbour … file corrections
+// with dates", while pairCandidates and verifiedPairs sat in scope, counted on
+// every iteration, and were read only on the SUCCESS path (caseFileMeta). So a
+// run where the corpus was full of dated neighbours and the JUDGE confirmed none
+// of them reported a corpus with no chronology, and sent the operator to file
+// dated corrections that already existed. Measured 2026-09-06 against this
+// project's own palace at --n 40: 35 of 40 sampled drawers had a neighbour and
+// the judge declined all 35, and the refusal blamed the dates.
+//
+// That is the defect #332 fixed one function over (issue #34): a value computed
+// correctly and unreachable from the consumer that needed it, producing a
+// refusal whose stated cause sends the operator to repair something that is
+// fine. Costing an operator a corpus-wide fix for a judge threshold is the same
+// bill in a different currency.
+//
+// The three causes are genuinely different work: no neighbour is a corpus
+// without chronology, no CONFIRMED pair is the judge's bar against this corpus,
+// and confirmed pairs with no question is a broken generator.
+func temporalRefusal(sampled, pairCandidates, verifiedPairs int) error {
+	switch {
+	case pairCandidates == 0:
+		return fmt.Errorf("sampled %d dated drawer(s) and none has a dated older semantic neighbour — "+
+			"temporal cases need at least two dated memories about the same fact; file corrections "+
+			"with dates, or run another --style", sampled)
+	case verifiedPairs == 0:
+		return fmt.Errorf("sampled %d dated drawer(s), %d had a dated older neighbour, and the judge "+
+			"confirmed none of them as superseding it — so this corpus HAS chronology and the pair "+
+			"bar is what nothing cleared. Filing more dated corrections will not change that; widen "+
+			"--pair-max-distance (currently the ceiling on what is even offered to the judge), sample "+
+			"more with --n, or read the skip lines above to see which pairs it declined",
+			sampled, pairCandidates)
+	default:
+		return fmt.Errorf("sampled %d dated drawer(s) and the judge confirmed %d supersession pair(s), "+
+			"but the generator produced no question for any of them — that is a generator failure "+
+			"rather than a corpus one; check --gen-model names a GENERATIVE model and see the "+
+			"per-case lines above", sampled, verifiedPairs)
+	}
+}
 
 // verifyPair reports whether the judge confirms older records an earlier state
 // of the fact newer corrects.
