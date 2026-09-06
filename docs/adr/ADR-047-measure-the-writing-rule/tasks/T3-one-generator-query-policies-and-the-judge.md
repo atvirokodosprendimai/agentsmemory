@@ -58,7 +58,6 @@ commit as the extraction, and both must build together or neither does.
    its own prompt and its own parsing. A move that unified the parsing would silently change what
    `kgextract` extracts.
 3. Repoint `cmd/server/eval.go` and `cmd/server/kgextract.go`. Run the existing `cmd/server` suite;
-3. Repoint `cmd/server/eval.go` and `cmd/server/kgextract.go`. Run the existing `cmd/server` suite;
    it is inside this task's fence for exactly this reason.
 4. Register query policies: `verbatim` (the question as typed — the baseline), `named-thing`
    (`start-here`'s rule: name the entity before asking), `decomposed` (multi-hop questions asked as
