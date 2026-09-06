@@ -728,6 +728,16 @@ func (s *Service) EvaluateWith(ctx context.Context, teamID string, cases []EvalC
 			TopRerank:  topRerank, RerankScored: scored,
 			TopGap: oc.TopGap, ScoreSpread: oc.ScoreSpread,
 			DistGap: oc.DistGap, DistSpread: oc.DistSpread,
+			// ⚠ WITHOUT THESE TWO THE SUPERSESSION GATE CANNOT ANSWER ON ANY
+			// CORPUS. evalCaseResult computes both, this literal dropped both, and
+			// StaleAboveRate skips a case whose DistractorRanks is nil — so every
+			// run reported zero scoreable pairs and refused with "the case file
+			// records N verified pair(s) but this run scored none", which sends the
+			// operator to regenerate a case file that was never the problem.
+			// ADR-004's pre-registered measurement has therefore never been able to
+			// speak, which is issue #34's whole subject.
+			DistractorRanks:    oc.DistractorRanks,
+			DistractorPoolRank: oc.DistractorPoolRank,
 		})
 		s.accumulate(byArm, &report, EvalCaseResult{Category: cat, Ranks: ranks}, arms)
 		if cat != CatAbsent {
