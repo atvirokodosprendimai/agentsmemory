@@ -9,6 +9,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/atvirokodosprendimai/agentsmemory/internal/testexec"
 )
 
 // Three defects in the redeploy path, all reported from Windows on one day, and
@@ -369,6 +371,41 @@ func checkNeedlePreflight(tb testing.TB, root string) {
 		tb.Errorf("the needle check has no escape hatch. A literal built by concatenation is a " +
 			"real false alarm, and a guard with no way past it is one somebody deletes.")
 	}
+	if !strings.Contains(body, "--exclude='*_test.go'") {
+		tb.Errorf("the needle preflight searches test source again. A literal that lives only in a " +
+			"_test.go is in no binary, so it CLEARS this check and is then reported MISSING against " +
+			"the artifact — the bad needle read as a bad deploy that the check exists to prevent, " +
+			"arriving through the check's own universe.")
+	}
+}
+
+// needleLiteralPipeline returns the `found=$(grep …)` statement redeploy.sh uses
+// to count a needle's occurrences in Go string literals, continuation lines
+// joined, or "" when the script no longer carries one.
+//
+// It exists so a test can RUN the real statement rather than assert its spelling:
+// `--exclude='_test.go'` reads almost like `--exclude='*_test.go'` and matches
+// nothing, and no string check can tell those apart.
+//
+// ⚠ It takes the script body rather than (testing.TB, string) deliberately. A
+// top-level helper in this file with that signature joins the universe
+// TestTheRedeployGateIsAppliedToTheTree derives, and would then be required to
+// run against the real tree — which an extractor has no business doing.
+func needleLiteralPipeline(body string) string {
+	lines := strings.Split(body, "\n")
+	for i := 0; i < len(lines); i++ {
+		if strings.HasPrefix(strings.TrimSpace(lines[i]), "#") ||
+			!strings.Contains(lines[i], "found=$(grep") {
+			continue
+		}
+		stmt := lines[i]
+		for strings.HasSuffix(strings.TrimRight(lines[i], " \t"), `\`) && i+1 < len(lines) {
+			i++
+			stmt += "\n" + lines[i]
+		}
+		return stmt
+	}
+	return ""
 }
 
 // TestTheRedeployPathKeepsItsWindowsFixes is the gate.
@@ -458,12 +495,19 @@ code=$(curl -s -o /tmp/redeploy-smoke.json -w '%{http_code}' -m 60 -X POST "$BAS
 			return dir
 		}
 		const hatch = "REDEPLOY_SKIP_NEEDLE_CHECK=\n"
-		const extract = "found=$(grep -rhoE --include='*.go' 'x' . | grep -cF -- \"$n\" || true)\n"
+		const extract = "found=$(grep -rhoE --include='*.go' --exclude='*_test.go' 'x' . " +
+			"| grep -cF -- \"$n\" || true)\n"
+		// The same statement with only the test-file exclusion dropped. Each
+		// fixture below carries exactly ONE defect, because the recorder counts
+		// findings and a fixture with two of them attributes neither.
+		const searchesTestSource = "found=$(grep -rhoE --include='*.go' 'x' . " +
+			"| grep -cF -- \"$n\" || true)\n"
 
 		// Greps the SOURCE rather than its literals: the identifier hole, which
 		// admits a Go constant name that can never be in a compiled binary.
 		rec := &recordingTB{}
-		checkNeedlePreflight(rec, write(t, "#!/usr/bin/env bash\ngrep -rqF -- \"$n\" .\n"+hatch))
+		checkNeedlePreflight(rec, write(t, "#!/usr/bin/env bash\n"+
+			"grep -rqF --exclude='*_test.go' -- \"$n\" .\n"+hatch))
 		if rec.errors != 1 {
 			t.Errorf("reported %d finding(s) over a check that greps the source rather than its "+
 				"string literals", rec.errors)
@@ -473,7 +517,7 @@ code=$(curl -s -o /tmp/redeploy-smoke.json -w '%{http_code}' -m 60 -X POST "$BAS
 		// read as absent, refusing a correct deploy.
 		rec2 := &recordingTB{}
 		checkNeedlePreflight(rec2, write(t, "#!/usr/bin/env bash\n"+
-			"grep -rhoE --include='*.go' 'x' . | grep -qF -- \"$n\"\n"+hatch))
+			"grep -rhoE --include='*.go' --exclude='*_test.go' 'x' . | grep -qF -- \"$n\"\n"+hatch))
 		if rec2.errors != 1 {
 			t.Errorf("reported %d finding(s) over a check piping into grep -q under pipefail",
 				rec2.errors)
@@ -486,11 +530,71 @@ code=$(curl -s -o /tmp/redeploy-smoke.json -w '%{http_code}' -m 60 -X POST "$BAS
 			t.Errorf("reported %d finding(s) over a check with no escape hatch", rec3.errors)
 		}
 
+		// Searches test source: a literal that lives only in a _test.go clears the
+		// preflight and is then reported MISSING against the artifact.
+		rec4 := &recordingTB{}
+		checkNeedlePreflight(rec4, write(t, "#!/usr/bin/env bash\n"+searchesTestSource+hatch))
+		if rec4.errors != 1 {
+			t.Errorf("reported %d finding(s) over a preflight whose universe includes test source",
+				rec4.errors)
+		}
+
 		quiet := &recordingTB{}
 		checkNeedlePreflight(quiet, write(t, "#!/usr/bin/env bash\n"+extract+hatch))
 		if quiet.errors != 0 {
 			t.Errorf("reported %d finding(s) over a correct check; a gate that cannot pass is one "+
 				"somebody deletes", quiet.errors)
+		}
+	})
+
+	t.Run("the preflight's own pipeline sees ordinary source and not test source", func(t *testing.T) {
+		// The assertion in checkNeedlePreflight is a SPELLING check, and spelling
+		// cannot tell a flag that is present from a flag that works:
+		// `--exclude='_test.go'` reads almost the same and matches nothing. So take
+		// the real statement out of the real script and run it over a fixture.
+		raw, err := os.ReadFile(filepath.Join(root, "scripts", "redeploy.sh"))
+		if err != nil {
+			t.Fatalf("read redeploy.sh: %v", err)
+		}
+		pipeline := needleLiteralPipeline(string(raw))
+		if pipeline == "" {
+			t.Fatalf("scripts/redeploy.sh carries no `found=$(grep …)` statement — the preflight has " +
+				"been rewritten and this subtest now measures nothing, which is the one outcome it " +
+				"must not report as a pass")
+		}
+
+		fixture := t.TempDir()
+		for name, literal := range map[string]string{
+			"served.go":      "preflight-sees-this-literal",
+			"served_test.go": "preflight-must-not-see-this-literal",
+		} {
+			if err := os.WriteFile(filepath.Join(fixture, name),
+				[]byte("package p\n\nconst k = \""+literal+"\"\n"), 0o600); err != nil {
+				t.Fatalf("write %s: %v", name, err)
+			}
+		}
+
+		count := func(needle string) string {
+			t.Helper()
+			cmd := testexec.Command(t, "bash", "-c",
+				"set -euo pipefail\ncd \"$1\"\nn=\"$2\"\n"+pipeline+"\nprintf '%s' \"${found:-}\"",
+				"preflight", fixture, needle)
+			out, err := cmd.Output()
+			if err != nil {
+				t.Fatalf("run the preflight pipeline for %q: %v", needle, err)
+			}
+			return string(out)
+		}
+
+		if got := count("preflight-sees-this-literal"); got == "" || got == "0" {
+			t.Errorf("the pipeline counted %q occurrences of a literal in ordinary Go source. It can "+
+				"no longer see the code it searches, so every caller-supplied needle would be refused "+
+				"and no deploy could name what it changed", got)
+		}
+		if got := count("preflight-must-not-see-this-literal"); got != "0" {
+			t.Errorf("the pipeline counted %q occurrences of a literal that exists only in a _test.go. "+
+				"Test source is in no binary, so that needle clears the preflight and is then reported "+
+				"MISSING against the artifact — a bad needle blamed on the deploy", got)
 		}
 	})
 
