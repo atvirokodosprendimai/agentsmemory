@@ -160,6 +160,26 @@ other.
 - 2026-08-25 · 8c3167d* · mutant killed · exit 1 · `cmd/server/eval.go` · a verified-absent case is only honest if its absence was actually checked; treating a verifier ERROR as a keep writes a row indistinguishable from a verified one, and every abstention number downstream then treats an unchecked assumption as a measurement · acceptance-sha256:6b4eb28eade01392f00e81c2222cf8405f51ab2c5f0cf1f9e851a65fe81a24e1
 
 ## Verification Log
+
+> **2026-09-06 — the four `exit 1` entries below are NOT this task's work failing.** T1's own
+> four tests pass (`TestPopulationLabelsSeparateUnreachable`, `TestAbsentPromptKeepsIdentifiers`,
+> `TestAbsentCaseOutcomeDropsOnVerifierError`, `TestAbstentionCalibrationComesFromTheDefaultPage`),
+> and every identifier under **Produces** already exists in the tree — this task's implementation
+> landed and only its evidence was missing. What fails is the acceptance's trailing
+> `go test ./...`, on `TestADeadlineKillsTheChildAndItsChildren` in `internal/testexec`, which is
+> unrelated to T1 and is filed as **issue #338**.
+>
+> It fails only under sustained load: 4/4 under `adr-verify` (which runs `gofmt`, `go vet ./...`
+> and the `-run` subset in the same container first), and 0/13 across every hand-run
+> configuration — the subset alone ×8, `go test ./...` in this tree and in a fresh clone, the
+> acceptance's shape by hand, and on the host. #338 records why the obvious fix is not obviously
+> right: the test's 300ms deadline may simply be load-fragile, or `reapGroup` may have a real
+> `setpgid` race, and lengthening the deadline would hide the second. Adding instrumentation to
+> tell them apart perturbed the timing and stopped the failure reproducing.
+>
+> **This task stays not-done until a clean run says otherwise.** The entries stand as the honest
+> record of four attempts rather than being deleted.
+
 - 2026-08-21 · 9a88b51* · exit 1 · `docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c ' …`
   ```
   ok  	github.com/atvirokodosprendimai/agentsmemory/internal/store/chromemvec	0.022s
@@ -175,3 +195,59 @@ other.
   ```
 - 2026-08-21 · 9a88b51* · exit 0 · `docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c ' …`
 - 2026-08-22 · 1c9506a* · exit 0 · `docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c ' …`
+- 2026-09-06 · 3b80dab · exit 1 · `docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c ' …` · acceptance-sha256:6b4eb28eade01392f00e81c2222cf8405f51ab2c5f0cf1f9e851a65fe81a24e1 · ms:52691
+  ```
+  --- last 10 line(s) of stdout (of 1577 after folding 1583 raw)
+  --- FAIL: TestADeadlineKillsTheChildAndItsChildren (3.32s)
+      testexec_test.go:50: grandchild 5055 is still alive after the deadline killed its parent; the process group was not reaped
+  FAIL
+  FAIL	github.com/atvirokodosprendimai/agentsmemory/internal/testexec	3.319s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/updatecheck	0.061s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/usage	0.008s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/web	0.482s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/web/views	0.013s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/wingbundle	0.006s
+  FAIL
+  ```
+- 2026-09-06 · 62b5079* · exit 1 · `docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c ' …` · acceptance-sha256:6b4eb28eade01392f00e81c2222cf8405f51ab2c5f0cf1f9e851a65fe81a24e1 · ms:44294
+  ```
+  --- last 10 line(s) of stdout (of 99 after folding 99 raw)
+  --- FAIL: TestADeadlineKillsTheChildAndItsChildren (3.32s)
+      testexec_test.go:50: grandchild 5422 is still alive after the deadline killed its parent; the process group was not reaped
+  FAIL
+  FAIL	github.com/atvirokodosprendimai/agentsmemory/internal/testexec	3.317s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/updatecheck	0.056s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/usage	0.005s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/web	0.315s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/web/views	0.008s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/wingbundle	0.007s
+  FAIL
+  ```
+- 2026-09-06 · 62b5079* · exit 1 · `docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c ' …` · acceptance-sha256:6b4eb28eade01392f00e81c2222cf8405f51ab2c5f0cf1f9e851a65fe81a24e1 · ms:29590
+  ```
+  --- last 10 line(s) of stdout (of 99 after folding 99 raw)
+  --- FAIL: TestADeadlineKillsTheChildAndItsChildren (3.32s)
+      testexec_test.go:50: grandchild 5345 is still alive after the deadline killed its parent; the process group was not reaped
+  FAIL
+  FAIL	github.com/atvirokodosprendimai/agentsmemory/internal/testexec	3.317s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/updatecheck	0.056s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/usage	0.005s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/web	0.194s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/web/views	0.008s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/wingbundle	0.005s
+  FAIL
+  ```
+- 2026-09-06 · 62b5079* · exit 1 · `docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c ' …` · acceptance-sha256:6b4eb28eade01392f00e81c2222cf8405f51ab2c5f0cf1f9e851a65fe81a24e1 · ms:32006
+  ```
+  --- last 10 line(s) of stdout (of 99 after folding 99 raw)
+  --- FAIL: TestADeadlineKillsTheChildAndItsChildren (3.32s)
+      testexec_test.go:50: grandchild 4146 is still alive after the deadline killed its parent; the process group was not reaped
+  FAIL
+  FAIL	github.com/atvirokodosprendimai/agentsmemory/internal/testexec	3.320s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/updatecheck	0.058s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/usage	0.007s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/web	0.352s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/web/views	0.010s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/wingbundle	0.004s
+  FAIL
+  ```
