@@ -469,7 +469,8 @@ The same information as above, gathered per-OS.
 - **Quit Claude Desktop before `--agent claude-desktop`.** A running Desktop holds
   its config file, and the install currently exits 0 after failing to register,
   reporting a rename error rather than saying so (issue #208). Verify with
-  `aiagentmemory doctor` rather than trusting the exit code.
+  `aiagentmemory doctor --agent claude-desktop` rather than trusting the exit
+  code — the bare command reports on Claude Code and can exit 0 just as happily.
 - **Watch for two binaries on PATH.** If you use the quality-harness tools,
   `~/.claude/bin` can shadow `~/.local/bin`, and the shadow is what runs (issue
   #204). `command -v aiagentmemory` tells you which one you have.
