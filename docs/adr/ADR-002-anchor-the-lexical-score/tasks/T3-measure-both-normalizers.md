@@ -1,5 +1,35 @@
 # Task ADR-002-T3: Re-run the four tables under both normalisers and commit the evidence
 
+**Status:** blocked 2026-09-06 — skipped on the owner's instruction because its trigger has not
+fired, and firing it is not this ADR's to do. Deferred, not withdrawn: the work is still the right
+work. `blocked` rather than a new word like `skipped`, because `adr-lint` acts on `done`, `pending`
+and `blocked` and reports anything else as "not looked at" — which would silently exempt this file
+from the checks that read a Verification Log, and an exemption nobody asked for is worse than the
+wrong label.
+
+**Why.** The parent ADR's own 2026-08-25 amendment already settled this and the routing tools did
+not read it. Under the shipped `fusion=rrf` the normaliser is not consulted on the served path at
+all — a live span carries no `am.lex_norm` attribute, `linearFusionAttrs` is appended only when
+`!s.fusionRRF`, and the startup line reads `lex-norm=n/a`. The amendment therefore calls T3 and T4
+"measurements of a dimension production does not read", and says they "stay written, and they stay
+pending, but they are conditional. The trigger that reopens them is a reconsideration of
+`FUSION=linear` as the default, which ADR-014 owns — not a decision this ADR can take."
+
+So the four tables would cost four eval runs and buy no served-path change, which is what the
+amendment says out loud. Skipped on the owner's instruction, 2026-09-06.
+
+⚠ **`adr-next` reported this task READY while the record said conditional**, which is how it came to
+be picked up at all. The index derives readiness from `Depends-on` and status; it cannot see an
+amendment written in prose in the parent ADR. That is the same class of defect this corpus already
+records against the digest mechanism — a routing tool confidently naming work the record has
+already qualified — and it is worth a gate rather than a memory, because the next session will ask
+`adr-next` and not the ADR.
+
+**What reopens it.** ADR-014 reconsidering `FUSION=linear` as the default. At that point this task
+is picked up as written: nothing here is retracted and no step needs revisiting. T4 depends on T3
+and is conditional for the same reason; its status is left alone because this change was scoped to
+T3.
+
 **Depends-on:** T2
 **Covers:** none — no spec
 **Estimated scope:** M (multi-file)
