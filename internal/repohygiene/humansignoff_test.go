@@ -53,7 +53,6 @@ var readmeRowRE = regexp.MustCompile(`(?m)^\|\s*(T\d+)\s*\|[^|]*\|\s*([^|]*?)\s*
 // third word was needed first). Its own acceptance hint offered only
 // `decision <ship|withdraw>`, so the real outcome had nowhere to
 // go and landed in free text. That is not a one-off — ADR-004's supersession gate
-// go and landed in free text. That is not a one-off — ADR-004's supersession gate
 // reached the same third state on 2026-08-24 ("REFUSED — NOT 'no'; the gate could
 // not answer"), which is what issue #34 is still open about.
 //
