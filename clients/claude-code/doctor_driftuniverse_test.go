@@ -52,3 +52,67 @@ func TestEveryShippedHookIsCheckedForDrift(t *testing.T) {
 		t.Fatalf("doctor's drift check sees %v\nbut the install wrote and this test edited %v\n— every script it cannot see is one whose drift an operator is never told about", got, want)
 	}
 }
+
+// TestEveryVerbatimAssetIsCheckedForDrift is the same gate over the widened
+// universe: not only the hooks, but every file a real install writes byte for
+// byte — the protocol and the commands included.
+//
+// ⚠ THE FILES THE HOOK-ONLY CHECK MISSED ARE THE ONES A SESSION READS. A stale
+// hook eventually misbehaves and somebody debugs it. A stale
+// agentsmemory-bootstrap.md keeps teaching a rule the project retired, to a
+// model with no way to know — and `update` refreshes the BINARY in place, so a
+// current binary beside a year-old protocol is what the documented upgrade
+// produces. PR #334 corrected wording in commands/am.md because the old
+// sentence was wrong; every kit installed before it still serves the retired
+// one, and nothing said so. Issue #349.
+//
+// The universe is what the install WROTE, discovered by walking it, so an asset
+// added tomorrow joins on the commit that adds it rather than when somebody
+// remembers this list.
+func TestEveryVerbatimAssetIsCheckedForDrift(t *testing.T) {
+	inst, _, dir := newTestInstaller(t, false)
+	if err := inst.run(); err != nil {
+		t.Fatalf("install: %v", err)
+	}
+	kit := inst.kit
+
+	var want []string
+	for name := range verbatimAssetFiles(kit) {
+		p := filepath.Join(dir, name)
+		body, err := os.ReadFile(p)
+		if err != nil {
+			continue // this kit did not install it; not this gate's finding
+		}
+		if err := os.WriteFile(p, append([]byte("drifted\n"), body...), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		want = append(want, name)
+	}
+	sort.Strings(want)
+
+	// ⚠ The protocol and at least one command must be IN the universe, asserted
+	// by name. Without this the test passes over a universe that quietly shrank
+	// back to hooks — which is the state it was written to end.
+	var sawProtocol, sawCommand bool
+	for _, n := range want {
+		if n == bootstrapFile {
+			sawProtocol = true
+		}
+		if kit.commandsDir != "" && strings.HasPrefix(n, kit.commandsDir+string(filepath.Separator)) {
+			sawCommand = true
+		}
+	}
+	if !sawProtocol {
+		t.Errorf("the drift universe does not include %s, the file a session reads first; it wrote %v",
+			bootstrapFile, want)
+	}
+	if kit.commandsDir != "" && !sawCommand {
+		t.Errorf("the drift universe includes no command under %s; it wrote %v", kit.commandsDir, want)
+	}
+
+	got := staleAssetsIn(dir, kit)
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("doctor's drift check sees %v\nbut the install wrote and this test edited %v\n"+
+			"— every file it cannot see is one whose drift an operator is never told about", got, want)
+	}
+}
