@@ -289,7 +289,7 @@ func registerTraverse(reg *registrar, drawers *palace.Service, usageSvc *usage.S
 func registerGraphStats(reg *registrar, drawers *palace.Service, usageSvc *usage.Service) {
 	tool := newTool("graph_stats",
 		mcp.WithOutputSchema[graphStatsView](),
-		mcp.WithDescription("Return aggregate metrics about the team's graph: room totals, cross-wing connectors, edges, rooms-per-wing, and the top connectors."),
+		mcp.WithDescription("Return aggregate metrics about the team's graph: room totals, cross-wing connectors, edges, rooms-per-wing, and the top connectors. ⚠ITS ROOM TOTAL IS DELIBERATELY SMALLER THAN am_list_rooms AND am_memories_filed_away, AND THE DIFFERENCE IS A FILTER RATHER THAN A DEFECT: this counts NAVIGABLE rooms, so a room named \"general\" (am_mine's default) is excluded, as is any room with no wing, and a room whose every memory has been retracted is gone (ADR-055). Subtract those before comparing with am_list_rooms — three separate sessions have filed the gap as an undercount, because nothing here said so."),
 	)
 	reg.add(tool, func(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		t, errResult, ok := admit(ctx, usageSvc)
