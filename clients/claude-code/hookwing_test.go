@@ -30,6 +30,20 @@ func TestTheRecallHookPrefersTheProjectsPinOverTheInstalledWing(t *testing.T) {
 		t.Fatalf("the shipped hook is not where this test looks: %v", err)
 	}
 
+	// ⚠ A STUB ON PATH, BECAUSE THE HOOK EXITS BEFORE THE WING WITHOUT ONE.
+	// Line 211 is `command -v aiagentmemory … || exit 0`, so on a machine without
+	// the CLI installed this test would pass by never reaching the code it checks.
+	// It did exactly that: it was green locally, where the CLI is installed, and
+	// red in CI, where it is not — the green-here/red-there shape this session has
+	// already recorded twice. The stub makes the run hermetic and identical on
+	// both, and it costs nothing: the assertions read the trace the hook writes
+	// before it would ever call out.
+	stubBin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(stubBin, "aiagentmemory"),
+		[]byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
 	run := func(t *testing.T, dir, bakedWing string) string {
 		t.Helper()
 		// The hook's own recall switch is left ON: the run stops at the credential
@@ -41,6 +55,7 @@ func TestTheRecallHookPrefersTheProjectsPinOverTheInstalledWing(t *testing.T) {
 		cmd := testexec.Command(t, "bash", script)
 		cmd.Stdin = strings.NewReader(`{"session_id":"wingprobe","source":"startup"}`)
 		cmd.Env = append(os.Environ(),
+			"PATH="+stubBin+string(os.PathListSeparator)+os.Getenv("PATH"),
 			"CLAUDE_PROJECT_DIR="+dir,
 			"AGENTSMEMORY_WING="+bakedWing,
 		)
