@@ -224,7 +224,43 @@ func (s *Service) supersedeInto(ctx context.Context, teamID, id, content, reason
 				"Nothing was changed — re-read the memory and correct the record that replaced it",
 				ErrConcurrentCorrection, res.RowsAffected, len(open), short12(id))
 		}
-		return s.persistRows(ctx, repoOn(tx), teamID, prepared)
+		if err := s.persistRows(ctx, repoOn(tx), teamID, prepared); err != nil {
+			return err
+		}
+
+		// ⚠ THE THIRD DOOR OUT OF THE ENTRY ROOM, and it was open (issue #155).
+		// endWingRootIfEntryRoomIsEmpty was called from moveMemory only, and a
+		// patch carrying Content leaves Update at the supersede branch BEFORE
+		// moveMemory is reached — while still able to carry a new wing or room. So
+		// correcting the last entry record and relocating it in one call ended the
+		// predecessor's derived holds edge and left the wing's by-name root current
+		// over a room that now holds nothing: <wing>.root resolves `matched`, and
+		// the hop a session makes next finds nothing. That is the state
+		// TestBackfillLeavesAWingWithNoLiveEntryRecordNameless refuses on the boot
+		// path and TestAMoveOutOfTheEntryRoomEndsTheWingRoot refuses on the move
+		// path, reached through the one door neither watches.
+		//
+		// ⚠ WHAT PROTECTS A CORRECTION THAT STAYS PUT IS THE CONDITION, NOT THE
+		// PLACEMENT, and the first draft of this comment said the opposite. It
+		// claimed the check had to run after persistRows or a correction filed back
+		// into the same entry room would see the room empty — plausible, and false:
+		// such a correction changes neither wing nor room, so the condition below is
+		// already false and the check never runs. Moving this block above
+		// persistRows leaves every test here green, which is how the claim was
+		// caught. It sits after the write because the emptiness check should observe
+		// the state that will be committed, which stays true if the condition is
+		// ever widened.
+		//
+		// The condition is moveMemory's, for its reasons: a move to another ROOM
+		// and a move to another WING both count, the second because the record
+		// stays in an entry room, just not in this wing's.
+		if head.Room == EntryRoom && (room != EntryRoom || wing != head.Wing) {
+			if err := endWingRootIfEntryRoomIsEmpty(tx, teamID, head.Wing, endedAt,
+				"the last live record left this wing's entry room"); err != nil {
+				return fmt.Errorf("release the wing root the correction emptied: %w", err)
+			}
+		}
+		return nil
 	})
 	if err != nil {
 		return SupersedeResult{}, err
