@@ -283,12 +283,24 @@ func TestAColdStartIsNotReportedAsAnUnaffordablePool(t *testing.T) {
 // A pre-flight that cries wolf on a healthy box is the one an operator disables,
 // which is the argument the no-reranker branch already makes.
 func TestAnUnfittableProbeIsInconclusiveRatherThanAVerdict(t *testing.T) {
-	// Answers instantly whatever the batch, so the larger call is never slower.
+	// ⚠ THE LARGE BATCH IS DELIBERATELY THE FAST ONE, and the first version of this
+	// fixture answered "instantly" for every size instead. That relies on the two
+	// calls differing by less than the noise floor, which held locally and did not
+	// under -race: the detector slowed the second call past a millisecond, a slope
+	// was fitted, and the gate reported a pool over a corpus it could not measure.
+	// A test whose property depends on the machine being fast enough is a flake
+	// with an argument. Inverting the cost makes "the larger batch came back no
+	// slower" true by construction, which is the state under test.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			Texts []string `json:"texts"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&req)
+		if len(req.Texts) <= 1 {
+			time.Sleep(40 * time.Millisecond)
+		} else {
+			time.Sleep(2 * time.Millisecond)
+		}
 		out := make([]map[string]any, len(req.Texts))
 		for i := range req.Texts {
 			out[i] = map[string]any{"index": i, "score": 1.0}
