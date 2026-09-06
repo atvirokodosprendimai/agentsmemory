@@ -71,6 +71,7 @@ chain_names=""
 # a trailing one) are skipped rather than resolved to a blank filename.
 IFS="$chain_sep" read -r -a chain_parts <<< "$chain"
 for f in ${chain_parts[@]+"${chain_parts[@]}"}; do
+  [ -n "$f" ] || continue
   # ⚠ NOT basename(1), WHICH KNOWS ONLY '/'. Handed a Windows path it returns the
   # whole string, so the label split correctly at ',' and then put the drive
   # letter straight back — the refusal moved one line down and changed its text.

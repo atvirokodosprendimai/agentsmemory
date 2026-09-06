@@ -155,6 +155,68 @@ func checkNoEmptySections(tb testing.TB, root string) {
 	}
 }
 
+// redeployStages is the ordered list of stages the script announces.
+//
+// ⚠ A KEPT LIST, DELIBERATELY, AND THIS REPOSITORY USUALLY REJECTS THOSE. The
+// argument for one here is that the failure being caught is a stage DISAPPEARING,
+// and emptiness cannot see it: when #330's hunk deleted the smoke banner the two
+// sections MERGED, so the surviving output sat under the previous heading and
+// every "is there output under this heading" predicate stayed green. Review of PR
+// #331 re-applied that exact deletion and watched checkNoEmptySections pass.
+//
+// The list is small and the stages are fixed, so maintaining it when the pipeline
+// changes is a deliberate edit rather than a chore — which is the honest trade,
+// and the reason the usual objection does not apply.
+var redeployStages = []string{
+	"compose chain:",
+	"tests must pass before anything is built",
+	"build",
+	"restart",
+	"wait for health",
+	"version: the running server must name the stamp it was built with",
+	"read the ARTIFACT that is serving, not the build log",
+	"digest: the running binary against the image just built",
+	"what the running server resolved",
+	"smoke: one real search through the endpoint agents call",
+	"otel: the smoke search must have left a trace",
+	"the installed client kit, against this checkout",
+	"deployed and verified",
+}
+
+// checkStageSequence fails when a stage the script announces goes missing or
+// moves.
+func checkStageSequence(tb testing.TB, root string) {
+	tb.Helper()
+	raw, err := os.ReadFile(filepath.Join(root, "scripts", "redeploy.sh"))
+	if err != nil {
+		tb.Fatalf("read the redeploy script: %v", err)
+	}
+	var got []string
+	for _, line := range strings.Split(string(raw), "\n") {
+		if !strings.HasPrefix(line, `echo "==> `) {
+			continue
+		}
+		got = append(got, strings.TrimPrefix(line, `echo "==> `))
+	}
+	if len(got) != len(redeployStages) {
+		tb.Errorf("the script announces %d stages; this list names %d. A stage that disappears "+
+			"takes its heading with it, so the output of the NEXT one is filed under the "+
+			"PREVIOUS heading and every emptiness check stays green — which is how #330's "+
+			"deletion shipped.", len(got), len(redeployStages))
+	}
+	for i, want := range redeployStages {
+		if i >= len(got) {
+			tb.Errorf("stage %d (%q) is gone", i+1, want)
+			continue
+		}
+		if !strings.HasPrefix(got[i], want) {
+			tb.Errorf("stage %d is %q; expected it to start %q. Either a stage was removed or "+
+				"they were reordered; both change what an operator reads under each banner.",
+				i+1, strings.TrimSuffix(got[i], `"`), want)
+		}
+	}
+}
+
 // checkDocumentedClone requires the procedure AGENTS.md prints to survive a
 // checkout that fails halfway.
 func checkDocumentedClone(tb testing.TB, root string) {
@@ -188,6 +250,7 @@ func TestTheRedeployPathKeepsItsWindowsFixes(t *testing.T) {
 	root := repoRoot(t)
 	checkRedeployScript(t, root)
 	checkNoEmptySections(t, root)
+	checkStageSequence(t, root)
 	checkDocumentedClone(t, root)
 
 	t.Run("each retired construct is caught", func(t *testing.T) {
@@ -267,6 +330,7 @@ func TestTheRedeployGateIsAppliedToTheTree(t *testing.T) {
 	for _, call := range []string{
 		"checkRedeployScript(t, root)",
 		"checkNoEmptySections(t, root)",
+		"checkStageSequence(t, root)",
 		"checkDocumentedClone(t, root)",
 	} {
 		if !strings.Contains(body, call) {
