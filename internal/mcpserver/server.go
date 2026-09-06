@@ -685,6 +685,13 @@ func admit(ctx context.Context, usageSvc *usage.Service) (tenant.Tenant, *mcp.Ca
 // TestEveryOmitemptyWireKeyInThisPackageIsDescribed, which is a description
 // obligation for a 5% saving on a block that just shrank by 71%.
 //
+// ⚠ THIS DOES NOT CONSULT scopeSearchToWing, and that is deliberate. registerStatus
+// does not take it, and the inbox block beside this one already scopes by
+// defaultWing ungated — SEARCH_SCOPE=workspace widens what a SEARCH may reach,
+// which is a different question from which wing's rooms a wake-up call renders.
+// A registration with both still sees every wing's name and counts, so the
+// identity check the list exists for is unaffected.
+//
 // An unresolvable wing returns the full taxonomy — today's behaviour, for exactly
 // the callers who cannot benefit from scoping. A registration made without a wing
 // has no "own wing" to serve in full, and inventing one here would be a guess of
@@ -747,7 +754,7 @@ func registerStatus(reg *registrar, drawers *palace.Service, skills *skill.Servi
 		return drawers.IndexDrift(ctx, teamID)
 	}, driftTTL)
 	tool := newTool("status",
-		mcp.WithDescription("Wake-up call: the workspace this MCP session is scoped to (name, slug, and whether the server is self-hosted or hosted) plus your role, the memory overview (total drawers + the wing→rooms taxonomy with counts), and remaining monthly quota — usage.remaining is a NUMBER on a capped plan and NULL when the cap does not limit anything, so branch on null rather than on a low number: a plan with no ceiling has no remainder to report, and reading its absence as exhaustion is what stops a session writing. Check the workspace to confirm you are talking to the palace you think you are — an empty wing list means nothing has been written yet, NOT that you are in the wrong place. ⚠READ entry_protocol IF IT IS PRESENT: it names the one skill this team wants loaded before anything else, with the exact call to make. The key is ABSENT when the workspace has no entry protocol, so its presence is the whole signal — a key that were always there is one every session learns to skip. version names the build that answered you: a release tag like v0.0.102, or dev-<commit> for an unreleased build — the one field that tells a stale palace from a current one, which nothing else here can."),
+		mcp.WithDescription("Wake-up call: the workspace this MCP session is scoped to (name, slug, and whether the server is self-hosted or hosted) plus your role, the memory overview (total drawers, plus the wing list: YOUR OWN wing carries its full room-by-room breakdown, every other wing carries its name and counts with \"rooms\": null — null means WITHHELD, not empty, and am_get_taxonomy returns the whole tree for every wing. A registration that names no wing gets the full breakdown everywhere, because there is no own wing to serve in full), and remaining monthly quota — usage.remaining is a NUMBER on a capped plan and NULL when the cap does not limit anything, so branch on null rather than on a low number: a plan with no ceiling has no remainder to report, and reading its absence as exhaustion is what stops a session writing. Check the workspace to confirm you are talking to the palace you think you are — an empty wing list means nothing has been written yet, NOT that you are in the wrong place. ⚠READ entry_protocol IF IT IS PRESENT: it names the one skill this team wants loaded before anything else, with the exact call to make. The key is ABSENT when the workspace has no entry protocol, so its presence is the whole signal — a key that were always there is one every session learns to skip. version names the build that answered you: a release tag like v0.0.102, or dev-<commit> for an unreleased build — the one field that tells a stale palace from a current one, which nothing else here can."),
 	)
 	reg.add(tool, func(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		t, errResult, ok := admit(ctx, usageSvc)
