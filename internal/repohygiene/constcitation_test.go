@@ -64,7 +64,11 @@ func wordRE(name string) *regexp.Regexp {
 // Only exported constants are considered. An unexported one is package-local, so
 // a comment elsewhere naming it is discussing a different symbol anyway, and the
 // name is likelier to be a common English word that would flood the report.
-func unreadConstantCitations(tb testing.TB, root string, ignored func(string, bool) bool) (offenders []constCitation, mentions int) {
+// It returns the citations it SAW alongside the offenders, and the caller asserts
+// a floor on them. That is not decoration: a gate whose scan is severed reports an
+// empty offender list, which is byte-identical to a clean tree — see
+// checkUnreadConstantCitations.
+func unreadConstantCitations(tb testing.TB, root string, ignored func(string, bool) bool) (offenders []constCitation, citations int) {
 	tb.Helper()
 
 	fset := token.NewFileSet()
@@ -151,17 +155,31 @@ func unreadConstantCitations(tb testing.TB, root string, ignored func(string, bo
 	// Pass 3: comments naming one. A citation in the declaring file is exempt —
 	// that is where the reasoning for the number belongs, and requiring the
 	// declaration to avoid its own name would be absurd.
+	//
+	// The matchers are compiled ONCE, not per comment: this is every exported
+	// constant against every comment in the tree, and compiling inside the loop
+	// took the gate from 0.2s to 10.8s — measured, after the citation floor
+	// removed the early skip that had been hiding the cost.
+	matcher := make(map[string]*regexp.Regexp, len(declaredIn))
+	for name := range declaredIn {
+		matcher[name] = wordRE(name)
+	}
 	for rel, f := range files {
 		for _, group := range f.Comments {
 			for _, c := range group.List {
 				for name, decl := range declaredIn {
-					if read[name] || decl == rel {
+					if decl == rel || !matcher[name].MatchString(c.Text) {
 						continue
 					}
-					if !wordRE(name).MatchString(c.Text) {
+					// Counted whether or not it offends: the floor asks "did this
+					// scan look at the tree", and only a citation the walk, the
+					// parse and the cross-file comparison all survived can answer
+					// that. Counting offenders alone would make the floor read
+					// zero on exactly the tree the gate is happy with.
+					citations++
+					if read[name] {
 						continue
 					}
-					mentions++
 					offenders = append(offenders, constCitation{
 						file:       rel,
 						line:       fset.Position(c.Pos()).Line,
@@ -172,26 +190,103 @@ func unreadConstantCitations(tb testing.TB, root string, ignored func(string, bo
 			}
 		}
 	}
-	return offenders, mentions
+	return offenders, citations
 }
 
 // checkUnreadConstantCitations is the gate's whole decision, reporting through a
 // testing.TB.
 //
-// ⚠ THE TB PARAMETER IS THE POINT, and this repository has learnt it four times:
-// a falsifiability half that drives only the SCAN leaves the gate's own use of it
-// unguarded, so severing the call site keeps the suite green while the gate
-// announces that everything resolves. The subtest below substitutes a TB and
-// asserts the reporting itself, which is the only form that catches that.
+// ⚠ TWO SEVERANCES, AND THEY ARE NOT THE SAME ONE. The TB parameter catches a cut
+// report: the subtest substitutes a TB and asserts the gate SAID something, which
+// this repository has had to learn four times. It does not catch a cut SCAN — with
+// the one line that applies this to the tree deleted, the subtest goes on driving
+// its own fixtures and the package stays green with the gate's name printed as
+// PASS. Review of this file's first version demonstrated exactly that.
+//
+// The floor on citations is what closes the second one. It is a liveness
+// assertion rather than a recorded number, so it cannot rot the way a frozen count
+// does, and it goes red on a severed application, on an `ignored` matcher that
+// swallows the tree, and on a walk that quietly stops finding files.
 func checkUnreadConstantCitations(tb testing.TB, root string, ignored func(string, bool) bool) {
 	tb.Helper()
-	offenders, _ := unreadConstantCitations(tb, root, ignored)
+	offenders, citations := unreadConstantCitations(tb, root, ignored)
+	if citations == 0 {
+		tb.Errorf("the scan saw no constant named in any comment outside its own declaring file; " +
+			"that is not a clean bill of health, it is a gate that did not run")
+	}
 	for _, o := range offenders {
 		tb.Errorf("%s:%d names %s, which is declared in %s and read by no non-test code.\n"+
 			"  A comment naming a constant reads as a pointer to something the program does. "+
 			"Either say what actually holds the property (and stop naming the constant), or "+
 			"wire the constant so the pointer resolves — issue #315 is the recorded case.",
 			o.file, o.line, o.name, o.declaredIn)
+	}
+}
+
+// TestTheConstantCitationGateIsAppliedToTheTree covers the rung the gate itself
+// cannot reach, and review of this file's first version is what found it.
+//
+// ⚠ NO ASSERTION INSIDE A FUNCTION CAN CATCH THE DELETION OF THE CALL TO IT. The
+// citation floor below goes red on a scan that saw nothing — a swallowing
+// `ignored`, a walk that stopped finding files — but delete the one line applying
+// the gate to this repository and the floor goes with it: the offender list is
+// empty, the subtest keeps driving its own fixtures, and the package passes with
+// the gate's name printed as PASS. That was demonstrated on this file, not
+// imagined, and it is the same rung `TestDoctorIsRegistered` exists for, where a
+// command's own tests build their own root and cannot see whether anything
+// registers it.
+//
+// So this reads the source. It is deliberately structural — the gate must call
+// checkUnreadConstantCitations with the repository root — rather than asserting
+// anything about what that call finds, which is the other test's job.
+func TestTheConstantCitationGateIsAppliedToTheTree(t *testing.T) {
+	const (
+		gate    = "TestNoCommentCitesAConstantNothingReads"
+		applies = "checkUnreadConstantCitations"
+		toTree  = "repoRoot"
+	)
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "constcitation_test.go", nil, parser.ParseComments)
+	if err != nil {
+		t.Fatalf("parse this file: %v", err)
+	}
+	var applied, rooted bool
+	for _, d := range f.Decls {
+		fn, ok := d.(*ast.FuncDecl)
+		if !ok || fn.Name.Name != gate || fn.Body == nil {
+			continue
+		}
+		ast.Inspect(fn.Body, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			id, ok := call.Fun.(*ast.Ident)
+			if !ok {
+				return true
+			}
+			switch id.Name {
+			case applies:
+				// The fixture calls in the subtest pass a temp dir, so the call
+				// that counts is the one whose root came from repoRoot.
+				for _, arg := range call.Args {
+					if inner, ok := arg.(*ast.Ident); ok && inner.Obj != nil && inner.Name == "root" {
+						applied = true
+					}
+				}
+			case toTree:
+				rooted = true
+			}
+			return true
+		})
+	}
+	if !rooted {
+		t.Errorf("%s does not call %s, so whatever it checks, it is not this repository", gate, toTree)
+	}
+	if !applied {
+		t.Errorf("%s never applies %s to the repository root. Its fixtures would still pass and "+
+			"the package would still report PASS, over a tree carrying a real offender",
+			gate, applies)
 	}
 }
 
@@ -272,6 +367,28 @@ func bounded() int { return 1 }
 		if quiet.errors != 0 {
 			t.Errorf("the gate reported %d offender(s) over prose citing a constant that IS read; "+
 				"a gate that flags the correct sentence is one somebody deletes", quiet.errors)
+		}
+
+		// And the floor itself, over a tree where the scan can see nothing to
+		// check. Without this the gate has a second severance nothing catches:
+		// delete the one line applying it to the repository and the offender list
+		// is empty, which reads exactly like a clean tree. Demonstrated in review
+		// of this file's first version — the package stayed green with this test's
+		// own name printed as PASS.
+		blind := t.TempDir()
+		if err := os.WriteFile(filepath.Join(blind, "decl.go"), []byte(`package p
+
+const Lonely = 1
+
+func use() int { return Lonely }
+`), 0o600); err != nil {
+			t.Fatalf("write decl: %v", err)
+		}
+		mute := &recordingTB{}
+		checkUnreadConstantCitations(mute, blind, func(string, bool) bool { return false })
+		if mute.errors == 0 {
+			t.Error("a scan that saw no citation at all reported success; an empty offender list " +
+				"and a gate that never ran are byte-identical, and only the floor tells them apart")
 		}
 	})
 }
