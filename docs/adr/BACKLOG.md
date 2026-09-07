@@ -1203,8 +1203,21 @@ invalidate sixty-nine Verification Log entries rather than a handful — each ne
 this corpus keeps recording; re-measure before planning:
 
 ```
-grep -l 'no tests to run|\^FAIL' docs/adr/*/tasks/T*.md | wc -l
+grep -l 'no tests to run|^FAIL' docs/adr/*/tasks/T*.md | wc -l     # 128, re-measured 2026-09-07
 ```
+
+⚠ **THAT COMMAND IS RIGHT BY ACCIDENT, AND "FIXING" IT MAKES IT WRONG.** Plain `grep` is BRE, so
+`|` is a LITERAL — the pattern matches the guard's own text (`! grep -qE "no tests to run|^FAIL…"`)
+rather than acting as an alternation, which is exactly what we want to count. Adding `-E` turns it
+into a real alternation and returns **139**: the extra 11 are files containing FAIL *output* in a
+Verification Log, not the guard. Anyone tidying the regex will inflate this entry's cost by 9%.
+
+⚠ **AND THE "sixty-nine done" IS A FLOOR, NOT A COUNT.** Re-derived 2026-09-07 by reading each
+guard-carrying task's status out of its sibling `tasks/README.md` table: **66 done, 3 blocked,
+4 pending — and 55 whose status row that method could not resolve at all.** So the sweep's real cost
+is *at least* 66 Verification Log entries and the remaining 55 are unknown, not zero. The authoritative
+figure comes from `adr-lint` / `adr-next` over the corpus, not from parsing the index — the index is
+derived, and every task file says so in its own header.
 
 The defect and the workaround are unchanged and still correct. What changed is the cost, and it
 changed silently: every task authored since this entry was filed copied the guard from the template,
