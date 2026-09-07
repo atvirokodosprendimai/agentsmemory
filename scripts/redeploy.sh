@@ -539,11 +539,18 @@ if command -v aiagentmemory >/dev/null 2>&1; then
   # Byte-compare what the installer would lay down against what is there. The
   # binary embeds these, so a stale binary shows up here too — but a kit that
   # was never re-installed after a fresh binary shows up ONLY here.
-  # This list is hand-maintained and has already drifted once: the SubagentStart
+  # This list is hand-maintained and has drifted TWICE. First the SubagentStart
   # hook shipped without being added, so the one artifact the kit had just gained
-  # was the one artifact this gate could not see. TestRedeployKitCheckCoversEveryInstalledArtifact
-  # now fails when a hook, command, or agent definition is added to the kit and
-  # not to this list — a gate maintained by intention is the thing this whole
+  # was the one artifact this gate could not see. The guard written for that,
+  # TestRedeployKitCheckCoversEveryInstalledArtifact, then drifted the same way:
+  # it derived commands and agents from the installer's own collections but named
+  # its HOOKS as five constants, so the six added afterwards — recall, task-recall,
+  # anchor-cue, touched, precompact and the status line — were outside both the
+  # list and the gate. Measured 2026-09-08 (issue #421): the installed recall hook
+  # sat a release behind under `==> deployed and verified`, and the largest hook in
+  # the kit was the one nothing compared. It reads the hooks DIRECTORY now, so a
+  # hook added tomorrow joins the check on the commit that adds it —
+  # a gate maintained by intention is the thing this whole
   # script exists to replace.
   cfg="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
   for pair in \
@@ -556,6 +563,12 @@ if command -v aiagentmemory >/dev/null 2>&1; then
     "agentsmemory-session-end-hook.sh:clients/claude-code/hooks/agentsmemory-session-end-hook.sh" \
     "agentsmemory-stats.sh:clients/claude-code/hooks/agentsmemory-stats.sh" \
     "agentsmemory-subagent-start-hook.sh:clients/claude-code/hooks/agentsmemory-subagent-start-hook.sh" \
+    "agentsmemory-recall-hook.sh:clients/claude-code/hooks/agentsmemory-recall-hook.sh" \
+    "agentsmemory-task-recall-hook.sh:clients/claude-code/hooks/agentsmemory-task-recall-hook.sh" \
+    "agentsmemory-anchor-cue-hook.sh:clients/claude-code/hooks/agentsmemory-anchor-cue-hook.sh" \
+    "agentsmemory-touched-hook.sh:clients/claude-code/hooks/agentsmemory-touched-hook.sh" \
+    "agentsmemory-precompact-hook.sh:clients/claude-code/hooks/agentsmemory-precompact-hook.sh" \
+    "agentsmemory-statusline.sh:clients/claude-code/hooks/agentsmemory-statusline.sh" \
     "agents/agentsmemory-researcher.md:clients/claude-code/agents/agentsmemory-researcher.md" \
     "agents/agentsmemory-researcher.toml:clients/claude-code/agents/agentsmemory-researcher.toml"; do
     inst="$cfg/${pair%%:*}"; src="${pair##*:}"
