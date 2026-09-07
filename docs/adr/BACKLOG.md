@@ -707,7 +707,7 @@ the true class for a better-looking precision figure. See ADR-041 T1's evaluatio
   | drawers | 12,283 |
   | kg triples | 1,974 |
   | triples carrying the `kg-extract` marker (`source_closet LIKE 'kg-extract:%'`) | **0** |
-  | `derived = 1` — the automatic wing/room→drawer edge `attachDerivedEdge` writes on every drawer | 958 |
+  | `derived = 1` — `attachDerivedEdge`'s structural edge, **one per distinct (wing, room, source_file) root** | 958 |
   | authored by a session through `am_kg_add` | 1,016 |
 
   The corpus DID reach scale — 12,283 drawers against the ~5,020 that were called unfed — so that
@@ -717,8 +717,24 @@ the true class for a better-looking precision figure. See ADR-041 T1's evaluatio
   size, not extraction coverage" inverted the two.
 
   ⚠ **AND A RAW triples/drawers RATIO OVERSTATES THE GRAPH BY ABOUT HALF.** 958 of the 1,974 are
-  the automatic edge every drawer write attaches — one per drawer, carrying no claim about the
-  world. Only 1,016 are facts anybody asserted. Any density argument must exclude `derived = 1`.
+  structural, carrying no claim about the world. Only 1,016 are facts anybody asserted. Any density
+  argument must exclude `derived = 1`.
+
+  ⚠ **DO NOT READ THOSE 958 AS "ONE PER DRAWER" — the first draft of this bullet did, and it
+  manufactures a false alarm.** Set beside 12,283 drawers, a per-drawer reading makes the plumbing
+  look 92% broken. `attachDerivedEdgeTo` (`internal/palace/service.go:892`) `continue`s on
+  `d.ParentID != ""` and dedupes on `wing\x00room\x00source_file`, so it is **one edge per distinct
+  source root** — not per chunk, not per memory, not per drawer. Its own comment names this
+  misreading as what the design prevents: *"one edge per chunk would multiply a single filing into as
+  many graph rows as it happened to split into, inflating the very count this is measured by."* 958
+  distinct source roots is not an anomaly and implies nothing about coverage.
+
+  ⭐ **THIS AND THE HALLWAY FINDING ARE THE SAME DEFECT IN TWO SUBSYSTEMS, and the pair argues
+  better than either alone.** There, `RecomputeGraph` is correct and nothing on the write path calls
+  it; here, `kg-extract` is correct and nobody has run it. Both times the capability was built,
+  tested and fed, the TRIGGER was never pulled, and this file blamed the input — extractor yield in
+  one case, corpus size in the other. That suggests asking *"what pulls this trigger in ordinary
+  operation?"* once across the derived subsystems, rather than rediscovering it per feature.
 
   **The marker is how to re-check this, and it is cheap:** `kg-extract` stamps
   `source_closet = "kg-extract:<wing>"` (`internal/palace/kgextract.go:83`), and `KGSourceFiles`'
