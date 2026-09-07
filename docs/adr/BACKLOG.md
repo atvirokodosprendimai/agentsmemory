@@ -1990,11 +1990,21 @@ mitigation is for the hook to stop presenting the list as this session's.
 
 ## From ADR-020 (a kit for an agent that drives no CLI)
 
-- **Cursor hooks — the Stop checkpoint and ADR-017's subagent pair** — `~/.cursor/hooks/` exists on
-  the reference machine and its events, payloads and registration file were NOT established.
-  ADR-020 ships no hooks for Cursor rather than registering something plausible, so a Cursor user
-  reads memory and is never prompted to write it — ADR-017's asymmetry, in a new place. Capture a
-  real Cursor hook payload before branching on anything, per ADR-017 T3.
+- **Cursor hooks — the Stop checkpoint and ADR-017's subagent pair** — ⚠ THIS ENTRY SAID THE EVENTS,
+  PAYLOADS AND REGISTRATION FILE WERE NOT ESTABLISHED, AND THAT WENT FALSE ON 2026-09-07 (issue
+  #398). All three are established now: `<project>/.cursor/hooks.json` (plus user, team and
+  enterprise scopes — `~/.cursor/hooks` is a state directory and was the wrong place to look),
+  twenty events including `sessionStart` and `preCompact`, and a captured `sessionStart` payload.
+  ADR-020 still ships no hooks for Cursor, and the reason is now MEASURED rather than unknown: a
+  canary printed by a `sessionStart` hook did not reach the model, so Cursor discards hook stdout
+  and a ported recall hook would run and be thrown away — the ADR-041 T4 defect, in a new place.
+  Two more gaps beside it: no `source` field, so `[ "$SOURCE" = "compact" ]` cannot port and the
+  compaction recall must be rebuilt on `preCompact`; and `transcript_path: null`, which the Stop
+  hook reads. **The blocker is an injection route, not a payload capture.** Until one is found, a
+  Cursor user still reads memory and is never prompted to write it — ADR-017's asymmetry, unchanged.
+  Also unmeasured: whether any event but `sessionStart` fires outside interactive mode (seven were
+  registered, one fired), and how `workspace_roots` — an ARRAY where Claude gives a scalar `cwd` —
+  should derive a wing in a multi-root workspace.
 - **Cursor skills (`~/.cursor/skills`) as a delivery route for centralised team skills** — the
   directory exists beside `skills-cursor`; neither was examined. `am_load_skill` is the current
   route and needs no filesystem.
