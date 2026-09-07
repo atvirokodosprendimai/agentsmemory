@@ -192,6 +192,18 @@ docker run --rm -v "$PWD":/src \
     # applied, and alpine ships no git — so those 15 tests failed on the
     # environment, not the code, and the gate refused every deploy for a day.
     apk add --no-cache bash git >/dev/null 2>&1 || true
+    # AND INSTALLING git IS NOT ENOUGH: it then REFUSES the repository it was
+    # installed to read. The container runs as root over a bind mount the host
+    # user owns, so git reports "detected dubious ownership in repository at
+    # /src" and exits 128 — the same red-at-a-green-tag symptom the worktree
+    # trap produces, from the opposite cause, and it hits the ordinary Linux
+    # path rather than an exotic one (Docker Desktop on macOS remaps the owner,
+    # which is why this went unnoticed). Measured 2026-09-07 on Linux against a
+    # clone of main whose suite was green on the host and green in CI: TWELVE
+    # tests failed on `exit status 128` across three packages, and the gate
+    # correctly refused a deploy of code that was fine. With this line the same
+    # container run is exit 0 with zero failures.
+    git config --global --add safe.directory /src
     gofmt -l cmd internal | grep -q . && { echo "gofmt dirty"; exit 1; }
     go vet ./... || exit 1
     # The reason a red suite is red must reach the operator. This line used to
