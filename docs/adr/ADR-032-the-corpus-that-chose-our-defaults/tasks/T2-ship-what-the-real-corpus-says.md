@@ -40,20 +40,26 @@ docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v 
   set -e
   gofmt -l cmd internal clients | grep -q . && { echo "gofmt"; exit 1; }
   go vet ./internal/config/ ./internal/palace/ ./cmd/server/
-  go test ./cmd/server/ -run "^(TestShippedDefaultsCiteTheirCorpus)$" -count=1 -v 2>&1 | tee /tmp/t2.out
+  go test ./internal/repohygiene/ -run "^(TestShippedDefaultsCiteTheirCorpus)$" -count=1 -v 2>&1 | tee /tmp/t2.out
   grep -qE "^--- PASS: TestShippedDefaultsCiteTheirCorpus \(" /tmp/t2.out
-  ! grep -qE "no tests to run|^FAIL" /tmp/t2.out
-  go test ./internal/config/ ./internal/palace/ ./cmd/server/ ./internal/mcptest/ -count=1
+  if grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/t2.out; then exit 1; fi
+  go test ./internal/config/ ./internal/palace/ ./cmd/server/ ./internal/mcptest/ ./internal/repohygiene/ -count=1
 '
 ```
 
 Selector and PASS grep are anchored: an unanchored pair is satisfied by any test whose name merely begins with the required one.
 
+⚠ **The package was WRONG until 2026-09-07, and the gate it names now lives somewhere else.** This fence read `go test ./cmd/server/`, because that is where step 1 planned to put the test. When `TestShippedDefaultsCiteTheirCorpus` was finally written it landed in `internal/repohygiene/shippeddefaults_test.go`, beside the other corpus-hygiene gates, and nothing updated the fence, the Tests table, or the sibling README. Measured before the fix: `go test ./cmd/server/ -run "^(TestShippedDefaultsCiteTheirCorpus)$"` exits **0** and prints `ok … [no tests to run]`.
+
+★ **The fence caught it anyway, and that is worth recording rather than glossing.** The anchored `--- PASS:` grep on the next line is a POSITIVE assertion under `set -e`: no test ran, so no PASS line was printed, so the fence goes red. A fence that only checked the exit code would have reported success over zero tests. The `no tests to run` guard below it, by contrast, could NOT have caught it — `! grep` is exempt from `set -e`, so it was inert; it is written in the un-negated form now, which does fail.
+
+⚠ So the ordering of the lesson is: the exit code proved nothing, the negated guard proved nothing, and the one line that worked was the positive assertion naming what it expected to see.
+
 ## Tests
 
 | Test name | File | Verifies | Covers |
 |-----------|------|----------|--------|
-| `TestShippedDefaultsCiteTheirCorpus` | `cmd/server/` | a default whose comment claims a measurement names the case set it was measured on | — |
+| `TestShippedDefaultsCiteTheirCorpus` | `internal/repohygiene/shippeddefaults_test.go` | a default whose comment claims a measurement names the case set it was measured on | — |
 | `TestCrossEncoderDecidesATwoCandidatePool` | existing | still fails for the right reason after any weight change, rather than passing vacuously | — |
 
 ## Reachability
