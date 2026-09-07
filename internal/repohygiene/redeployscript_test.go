@@ -357,7 +357,7 @@ func checkNeedlePreflight(tb testing.TB, root string) {
 		}
 	}
 	body := strings.Join(code, "\n")
-	if !strings.Contains(body, "grep -rhoE") {
+	if !strings.Contains(body, "grep -hoE") {
 		tb.Errorf("scripts/redeploy.sh no longer extracts Go string literals before checking a " +
 			"needle. A plain grep over the source matches an IDENTIFIER, which is never in a " +
 			"compiled binary, so a bad needle would again be reported as a bad deploy.")
@@ -371,8 +371,8 @@ func checkNeedlePreflight(tb testing.TB, root string) {
 		tb.Errorf("the needle check has no escape hatch. A literal built by concatenation is a " +
 			"real false alarm, and a guard with no way past it is one somebody deletes.")
 	}
-	if !strings.Contains(body, "--exclude='*_test.go'") {
-		tb.Errorf("the needle preflight searches test source again. A literal that lives only in a " +
+	if !strings.Contains(body, "! -name '*_test.go'") {
+		tb.Errorf("the needle preflight no longer excludes test source. A literal that lives only in a " +
 			"_test.go is in no binary, so it CLEARS this check and is then reported MISSING against " +
 			"the artifact — the bad needle read as a bad deploy that the check exists to prevent, " +
 			"arriving through the check's own universe.")
@@ -407,7 +407,7 @@ func needleLiteralPipeline(body string) string {
 	lines := strings.Split(body, "\n")
 	for i := 0; i < len(lines); i++ {
 		if strings.HasPrefix(strings.TrimSpace(lines[i]), "#") ||
-			!strings.Contains(lines[i], "found=$(grep") {
+			!strings.Contains(lines[i], "found=$(find") {
 			continue
 		}
 		stmt := lines[i]
@@ -507,19 +507,19 @@ code=$(curl -s -o /tmp/redeploy-smoke.json -w '%{http_code}' -m 60 -X POST "$BAS
 			return dir
 		}
 		const hatch = "REDEPLOY_SKIP_NEEDLE_CHECK=\n"
-		const extract = "found=$(grep -rhoE --include='*.go' --exclude='*_test.go' 'x' . " +
+		const extract = "found=$(find . -name '*.go' ! -name '*_test.go' -exec grep -hoE 'x' {} + " +
 			"| grep -cF -- \"$n\" || true)\n"
 		// The same statement with only the test-file exclusion dropped. Each
 		// fixture below carries exactly ONE defect, because the recorder counts
 		// findings and a fixture with two of them attributes neither.
-		const searchesTestSource = "found=$(grep -rhoE --include='*.go' 'x' . " +
+		const searchesTestSource = "found=$(find . -name '*.go' -exec grep -hoE 'x' {} + " +
 			"| grep -cF -- \"$n\" || true)\n"
 
 		// Greps the SOURCE rather than its literals: the identifier hole, which
 		// admits a Go constant name that can never be in a compiled binary.
 		rec := &recordingTB{}
 		checkNeedlePreflight(rec, write(t, "#!/usr/bin/env bash\n"+
-			"grep -rqF --exclude='*_test.go' -- \"$n\" .\n"+hatch))
+			"find . -name '*.go' ! -name '*_test.go' -exec grep -qF -- \"$n\" {} +\n"+hatch))
 		if rec.errors != 1 {
 			t.Errorf("reported %d finding(s) over a check that greps the source rather than its "+
 				"string literals", rec.errors)
@@ -529,7 +529,7 @@ code=$(curl -s -o /tmp/redeploy-smoke.json -w '%{http_code}' -m 60 -X POST "$BAS
 		// read as absent, refusing a correct deploy.
 		rec2 := &recordingTB{}
 		checkNeedlePreflight(rec2, write(t, "#!/usr/bin/env bash\n"+
-			"grep -rhoE --include='*.go' --exclude='*_test.go' 'x' . | grep -qF -- \"$n\"\n"+hatch))
+			"find . -name '*.go' ! -name '*_test.go' -exec grep -hoE 'x' {} + | grep -qF -- \"$n\"\n"+hatch))
 		if rec2.errors != 1 {
 			t.Errorf("reported %d finding(s) over a check piping into grep -q under pipefail",
 				rec2.errors)
@@ -573,7 +573,7 @@ code=$(curl -s -o /tmp/redeploy-smoke.json -w '%{http_code}' -m 60 -X POST "$BAS
 		}
 		pipeline := needleLiteralPipeline(string(raw))
 		if pipeline == "" {
-			t.Fatalf("scripts/redeploy.sh carries no `found=$(grep …)` statement — the preflight has " +
+			t.Fatalf("scripts/redeploy.sh carries no `found=$(find …)` statement — the preflight has " +
 				"been rewritten and this subtest now measures nothing, which is the one outcome it " +
 				"must not report as a pass")
 		}

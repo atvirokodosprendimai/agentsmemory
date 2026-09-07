@@ -139,7 +139,18 @@ if [ ${#} -gt 0 ] && [ -z "${REDEPLOY_SKIP_NEEDLE_CHECK:-}" ]; then
     # script runs inside golang:1.26-alpine and none on the host, so that precision
     # would put a container start in front of a check whose whole point is to
     # refuse in under a second. The narrower claim is the one this grep can make.
-    found=$(grep -rhoE --include='*.go' --exclude='*_test.go' '"([^"\\]|\\.)*"|`[^`]*`' . 2>/dev/null \
+    # ⚠ FILE SELECTION BY `find`, NOT BY `--include`/`--exclude`. Those are GNU
+    # extensions. BusyBox grep — what alpine ships, and what this repository's own
+    # `golang:1.26-alpine` test container runs — rejects them outright: `grep:
+    # unrecognized option: include=*.go`. The `|| true` then swallows the error,
+    # `found` lands on 0, and EVERY caller-supplied needle is refused with a
+    # message blaming the needle. That is this guard performing the exact defect
+    # it was written to prevent, one layer out: a broken tool reported as a bad
+    # needle. It shipped in v0.0.123 and was caught by the behavioural subtest
+    # running in the container, never by the host, where macOS grep accepts the
+    # GNU spelling. Portable across BusyBox, GNU and BSD.
+    found=$(find . -name '*.go' ! -name '*_test.go' -exec \
+              grep -hoE '"([^"\\]|\\.)*"|`[^`]*`' {} + 2>/dev/null \
             | grep -cF -- "$n" || true)
     if [ "${found:-0}" -eq 0 ]; then
       echo "==> refusing: the needle '$n' appears in no compilable Go string literal here."
