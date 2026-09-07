@@ -65,7 +65,7 @@
 > for f in docs/adr/*/tasks/[^R]*.md; do
 >   acc=$(sed -n '/^## Acceptance/,/^## /p' "$f")
 >   case "$acc" in *"docker run"*) ;; *) continue ;; esac
->   case "$acc" in *"go test ./..."*|*clients/claude-code*|*internal/contractaxis*|*internal/repohygiene*) ;; *) continue ;; esac
+>   case "$acc" in *"go test ./..."*|*"go test ./clients/..."*|*clients/claude-code*|*internal/contractaxis*|*internal/repohygiene*) ;; *) continue ;; esac
 >   case "$acc" in *safe.directory*) ;; *) echo "$f" ;; esac
 > done | wc -l
 > ```
