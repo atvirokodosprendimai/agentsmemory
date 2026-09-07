@@ -2252,7 +2252,11 @@ as the deferral so the pointer has a receiving end.
 
 - **Backfill edges for the 1,928 existing orphan drawers.** ADR-036 T6 fixes the write path only, so
   every drawer filed before it stays unreachable by traversal (57 of 1,985 carry any edge — 2.9%,
-  measured 2026-08-26). **Trigger: after T6 has run long enough to show the derived-edge marker does
+  measured 2026-08-26). ⚠ **THAT 2.9% DIVIDES BY DRAWERS AND THE EDGE IS ONE PER ROOT CHUNK**, so it
+  understates coverage by whatever this corpus's chunks-per-memory ratio was that day, which nobody
+  recorded — it cannot be restated, only re-measured. Read it as "few", not as a rate, and do not
+  compare it to a later figure: this line is where the same mistake was copied from on 2026-09-07.
+  **Trigger: after T6 has run long enough to show the derived-edge marker does
   not degrade recall; backfilling first would bake in a bad derivation.**
 
 - **Why the derived graph produces zero hallways is still unseparated.** 945 of 1,985 drawers carry
