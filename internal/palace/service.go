@@ -890,12 +890,25 @@ func (s *Service) persistRows(ctx context.Context, r *Repo, teamID string, p pre
 // is reached, and losing a filing because the graph refused would be the worse
 // trade — the same reasoning the deferred-embedding branch already makes.
 func (s *Service) attachDerivedEdgeTo(ctx context.Context, teamID string, drawers []Drawer) {
-	// One edge per SOURCE ROOT, not per batch. An import batch can carry records
-	// from several independent source files, and attaching only to drawers[0]
-	// left every other root unedged — a distinct defect from the missing call
-	// that preceded it, and invisible for the same reason: the batch that was
-	// tested had one source.
-	seen := map[string]bool{}
+	// One edge per ROOT DRAWER, and deliberately NOT per (wing, room, source_file).
+	// An import batch can carry records from several independent source files, and
+	// attaching only to drawers[0] left every other root unedged — a distinct
+	// defect from the missing call that preceded it, and invisible for the same
+	// reason: the batch that was tested had one source.
+	//
+	// ⚠ THE FIX FOR THAT ONE THEN DEDUPED ON `wing\x00room\x00source_file`, WHICH
+	// MANUFACTURED THE SAME ORPHANS ONE STEP LATER. attachDerivedEdge sets the
+	// edge's OBJECT to the drawer's own id, so two memories sharing a source_file
+	// are two DISTINCT edges — never one edge written twice — and the duplicate the
+	// key was guarding against cannot occur anyway: attachDerivedEdge asks
+	// CurrentTripleID and returns EdgeAlreadyDerived. So the guard only ever
+	// suppressed a legitimate edge, and it did it on the IMPORT path, where a batch
+	// of records sharing one source file (or the common empty source_file) is the
+	// ordinary case. Measured 2026-09-07 on the local palace: 1,046 of 1,992 roots
+	// carry no derived edge, and 555 of those share a key with another root — a
+	// ceiling rather than a count, since sharing a key across different BATCHES was
+	// always harmless. TestTwoRootsSharingASourceFileEachGetAnEdge is what tells
+	// the two apart, and it fails on the keyed version.
 	rootedWings := map[string]bool{}
 	for i := range drawers {
 		d := drawers[i]
@@ -904,12 +917,6 @@ func (s *Service) attachDerivedEdgeTo(ctx context.Context, teamID string, drawer
 		if d.ParentID != "" {
 			continue
 		}
-		key := d.Wing + "\x00" + d.Room + "\x00" + d.SourceFile
-		if seen[key] {
-			continue
-		}
-		seen[key] = true
-
 		got, err := s.attachDerivedEdge(ctx, teamID, d)
 		if err != nil {
 			logAttachFailure(ctx, d.ID, err)

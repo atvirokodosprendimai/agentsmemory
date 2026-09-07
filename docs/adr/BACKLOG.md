@@ -919,10 +919,20 @@ the true class for a better-looking precision figure. See ADR-041 T1's evaluatio
   | unedged roots filed before 2026-08-26 — forward-only explains | 498 |
   | roots with an empty `source_file` | 746 |
 
-  **This BOUNDS the hypothesis; it does not confirm it.** Sharing a key across DIFFERENT batches is
-  harmless, and nothing here shows the sharing was ever within one call — so 555 is a ceiling, not a
-  count, and the 491 unique-key ones need the forward-only account instead. Confirming it needs a test
-  that files two same-key roots in one batch and asserts two edges.
+  ⚠ **ANSWERED 2026-09-07, AND THE COLLAPSE WAS REAL.** The test this paragraph asked for —
+  `TestTwoRootsSharingASourceFileEachGetAnEdge` (`internal/palace/derivededgebatch_test.go`) — files
+  two same-key roots in one batch and asserts two edges. It FAILED: the second root got none.
+  `attachDerivedEdge` sets the edge's OBJECT to the drawer's own id, so two memories sharing a
+  `source_file` are two DISTINCT edges rather than one written twice, and the duplicate the key was
+  guarding against cannot occur anyway — `attachDerivedEdge` asks `CurrentTripleID` and returns
+  `EdgeAlreadyDerived`. The guard only ever suppressed a legitimate edge. Removed; both roots now
+  edge. ⚠ **It was itself the fix for the previous defect in this same loop** — attaching only to
+  `drawers[0]` — so one orphan-making bug was replaced by a narrower one, which is why the paragraph
+  above could bound it and not see it.
+
+  **555 stays a CEILING, not a count.** Sharing a key across DIFFERENT batches was always harmless,
+  and this fix is forward-only like everything else in this bullet: the roots already unedged stay
+  unedged until something backfills them. The 491 unique-key ones still need the forward-only account.
 
   So the question worth asking once, across all three rather than per feature, is **"what pulls this
   trigger in ordinary operation, and what covers what was already there?"**
