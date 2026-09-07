@@ -80,27 +80,74 @@ func (s *Service) DropEntityLabel(ctx context.Context, teamID, entityID string) 
 // Idempotent: Upsert replaces by id, so running it twice is a no-op rather than a
 // duplicate. It is a method rather than a migration because embedding needs a
 // live embedder, which a SQL migration does not have.
+//
+// ⚠ IT EMBEDS IN ONE BATCH, NOT ONE CALL PER LABEL, AND THAT IS THE WHOLE COST.
+// This loop used to call IndexEntityLabel per row, which is one EmbedOne round
+// trip and one Upsert each. `Embed(ctx, []string)` has been on the Embedder
+// interface the entire time and both backends implement it — teiembed's even
+// chunks internally against the limit it probes from /info — so the batch
+// primitive existed and this call site did not select it. That is this
+// repository's named defect wearing a performance costume.
+//
+// The saving is a RATIO, not a duration: N round trips become one, on whatever
+// hardware. Measured on the local stack the whole recompute is embedder-bound,
+// but the seconds there are a fact about a CPU-only Ollama and bge-m3, not about
+// this code — see issue #366, where a latency was briefly mistaken for a
+// property of the tool.
+//
+// One behaviour change, stated because it is not free: a single embedding
+// failure now fails the whole backfill rather than returning the labels indexed
+// before it. The caller (RecomputeGraph) already treats this as non-fatal and
+// logs, and a half-filled label index that reports a count is worse than one
+// that says it did not run.
 func (s *Service) BackfillEntityLabels(ctx context.Context, teamID string) (int, error) {
 	rows, err := s.writer.AllKGEntities(ctx, teamID)
 	if err != nil {
 		return 0, err
 	}
-	n := 0
+	ids := make([]string, 0, len(rows))
+	labels := make([]string, 0, len(rows))
 	for _, r := range rows {
 		// Structural entities are skipped. attachDerivedEdge creates a room node
 		// and an entity for the drawer id itself, and neither is something a
 		// QUESTION is ever about — but both would compete for the five nearest
 		// label slots, and factsFor then discards every derived fact anyway. So
 		// indexing them costs slots and returns nothing.
-		if isStructuralEntity(r.Name) {
+		if isStructuralEntity(r.Name) || r.ID == "" || r.Name == "" {
 			continue
 		}
-		if err := s.IndexEntityLabel(ctx, teamID, r.ID, r.Name); err != nil {
-			return n, err
-		}
-		n++
+		ids = append(ids, r.ID)
+		labels = append(labels, r.Name)
 	}
-	return n, nil
+	if len(labels) == 0 {
+		return 0, nil
+	}
+	vecs, err := s.embed.Embed(ctx, labels)
+	if err != nil {
+		return 0, fmt.Errorf("embed entity labels: %w", err)
+	}
+	// The embedder's contract is "one vector per input, in order". Checked rather
+	// than trusted: a short return would otherwise pair label i with entity i and
+	// mislabel every entity after the gap, silently.
+	if len(vecs) != len(labels) {
+		return 0, fmt.Errorf("embed entity labels: got %d vectors for %d labels", len(vecs), len(labels))
+	}
+	ns := entityNamespace(teamID)
+	if err := s.vectors.EnsureNamespace(ctx, ns, len(vecs[0])); err != nil {
+		return 0, err
+	}
+	points := make([]store.Point, 0, len(ids))
+	for i, id := range ids {
+		points = append(points, store.Point{
+			ID:      id,
+			Vector:  vecs[i],
+			Payload: map[string]any{"label": labels[i]},
+		})
+	}
+	if err := s.vectors.Upsert(ctx, ns, points); err != nil {
+		return 0, err
+	}
+	return len(points), nil
 }
 
 // isStructuralEntity reports whether an entity exists to hold the graph together
