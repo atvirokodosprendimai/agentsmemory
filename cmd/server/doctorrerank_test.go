@@ -303,6 +303,17 @@ func TestAColdStartIsNotReportedAsAnUnaffordablePool(t *testing.T) {
 	// (5s − 20ms) / 30ms ≈ 166, which still affords 100 and stays under
 	// reportablePoolCeiling, so the run reports "pool 100 fits" rather than
 	// "the pool is not what limits you".
+	//
+	// ⚠ THERE ARE TWO MARGINS HERE AND THEY MOVE IN OPPOSITE DIRECTIONS AS
+	// coldStartPerDoc GROWS. The one gated below is FITTABILITY — 210ms of spread
+	// against the 100ms noise budget. This line is the VERDICT margin, and raising
+	// perDoc spends it: 100 sits 1.66× inside the 166 this affords, so noise
+	// inflating the MEASURED per-document cost past ~50ms (about 140ms of spread
+	// on top of the ideal 210ms, some six times the 23ms overshoot ever observed)
+	// would flip "pool 100 fits" into a failure. Written down because the
+	// arithmetic for the first margin is right there in a gate and the second had
+	// none, so an author buying more fittability headroom would spend this
+	// silently. Raised in review of PR #415.
 	cfg.RerankTimeout = 5 * time.Second
 	cfg.RerankPool = 100
 
