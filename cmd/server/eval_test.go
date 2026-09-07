@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -1064,5 +1065,63 @@ func TestProductionRetrieveKMatchesEvalPool(t *testing.T) {
 	if palace.ProductionRetrieveK != defaultEvalPool {
 		t.Errorf("ProductionRetrieveK=%d, defaultEvalPool=%d — the retrieve-k arm and --pool must stay the same width",
 			palace.ProductionRetrieveK, defaultEvalPool)
+	}
+}
+
+// TestClosetStatusReachesTheTable: the status is PRINTED, not merely computed.
+//
+// This is the rung the palace tests cannot cover. `ClosetDelta` returning the
+// right status changes nothing on its own — the closet row is read off the
+// printed table, and a status computed and dropped before the writer leaves
+// every reader exactly where seven previous tables left them, looking at
+// `Δ +0.000` with no way to tell an unrun experiment from a null. It is the same
+// defect one level down from the one the task fixes.
+func TestClosetStatusReachesTheTable(t *testing.T) {
+	det := func(q string, rank int) palace.EvalCaseResult {
+		return palace.EvalCaseResult{
+			Query: q, Category: "single-hop", PoolRank: rank,
+			Ranks: map[palace.EvalArm]int{palace.ArmHybridCloset: rank, palace.ArmHybrid: rank},
+		}
+	}
+	report := palace.EvalReport{
+		Closets: 0,
+		Details: []palace.EvalCaseResult{det("a", 1), det("b", 2)},
+	}
+
+	var buf bytes.Buffer
+	printClosetBlock(&buf, report)
+	got := buf.String()
+
+	// The status must be on the ROW, not merely somewhere in the block. Asserting
+	// `strings.Contains(got, …)` is what this test did first and a mutant walked
+	// straight through it: blanking the status COLUMN left the explanatory line
+	// under the table still naming the status, so the fence passed with the
+	// mechanism broken. A reader scanning the table by column sees the column.
+	var row string
+	for _, line := range strings.Split(got, "\n") {
+		if f := strings.Fields(line); len(f) > 3 && f[0] == "single-hop" {
+			row = strings.TrimSpace(line)
+		}
+	}
+	if row == "" {
+		t.Fatalf("no single-hop row in the block:\n%s", got)
+	}
+	if !strings.HasSuffix(row, string(palace.ClosetNotMeasured)) {
+		t.Errorf("the closet ROW does not end with its status, so a reader scanning the table "+
+			"still sees a delta of zero from an experiment that never ran:\n  %s", row)
+	}
+	// Naming the status without naming the absent input tells a reader that
+	// something is wrong and not what — which sends them to the ranking code, where
+	// the number came from and the problem is not.
+	//
+	// It asserts the CELL's own missing-input sentence, not the word "closet": the
+	// block's header is "closet prior", so a substring check for that word passes
+	// on output carrying no explanation at all and could never fail.
+	want := palace.ClosetDelta(report, "single-hop").Missing
+	if want == "" {
+		t.Fatal("the cell names no missing input, so this test cannot check that it was printed")
+	}
+	if !strings.Contains(got, want) {
+		t.Errorf("the printed block does not carry the cell's missing input %q:\n%s", want, got)
 	}
 }

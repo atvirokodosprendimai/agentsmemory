@@ -409,6 +409,15 @@ type EvalReport struct {
 	Arms    []EvalMetrics
 	Details []EvalCaseResult
 
+	// Closets is how many closets the evaluated corpus holds.
+	//
+	// It is here rather than a parameter on ClosetDelta because the closet cell's
+	// status must be DERIVED from the corpus and not supplied by a caller's
+	// opinion, and ClosetDelta has two call sites in cmd/server — the printed
+	// table and the committed cells file — which could otherwise pass different
+	// counts and disagree about whether the same run measured anything.
+	Closets int
+
 	// CaseSetID and CaseSetOrigin identify the questions this report scores.
 	// Without them a BEST label is a claim about one sample that reads as a claim
 	// about the system: four runs were compared across four different question
@@ -657,6 +666,23 @@ func (s *Service) EvaluateWith(ctx context.Context, teamID string, cases []EvalC
 		poolSize = 50
 	}
 	report := EvalReport{CaseSetID: CaseSetID(cases), CaseSetOrigin: opts.CaseSetOrigin}
+
+	// Count the corpus's closets BEFORE scoring, because the closet cell's status
+	// is derived from it (ADR-007 T2) and a cell that cannot tell a null from an
+	// unrun experiment is what seven tables were read wrong from.
+	//
+	// ClosetWings counts only EMBEDDED closets, which is the right population
+	// rather than a limitation: a closet awaiting its first embedding cannot be
+	// found by the boost search, so it is not an input to this experiment either.
+	//
+	// The error is returned rather than swallowed. A zero from a failed count is
+	// indistinguishable from a corpus with no closets, and it would make the cell
+	// announce `not measured` over a corpus that had plenty.
+	closets, err := s.repo.ClosetWings(ctx, teamID)
+	if err != nil {
+		return EvalReport{}, fmt.Errorf("count the corpus closets: %w", err)
+	}
+	report.Closets = len(closets)
 
 	// Preflight the reranker with ONE probe before scoring hundreds of cases
 	// against it. A dead reranker degrades every reranked arm to the hybrid order

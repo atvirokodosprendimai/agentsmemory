@@ -1145,40 +1145,86 @@ func caseSetLabel(report palace.EvalReport) string {
 	return fmt.Sprintf("case set %s (%s)", report.CaseSetID, report.CaseSetOrigin)
 }
 
+// bestByScope indexes the winning arm of each population in the table.
+//
+// One argmax over every arm is the ADR-007 defect in its purest form. MRR is
+// comparable only between arms measuring the same population, and the table
+// routinely holds three that are not: ArmProduction is scored over the PAGE
+// Search returns, ArmContextual retrieves from its own capped index, and an arm
+// nobody has classified yet has no population at all. Ranking them against the
+// pooled winner printed "worse by 0.19–0.88" for a difference that is a change
+// of question, and sent the reader tuning a pipeline that was never in the race.
+//
+// It keys on palace.ArmScope rather than on arm names for the reason ADR-007
+// records against printPoolDiagnosis: an exclusion list keyed by name satisfies
+// every arm that exists on the day it is written, and folds the next one in
+// silently. That is exactly how production inherited the contextual arm's bug.
+// An arm ArmScope does not classify gets the EMPTY scope, which is a population
+// of its own here — not a fallback into the pool.
+func bestByScope(arms []palace.EvalMetrics) map[palace.SupersessionScope]int {
+	best := map[palace.SupersessionScope]int{}
+	for i, m := range arms {
+		scope := palace.ArmScope(m.Arm)
+		if j, seen := best[scope]; !seen || m.MRR > arms[j].MRR {
+			best[scope] = i
+		}
+	}
+	return best
+}
+
+// scopeLabel renders a population for the BEST line, including the empty scope.
+//
+// The empty scope is not a hole to paper over: it is ArmScope saying an arm has
+// never been classified, and a table that called it "pool" would be making the
+// claim the classification exists to refuse.
+func scopeLabel(scope palace.SupersessionScope) string {
+	if scope == "" {
+		return "unclassified"
+	}
+	return string(scope) + "-scoped"
+}
+
 // printEvalTable renders the arms and the cases every arm missed.
 func printEvalTable(out io.Writer, report palace.EvalReport) {
 	for _, w := range report.Warnings {
 		fmt.Fprintf(out, "⚠ %s\n", w)
 	}
 
-	// The baseline every arm is compared against is the best MRR in the table.
+	// The baseline every arm is compared against is the best MRR of the arms
+	// measuring the SAME population — see bestByScope.
+	//
 	// A PAIRED difference that includes zero is reported as INCONCLUSIVE, not as
 	// equivalence: the winner was itself picked from this data (winner's curse),
 	// and a CI spanning zero means the data cannot rule out a difference — it
 	// never means one was ruled out. The table says exactly that and no more.
-	best := 0
-	for i, m := range report.Arms {
-		if m.MRR > report.Arms[best].MRR {
-			best = i
-		}
-	}
+	best := bestByScope(report.Arms)
+	// Naming the population on the BEST line costs a reader nothing when there is
+	// only one, and is the whole meaning of the line when there is more than one.
+	// ADR-007 T1 step 3: an aggregate spanning populations declares itself in its
+	// own output rather than being exempted in a list somewhere else.
+	nameScopes := len(best) > 1
 
 	fmt.Fprintf(out, "%-40s %8s %8s %8s %14s %10s   %s\n", "arm", "R@1", "R@5", "MRR", "95% CI", "not found", "vs best")
 	fmt.Fprintf(out, "%s\n", strings.Repeat("-", 110))
 	for i, m := range report.Arms {
+		scope := palace.ArmScope(m.Arm)
+		b := best[scope]
 		ci := palace.BootstrapMRR(m.Ranks)
 		verdict := ""
 		switch {
 		case len(m.Ranks) == 0:
 			verdict = "no scoreable cases"
-		case i == best:
+		case i == b:
 			// The case set is named ON this line and not only in the header. Four
 			// runs labelled a BEST arm over four different question sets, the label
 			// moved between configurations, and the tables were read as agreeing —
 			// the caveat has to sit where the quoted line is.
 			verdict = "BEST over " + caseSetLabel(report)
-		case len(m.Ranks) == len(report.Arms[best].Ranks):
-			if delta := palace.PairedDelta(m.Ranks, report.Arms[best].Ranks); delta.Contains(0) {
+			if nameScopes {
+				verdict = fmt.Sprintf("BEST among %s arms over %s", scopeLabel(scope), caseSetLabel(report))
+			}
+		case len(m.Ranks) == len(report.Arms[b].Ranks):
+			if delta := palace.PairedDelta(m.Ranks, report.Arms[b].Ranks); delta.Contains(0) {
 				verdict = "inconclusive vs best (CI spans zero)"
 			} else {
 				verdict = fmt.Sprintf("worse by %.2f–%.2f", -delta.Hi, -delta.Lo)
@@ -1189,6 +1235,12 @@ func printEvalTable(out io.Writer, report palace.EvalReport) {
 	}
 	fmt.Fprintf(out, "n=%d — CI column: single-arm bootstrap; 'vs best' verdicts: PAIRED bootstrap on per-case deltas (trust these, not CI overlap). The best arm was picked from this same table, so unadjusted comparisons against it flatter the winner; 'inconclusive' means exactly that, never equivalence\n",
 		len(report.Arms[0].Ranks))
+	// More than one BEST row is not a bug in the table, and a reader who is not
+	// told that will read it as one. Said only when it applies: a single-population
+	// run prints the sentence it always printed.
+	if nameScopes {
+		fmt.Fprintf(out, "one BEST per population — MRR is comparable only between arms scored over the same candidate set, so an arm is ranked against its own population and never across them\n")
+	}
 
 	printRetrievalCeiling(out, report)
 	printPoolDiagnosis(out, report)
@@ -1268,7 +1320,26 @@ func printRetrievalCeiling(out io.Writer, report palace.EvalReport) {
 		fmt.Fprintf(out, "  %d of %d answer(s) were never retrieved at all — no ranking change can reach those; they need a wider pool, a different embedding, or a lexical channel that can NOMINATE candidates rather than only reorder them\n",
 			missing, len(ranks))
 	}
-	fmt.Fprintf(out, "  every arm above re-orders this same pool, so arm-vs-arm differences are ordering results, never retrieval ones\n")
+	// This sentence is a claim about the table above it, and it is false the
+	// moment a non-pool arm appears there: production is scored over the PAGE
+	// Search returns and the contextual arm retrieves from its own index, so this
+	// ceiling bounds neither. Printing it unconditionally told the reader that
+	// every gap in the table was an ordering gap — the ADR-007 defect stated in
+	// prose rather than in a statistic.
+	var pooled, other int
+	for _, m := range report.Arms {
+		if palace.ArmScope(m.Arm) == palace.ScopePool {
+			pooled++
+		} else {
+			other++
+		}
+	}
+	if other == 0 {
+		fmt.Fprintf(out, "  every arm above re-orders this same pool, so arm-vs-arm differences are ordering results, never retrieval ones\n")
+		return
+	}
+	fmt.Fprintf(out, "  the %d arm(s) above scoped to the pool re-order this same set, so differences BETWEEN THOSE are ordering results, never retrieval ones; the other %d measure a different population and this ceiling does not bound them\n",
+		pooled, other)
 }
 
 // printPoolDiagnosis separates the two failures a single score hides.
@@ -1608,17 +1679,36 @@ func printClosetBlock(out io.Writer, report palace.EvalReport) {
 
 	fmt.Fprintf(out, "\ncloset prior — %s minus %s, preselected before the run (unlike the 'vs best' column, whose baseline is chosen from this same table):\n",
 		palace.ArmHybridCloset, palace.ArmHybrid)
-	fmt.Fprintf(out, "  %-18s %9s %12s %10s %16s %12s %7s\n",
-		"category", "admitted", "unreachable", "ΔMRR", "95% paired CI", "Δrecall@1", "moved")
+	fmt.Fprintf(out, "  %-18s %9s %12s %10s %16s %12s %7s   %s\n",
+		"category", "admitted", "unreachable", "ΔMRR", "95% paired CI", "Δrecall@1", "moved", "status")
+	// A cell that says `not measured` must also say what was absent, and the
+	// column is too narrow for the sentence — so the statuses collect here and are
+	// printed under the table. Naming the status without the missing input tells a
+	// reader that something is wrong and not what, which sends them to the ranking
+	// code: the number came from there and the problem did not.
+	var absent []string
 	for _, cat := range order {
 		c := palace.ClosetDelta(report, cat)
-		fmt.Fprintf(out, "  %-18s %9d %12d %+10.3f %16s %+12.3f %7d\n",
-			cat, c.Admitted, c.Unreachable, c.DeltaMRR, c.Interval, c.DeltaRecall1, c.Moved)
+		fmt.Fprintf(out, "  %-18s %9d %12d %+10.3f %16s %+12.3f %7d   %s\n",
+			cat, c.Admitted, c.Unreachable, c.DeltaMRR, c.Interval, c.DeltaRecall1, c.Moved, c.Status)
+		if c.Status == palace.ClosetNotMeasured {
+			// The bullet is load-bearing, not decoration: a reader parses this block
+			// by column and the category is the row key, so a line STARTING with a
+			// category name is picked up as a data row. TestEvalPrintsPreselectedClosetDelta
+			// read this explanation as the single-hop row and failed on it.
+			absent = append(absent, fmt.Sprintf("    · %s — %s", cat, c.Missing))
+		}
 	}
 	fmt.Fprintln(out, "  Δ is closet minus no-closet: negative means the prior COSTS. 'unreachable' cases are")
 	fmt.Fprintln(out, "  excluded because their gold never entered the pool, so no arm could have ranked it;")
 	fmt.Fprintln(out, "  'moved' is how many admitted cases the two arms ordered differently at all — a Δ near")
 	fmt.Fprintln(out, "  zero with nothing moved is a different finding from one where many cases cancelled.")
+	if len(absent) > 0 {
+		fmt.Fprintf(out, "  ⚠ `%s` is NOT a null result — the experiment had no input, so Δ 0.000 is arithmetic:\n", palace.ClosetNotMeasured)
+		for _, line := range absent {
+			fmt.Fprintln(out, line)
+		}
+	}
 }
 
 // cellsConfig is the ranking configuration a run was taken under. It travels

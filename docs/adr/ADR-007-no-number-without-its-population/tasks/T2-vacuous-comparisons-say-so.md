@@ -7,6 +7,7 @@
 **Produces:** `ClosetCell` measurement status — `measured` / `no effect` / `not measured`
 **Consumes:** none
 **Data dependency:** hermetic
+**Rests-on:** `the status distinguishes an absent input from a real null`, `a genuine null keeps its number and its interval`, `the status reaches the printed cell`
 
 ## Goal
 
@@ -32,14 +33,16 @@ The closet cell distinguishes "the prior changed nothing" from "there was no pri
 ## Acceptance
 
 ```bash
-docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'apk add --no-cache bash git >/dev/null 2>&1 || true; 
+docker run --rm --init -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'apk add --no-cache bash git >/dev/null 2>&1 || true;
   set -e
+  git config --global --add safe.directory /src
   gofmt -l cmd internal | grep -q . && { echo "gofmt"; exit 1; }
   go vet ./...
-  go test ./internal/palace/ -run "TestVacuousClosetComparisonIsNotMeasured|TestGenuineNullIsStillReported" -count=1 -v 2>&1 | tee /tmp/a2.out
+  go test ./internal/palace/ ./cmd/server/ -run "TestVacuousClosetComparisonIsNotMeasured|TestGenuineNullIsStillReported|TestClosetStatusReachesTheTable" -count=1 -v 2>&1 | tee /tmp/a2.out
   grep -q -- "--- PASS: TestVacuousClosetComparisonIsNotMeasured" /tmp/a2.out
   grep -q -- "--- PASS: TestGenuineNullIsStillReported" /tmp/a2.out
-  ! grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/a2.out
+  grep -q -- "--- PASS: TestClosetStatusReachesTheTable" /tmp/a2.out
+  if grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/a2.out; then exit 1; fi
   go test ./... -count=1'
 ```
 
@@ -88,6 +91,17 @@ Stop and report if step 3's falsification fires — the rule is then withdrawn, 
 
 ## Verification Log
 
-<Tool-written by adr-verify. Do not hand-edit.>
+- 2026-09-07 · 08840082 · exit 0 · `docker run --rm --init -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'apk add --no-cache bash git >/dev/null 2>&1 || true; …` · acceptance-sha256:319576b5677d3a53d5bcf7f4f2627bd1806b1f5ac051bc06e5a5314c7c1c93a8 · ms:55150
+- 2026-09-07 · 08840082* · exit 0 · `docker run --rm --init -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'apk add --no-cache bash git >/dev/null 2>&1 || true; …` · acceptance-sha256:319576b5677d3a53d5bcf7f4f2627bd1806b1f5ac051bc06e5a5314c7c1c93a8 · ms:56972
+- 2026-09-07 · 08840082* · exit 0 · `docker run --rm --init -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'apk add --no-cache bash git >/dev/null 2>&1 || true; …` · acceptance-sha256:319576b5677d3a53d5bcf7f4f2627bd1806b1f5ac051bc06e5a5314c7c1c93a8 · ms:51466
+- 2026-09-07 · 08840082* · exit 0 · `docker run --rm --init -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'apk add --no-cache bash git >/dev/null 2>&1 || true; …` · acceptance-sha256:319576b5677d3a53d5bcf7f4f2627bd1806b1f5ac051bc06e5a5314c7c1c93a8 · ms:51030
+- 2026-09-07 · e236b15e · exit 0 · `docker run --rm --init -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'apk add --no-cache bash git >/dev/null 2>&1 || true; …` · acceptance-sha256:319576b5677d3a53d5bcf7f4f2627bd1806b1f5ac051bc06e5a5314c7c1c93a8 · ms:46090
 
 ## Mutation Log
+- 2026-09-07 · 08840082* · mutant killed · exit 1 · `internal/palace/evalstats.go` · the corpus closet count stops deciding the status, so a run over a corpus with no closets reports the same thing as a real null — the exact reading that made seven tables look like evidence that the closet prior does nothing. · acceptance-sha256:319576b5677d3a53d5bcf7f4f2627bd1806b1f5ac051bc06e5a5314c7c1c93a8 · covers:the status distinguishes an absent input from a real null
+- 2026-09-07 · 08840082* · mutant killed · exit 1 · `internal/palace/evalstats.go` · every moved == 0 becomes not measured, which is the rule the task pre-registers as grounds for WITHDRAWAL: closets present and none inside closetDistanceCap is a real null, and this converts that finding into a non-answer. · acceptance-sha256:319576b5677d3a53d5bcf7f4f2627bd1806b1f5ac051bc06e5a5314c7c1c93a8 · covers:a genuine null keeps its number and its interval
+- 2026-09-07 · 08840082* · mutant survived · exit 0 · `cmd/server/eval.go` · the status is computed and dropped before the writer, so every reader is left exactly where the seven previous tables left them: a delta of zero with no way to tell an unrun experiment from a null. The same defect one level down from the one this task fixes. · acceptance-sha256:319576b5677d3a53d5bcf7f4f2627bd1806b1f5ac051bc06e5a5314c7c1c93a8 · covers:the status reaches the printed cell
+  ```
+  the fence passed with the mechanism broken; it may not materialize, compile, load, or assert on the changed path
+  ```
+- 2026-09-07 · e236b15e · mutant killed · exit 1 · `cmd/server/eval.go` · the status is computed and dropped before the writer, so a reader scanning the table by column sees a delta of zero with nothing beside it. This mutant SURVIVED the first version of TestClosetStatusReachesTheTable, which asserted the status appeared anywhere in the block — the explanatory line under the table satisfied it with the column blank. · acceptance-sha256:319576b5677d3a53d5bcf7f4f2627bd1806b1f5ac051bc06e5a5314c7c1c93a8 · covers:the status reaches the printed cell

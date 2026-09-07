@@ -104,6 +104,34 @@ func PairedDelta(a, b []int) Interval {
 // The exclusion counts are not diagnostics. A delta computed over an unstated
 // subset is a number nobody can check, and the whole point of preselecting this
 // comparison is that the reader can see exactly what went into it.
+//
+// ⚠ A DELTA OF ZERO IS TWO OPPOSITE FACTS WEARING ONE NUMBER, which is why
+// Status exists. Seven tables printed `Δ +0.000` with `moved 0` and were read as
+// evidence that the closet prior does nothing. With no closets in the corpus the
+// boost has no input, so ArmHybridCloset and ArmHybrid are the SAME pipeline and
+// the zero is arithmetic. ADR-003's decision reads this cell, so the difference
+// between a null and an unrun experiment is the difference between retiring a
+// feature on evidence and retiring it on an artefact.
+
+// ClosetStatus says what a closet cell's number is worth.
+//
+// The three values are not severities. `no effect` and `not measured` both print
+// a delta of zero and mean opposite things: the first is a result, the second is
+// the absence of one.
+type ClosetStatus string
+
+const (
+	// ClosetMeasured: the two arms ordered at least one admitted case differently,
+	// so the delta is a measurement of the prior.
+	ClosetMeasured ClosetStatus = "measured"
+	// ClosetNoEffect: the corpus held closets and the two arms still ordered every
+	// admitted case identically. A real null, and it keeps its interval.
+	ClosetNoEffect ClosetStatus = "no effect"
+	// ClosetNotMeasured: the experiment had no input — no closets in the corpus, or
+	// no case the two arms could be paired on. The zero is arithmetic.
+	ClosetNotMeasured ClosetStatus = "not measured"
+)
+
 type ClosetCell struct {
 	Category string
 	// Admitted is how many cases the delta is computed over.
@@ -124,6 +152,14 @@ type ClosetCell struct {
 	// A delta near zero means something different when nothing moved than when
 	// many cases moved and cancelled out.
 	Moved int
+	// Status says whether this cell is a finding at all: `measured`, `no effect`,
+	// or `not measured` when the experiment had no input to run on.
+	Status ClosetStatus
+	// Missing names the absent input when Status is ClosetNotMeasured, and is
+	// empty otherwise. A status that says only THAT something is wrong sends the
+	// reader to the ranking code, which is where the number came from and not
+	// where the problem is.
+	Missing string
 }
 
 // ClosetDelta computes the comparison ADR-003 is decided on: ArmHybridCloset
@@ -172,8 +208,21 @@ func ClosetDelta(report EvalReport, category string) ClosetCell {
 		}
 	}
 
-	if cell.Admitted == 0 {
+	// The status is decided on the CORPUS, not on `moved`. A rule reading `moved
+	// == 0` alone would report a genuine null — closets present, none inside
+	// closetDistanceCap, so the boost had an input and declined to fire — as a
+	// non-answer, which the task pre-registers as grounds to withdraw the rule
+	// rather than ship it. TestGenuineNullIsStillReported is that check.
+	switch {
+	case cell.Admitted == 0:
+		cell.Status, cell.Missing = ClosetNotMeasured, "no case both arms could be paired on"
 		return cell
+	case report.Closets == 0:
+		cell.Status, cell.Missing = ClosetNotMeasured, "no closets in the corpus, so the boost had no input"
+	case cell.Moved == 0:
+		cell.Status = ClosetNoEffect
+	default:
+		cell.Status = ClosetMeasured
 	}
 	var sum float64
 	for i := range withCloset {
