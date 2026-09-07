@@ -17,7 +17,7 @@ Implementation tasks for ADR-030: A blend that cannot tell confidence from noise
 
 | Task | Goal | Produces | Consumes | Status | Acceptance |
 |------|------|----------|----------|--------|------------|
-| T1 | A fixture that can exhibit the defect, and arms that can tell the candidates apart | small-pool and low-spread eval cases; three registered arms | none | pending | `go test ./internal/palace/ -run "TestServedBlendTiesOnATwoCandidatePool\|TestSmallPoolArmsDisagree\|TestLowSpreadIsAmplifiedByMinMax\|TestEveryDeclaredArmIsRegistered"` |
+| T1 | A fixture that can exhibit the defect, and arms that can tell the candidates apart | small-pool and low-spread eval cases; three registered arms | none | done | `go test ./internal/palace/ -run "TestServedBlendTiesOnATwoCandidatePool\|TestSmallPoolArmsDisagree\|TestLowSpreadIsAmplifiedByMinMax\|TestEveryDeclaredArmIsRegistered"` |
 | T2 | Ship the measured winner, and pin the property rather than the number | the served rerank-axis normalisation; a property test | T1's measurement and fixture | pending | `go test ./internal/palace/ -run "TestCrossEncoderDecidesATwoCandidatePool\|TestLowSpreadDoesNotBecomeSignal\|TestSmallPoolArmsDisagree"` |
 
 ## Not a task here

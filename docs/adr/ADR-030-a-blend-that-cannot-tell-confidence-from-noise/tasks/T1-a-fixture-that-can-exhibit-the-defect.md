@@ -7,6 +7,7 @@
 **Produces:** small-pool (2/3/4) and low-spread eval cases; three registered arms — sigmoid, rank-fusion, and the served blend at a non-0.5 weight
 **Consumes:** none
 **Data dependency:** hermetic — the fixture is authored, not sampled
+**Rests-on:** `each normalisation is registered as a selectable arm`, `the fixture still exhibits the tie it was authored to contain`
 
 ## Goal
 
@@ -39,12 +40,12 @@ docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v 
   set -e
   gofmt -l cmd internal clients | grep -q . && { echo "gofmt"; exit 1; }
   go vet ./internal/palace/
-  go test ./internal/palace/ -run '^(TestServedBlendTiesOnATwoCandidatePool|TestSmallPoolArmsDisagree|TestLowSpreadIsAmplifiedByMinMax|TestEveryDeclaredArmIsRegistered)$' -count=1 -v 2>&1 | tee /tmp/t1.out
+  go test ./internal/palace/ -run "^(TestServedBlendTiesOnATwoCandidatePool|TestSmallPoolArmsDisagree|TestLowSpreadIsAmplifiedByMinMax|TestEveryDeclaredArmIsRegistered)$" -count=1 -v 2>&1 | tee /tmp/t1.out
   grep -qE "^--- PASS: TestServedBlendTiesOnATwoCandidatePool \("  /tmp/t1.out
   grep -qE "^--- PASS: TestSmallPoolArmsDisagree \("  /tmp/t1.out
   grep -qE "^--- PASS: TestLowSpreadIsAmplifiedByMinMax \("  /tmp/t1.out
   grep -qE "^--- PASS: TestEveryDeclaredArmIsRegistered \("  /tmp/t1.out
-  ! grep -qE "no tests to run|^FAIL" /tmp/t1.out
+  if grep -qE "no tests to run|^FAIL" /tmp/t1.out; then exit 1; fi
   go test ./internal/palace/ -count=1
 '
 ```
@@ -70,6 +71,8 @@ docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v 
 ## Mutation Log
 
 _(populated by `adr-verify --mutant` during execution)_
+- 2026-09-07 · 7afaf85d* · mutant killed · exit 1 · `internal/palace/eval.go` · the sigmoid arm stays DECLARED and stops being registered, so it produces no table row and the normalisation it names becomes unselectable. That is this repository characteristic defect — a capability finished and unreachable — and an eval arm declared but never registered has shipped here before. · acceptance-sha256:7721e6c9df0be5196c5224712afff41e6855a721b962fea781700e9ae9d6aa26 · covers:each normalisation is registered as a selectable arm
+- 2026-09-07 · 7afaf85d* · mutant killed · exit 1 · `internal/palace/service.go` · the served weight moves off 0.5 and the two-candidate pool stops tying, so the fixture no longer contains the defect the whole record exists to measure. This is the fixture guarding ITSELF: an authored fixture that quietly stops exhibiting its failure leaves three arms comparing orderings on a case none of them can disagree about, and the table still prints. · acceptance-sha256:7721e6c9df0be5196c5224712afff41e6855a721b962fea781700e9ae9d6aa26 · covers:the fixture still exhibits the tie it was authored to contain
 
 ## Invariants
 
@@ -91,3 +94,12 @@ Stop and ask if the three arms cannot be made to disagree on any small-pool fixt
 - Persisting `blended_score` (deferred: docs/adr/BACKLOG.md §"From ADR-030")
 
 ## Verification Log
+- 2026-09-07 · 7afaf85d · exit 2 · `docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c ' …` · acceptance-sha256:ad43d0ef8b0f820b41b1d601f5d41409fd1fe8cec000debdbae725a92a247488 · ms:54
+  ```
+  --- last 2 line(s) of stderr
+  bash: -c: line 5: syntax error near unexpected token `('
+  bash: -c: line 5: `  go test ./internal/palace/ -run '^(TestServedBlendTiesOnATwoCandidatePool|TestSmallPoolArmsDisagree|TestLowSpreadIsAmplifiedByMinMax|TestEveryDeclaredArmIsRegistered)$' -count=1 -v 2>&1 | tee /tmp/t1.out'
+  ```
+- 2026-09-07 · 7afaf85d* · exit 0 · `docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c ' …` · acceptance-sha256:7721e6c9df0be5196c5224712afff41e6855a721b962fea781700e9ae9d6aa26 · ms:35064
+- 2026-09-07 · 7afaf85d* · exit 0 · `docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c ' …` · acceptance-sha256:7721e6c9df0be5196c5224712afff41e6855a721b962fea781700e9ae9d6aa26 · ms:29837
+- 2026-09-07 · 7afaf85d* · exit 0 · `docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c ' …` · acceptance-sha256:7721e6c9df0be5196c5224712afff41e6855a721b962fea781700e9ae9d6aa26 · ms:28469

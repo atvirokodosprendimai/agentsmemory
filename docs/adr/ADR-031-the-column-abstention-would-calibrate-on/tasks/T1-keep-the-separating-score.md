@@ -7,6 +7,7 @@
 **Produces:** `search_events.top_rerank_score`; `WingRecall.AvgTopRerank` and `.Reranked`; `avg_top_rerank_score` and `reranked` on `am_recall_stats`
 **Consumes:** none
 **Data dependency:** hermetic
+**Rests-on:** `the rerank mean and its denominator count only searches a cross-encoder ordered`, `the fused average stays a separate number`
 
 ## Goal
 
@@ -43,7 +44,7 @@ docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v 
   go vet ./internal/palace/ ./internal/mcpserver/
   go test ./internal/palace/ -run "^(TestRerankSignalIsReportedAndNotDilutedByUnrerankedRows)$" -count=1 -v 2>&1 | tee /tmp/t1.out
   grep -qE "^--- PASS: TestRerankSignalIsReportedAndNotDilutedByUnrerankedRows \(" /tmp/t1.out
-  ! grep -qE "no tests to run|^FAIL" /tmp/t1.out
+  if grep -qE "no tests to run|^FAIL" /tmp/t1.out; then exit 1; fi
   go test ./internal/palace/ ./internal/mcpserver/ ./internal/mcptest/ -count=1
 '
 ```
@@ -68,6 +69,8 @@ Both the selector and the PASS grep are anchored. An unanchored pair is satisfie
 ## Mutation Log
 
 _(recorded by `adr-verify --mutant`)_
+- 2026-09-07 · 6c55aff2* · mutant killed · exit 1 · `internal/palace/recallstats.go` · the denominator widens to every answered search, so a row no cross-encoder touched contributes a top_rerank_score of 0 — and these are LOGITS, where 0 is mid-range rather than "no match". A healthy wing is dragged toward zero and the number reads as evidence of a broken recall. The same shape as the write-to-read ratio this project already retracted. · acceptance-sha256:4e1b58432c0cd3aab1baca3c2ca47ae1bb5bb917777296e532f45b497d0348e0 · covers:the rerank mean and its denominator count only searches a cross-encoder ordered
+- 2026-09-07 · 6c55aff2* · mutant killed · exit 1 · `internal/palace/recallstats.go` · the fused average starts reporting the cross-encoder sum, collapsing the two numbers into one. The whole point of the column is that avg_top_score is an average of an RRF near-constant and cannot separate a working recall from a broken one; if the two fields can silently become the same number, the operator has one signal wearing two names. · acceptance-sha256:4e1b58432c0cd3aab1baca3c2ca47ae1bb5bb917777296e532f45b497d0348e0 · covers:the fused average stays a separate number
 
 ## Invariants
 
@@ -92,3 +95,6 @@ Stop and ask if `results[0].RerankScore` turns out not to be populated on some s
 - Removing `avg_top_score` (deferred: `docs/adr/BACKLOG.md` §"From ADR-031")
 
 ## Verification Log
+- 2026-09-07 · 6c55aff2* · exit 0 · `docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c ' …` · acceptance-sha256:4e1b58432c0cd3aab1baca3c2ca47ae1bb5bb917777296e532f45b497d0348e0 · ms:40248
+- 2026-09-07 · 6c55aff2* · exit 0 · `docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c ' …` · acceptance-sha256:4e1b58432c0cd3aab1baca3c2ca47ae1bb5bb917777296e532f45b497d0348e0 · ms:42500
+- 2026-09-07 · 6c55aff2* · exit 0 · `docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c ' …` · acceptance-sha256:4e1b58432c0cd3aab1baca3c2ca47ae1bb5bb917777296e532f45b497d0348e0 · ms:42788
