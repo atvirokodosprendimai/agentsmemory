@@ -1814,6 +1814,10 @@ func (s *Service) SearchPage(ctx context.Context, teamID string, q SearchQuery) 
 		parent.Set(attribute.Int("am.count", len(results)))
 		return SearchResult{SearchID: searchID, Hits: results, Facts: facts}, nil
 	}
+	// Taken once, by pointer, because the column is NULLABLE and nil there means
+	// "recorded before anything tracked the ranking" — a state no string value can
+	// represent (migration 00038).
+	profile := s.RankingProfile()
 	ev := searchEventRow{
 		ID: searchID, TeamID: teamID, Wing: q.Wing, Room: q.Room, Query: query,
 		// Whether reranking HAPPENED, not whether a reranker exists. The previous
@@ -1830,6 +1834,11 @@ func (s *Service) SearchPage(ctx context.Context, teamID string, q SearchQuery) 
 		// the line that SELECTS the origin for every search: without it the header
 		// is lifted, carried, and never reaches a row (ADR-054).
 		Origin: auth.OriginFrom(ctx),
+		// WHICH RANKING produced this page. This is the line that SELECTS the
+		// profile for every recall: RankingProfile already reaches the span, and a
+		// value on a span is not a value anyone can aggregate — the fetch rate
+		// ADR-028 T4 publishes has nothing to group by without this.
+		ProfileID: &profile,
 	}
 	if len(results) > 0 {
 		ev.TopScore = results[0].Score
