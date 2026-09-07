@@ -66,6 +66,25 @@ func TestDoctorDoesNotFlagAHookTheInstallerRetires(t *testing.T) {
 // must not have that state counted against it, and a platform that registers it
 // must still be told when nothing runs it. Change the rule in one place and this
 // fails until the other follows.
+//
+// ⚠ IT PINS AGREEMENT, NOT THE RULE, AND ITS NAME OVERSTATES WHAT IT COVERS.
+// Both sides read one predicate, so severing that predicate — `return false` —
+// leaves them agreeing trivially and this test GREEN: `hookPlansOn` stops
+// retiring anywhere, doctor stops recognising retirement anywhere, and every
+// subtest lands consistently in the `!retires && bad` branch. It can see a
+// DIVERGENCE, which is the shape #393 actually reported, and it cannot see the
+// rule disappearing. Measured by a reviewer on this PR rather than argued.
+//
+// What holds the rule is three other tests — TestSessionEndIsNotRegisteredOnWindows
+// and TestAnUpgradeOnWindowsRetiresTheHookAnOlderInstallWrote in
+// sessionendplatform_test.go, and TestDoctorDoesNotFlagAHookTheInstallerRetires
+// above. All three go red on a constant predicate. Delete them believing this
+// test covers them and a constant ships green, which is the inference this
+// paragraph exists to prevent.
+//
+// The platform list below is hand-written, which is honest while the predicate
+// names one kit and one GOOS. It would go silent if a second kit ever retired
+// something; deriving the universe is not worth it today and is worth it then.
 func TestTheRetirementDoctorRecognisesIsTheOneTheInstallerPlans(t *testing.T) {
 	dir := t.TempDir()
 	script := filepath.Join(dir, sessionEndHookFile)
