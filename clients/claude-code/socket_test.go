@@ -39,7 +39,7 @@ func newSocketInstaller(t *testing.T, kit agentKit, socket, serverBin string) (*
 func TestRegisterSocketMCPClaude(t *testing.T) {
 	inst, rr := newSocketInstaller(t, claudeKit, "/tmp/am.sock", fakeBuiltServerBin(t))
 	inst.wing = "wing_acme"
-	placed := filepath.Join(inst.targetDir, "bin", installedServerBinName)
+	placed := filepath.Join(inst.targetDir, "bin", installedServerBinFile())
 
 	if err := inst.registerSocketMCP(); err != nil {
 		t.Fatalf("registerSocketMCP: %v", err)
@@ -59,7 +59,7 @@ func TestRegisterSocketMCPClaude(t *testing.T) {
 func TestRegisterSocketMCPCodex(t *testing.T) {
 	inst, rr := newSocketInstaller(t, codexKit, "/tmp/am.sock", fakeBuiltServerBin(t))
 	inst.wing = "wing_acme"
-	placed := filepath.Join(inst.targetDir, "bin", installedServerBinName)
+	placed := filepath.Join(inst.targetDir, "bin", installedServerBinFile())
 
 	if err := inst.registerSocketMCP(); err != nil {
 		t.Fatalf("registerSocketMCP: %v", err)
