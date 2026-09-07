@@ -33,15 +33,16 @@ Given two tables, the rule picks a configuration only when a held-out paired int
 ## Acceptance
 
 ```bash
-docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'apk add --no-cache bash git >/dev/null 2>&1 || true; 
+docker run --rm --init -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'apk add --no-cache bash git >/dev/null 2>&1 || true;
   set -e
+  git config --global --add safe.directory /src
   gofmt -l internal | grep -q . && { echo "gofmt"; exit 1; }
   go vet ./...
   go test ./internal/palace/ -run "TestTune" -count=1 -v 2>&1 | tee /tmp/t2.out
   grep -q -- "--- PASS: TestTuneRefusesOnATie" /tmp/t2.out
   grep -q -- "--- PASS: TestTuneRefusesWhenModesDisagree" /tmp/t2.out
   grep -q -- "--- PASS: TestTuneMovesOnAConsistentMargin" /tmp/t2.out
-  ! grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/t2.out
+  if grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/t2.out; then exit 1; fi
   go test ./... -count=1'
 ```
 

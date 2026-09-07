@@ -24,22 +24,33 @@
 > `git config --global --add safe.directory /src`: the container runs as root over a host-owned bind
 > mount, so on Linux git refused with `detected dubious ownership` and the fence died with TEN
 > `exit status 128` failures over a tree that was green on the host and in CI (the same defect PR
-> #383 fixed in `scripts/redeploy.sh`; ⚠ **36** other fences still carry it — this said **31** until
-> the population was re-measured, see below). The provably inert
+> #383 fixed in `scripts/redeploy.sh`; ⚠ **35** other fences still carry it — this said **31**, then
+> **36**, until the population was measured from the FENCE, see below). The provably inert
 > `! grep -qE …` guard was replaced by the un-negated form in the same edit, since the digest was
 > being re-recorded anyway — `set -e` exempts a negated pipeline, so it never could have failed.
 >
-> ⚠ **THE 31 WAS AN UNDERCOUNT, AND THE REASON IS THIS CORPUS'S RECURRING DEFECT: A POPULATION
-> DEFINED BY HOW IT WAS MEASURED RATHER THAN BY WHAT IT MEANS.** The first sweep asked "does this
-> fence run `go test ./...`?" and reported 32 affected files. But what makes a fence affected is
-> REACHING A TEST THAT SHELLS OUT TO GIT, and only three packages do —
-> `clients/claude-code`, `internal/contractaxis`, `internal/repohygiene` (derived by grep, and it
-> independently corroborates the "twelve failures across three packages" measured from the fence).
-> Seven further fences scope `go test` straight at one of those packages and never write `./...`;
-> two of the seven also run `./...`. The affected population is **37 of the 76 docker-fenced task
-> files**, of which **27 hold a recorded exit-0 digest** and **10 do not**. The 32/23 figures were
-> published in this file and in PR #390 before the re-measure; both are corrected rather than
-> quietly replaced, because the arithmetic was never the error — the definition was.
+> ⚠ **THE COUNT WAS WRONG THREE TIMES — 31, 32, 37 — AND THE METHOD IS THE PART WORTH KEEPING.**
+> Every wrong version grepped the WHOLE TASK FILE for `go test ./...`. What makes a fence affected is
+> WHAT THE ACCEPTANCE FENCE EXECUTES, and the two differ often enough to matter: ADR-003 T4 was
+> counted three times because its *Risks* prose says "a full `go test ./...` before committing is
+> cheap insurance", while its fence runs `go vet ./...` plus three named packages and reaches no
+> git-shelling test at all. In the other direction `go test ./clients/...` occurs nine times and
+> COVERS `clients/claude-code`, which a pattern naming the package misses.
+>
+> Only three packages shell out to git — `clients/claude-code`, `internal/contractaxis`,
+> `internal/repohygiene`, re-derived including non-test files. That derivation independently
+> corroborates the "twelve failures across three packages" measured from the fence, which is what
+> makes it trustworthy rather than merely recomputed.
+>
+> Measured from the `## Acceptance` section alone, calibrated first against one case that MUST hit
+> and one that MUST miss: **36 of the 75 docker-fenced task files** are affected (75, not 76 — one
+> file's `docker run` was also in prose). **27 hold a recorded exit-0 digest**; **9 do not**. The
+> 31/32/37 figures were published in this file and in PR #390 before the fence-scoped measure, and
+> are corrected rather than quietly replaced: the arithmetic was never the error, the definition was.
+>
+> ⚠ **KNOWN LIMIT OF THE 36**, written down so it is not rediscovered as a defect: it still matches
+> on the `go test` invocation TEXT. A fence reaching a git-shelling test by a path naming neither the
+> package nor a covering wildcard would still be missed. No such case was found; none is proved absent.
 >
 > ⚠ **THE FENCE NEEDED A SECOND FIX, AND THIS PARAGRAPH SAID SO WHILE STILL CALLING IT UNVERIFIABLE.**
 > Retired in place rather than deleted, because the intermediate state is the finding: with
