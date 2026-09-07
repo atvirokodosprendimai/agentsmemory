@@ -31,8 +31,20 @@ func WriteReport(w io.Writer, report Report) error {
 			if mutant.VerifiedFor(axis.Axis, axis.MutationTarget) {
 				state = "VERIFIED"
 			}
+			// ⚠ `expects=`, NOT `failure=`, AND THE RENAME IS THE WHOLE FIX FOR #400.
+			// expectedFailure is what the mutation DECLARES it must break — read from
+			// the spec before anything runs. Printed as `failure=` it read as an
+			// OBSERVATION, and on an INVALID mutant that is the only populated field
+			// on the line: a dirty tree makes RunMutation refuse at the clean
+			// precondition, so patch, paths, compile and assertion all come back
+			// empty and the declaration is left standing alone. A reviewer on `main`
+			// with one uncommitted file read
+			// `failure="live tools/list lost registration policy"` as a live
+			// regression and spent a session on it, with the true cause — `OPEN …
+			// repository must be clean before mutation` — filed below it as a
+			// residual. The verdict was right and the vocabulary was wrong.
 			if _, err := fmt.Fprintf(w,
-				"  - MUTANT %s %s axis=%s item=%s case=%s repo=%q head=%s patch=%s paths=%s compile=%s assertion=%s failure=%q\n",
+				"  - MUTANT %s %s axis=%s item=%s case=%s repo=%q head=%s patch=%s paths=%s compile=%s assertion=%s expects=%q\n",
 				mutant.id, state, mutant.axis, mutant.item, mutant.caseID, mutant.target.repository,
 				mutant.target.head, mutant.patchDigest, paths, mutant.compile,
 				mutant.assertion, mutant.expectedFailure,

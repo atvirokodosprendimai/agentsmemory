@@ -309,9 +309,32 @@ func desktopConfigDirOn(goos, home, base string) string {
 //   - commandsDir: there is no ~/.cursor/commands.
 //   - memoryFile: there is no CLAUDE.md/AGENTS.md equivalent; the protocol goes
 //     in rules/agentsmemory.mdc with `alwaysApply: true`.
-//   - hooksFile: ~/.cursor/hooks exists and its events, payloads and registration
-//     file were never established. Registering against unverified events would
-//     ship a branch that may never fire and look complete doing it (ADR-017 T3).
+//   - hooksFile: Cursor HAS hooks, and shipping none of them is now a decision
+//     rather than an unanswered question. ⚠ THIS ENTRY USED TO SAY THE EVENTS,
+//     PAYLOADS AND REGISTRATION FILE "were never established", WHICH WENT FALSE
+//     ON 2026-09-07 (issue #398). All three are established: the file is
+//     <project>/.cursor/hooks.json (also user, team and enterprise scopes),
+//     twenty events including sessionStart and preCompact, and the bundle even
+//     ships a Claude-Code-to-Cursor event map. The original measurement was
+//     right and looking in the wrong place — ~/.cursor/hooks is a state
+//     directory, not the registration point.
+//     What stops the port is sharper than "unverified", and it is measured: a
+//     canary printed by a sessionStart hook DID NOT REACH THE MODEL — measured
+//     once, 2026-09-07, against cursor_version 2026.09.02-c22c1a3 as the payload
+//     itself reported it. That build discards hook stdout, so a recall hook there
+//     runs, costs a round trip and is thrown away — the ADR-041 T4 defect
+//     §Reachability records, with every test passing because every test drives
+//     the script. ⚠ THE VERSION IS PART OF THE CLAIM, not decoration: this is a
+//     capability of a third-party product that ships updates on its own
+//     schedule, so "Cursor does not do this" is a frozen figure with a worse
+//     half-life than the ones this corpus keeps correcting — nobody here
+//     controls when it goes false. Re-measure before concluding it still holds.
+//     Two more, from the same capture: Cursor's
+//     sessionStart carries no `source` field, so `[ "$SOURCE" = "compact" ]` has
+//     nothing to read and the compaction recall must be rebuilt on preCompact
+//     rather than ported; and `transcript_path` is null, which the Stop hook
+//     reads. ADR-017 T3's rule is vindicated rather than overcome — the event
+//     names alone would have shipped exactly that branch.
 //
 // What it does have: agents/ in the SAME markdown dialect Claude reads, and no
 // CLI that registers an MCP server — `cursor-agent mcp` offers login, list,
