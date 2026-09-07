@@ -745,13 +745,28 @@ the true class for a better-looking precision figure. See ADR-041 T1's evaluatio
   TRIGGER was never pulled, and this file blamed the input — extractor yield in one case, corpus size
   in another.
 
-  ⚠ **AND THAT ACCOUNTS FOR THE 958 BETTER THAN ANY per-X RULE DOES.** The backfill bullet measured
-  *57 of 1,985 drawers carrying any edge — 2.9%, 2026-08-26*; this sweep measures 958 of 12,283 —
-  **7.8%**. A forward-only mechanism running against a fixed pre-fix backlog produces exactly that
-  rise, and it will keep rising with no backfill ever running. Arithmetic anyone can re-check, rather
-  than a rule about what the edge is attached to. ⚠ **The two figures are from DIFFERENT (and one
-  undated) palaces**, so they are consistent in SHAPE and are not a series — the shape is the claim,
-  the slope is not.
+  ⚠ **AND THAT ACCOUNTS FOR THE 958 BETTER THAN ANY per-X RULE DOES** — but count it against ROOTS,
+  which is what the edge is one-per-of. Of **1,992 root drawers, 1,046 carry no derived edge**, and
+  **498 of those were filed before 2026-08-26**: a forward-only mechanism leaving everything older
+  unedged, with no backfill ever having run. That is the account, in a count of the right things.
+
+  ⚠ **AND THE EDGE COUNT IS NOT THE ROOTS-WITH-AN-EDGE COUNT — DO NOT USE 960 AS A NUMERATOR.** The
+  same snapshot holds **960 derived edges** against **946 roots carrying one**, and **8 of those edges
+  name an object that is not a current root** (nothing withdraws a derived edge when its drawer is
+  retracted or superseded; `attachDerivedEdge` only declines to add a second). The rest of the
+  difference is unaccounted for and worth a look. So the well-defined ratio is
+  **roots-with-an-edge ÷ roots**, which is the 47.5% above; edges ÷ roots is a different and slightly
+  larger number measuring something else.
+
+  ⚠ **AND A PERCENTAGE HERE WAS WRONG UNTIL 2026-09-07, SUPPLIED BY REVIEW.** It read *"the backfill
+  bullet measured 57 of 1,985 drawers carrying any edge — 2.9%; this sweep measures 958 of 12,283 —
+  **7.8%**"*. Both figures divide edges by DRAWERS, and an edge is attached once per ROOT CHUNK — so
+  the numerator counts roots and the denominator counts chunks, a population it is never one-per-of.
+  On roots the same snapshot gives **946 of 1,992 — 47.5%**, six times the number that was published,
+  and the 2026-08-26 figure cannot be restated at all because nobody recorded that corpus's root
+  count. **A ratio is only a fact when its denominator is the population its numerator counts**, which
+  is this bullet's own subject arriving one level up: the finding was verified and the arithmetic
+  offered beside it was not.
 
   ⚠ **AN OPEN QUESTION REVIEW RAISED, BOUNDED HERE RATHER THAN ANSWERED.** If several roots in ONE
   batch share `(wing, room, source_file)` — including the common empty `source_file` — every one after
@@ -2245,7 +2260,11 @@ as the deferral so the pointer has a receiving end.
 
 - **Backfill edges for the 1,928 existing orphan drawers.** ADR-036 T6 fixes the write path only, so
   every drawer filed before it stays unreachable by traversal (57 of 1,985 carry any edge — 2.9%,
-  measured 2026-08-26). **Trigger: after T6 has run long enough to show the derived-edge marker does
+  measured 2026-08-26). ⚠ **THAT 2.9% DIVIDES BY DRAWERS AND THE EDGE IS ONE PER ROOT CHUNK**, so it
+  understates coverage by whatever this corpus's chunks-per-memory ratio was that day, which nobody
+  recorded — it cannot be restated, only re-measured. Read it as "few", not as a rate, and do not
+  compare it to a later figure: this line is where the same mistake was copied from on 2026-09-07.
+  **Trigger: after T6 has run long enough to show the derived-edge marker does
   not degrade recall; backfilling first would bake in a bad derivation.**
 
 - **Why the derived graph produces zero hallways is still unseparated.** 945 of 1,985 drawers carry
