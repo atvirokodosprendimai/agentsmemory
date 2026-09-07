@@ -852,6 +852,45 @@ The server registers 41 tools; roughly eight are in regular use. What is built, 
 | knowledge graph | 41 triples | Genuinely in use by sessions since the reset, but its job is undecided — ADR-004 exists to make supersession its acceptance criterion rather than recall. |
 | `am_merge_wing` | first use 2026-08-20 | Folded two derived wings into one after registrations corrected. Worked exactly as documented; simply nobody had needed it before. |
 
+⚠ **RE-MEASURED 2026-09-07 AGAINST v0.0.124, AND THREE ROWS OF THAT TABLE ARE NOW FALSE — INCLUDING
+THE ONE THIS ENTRY HAD ALREADY CORRECTED ONCE.** The palace has grown from 80 drawers to 12,271.
+
+| row | 2026-08-20 | 2026-09-07 |
+|---|---|---|
+| hallways | 0, "the extractor yields too few and too generic entities" | **129** in `wing_agentmemories` alone, from 1,597 indexed entity labels |
+| tunnels | 0, "explicit tunnels have never been created by a session" | **28, all explicit** — earliest `2026-08-20T07:27:39Z` |
+| skills (centralised) | 2 | **10** |
+
+**The hallway diagnosis was wrong, and the true cause is worse.** Entities do co-occur at corpus
+scale — the yield was never the problem. `am_list_hallways` returned 0 and its own note said why:
+*"Run am_recompute_graph — it may simply not have run since those memories were filed."* One
+recompute of one wing turned 0 into 129. ⚠ **So the 2026-08-28 sample that produced "0 pairs reach
+`hallwayMinCount`" measured 20 drawers of one room and generalised to the wing.** This entry already
+carries a ⚠ about a diagnosis that was wrong for eight days; this is the second one, in the paragraph
+that replaced it.
+
+⚠ **WHAT NOTHING TRIGGERS IS THE DERIVATION, AND THAT IS THE REAL DEFECT.** `RecomputeGraph` is
+called by `internal/importer`, `copywing`, `internal/mergejob/worker.go`, the `am_merge_wing` tool and
+the manual `am_recompute_graph` tool — and **by nothing on the write path.** Neither `Service.Add`
+nor `WriteDiary` derives anything. So a palace that only ever files memories, which is every palace
+in ordinary use, reports 0 hallways for ever while its entity column fills up. The capability is
+built, correct, fed, and unreachable without a maintenance command nobody is told to run — §Reachability's
+shape exactly, one layer above the code it usually catches.
+
+⚠ **I CHANGED WHAT I MEASURED, SO READ THE 129 ACCORDINGLY.** Those hallways did not exist before this
+sweep; `am_recompute_graph(wing: "wing_agentmemories", prune_orphans: false)` created them. The
+finding is not "there are 129 hallways" — it is that one command turns the zero into 129, which is
+what refutes the starvation diagnosis.
+
+⚠ **Derived entity tunnels are still 0, and that measurement is INCONCLUSIVE.** `entityTunnelsForWing`
+pairs hallways ACROSS wings, and only `wing_agentmemories` was rebuilt — every other wing still has
+the un-derived zero, so no cross-wing pair can exist yet by construction. Rebuilding all wings is the
+measurement that would answer it; that was not run here, and the confound is named rather than the
+number reported.
+
+Item 2 below asks "feed it or retire it" on the premise that the graph starves. It does not starve.
+The question is now **"trigger it or retire it"**, which is a different decision with a different cost.
+
 Three of these are worth acting on, in order:
 
 1. **Make the catalogue reachable on a fresh install.** The four skills exist in *this* palace
