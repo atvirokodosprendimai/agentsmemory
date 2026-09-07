@@ -2,6 +2,13 @@
 # agentsmemory recall hook — ADR-041 T4. Perform the recall, inject the result.
 #
 # hook-output: stdout-injected
+# state-consumer: agentsmemory-reground a persistent Monitor the session arms itself
+#   (ADR-062 T3, and the `/am` command's step 1d). No hook reads this marker and none
+#   can: a hook writes text and the model chooses, so the thing that turns the marker
+#   into a turn has to be started by the session. Declared here because `eventmap`
+#   cannot otherwise tell this from a handover to nobody — and on codex and pi, where
+#   there is no Monitor, it IS a handover to nobody and the printed PAUSE is the whole
+#   mechanism.
 #
 # THE FAILURE IT ADDRESSES, and it is specific: a fresh context inherits a task
 # queue and no palace. The session that motivated ADR-041 began exactly there —
