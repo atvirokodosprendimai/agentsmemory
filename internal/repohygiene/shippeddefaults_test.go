@@ -90,8 +90,12 @@ func TestShippedDefaultsCiteTheirCorpus(t *testing.T) {
 	// helper: "this gate examined nothing" is a fact about the run, and a run that
 	// examined nothing must not report that every default is attributed. Keeping it
 	// in the body also means the test itself carries a failure call, which
-	// `adr-lint` requires of a test a done task names — measured 2026-09-07, it
-	// reports "nothing in it can go red" against a body that only delegates.
+	// `adr-lint` requires of a test a done task names. Measured 2026-09-07 across
+	// three shapes, because the obvious explanation is wrong: a helper taking
+	// `testing.TB` and one taking `*testing.T` BOTH still trip "nothing in it can go
+	// red" when the body only delegates. The detector does not follow the failure
+	// call into a same-file helper at all — so the parameter type is a red herring,
+	// and reaching for `*testing.T` to satisfy it does measurably nothing.
 	if checked := unattributed(t, filepath.Join(root, defaultsFile)); checked == 0 {
 		t.Fatalf("%s yielded no defaults to check; an empty universe is indistinguishable "+
 			"from every default being attributed", defaultsFile)
