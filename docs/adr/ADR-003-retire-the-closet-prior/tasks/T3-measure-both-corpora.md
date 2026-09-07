@@ -45,7 +45,7 @@ Run the eval four times, at case counts and on categories fixed before the run, 
 ## Acceptance
 
 ```bash
-docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'go vet ./... && go test ./cmd/server/ -run "TestClosetEvidenceIsComplete" -count=1'
+docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'set -e; go vet ./...; go test ./cmd/server/ -run "TestClosetEvidenceIsComplete" -count=1 2>&1 | tee /tmp/adr003-t3.out; if grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/adr003-t3.out; then exit 1; fi'
 ```
 
 ## Tests
