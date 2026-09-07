@@ -746,24 +746,34 @@ the pre-T6 window by construction.
 ### The joint after-measurement is NOT takeable yet, checked 2026-09-07
 
 The paragraphs above say the next window needs a fresh JOINT baseline with T4 and T6 both live.
-`observed_at` made that computable and the store is now filling — 25 sessions for this repository,
-108 across the machine. It is still not takeable, for two reasons neither of which is more data
-arriving on its own.
+`observed_at` made that computable and the store is now filling. It is still not takeable, for three
+reasons, none of which is more data arriving on its own.
 
-**The floor guards the wrong denominator.** `minBaselineSessions = 20` counts SESSIONS, and this
-repository's 25 sessions carry **14 assertions between them** — against 341 across 24 sessions in
-the baseline above. So the floor clears while the thing being measured is nearly empty, and
-`ComputeRate` would report a rate over a denominator two orders smaller than the one it is compared
-against. That is the empty-universe failure `TestShippedDefaultsCiteTheirCorpus` gates one layer
-over: a run that examined nothing is not a run that found nothing.
+⚠ **FIRST, EVERY FIGURE HERE IS PER MACHINE AND PER AGENT CONFIG, AND THE STORE CANNOT BE UNIONED.**
+`recall-observe` writes `recall-observations.jsonl` BESIDE THE TRANSCRIPT, so the path is scoped by
+machine, by agent config directory, and by project; two agents working the same repository write two
+files that never meet. Measured 2026-09-07 on the same repository, the same day, the same code: one
+machine holds 108 rows across all projects and 25 for this one, another holds 11 and 1. Neither is
+wrong and neither is a property of the repository. `ReadObservations` opens ONE file and nothing in
+the tree merges two, so a joint number is not merely un-taken — it is not computable from this store
+until something collects them. That blocker sits underneath the two below and is the strongest case
+for this section's own thesis: waiting does not fix any of them.
 
-**And no v3 precision exists.** `ComputeRate` refuses without one, correctly (`ErrPrecisionUnknown`).
+**Second, the floor guards the wrong quantity.** `minBaselineSessions = 20` bounds the ROW count, and
+one session appends one row — so on the machine above 25 sessions clear it while carrying **14
+assertions between them**, against 341 across 24 sessions in the baseline. The rate's denominator is
+assertions; a floor over sessions cannot see an empty assertion denominator. Same shape as
+`TestShippedDefaultsCiteTheirCorpus`'s empty-universe guard, one layer over. On the other machine the
+same code refuses at 1 row, so two agents get a baseline and no baseline from one corpus.
+
+**Third, no hand-judged v3 PRECISION exists** — v3 rows do, which is one word away and worth keeping
+apart. `ComputeRate` refuses without a precision, correctly (`ErrPrecisionUnknown`).
 The only hand-judged figure is 48%, 12/25, stamped under the **v2** table below. v3 redefined
 *preceded*, not what counts as an assertion, so the number may well carry — but deciding that it
 carries is a methodology call, not a sweep's, and F-16 forbids comparing across classifier versions
 without it.
 
-⚠ **A THIRD HAZARD, IF IT IS EVER TAKEN: the 7.6% came from a HAND-RUN SCAN over 48 transcripts, and
+⚠ **A FURTHER HAZARD, IF IT IS EVER TAKEN: the 7.6% came from a HAND-RUN SCAN over 48 transcripts, and
 the store is hook-written.** A delta between those two derivations measures the derivation as much
 as the intervention — the same reason the classifier version is stamped, one axis over. Re-take the
 before-state from the store, or take the after-state by the same hand scan; do not cross them.
