@@ -30,7 +30,7 @@ Compare the top hit's cross-encoder score against the two calibrated boundaries 
 ## Acceptance
 
 ```bash
-docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'gofmt -l internal/palace | grep -q . && exit 1; go vet ./... && go test ./internal/palace/ -run "TestConfidence" -count=1'
+docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'set -e; gofmt -l internal/palace | grep -q . && exit 1; go vet ./...; go test ./internal/palace/ -run "TestConfidence" -count=1 2>&1 | tee /tmp/adr001-t5.out; if grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/adr001-t5.out; then exit 1; fi'
 ```
 
 ## Tests
