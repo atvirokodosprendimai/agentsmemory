@@ -202,6 +202,19 @@ there the printed `PAUSE` is the whole mechanism. Said in both copies on purpose
 — two copies of a protocol is this repository's recorded hazard, and the copy
 nobody maintains is the one that goes wrong.
 
+⚠ **A PERSISTENT MONITOR DEFERS `/goal` EVALUATION FOR AS LONG AS IT RUNS, AND THAT
+IS THE COST OF THIS STEP.** The loop is `while true` by design — a session can
+compact more than once, and the 2026-09-05 measurement about a marker being consumed
+exactly once is precisely about the LATER compactions — so from the harness's point
+of view there is permanently-running background work. Measured twice on 2026-09-07:
+a quality-harness session saw `evaluation has been deferred for 121 min …
+agentsmemory re-ground wake` after the wake had already fired correctly, and an
+agentsmemory session saw the same deferral at 120 min from a DIFFERENT persistent
+monitor, so this is a property of persistent monitors rather than of the wake.
+**When a goal check-in names a monitor as the blocker, that is this, not stuck work
+— do not go hunting.** Stopping it trades the wake for the evaluation; ADR-062's
+printed `PAUSE` is the fallback the protocol already documents for codex and pi.
+
 ## Memory-first — ask before you grep
 
 When the task pulls you into unfamiliar code, **ask memory first**: `am_search`
