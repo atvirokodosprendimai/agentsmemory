@@ -710,8 +710,10 @@ the true class for a better-looking precision figure. See ADR-041 T1's evaluatio
   | `derived = 1` — `attachDerivedEdge`'s structural edge, **one per distinct (wing, room, source_file) root** | 958 |
   | authored by a session through `am_kg_add` | 1,016 |
 
-  The corpus DID reach scale — 12,283 drawers against the ~5,020 that were called unfed — so that
-  half of the trigger fired long ago. **`kg-extract` has still never run here**, so extraction
+  The corpus DID reach scale — 12,283 on local against the ~5,020 that were called unfed. ⚠ That
+  ~5,020 is UNSITED: it predates the local/hosted split mattering and names no server, so it is
+  quoted here as the historical figure it is rather than restated as a fact about either palace.
+  Either way that half of the trigger fired long ago. **`kg-extract` has still never run here**, so extraction
   coverage is 0 and has been 0 for the project's whole life. The graph grew entirely from sessions
   authoring facts by hand plus server plumbing; nothing was extracted. "The blocker is now corpus
   size, not extraction coverage" inverted the two.
