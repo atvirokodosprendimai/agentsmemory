@@ -24,8 +24,8 @@
 > `git config --global --add safe.directory /src`: the container runs as root over a host-owned bind
 > mount, so on Linux git refused with `detected dubious ownership` and the fence died with TEN
 > `exit status 128` failures over a tree that was green on the host and in CI (the same defect PR
-> #383 fixed in `scripts/redeploy.sh`; ⚠ **35** other fences still carry it — this said **31**, then
-> **36**, until the population was measured from the FENCE, see below). The provably inert
+> #383 fixed in `scripts/redeploy.sh`; ⚠ other fences still carry it — **no count is written here on
+> purpose**, see below). The provably inert
 > `! grep -qE …` guard was replaced by the un-negated form in the same edit, since the digest was
 > being re-recorded anyway — `set -e` exempts a negated pipeline, so it never could have failed.
 >
@@ -51,6 +51,24 @@
 > ⚠ **KNOWN LIMIT OF THE 36**, written down so it is not rediscovered as a defect: it still matches
 > on the `go test` invocation TEXT. A fence reaching a git-shelling test by a path naming neither the
 > package nor a covering wildcard would still be missed. No such case was found; none is proved absent.
+>
+> ⚠ **AND HOW MANY REMAIN UNFIXED IS DELIBERATELY NOT WRITTEN ANYWHERE IN THIS FILE.** It was, four
+> times — **31**, **32**, **37**, and **35** — and the last of those was measured correctly and went
+> false on its own merge, because the PR carrying it fixed seven of the fences it was counting. It
+> was **34** before that PR and **27** after. A number that moves whenever anyone does the work this
+> paragraph is asking for cannot be maintained in prose, and each stale value reads as a fact. The
+> population above (36 of 75, 27 with a digest, 9 without) is stable and stays; the remaining count
+> is a query, so run it rather than quoting it:
+>
+> ```bash
+> # fences that reach a git-shelling test and still lack the safe.directory line
+> for f in docs/adr/*/tasks/[^R]*.md; do
+>   acc=$(sed -n '/^## Acceptance/,/^## /p' "$f")
+>   case "$acc" in *"docker run"*) ;; *) continue ;; esac
+>   case "$acc" in *"go test ./..."*|*clients/claude-code*|*internal/contractaxis*|*internal/repohygiene*) ;; *) continue ;; esac
+>   case "$acc" in *safe.directory*) ;; *) echo "$f" ;; esac
+> done | wc -l
+> ```
 >
 > ⚠ **THE FENCE NEEDED A SECOND FIX, AND THIS PARAGRAPH SAID SO WHILE STILL CALLING IT UNVERIFIABLE.**
 > Retired in place rather than deleted, because the intermediate state is the finding: with
