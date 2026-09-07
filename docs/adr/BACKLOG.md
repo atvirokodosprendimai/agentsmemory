@@ -750,6 +750,14 @@ the true class for a better-looking precision figure. See ADR-041 T1's evaluatio
   **498 of those were filed before 2026-08-26**: a forward-only mechanism leaving everything older
   unedged, with no backfill ever having run. That is the account, in a count of the right things.
 
+  ⚠ **AND THE EDGE COUNT IS NOT THE ROOTS-WITH-AN-EDGE COUNT — DO NOT USE 960 AS A NUMERATOR.** The
+  same snapshot holds **960 derived edges** against **946 roots carrying one**, and **8 of those edges
+  name an object that is not a current root** (nothing withdraws a derived edge when its drawer is
+  retracted or superseded; `attachDerivedEdge` only declines to add a second). The rest of the
+  difference is unaccounted for and worth a look. So the well-defined ratio is
+  **roots-with-an-edge ÷ roots**, which is the 47.5% above; edges ÷ roots is a different and slightly
+  larger number measuring something else.
+
   ⚠ **AND A PERCENTAGE HERE WAS WRONG UNTIL 2026-09-07, SUPPLIED BY REVIEW.** It read *"the backfill
   bullet measured 57 of 1,985 drawers carrying any edge — 2.9%; this sweep measures 958 of 12,283 —
   **7.8%**"*. Both figures divide edges by DRAWERS, and an edge is attached once per ROOT CHUNK — so
