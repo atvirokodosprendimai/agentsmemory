@@ -1679,17 +1679,36 @@ func printClosetBlock(out io.Writer, report palace.EvalReport) {
 
 	fmt.Fprintf(out, "\ncloset prior — %s minus %s, preselected before the run (unlike the 'vs best' column, whose baseline is chosen from this same table):\n",
 		palace.ArmHybridCloset, palace.ArmHybrid)
-	fmt.Fprintf(out, "  %-18s %9s %12s %10s %16s %12s %7s\n",
-		"category", "admitted", "unreachable", "ΔMRR", "95% paired CI", "Δrecall@1", "moved")
+	fmt.Fprintf(out, "  %-18s %9s %12s %10s %16s %12s %7s   %s\n",
+		"category", "admitted", "unreachable", "ΔMRR", "95% paired CI", "Δrecall@1", "moved", "status")
+	// A cell that says `not measured` must also say what was absent, and the
+	// column is too narrow for the sentence — so the statuses collect here and are
+	// printed under the table. Naming the status without the missing input tells a
+	// reader that something is wrong and not what, which sends them to the ranking
+	// code: the number came from there and the problem did not.
+	var absent []string
 	for _, cat := range order {
 		c := palace.ClosetDelta(report, cat)
-		fmt.Fprintf(out, "  %-18s %9d %12d %+10.3f %16s %+12.3f %7d\n",
-			cat, c.Admitted, c.Unreachable, c.DeltaMRR, c.Interval, c.DeltaRecall1, c.Moved)
+		fmt.Fprintf(out, "  %-18s %9d %12d %+10.3f %16s %+12.3f %7d   %s\n",
+			cat, c.Admitted, c.Unreachable, c.DeltaMRR, c.Interval, c.DeltaRecall1, c.Moved, c.Status)
+		if c.Status == palace.ClosetNotMeasured {
+			// The bullet is load-bearing, not decoration: a reader parses this block
+			// by column and the category is the row key, so a line STARTING with a
+			// category name is picked up as a data row. TestEvalPrintsPreselectedClosetDelta
+			// read this explanation as the single-hop row and failed on it.
+			absent = append(absent, fmt.Sprintf("    · %s — %s", cat, c.Missing))
+		}
 	}
 	fmt.Fprintln(out, "  Δ is closet minus no-closet: negative means the prior COSTS. 'unreachable' cases are")
 	fmt.Fprintln(out, "  excluded because their gold never entered the pool, so no arm could have ranked it;")
 	fmt.Fprintln(out, "  'moved' is how many admitted cases the two arms ordered differently at all — a Δ near")
 	fmt.Fprintln(out, "  zero with nothing moved is a different finding from one where many cases cancelled.")
+	if len(absent) > 0 {
+		fmt.Fprintf(out, "  ⚠ `%s` is NOT a null result — the experiment had no input, so Δ 0.000 is arithmetic:\n", palace.ClosetNotMeasured)
+		for _, line := range absent {
+			fmt.Fprintln(out, line)
+		}
+	}
 }
 
 // cellsConfig is the ranking configuration a run was taken under. It travels

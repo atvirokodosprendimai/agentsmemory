@@ -641,7 +641,7 @@ func TestGateFailsBelowDeclaredBar(t *testing.T) {
 	}
 }
 
-// closetFixture builds a report whose admitted cases the two arms ranked
+// closetNullFixture builds a report whose admitted cases the two arms ranked
 // IDENTICALLY, so Moved is 0 with Admitted above 0.
 //
 // It is a helper rather than an inline literal because both tests below turn on
@@ -649,7 +649,7 @@ func TestGateFailsBelowDeclaredBar(t *testing.T) {
 // passes while proving nothing — the defect this corpus records against
 // TestASpecBindingThatNamesNothingIsCaught's first draft. Each test re-checks
 // Admitted and Moved before asserting anything about the status.
-func closetFixture(closets int) EvalReport {
+func closetNullFixture(closets int) EvalReport {
 	det := func(q string, rank int) EvalCaseResult {
 		return EvalCaseResult{
 			Query: q, Category: "single-hop", PoolRank: rank,
@@ -672,7 +672,7 @@ func closetFixture(closets int) EvalReport {
 // boost has no input, so the two arms are the SAME pipeline and a delta of zero
 // is arithmetic rather than a finding. ADR-003's decision reads this cell.
 func TestVacuousClosetComparisonIsNotMeasured(t *testing.T) {
-	cell := ClosetDelta(closetFixture(0), "single-hop")
+	cell := ClosetDelta(closetNullFixture(0), "single-hop")
 
 	if cell.Admitted == 0 || cell.Moved != 0 {
 		t.Fatalf("fixture does not reach the state under test: admitted=%d moved=%d, want admitted>0 and moved==0",
@@ -718,7 +718,7 @@ func TestVacuousClosetComparisonIsNotMeasured(t *testing.T) {
 // the task says to withdraw the rule rather than ship it if that cannot be
 // distinguished. It can: the corpus count is the discriminator.
 func TestGenuineNullIsStillReported(t *testing.T) {
-	cell := ClosetDelta(closetFixture(7), "single-hop")
+	cell := ClosetDelta(closetNullFixture(7), "single-hop")
 
 	if cell.Admitted == 0 || cell.Moved != 0 {
 		t.Fatalf("fixture does not reach the state under test: admitted=%d moved=%d, want admitted>0 and moved==0",
@@ -732,9 +732,20 @@ func TestGenuineNullIsStillReported(t *testing.T) {
 	if cell.Missing != "" {
 		t.Errorf("a measured null names a missing input %q; nothing was missing", cell.Missing)
 	}
-	// The number and its interval are what make it a finding. A status that
-	// silently dropped them would report the null and destroy the evidence for it.
-	if cell.Interval == (Interval{}) {
-		t.Error("the genuine null lost its paired interval")
+	// The invariant is that a genuine null KEEPS its number and its interval, and
+	// the only honest way to check that is against the vacuous cell: the two must
+	// differ in the status fields and in nothing else. Asserting the interval is
+	// non-zero would be the wrong test and it fails on correct code — with nothing
+	// moved every bootstrap sample is 0, so a real null's interval IS [0.000,
+	// 0.000] and is byte-identical to the zero value.
+	vacuous := ClosetDelta(closetNullFixture(0), "single-hop")
+	measured, absent := cell, vacuous
+	measured.Status, measured.Missing = "", ""
+	absent.Status, absent.Missing = "", ""
+	if measured != absent {
+		t.Errorf("the status changed the measurement itself:\n  with closets: %+v\n  without:     %+v", cell, vacuous)
+	}
+	if cell.Admitted != 3 || cell.DeltaMRR != 0 {
+		t.Errorf("the null lost its evidence: admitted=%d deltaMRR=%v, want 3 and 0", cell.Admitted, cell.DeltaMRR)
 	}
 }

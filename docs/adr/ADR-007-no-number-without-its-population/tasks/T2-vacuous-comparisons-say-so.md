@@ -7,6 +7,7 @@
 **Produces:** `ClosetCell` measurement status — `measured` / `no effect` / `not measured`
 **Consumes:** none
 **Data dependency:** hermetic
+**Rests-on:** `the status distinguishes an absent input from a real null`, `a genuine null keeps its number and its interval`, `the status reaches the printed cell`
 
 ## Goal
 
@@ -32,14 +33,16 @@ The closet cell distinguishes "the prior changed nothing" from "there was no pri
 ## Acceptance
 
 ```bash
-docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'apk add --no-cache bash git >/dev/null 2>&1 || true; 
+docker run --rm --init -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'apk add --no-cache bash git >/dev/null 2>&1 || true;
   set -e
+  git config --global --add safe.directory /src
   gofmt -l cmd internal | grep -q . && { echo "gofmt"; exit 1; }
   go vet ./...
-  go test ./internal/palace/ -run "TestVacuousClosetComparisonIsNotMeasured|TestGenuineNullIsStillReported" -count=1 -v 2>&1 | tee /tmp/a2.out
+  go test ./internal/palace/ ./cmd/server/ -run "TestVacuousClosetComparisonIsNotMeasured|TestGenuineNullIsStillReported|TestClosetStatusReachesTheTable" -count=1 -v 2>&1 | tee /tmp/a2.out
   grep -q -- "--- PASS: TestVacuousClosetComparisonIsNotMeasured" /tmp/a2.out
   grep -q -- "--- PASS: TestGenuineNullIsStillReported" /tmp/a2.out
-  ! grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/a2.out
+  grep -q -- "--- PASS: TestClosetStatusReachesTheTable" /tmp/a2.out
+  if grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/a2.out; then exit 1; fi
   go test ./... -count=1'
 ```
 

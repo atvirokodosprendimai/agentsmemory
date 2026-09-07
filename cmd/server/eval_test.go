@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -1096,8 +1097,17 @@ func TestClosetStatusReachesTheTable(t *testing.T) {
 			"zero from an experiment that never ran:\n%s", got)
 	}
 	// Naming the status without naming the absent input tells a reader that
-	// something is wrong and not what — which sends them to the ranking code.
-	if !strings.Contains(strings.ToLower(got), "closet") {
-		t.Errorf("the printed cell does not name the missing input:\n%s", got)
+	// something is wrong and not what — which sends them to the ranking code, where
+	// the number came from and the problem is not.
+	//
+	// It asserts the CELL's own missing-input sentence, not the word "closet": the
+	// block's header is "closet prior", so a substring check for that word passes
+	// on output carrying no explanation at all and could never fail.
+	want := palace.ClosetDelta(report, "single-hop").Missing
+	if want == "" {
+		t.Fatal("the cell names no missing input, so this test cannot check that it was printed")
+	}
+	if !strings.Contains(got, want) {
+		t.Errorf("the printed block does not carry the cell's missing input %q:\n%s", want, got)
 	}
 }
