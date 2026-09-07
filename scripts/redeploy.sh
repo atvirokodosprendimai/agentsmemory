@@ -442,13 +442,45 @@ fi
 # COPIES the PATH binary into Desktop, agreeing was the normal outcome of the
 # very incident it was written to catch. Review of f80e12c found it blind by
 # construction.
+# read_stamp PATH FIELD prints one `go build` VCS stamp field, or nothing when
+# the artifact cannot be read at all.
+#
+# sed, not awk: an unescaped $NF is expanded by the SHELL under `set -u` before
+# awk sees it, and the gate then dies with "NF: unbound variable" instead of
+# reporting staleness — a check that fails for its own reasons.
+#
+# ⚠ THE `|| true` IS NOT THE BANNED ONE, AND THE DIFFERENCE IS WHERE THE VERDICT
+# IS TAKEN. This repository's rule is that no pipe and no `|| true` may decide
+# whether a check PASSED. Nothing is decided here: this is a READ, its emptiness
+# is a state judge_tree tests explicitly two lines down, and that test is the
+# verdict. Without it the read decides — under `set -euo pipefail` a failing
+# `go version -m` makes the assignment non-zero and aborts the whole script, so
+# judge_tree's own UNVERIFIED branch is unreachable in exactly the case its
+# message names ("need go on PATH"). Measured on Linux 2026-09-07, not only on
+# the Windows host that reported it (#392): `go` absent exits 127 and a file with
+# no VCS stamp exits 1, and both abort before any branch is reached. The gate
+# then prints its heading and nothing under it, and the caller sees a bare exit 1
+# that reads as a failed deploy after every earlier stage passed.
+read_stamp() {
+  go version -m "$1" 2>/dev/null | sed -n "s/.*vcs\.$2=//p" | head -n1 || true
+}
 judge_tree() {
   label="$1"; path="$2"
-  # sed, not awk: an unescaped $NF is expanded by the SHELL under `set -u`
-  # before awk sees it, and the gate then dies with "NF: unbound variable"
-  # instead of reporting staleness — a check that fails for its own reasons.
-  have_rev="$(go version -m "$path" 2>/dev/null | sed -n 's/.*vcs\.revision=//p' | head -n1)"
-  have_dirty="$(go version -m "$path" 2>/dev/null | sed -n 's/.*vcs\.modified=//p' | head -n1)"
+  have_rev="$(read_stamp "$path" revision)"
+  have_dirty="$(read_stamp "$path" modified)"
+  # ⚠ WINDOWS HANDS BACK A PATH `go` CANNOT OPEN, AND THAT IS THE STEADY STATE
+  # RATHER THAN A BROKEN INSTALL. MSYS resolves an extensionless name for
+  # EXECUTION, so `command -v aiagentmemory` succeeds while only
+  # `aiagentmemory.exe` exists on disk; `go version -m` opens the literal path
+  # and fails. The extensionless twin cannot even be created — `cp x.exe x`
+  # reports "are the same file", because MSYS resolves the destination too.
+  # Retry rather than judge: an empty stamp beside a real `.exe` sibling is this
+  # case and not a missing toolchain (#392).
+  if [ -z "$have_rev" ] && [ -e "${path}.exe" ]; then
+    path="${path}.exe"
+    have_rev="$(read_stamp "$path" revision)"
+    have_dirty="$(read_stamp "$path" modified)"
+  fi
   # git rev-parse on an unknown object fails, and the empty result then falls
   # through to the revision comparison below.
   have_tree="$(git rev-parse "${have_rev}^{tree}" 2>/dev/null || echo "")"
