@@ -103,25 +103,35 @@ const entityLabelBatch = 32
 // duplicate. It is a method rather than a migration because embedding needs a
 // live embedder, which a SQL migration does not have.
 //
-// ⚠ IT EMBEDS IN ONE BATCH, NOT ONE CALL PER LABEL, AND THAT IS THE WHOLE COST.
-// This loop used to call IndexEntityLabel per row, which is one EmbedOne round
-// trip and one Upsert each. `Embed(ctx, []string)` has been on the Embedder
-// interface the entire time and both backends implement it — teiembed's even
-// chunks internally against the limit it probes from /info — so the batch
-// primitive existed and this call site did not select it. That is this
-// repository's named defect wearing a performance costume.
+// ⚠ IT EMBEDS IN BOUNDED BATCHES, NOT ONE CALL PER LABEL. This loop used to call
+// IndexEntityLabel per row, which is one EmbedOne round trip and one Upsert each.
+// `Embed(ctx, []string)` has been on the Embedder interface the entire time and
+// both backends implement it, so the batch primitive existed and this call site
+// did not select it — this repository's named defect wearing a performance
+// costume.
 //
-// The saving is a RATIO, not a duration: N round trips become one, on whatever
-// hardware. Measured on the local stack the whole recompute is embedder-bound,
-// but the seconds there are a fact about a CPU-only Ollama and bge-m3, not about
-// this code — see issue #366, where a latency was briefly mistaken for a
-// property of the tool.
+// The saving is a RATIO, not a duration: N round trips become ⌈N/entityLabelBatch⌉
+// on whatever hardware. Measured on the local stack the whole recompute is
+// embedder-bound, but the seconds there are a fact about a CPU-only Ollama and
+// bge-m3, not about this code — see issue #366, where a latency was briefly
+// mistaken for a property of the tool. ⚠ THIS PARAGRAPH SAID "N round trips
+// become ONE" UNTIL 2026-09-07, AND THE PARAGRAPH ABOVE IT SAID "IT EMBEDS IN ONE
+// BATCH". Both were true of the draft reviewed on #412 and false of what merged:
+// entityLabelBatch was added in the same PR, and its own comment twenty lines up
+// carried the corrected figure while these two carried the old one. One file
+// stating both is how a reader who lands on the function first is told the thing
+// the constant exists to prevent.
 //
-// One behaviour change, stated because it is not free: a single embedding
-// failure now fails the whole backfill rather than returning the labels indexed
-// before it. The caller (RecomputeGraph) already treats this as non-fatal and
-// logs, and a half-filled label index that reports a count is worse than one
-// that says it did not run.
+// ⚠ ON FAILURE THE INDEX IS PARTIALLY WRITTEN, AND THE COUNT SAYS SO. Upsert runs
+// per chunk, so an embedding failure on chunk 3 of 5 leaves chunks 1 and 2 in the
+// namespace. Returning 0 there — as this did until 2026-09-07 — made the return
+// value a false statement about the store, and the comment justifying it argued
+// the opposite property: "a half-filled label index that reports a count is worse
+// than one that says it did not run" describes all-or-nothing, which per-chunk
+// Upsert is not. The chunks already written stay written, `indexed` reports them,
+// and a re-run is a no-op over those because Upsert replaces by id. RecomputeGraph
+// discards the count on error today, so this costs the caller nothing and stops
+// the signature from lying to the next one.
 func (s *Service) BackfillEntityLabels(ctx context.Context, teamID string) (int, error) {
 	rows, err := s.writer.AllKGEntities(ctx, teamID)
 	if err != nil {
@@ -157,16 +167,16 @@ func (s *Service) BackfillEntityLabels(ctx context.Context, teamID string) (int,
 		end := min(start+entityLabelBatch, len(labels))
 		vecs, err := s.embed.Embed(ctx, labels[start:end])
 		if err != nil {
-			return 0, fmt.Errorf("embed entity labels: %w", err)
+			return indexed, fmt.Errorf("embed entity labels: %w", err)
 		}
 		// The embedder's contract is "one vector per input, in order". Checked
 		// rather than trusted: a short return would otherwise pair label i with
 		// entity i and mislabel every entity after the gap, silently.
 		if len(vecs) != end-start {
-			return 0, fmt.Errorf("embed entity labels: got %d vectors for %d labels", len(vecs), end-start)
+			return indexed, fmt.Errorf("embed entity labels: got %d vectors for %d labels", len(vecs), end-start)
 		}
 		if err := s.vectors.EnsureNamespace(ctx, ns, len(vecs[0])); err != nil {
-			return 0, err
+			return indexed, err
 		}
 		points := make([]store.Point, 0, len(vecs))
 		for i, v := range vecs {
@@ -177,7 +187,7 @@ func (s *Service) BackfillEntityLabels(ctx context.Context, teamID string) (int,
 			})
 		}
 		if err := s.vectors.Upsert(ctx, ns, points); err != nil {
-			return 0, err
+			return indexed, err
 		}
 		indexed += len(points)
 	}
