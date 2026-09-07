@@ -32,14 +32,15 @@ A drawer can be current or ended, ending never deletes, and every existing row r
 ## Acceptance
 
 ```bash
-docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'apk add --no-cache bash git >/dev/null 2>&1 || true; 
+docker run --rm --init -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'apk add --no-cache bash git >/dev/null 2>&1 || true;
   set -e
+  git config --global --add safe.directory /src
   gofmt -l internal | grep -q . && { echo "gofmt"; exit 1; }
   go vet ./...
   go test ./internal/palace/ -run "TestExistingRowsReadAsCurrent|TestEndingARecordDoesNotDeleteIt" -count=1 -v 2>&1 | tee /tmp/v1.out
   grep -q -- "--- PASS: TestExistingRowsReadAsCurrent" /tmp/v1.out
   grep -q -- "--- PASS: TestEndingARecordDoesNotDeleteIt" /tmp/v1.out
-  ! grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/v1.out
+  if grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/v1.out; then exit 1; fi
   go test ./... -count=1'
 ```
 

@@ -39,15 +39,16 @@ A superseded record is unreachable by every default route and reachable by one e
 ## Acceptance
 
 ```bash
-docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'apk add --no-cache bash git >/dev/null 2>&1 || true; 
+docker run --rm --init -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'apk add --no-cache bash git >/dev/null 2>&1 || true;
   set -e
+  git config --global --add safe.directory /src
   gofmt -l cmd internal | grep -q . && { echo "gofmt"; exit 1; }
   go vet ./...
   go test ./internal/mcptest/ -run "TestSupersededRecordIsUnreachable|TestHistoryIsReachableWhenAsked|TestAccumulationDoesNotDegradeCurrentRecall" -count=1 -v 2>&1 | tee /tmp/v3.out
   grep -q -- "--- PASS: TestSupersededRecordIsUnreachableByEveryDefaultRoute" /tmp/v3.out
   grep -q -- "--- PASS: TestHistoryIsReachableWhenAsked" /tmp/v3.out
   grep -q -- "--- PASS: TestAccumulationDoesNotDegradeCurrentRecall" /tmp/v3.out
-  ! grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/v3.out
+  if grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/v3.out; then exit 1; fi
   go test ./... -count=1'
 ```
 
