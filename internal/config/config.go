@@ -447,12 +447,21 @@ func Default() Config {
 		HTTPTimeout:      30 * time.Second,
 		EmbedTimeout:     5 * time.Minute,
 		BM25Weight:       "auto",
-		RerankPool:       10,  // palace.DefaultRerankPool; duplicated to keep config dependency-free
-		DBReaderPool:     0,   // derive max(4, NumCPU()) at open; see openReaderDB in cmd/server
-		RerankWeight:     0.5, // palace.DefaultRerankWeight, chosen by the eval's weight sweep
-		// palace.DefaultRerankNorm. Not min-max: that sweep ran at pools of 128 and
-		// 10, where min-max's degeneracy does not appear, while 17.6% of real
-		// reranked recalls run at four candidates or fewer.
+		RerankPool:       10, // palace.DefaultRerankPool; duplicated to keep config dependency-free
+		DBReaderPool:     0,  // derive max(4, NumCPU()) at open; see openReaderDB in cmd/server
+		// palace.DefaultRerankWeight, chosen by the eval's weight sweep — ON THE
+		// PARAPHRASE CORPUS, which ADR-032 measured could not disagree with it. On
+		// the real corpus built from search_events a LOWER weight wins (0.25 is the
+		// top arm in both real runs, 0.761 at n=26 and 0.694 at n=54). The sweep and
+		// its refutation are both true; this comment is the only thing that connects
+		// them, which is why the corpus is named here rather than left implied.
+		RerankWeight: 0.5,
+		// palace.DefaultRerankNorm, decided by ADR-030. Not min-max: that sweep ran
+		// at pools of 128 and 10, where min-max's degeneracy does not appear, while
+		// 17.6% of real reranked recalls run at four candidates or fewer. ⚠ ADR-030
+		// shipped this AHEAD of its own corpus eval on the owner's explicit
+		// instruction and records that deviation: if the eval table contradicts it,
+		// the default reverts. A reader changing this needs that, not just the number.
 		RerankNorm:             "sigmoid",
 		ClosetBoost:            0,
 		RetrieveK:              0,
