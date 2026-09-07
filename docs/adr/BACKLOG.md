@@ -376,11 +376,12 @@ naming files it will create (`cmd/server/abstain_test.go` in ADR-001 T4,
 from a stale one needs the task's status — more machinery than the finding is worth.
 
 **NOT gated — `file:line` refs whose file does not resolve.** Suggested in review as the cheap
-subclass where the forward-reference objection does not apply. It does not survive reading the four
-instances: `server/session.go:301` and `server/server.go:581` are mcp-go's source, and `up.go:82` is
-goose's — the citing sentence names `goose v3.27.1` beside it. They are deliberate citations into
-pinned third-party source, and a gate over them would be four findings and four false alarms. The
-same shape as the mentions above, one class over.
+subclass where the forward-reference objection does not apply. It does not survive reading them, and
+they fall into two sub-classes that a gate would report as findings and a reader would dismiss on
+sight. Deliberate citations into pinned third-party source: mcp-go's `server/session.go` and
+`server/server.go`, goose's `up.go` — the citing sentence names `goose v3.27.1` beside it — and
+modernc's sqlite by module path. And quoted compiler output, which names the file the compiler saw
+rather than one this tree still has. The same shape as the mentions above, one class over.
 
 **NOT gated — `file:line` refs pointing past the end of a file that does exist.** Real, and the floor
 of the true number, since a citation naming the wrong-but-existing line is undetectable. Left as a
@@ -388,10 +389,14 @@ command rather than a gate because most point into refactored files where the co
 unknowable, so "fix them" means guesses that drift again — the fix this corpus has already disproved
 four times.
 
-**Scope, stated honestly.** These two gates cover ADR citations and self-references. By the survey's
-own commands that is well under half of the pointers in the corpus, and the largest ungated class —
-source `file:line` — is the one the title is about. This retires two classes and measures the rest;
-it does not retire the problem.
+**Scope, stated honestly.** These two gates cover ADR citations and self-references; source
+`file:line` is the largest ungated class, and it is the one the title is about. ⚠ **No ratio is
+written here, and one used to be** — this paragraph said the gates covered "well under half of the
+pointers in the corpus", which is the frozen count this entry's own opening forbids, one level up.
+The two figures come from different extractors over different populations, and a mention is not a
+pointer, so any fraction built from them measures the method at least as much as the corpus. Run the
+gates and the survey command and read them side by side. This retires two classes and measures the
+rest; it does not retire the problem.
 
 **What none of it catches, and it is the larger half.** The two sharpest findings of the last four
 rounds were a sentence that CONCEDED the premise it was meant to reinforce, and a check whose scope
