@@ -1209,8 +1209,22 @@ grep -l 'no tests to run|^FAIL' docs/adr/*/tasks/T*.md | wc -l     # 128, re-mea
 ⚠ **THAT COMMAND IS RIGHT BY ACCIDENT, AND "FIXING" IT MAKES IT WRONG.** Plain `grep` is BRE, so
 `|` is a LITERAL — the pattern matches the guard's own text (`! grep -qE "no tests to run|^FAIL…"`)
 rather than acting as an alternation, which is exactly what we want to count. Adding `-E` turns it
-into a real alternation and returns **139**: the extra 11 are files containing FAIL *output* in a
-Verification Log, not the guard. Anyone tidying the regex will inflate this entry's cost by 9%.
+into a real alternation and returns **139**. Anyone tidying the regex will inflate this entry's cost.
+
+⚠ **AND 128 IS A FLOOR TOO — IT COUNTS ONE SPELLING, NOT THE GUARD.** This paragraph said the extra
+11 were *"files containing FAIL output in a Verification Log, not the guard"*. Measured 2026-09-07:
+**nine of the eleven carry a real vacuity guard**, written with a different alternation —
+`grep -qE "no tests to run|no test files"` across ADR-036 T1-T8, plus one variant adding
+`\[build failed\]`. Only **two** are output or prose. **Distinct task files carrying SOME vacuity
+guard: 137.**
+
+So the published command finds an exact literal, and a task whose author expressed the same intent
+with a different alternation is invisible to it — including eight consecutive tasks of one ADR, which
+is a house variant rather than a typo. ⚠ **STATE WHICH POPULATION THE SWEEP MEANS BEFORE COSTING
+IT:** every fence asserting the run was not vacuous (**137**), or specifically the `^FAIL` guard
+(**128**). A reader meeting "the guard" will assume the intent, not the spelling. This is the
+entry's own *"a floor, not a count"* discipline applied to its numerator, where it had been applied
+only to the denominator.
 
 ⚠ **AND THE "sixty-nine done" IS A FLOOR, NOT A COUNT.** Re-derived 2026-09-07 by reading each
 guard-carrying task's status out of its sibling `tasks/README.md` table: **66 done, 3 blocked,
