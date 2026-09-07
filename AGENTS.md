@@ -185,7 +185,18 @@ leaves it staged as deleted, which is the one question the sha comparison cannot
 ask.
 ⚠ A git worktree's `.git` is a pointer file the container does not mount, so
 every test that shells out to git goes red — four did, at a tag whose suite was
-green. ⚠ `AGENTSMEMORY_VERSION` is per-build, not sticky: a rebuild without it
+green. ⚠ AND THE SAME SYMPTOM ARRIVES FROM THE OPPOSITE CAUSE ON A PLAIN CLONE:
+the container runs as root over a bind mount the host user owns, so git refuses
+with `detected dubious ownership in repository at '/src'` and exits 128 — a
+`.git` that is present, complete, and declined. Measured 2026-09-07 on Linux
+against a clone of `main` that was green on the host and green in CI: TWELVE
+tests across three packages failed on `exit status 128`, and the gate refused a
+deploy of code that was fine. This is the ORDINARY Linux path, not an exotic one
+— Docker Desktop on macOS remaps the mount's owner, which is the only reason it
+went unnoticed. `redeploy.sh` sets `safe.directory` for this; the trap is worth
+knowing because any other container you point at this tree will hit it too, and
+a suite that shells out to git reports it as twelve unrelated-looking failures.
+⚠ `AGENTSMEMORY_VERSION` is per-build, not sticky: a rebuild without it
 resets the served version to `dev`; `redeploy.sh` refuses to build without it.
 ⚠ `~/.claude/bin/aiagentmemory` AND `~/.claude/bin/aiagentmemory-server` shadow
 `~/.local/bin` on PATH and were both stale copies; both are symlinks now, keep
