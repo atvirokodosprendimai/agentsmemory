@@ -857,7 +857,7 @@ THE ONE THIS ENTRY HAD ALREADY CORRECTED ONCE.** The palace has grown from 80 dr
 
 | row | 2026-08-20 | 2026-09-07 |
 |---|---|---|
-| hallways | 0, "the extractor yields too few and too generic entities" | **129** in `wing_agentmemories` alone, from 1,597 indexed entity labels |
+| hallways | 0, "the extractor yields too few and too generic entities" | **LOCAL 0 → 129** after one recompute; **HOSTED 41**, frozen since 2026-08-25 (see below) |
 | tunnels | 0, "explicit tunnels have never been created by a session" | **28, all explicit** — earliest `2026-08-20T07:27:39Z` |
 | skills (centralised) | 2 | **10** |
 
@@ -877,10 +877,33 @@ in ordinary use, reports 0 hallways for ever while its entity column fills up. T
 built, correct, fed, and unreachable without a maintenance command nobody is told to run — §Reachability's
 shape exactly, one layer above the code it usually catches.
 
+⚠ **NAME THE PALACE OR THE NUMBER IS NOT A FACT — AND THE FIRST DRAFT OF THIS ENTRY DID NOT.** It said
+"129 in `wing_agentmemories` alone" with no server named. Review, reading the same wing from
+**hosted** (`atvirokodosprendimai-498ccd`), saw **41**. Both are correct about different servers:
+the 129 are on the **local** palace, where the count was 0 until this sweep recomputed it. That is
+#353's class exactly — accurate quotes, different palaces, one entry stating it unqualified — and it
+is the second time in two days this project has written it (the other being #355). Every count in
+this row now names its server.
+
 ⚠ **I CHANGED WHAT I MEASURED, SO READ THE 129 ACCORDINGLY.** Those hallways did not exist before this
-sweep; `am_recompute_graph(wing: "wing_agentmemories", prune_orphans: false)` created them. The
-finding is not "there are 129 hallways" — it is that one command turns the zero into 129, which is
-what refutes the starvation diagnosis.
+sweep; `am_recompute_graph(wing: "wing_agentmemories", prune_orphans: false)` created them, and all
+129 carry the single timestamp `2026-09-07T06:52:20` with `created_by: auto` — my own recompute's
+instant. The finding is not "there are 129 hallways"; it is that one command turns the zero into 129.
+
+⭐ **THE HOSTED CORPUS PROVES THE SAME THING WITHOUT PERTURBING ANYTHING, AND THAT IS THE FORM TO
+QUOTE.** Reported by review from hosted, and NOT independently verifiable from this checkout — no
+hosted registration exists on this machine, which is itself the finding recorded under #355. There,
+all **41** hallways share one `created_at`, `2026-08-25T08:14:25Z`, `created_by: auto`, with **nothing
+newer** — across a wing of ~2,690 drawers written to continuously for two weeks, including one filed
+an hour before the reading. **A frozen derivation timestamp against a live write stream is the thesis
+observed rather than induced**, and a reviewer can re-run it read-only and get the same answer
+tomorrow. Prefer it to the recompute as evidence.
+
+⭐ **AND THE SHIPPED SURFACE ALREADY SAYS SO**, which is what a caller actually reads.
+`am_list_hallways`' own description (`internal/mcpserver/graph.go:225`, verified in source): *"A note
+appears when the list is empty because the derived graph does not exist yet — **the state of every
+palace populated only through `am_add_drawer`** — because that answer is otherwise byte-identical to a
+graph that genuinely holds no hallway."* The defect was documented on the tool the whole time.
 
 ⚠ **Derived entity tunnels are still 0, and that measurement is INCONCLUSIVE.** `entityTunnelsForWing`
 pairs hallways ACROSS wings, and only `wing_agentmemories` was rebuilt — every other wing still has
