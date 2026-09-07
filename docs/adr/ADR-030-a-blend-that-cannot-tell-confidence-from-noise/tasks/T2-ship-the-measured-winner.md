@@ -44,7 +44,8 @@ docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v 
   go test ./internal/palace/ -run "^(TestCrossEncoderDecidesATwoCandidatePool|TestLowSpreadDoesNotBecomeSignal|TestSmallPoolArmsDisagree)$" -count=1 -v 2>&1 | tee /tmp/t2.out
   grep -qE "^--- PASS: TestCrossEncoderDecidesATwoCandidatePool \("  /tmp/t2.out
   grep -qE "^--- PASS: TestLowSpreadDoesNotBecomeSignal \("  /tmp/t2.out
-  ! grep -qE "no tests to run|^FAIL" /tmp/t2.out
+  grep -qE "^--- PASS: TestSmallPoolArmsDisagree \("  /tmp/t2.out
+  if grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/t2.out; then exit 1; fi
   go test ./internal/palace/ ./internal/config/ ./internal/mcptest/ -count=1
 '
 ```
@@ -71,6 +72,7 @@ The property is pinned, not the constant. A test asserting `blended == 0.6` woul
 ## Mutation Log
 
 _(populated by `adr-verify --mutant` during execution)_
+- 2026-09-08 · 15e8be02* · mutant killed · exit 1 · `internal/palace/service.go` · the default normaliser reverts to min-max, which ADR-030 measured and rejected: on a two-candidate pool min-max maps the two cross-encoder logits to 0 and 1 whatever their true spread, so a 0.001 logit difference becomes a full-scale signal and reorders a page the fused score had already decided. The eval arm can tell that apart from a real preference; the shipped default is the half a user actually gets, and nothing else pins it. · acceptance-sha256:506ca0226f37922a6b326a29cf69eb07202925e1620e346e2bca9ac0bc9ad2f6
 
 ## Invariants
 
@@ -93,3 +95,5 @@ _(populated by `adr-verify --mutant` during execution)_
 - Persisting `blended_score` (deferred: docs/adr/BACKLOG.md §"From ADR-030")
 
 ## Verification Log
+- 2026-09-08 · 15e8be02* · exit 0 · `docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c ' …` · acceptance-sha256:506ca0226f37922a6b326a29cf69eb07202925e1620e346e2bca9ac0bc9ad2f6 · ms:33860
+- 2026-09-08 · 15e8be02* · exit 0 · `docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c ' …` · acceptance-sha256:506ca0226f37922a6b326a29cf69eb07202925e1620e346e2bca9ac0bc9ad2f6 · ms:35104
