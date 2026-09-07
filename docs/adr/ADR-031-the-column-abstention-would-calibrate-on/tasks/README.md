@@ -14,7 +14,7 @@ Implementation tasks for ADR-031: Keep the one score that separates a recall tha
 
 | Task | Goal | Produces | Consumes | Status | Acceptance |
 |------|------|----------|----------|--------|------------|
-| T1 | Keep the separating score, and report it with an honest denominator | `search_events.top_rerank_score`; `AvgTopRerank` + `Reranked`; the two `am_recall_stats` fields | none | pending | `go test ./internal/palace/ -run "^(TestRerankSignalIsReportedAndNotDilutedByUnrerankedRows)$"` |
+| T1 | Keep the separating score, and report it with an honest denominator | `search_events.top_rerank_score`; `AvgTopRerank` + `Reranked`; the two `am_recall_stats` fields | none | done | `go test ./internal/palace/ -run "^(TestRerankSignalIsReportedAndNotDilutedByUnrerankedRows)$"` |
 
 ## Not a task here
 
