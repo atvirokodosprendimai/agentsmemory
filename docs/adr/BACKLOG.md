@@ -1939,10 +1939,13 @@ which reads thirty as a finding count. It is not.
   that can be done honestly today. **Trigger: any proposal to reduce what is loaded unconditionally,
   since that is the only lever whose cost this blind spot hides.**
 
-- **Re-examine every default annotated as "measured".** Two are named in ADR-032 (`Fusion`,
-  `RerankWeight`); a sweep of `config.Default()` for comments claiming a measurement would say
-  whether there are more. ADR-032 T2's `TestShippedDefaultsCiteTheirCorpus` is the mechanical
-  version of this question. **Trigger: T2 landing.**
+- **Re-examine every default annotated as "measured" — SWEPT 2026-09-07, and the answer is three.**
+  `TestShippedDefaultsCiteTheirCorpus` now runs that sweep mechanically over `config.Default()`'s
+  return literal on every `go test ./...`, so this bullet no longer needs a person: the claiming
+  fields are `RerankWeight`, `RerankNorm` and `RerankTimeout`, and each now names its evidence. There
+  were no others hiding. ⚠ `Fusion` is NOT among them — its literal carries no measurement claim, so
+  the gate cannot see it and ADR-032's "annotated as measured" refers to ADR-014, not to a comment
+  beside the default. That is the one residue, recorded under ADR-032 T1's bullet above.
 
 - **Make `--style real` the corpus the eval documentation leads with.** `cmd/server/eval.go`'s
   Description still presents the generated styles first, which is how a fixture that cannot exhibit
@@ -1951,11 +1954,32 @@ which reads thirty as a finding count. It is not.
 
 ## From ADR-032 T1 (the null result, 2026-08-26)
 
-- **`TestShippedDefaultsCiteTheirCorpus`.** Planned for T2 and NOT written, because it belongs with a
-  default change and there was none. Every `config.Default()` field whose comment claims it was
-  measured should name the case-set id it was measured on — `Fusion` and `RerankWeight` say "chosen
-  by the eval's weight sweep" and name no corpus, which is how a measurement outlived the corpus that
-  produced it. Worth doing on its own. **Trigger: the next change to any default annotated "measured".**
+- **`TestShippedDefaultsCiteTheirCorpus` — WRITTEN 2026-09-07.** Planned for T2 and skipped then
+  because it "belongs with a default change and there was none"; taken on its own, as this entry said
+  it was worth. `internal/repohygiene/shippeddefaults_test.go` parses `config.Default()`'s own return
+  literal and fails when a field whose comment CLAIMS a measurement names no evidence. It found
+  exactly the two this entry predicted — `RerankWeight` and `RerankNorm` — and both now carry a
+  pointer: `RerankWeight` names ADR-032 and the fact that the sweep ran on the paraphrase corpus while
+  a LOWER weight wins on the real one, `RerankNorm` names ADR-030 and its shipped-ahead-of-the-eval
+  deviation. Live figures on a `-v` run; no count is frozen here.
+
+  ⚠ **THE RULE IS "NAME EVIDENCE", NOT "NAME A CASE SET", AND ONE DEFAULT IS WHY.** `RerankTimeout`
+  records a latency measurement — a pool of 50 costing ~22s on a CPU cross-encoder, an MCP client
+  giving up 3 times out of 3 — that no record owns and for which a case-set id is meaningless, since
+  it measured wall-clock rather than ranking. Demanding one would have forced an ADR to be written
+  before a true sentence could be stated. An ADR id, a case set, or a date all count; the ADR form
+  composes with `TestEveryCitedADRResolves`, so this gate never has to ask whether the record exists.
+
+  ⚠ **ITS UNIT IS THE FIELD, NOT THE CLAIM, learned from a SURVIVED MUTANT.** Deleting one of two
+  ADR-030 mentions in `RerankNorm`'s comment left the gate green, because the other still matched — so
+  a comment making two measurement claims and citing evidence for one passes. Splitting the unit means
+  deciding which sentence a pointer belongs to, which is review's job. The two mutants that kill it
+  strip every pointer from either field.
+
+  **Still open from this bullet:** `Fusion: "rrf"` carries no measurement claim in `config.Default()`
+  at all, so the gate does not see it — ADR-032 names it as annotated-measured, and the annotation is
+  in ADR-014 rather than beside the literal. Whether the comment should be moved next to the default
+  is the residue. **Trigger: the next change to `Fusion`.**
 
 - **The 3 answers no arm retrieved (n=54 run).** The first corpus of three that is not saturated —
   94% in-pool against 100% for both earlier runs — so for the first time there are genuine RETRIEVAL
