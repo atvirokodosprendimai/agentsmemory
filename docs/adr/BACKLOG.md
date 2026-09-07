@@ -745,13 +745,20 @@ the true class for a better-looking precision figure. See ADR-041 T1's evaluatio
   TRIGGER was never pulled, and this file blamed the input — extractor yield in one case, corpus size
   in another.
 
-  ⚠ **AND THAT ACCOUNTS FOR THE 958 BETTER THAN ANY per-X RULE DOES.** The backfill bullet measured
-  *57 of 1,985 drawers carrying any edge — 2.9%, 2026-08-26*; this sweep measures 958 of 12,283 —
-  **7.8%**. A forward-only mechanism running against a fixed pre-fix backlog produces exactly that
-  rise, and it will keep rising with no backfill ever running. Arithmetic anyone can re-check, rather
-  than a rule about what the edge is attached to. ⚠ **The two figures are from DIFFERENT (and one
-  undated) palaces**, so they are consistent in SHAPE and are not a series — the shape is the claim,
-  the slope is not.
+  ⚠ **AND THAT ACCOUNTS FOR THE 958 BETTER THAN ANY per-X RULE DOES** — but count it against ROOTS,
+  which is what the edge is one-per-of. Of **1,992 root drawers, 1,046 carry no derived edge**, and
+  **498 of those were filed before 2026-08-26**: a forward-only mechanism leaving everything older
+  unedged, with no backfill ever having run. That is the account, in a count of the right things.
+
+  ⚠ **AND A PERCENTAGE HERE WAS WRONG UNTIL 2026-09-07, SUPPLIED BY REVIEW.** It read *"the backfill
+  bullet measured 57 of 1,985 drawers carrying any edge — 2.9%; this sweep measures 958 of 12,283 —
+  **7.8%**"*. Both figures divide edges by DRAWERS, and an edge is attached once per ROOT CHUNK — so
+  the numerator counts roots and the denominator counts chunks, a population it is never one-per-of.
+  On roots the same snapshot gives **946 of 1,992 — 47.5%**, six times the number that was published,
+  and the 2026-08-26 figure cannot be restated at all because nobody recorded that corpus's root
+  count. **A ratio is only a fact when its denominator is the population its numerator counts**, which
+  is this bullet's own subject arriving one level up: the finding was verified and the arithmetic
+  offered beside it was not.
 
   ⚠ **AN OPEN QUESTION REVIEW RAISED, BOUNDED HERE RATHER THAN ANSWERED.** If several roots in ONE
   batch share `(wing, room, source_file)` — including the common empty `source_file` — every one after
