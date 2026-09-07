@@ -319,10 +319,17 @@ func desktopConfigDirOn(goos, home, base string) string {
 //     right and looking in the wrong place — ~/.cursor/hooks is a state
 //     directory, not the registration point.
 //     What stops the port is sharper than "unverified", and it is measured: a
-//     canary printed by a sessionStart hook DID NOT REACH THE MODEL. Cursor
-//     discards hook stdout, so a recall hook there runs, costs a round trip and
-//     is thrown away — the ADR-041 T4 defect §Reachability records, with every
-//     test passing because every test drives the script. Two more: Cursor's
+//     canary printed by a sessionStart hook DID NOT REACH THE MODEL — measured
+//     once, 2026-09-07, against cursor_version 2026.09.02-c22c1a3 as the payload
+//     itself reported it. That build discards hook stdout, so a recall hook there
+//     runs, costs a round trip and is thrown away — the ADR-041 T4 defect
+//     §Reachability records, with every test passing because every test drives
+//     the script. ⚠ THE VERSION IS PART OF THE CLAIM, not decoration: this is a
+//     capability of a third-party product that ships updates on its own
+//     schedule, so "Cursor does not do this" is a frozen figure with a worse
+//     half-life than the ones this corpus keeps correcting — nobody here
+//     controls when it goes false. Re-measure before concluding it still holds.
+//     Two more, from the same capture: Cursor's
 //     sessionStart carries no `source` field, so `[ "$SOURCE" = "compact" ]` has
 //     nothing to read and the compaction recall must be rebuilt on preCompact
 //     rather than ported; and `transcript_path` is null, which the Stop hook

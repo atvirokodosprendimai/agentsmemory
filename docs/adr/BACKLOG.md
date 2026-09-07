@@ -1996,8 +1996,12 @@ mitigation is for the hook to stop presenting the list as this session's.
   enterprise scopes — `~/.cursor/hooks` is a state directory and was the wrong place to look),
   twenty events including `sessionStart` and `preCompact`, and a captured `sessionStart` payload.
   ADR-020 still ships no hooks for Cursor, and the reason is now MEASURED rather than unknown: a
-  canary printed by a `sessionStart` hook did not reach the model, so Cursor discards hook stdout
-  and a ported recall hook would run and be thrown away — the ADR-041 T4 defect, in a new place.
+  canary printed by a `sessionStart` hook did not reach the model — measured once, 2026-09-07,
+  against `cursor_version` 2026.09.02-c22c1a3 as the payload itself reported it. That build discards
+  hook stdout, so a ported recall hook would run and be thrown away — the ADR-041 T4 defect, in a
+  new place. ⚠ The version is part of the claim: this is a capability of a third-party product that
+  ships on its own schedule, so an unpinned "Cursor does not do this" is a frozen figure nobody here
+  controls the expiry of. Re-measure before concluding it still holds.
   Two more gaps beside it: no `source` field, so `[ "$SOURCE" = "compact" ]` cannot port and the
   compaction recall must be rebuilt on `preCompact`; and `transcript_path: null`, which the Stop
   hook reads. **The blocker is an injection route, not a payload capture.** Until one is found, a
