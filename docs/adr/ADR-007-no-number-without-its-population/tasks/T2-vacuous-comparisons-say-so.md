@@ -91,6 +91,15 @@ Stop and report if step 3's falsification fires — the rule is then withdrawn, 
 
 ## Verification Log
 
-<Tool-written by adr-verify. Do not hand-edit.>
+- 2026-09-07 · 08840082 · exit 0 · `docker run --rm --init -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'apk add --no-cache bash git >/dev/null 2>&1 || true; …` · acceptance-sha256:319576b5677d3a53d5bcf7f4f2627bd1806b1f5ac051bc06e5a5314c7c1c93a8 · ms:55150
+- 2026-09-07 · 08840082* · exit 0 · `docker run --rm --init -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'apk add --no-cache bash git >/dev/null 2>&1 || true; …` · acceptance-sha256:319576b5677d3a53d5bcf7f4f2627bd1806b1f5ac051bc06e5a5314c7c1c93a8 · ms:56972
+- 2026-09-07 · 08840082* · exit 0 · `docker run --rm --init -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'apk add --no-cache bash git >/dev/null 2>&1 || true; …` · acceptance-sha256:319576b5677d3a53d5bcf7f4f2627bd1806b1f5ac051bc06e5a5314c7c1c93a8 · ms:51466
+- 2026-09-07 · 08840082* · exit 0 · `docker run --rm --init -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'apk add --no-cache bash git >/dev/null 2>&1 || true; …` · acceptance-sha256:319576b5677d3a53d5bcf7f4f2627bd1806b1f5ac051bc06e5a5314c7c1c93a8 · ms:51030
 
 ## Mutation Log
+- 2026-09-07 · 08840082* · mutant killed · exit 1 · `internal/palace/evalstats.go` · the corpus closet count stops deciding the status, so a run over a corpus with no closets reports the same thing as a real null — the exact reading that made seven tables look like evidence that the closet prior does nothing. · acceptance-sha256:319576b5677d3a53d5bcf7f4f2627bd1806b1f5ac051bc06e5a5314c7c1c93a8 · covers:the status distinguishes an absent input from a real null
+- 2026-09-07 · 08840082* · mutant killed · exit 1 · `internal/palace/evalstats.go` · every moved == 0 becomes not measured, which is the rule the task pre-registers as grounds for WITHDRAWAL: closets present and none inside closetDistanceCap is a real null, and this converts that finding into a non-answer. · acceptance-sha256:319576b5677d3a53d5bcf7f4f2627bd1806b1f5ac051bc06e5a5314c7c1c93a8 · covers:a genuine null keeps its number and its interval
+- 2026-09-07 · 08840082* · mutant survived · exit 0 · `cmd/server/eval.go` · the status is computed and dropped before the writer, so every reader is left exactly where the seven previous tables left them: a delta of zero with no way to tell an unrun experiment from a null. The same defect one level down from the one this task fixes. · acceptance-sha256:319576b5677d3a53d5bcf7f4f2627bd1806b1f5ac051bc06e5a5314c7c1c93a8 · covers:the status reaches the printed cell
+  ```
+  the fence passed with the mechanism broken; it may not materialize, compile, load, or assert on the changed path
+  ```

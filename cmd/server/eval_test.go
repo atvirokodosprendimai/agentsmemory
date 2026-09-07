@@ -1092,9 +1092,23 @@ func TestClosetStatusReachesTheTable(t *testing.T) {
 	printClosetBlock(&buf, report)
 	got := buf.String()
 
-	if !strings.Contains(got, string(palace.ClosetNotMeasured)) {
-		t.Errorf("the closet row does not carry its status, so the reader still sees a delta of "+
-			"zero from an experiment that never ran:\n%s", got)
+	// The status must be on the ROW, not merely somewhere in the block. Asserting
+	// `strings.Contains(got, …)` is what this test did first and a mutant walked
+	// straight through it: blanking the status COLUMN left the explanatory line
+	// under the table still naming the status, so the fence passed with the
+	// mechanism broken. A reader scanning the table by column sees the column.
+	var row string
+	for _, line := range strings.Split(got, "\n") {
+		if f := strings.Fields(line); len(f) > 3 && f[0] == "single-hop" {
+			row = strings.TrimSpace(line)
+		}
+	}
+	if row == "" {
+		t.Fatalf("no single-hop row in the block:\n%s", got)
+	}
+	if !strings.HasSuffix(row, string(palace.ClosetNotMeasured)) {
+		t.Errorf("the closet ROW does not end with its status, so a reader scanning the table "+
+			"still sees a delta of zero from an experiment that never ran:\n  %s", row)
 	}
 	// Naming the status without naming the absent input tells a reader that
 	// something is wrong and not what — which sends them to the ranking code, where
