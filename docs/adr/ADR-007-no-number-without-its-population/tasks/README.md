@@ -23,5 +23,5 @@ against this eval now, so every run taken before it lands is one nobody can plac
 | Task | Goal | Produces | Consumes | Status |
 |------|------|----------|----------|--------|
 | [T1](T1-aggregate-within-one-population.md) | No statistic combines arms measuring different populations | scope-partitioned aggregation | none | done |
-| [T2](T2-vacuous-comparisons-say-so.md) | A comparison whose mechanism had no input reports `not measured` | `ClosetCell` status | none | todo |
+| [T2](T2-vacuous-comparisons-say-so.md) | A comparison whose mechanism had no input reports `not measured` | `ClosetCell` status | none | done |
 | [T3](T3-a-run-states-what-it-measured.md) | A run states its case set, and `BEST` states what it is best over | `CaseSetID`, `CaseSetOrigin`, `ranking` | none | done |
