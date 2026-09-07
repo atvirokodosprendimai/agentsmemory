@@ -26,5 +26,5 @@ gate cannot fail on the defects it was designed after, the ADR is re-planned rat
 |------|------|----------|----------|--------|
 | [T1](T1-the-harness.md) | Stand a real server up in a test and prove one round trip | `mcptest.Harness` | none | done |
 | [T2](T2-every-tool-or-the-build-fails.md) | Every registered tool has a scenario, or the build fails | the scenario registry + gate | `mcptest.Harness` | done |
-| [T3](T3-lifecycle-round-trips.md) | Create, read, update, delete — proven by reading back | one-party scenarios + 3 regressions | the scenario registry | partial |
+| [T3](T3-lifecycle-round-trips.md) | Create, read, update, delete — proven by reading back | one-party scenarios + 3 regressions | the scenario registry | done |
 | [T4](T4-two-and-three-party.md) | Two parties see what they should, three prove isolation | multi-party scenarios | `mcptest.Harness` | done |

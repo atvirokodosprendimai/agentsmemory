@@ -28,22 +28,30 @@
 > `! grep -qE …` guard was replaced by the un-negated form in the same edit, since the digest was
 > being re-recorded anyway — `set -e` exempts a negated pipeline, so it never could have failed.
 >
-> ⚠ **T3 STAYS `partial`: IT CANNOT BE VERIFIED FROM A LINUX CHECKOUT.** With `safe.directory` in
-> place the 128s are gone (0 of them), and the fence is now blocked by a single unrelated test —
-> `TestADeadlineKillsTheChildAndItsChildren`, "the process group was not reaped". It is NOT a flake:
-> it failed both recorded runs at ~3.31s, while passing 3/3 in the same container in isolation and
-> passing in the full suite on the host. Two failed runs are in the Verification Log deliberately,
-> because an attempt that got further than the last one is evidence and deleting it would hide that
-> the first blocker is fixed.
+> ⚠ **THE FENCE NEEDED A SECOND FIX, AND THIS PARAGRAPH SAID SO WHILE STILL CALLING IT UNVERIFIABLE.**
+> Retired in place rather than deleted, because the intermediate state is the finding: with
+> `safe.directory` alone the ten 128s were gone and ONE unrelated test remained —
+> `TestADeadlineKillsTheChildAndItsChildren`, "the process group was not reaped". It was NOT a flake.
+> It failed both recorded runs at ~3.31s while passing 3/3 in the same container in isolation and
+> passing in the full suite on the host, which is exactly the signature of a container with no init:
+> the orphaned `sleep` is reparented to PID 1, `sh` never reaps it, and it lingers as a ZOMBIE — so
+> `syscall.Kill(pid, 0)` keeps succeeding and never returns the `ESRCH` the test requires. The test's
+> own comment anticipates a brief zombie; what it assumes is a reaper, and a container has none.
 >
-> ⚠ **AND THE MUTATION LOG IS DELIBERATELY STILL EMPTY, WHICH `adr-lint` CORRECTLY FLAGS.** All three
-> mutants were run and their results are recorded in the Mutants table's prose below and in the
-> commit that fixed the supersede scenario — M1 kills only after that fix, M2 and M3 kill as they
-> stand. What cannot be written yet is the TOOL-WRITTEN entry, because `adr-verify --mutant` records
-> a kill from the acceptance fence's exit code, and this fence is currently red for a reason that has
-> nothing to do with any mutant. Every mutant would be recorded `killed` on a fence that fails with
-> the mechanism intact — a verdict bound to nothing, which is the exact defect this ADR exists to
-> prevent. The log stays empty until the fence is green on the machine recording it.
+> `--init` supplies one. Measured as a control and a treatment, full suite, same image, same tree:
+> **without `--init` 2 of 2 runs FAILED on that test; with `--init` 2 of 2 PASSED with zero
+> failures.** The fence now carries both fixes and the acceptance is exit 0.
+>
+> ⚠ **THE MUTATION LOG WAS EMPTY ON PURPOSE UNTIL THE FENCE WENT GREEN, AND THAT REASONING IS WHY IT
+> IS TRUSTWORTHY NOW.** `adr-verify --mutant` infers a kill from the fence's exit code. While the
+> fence was red for a reason no mutant caused, every mutant would have recorded `killed` against a
+> fence that fails with the mechanism intact — a verdict bound to nothing, which is the exact defect
+> this ADR exists to prevent. The three entries below were recorded only after the acceptance reached
+> exit 0, so each `mutant killed` means the fence went red BECAUSE of that mutant and not around it.
+>
+> ⚠ **THE THREE EARLIER VERIFICATION-LOG ENTRIES ARE KEPT ON PURPOSE** — one exit-1 from before
+> `safe.directory`, two from between the two fixes. An attempt that got further than the last one is
+> evidence, and deleting them would hide that the first blocker was fixed before the second was found.
 
 **Covers:** none — no spec
 **Estimated scope:** L (cross-boundary)
@@ -75,7 +83,7 @@ Every mutable area round-trips through the tool surface, and a delete is proven 
 ## Acceptance
 
 ```bash
-docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'apk add --no-cache bash git >/dev/null 2>&1 || true; 
+docker run --rm --init -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'apk add --no-cache bash git >/dev/null 2>&1 || true; 
   set -e
   git config --global --add safe.directory /src
   gofmt -l internal | grep -q . && { echo "gofmt"; exit 1; }
@@ -104,6 +112,10 @@ docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v 
 | multi-chunk update guard disarmed (`len(chunks) > 1 && false`) | yes | regression: no stale half after update |
 | delete truncated to the parent row (`ids = ids[:1]`) | yes | regression: delete leaves no chunk |
 | all-unreadable anchor refusal disarmed | yes | regression: malformed anchors do not clear |
+| ⚠ **2026-09-07, step 2 taken for the first time — the three below are what the Mutation Log actually records.** Same three mechanisms, re-spelled at the line each one is really decided on, because the rows above were written from the DIFF and §6 says to choose from the assertions. | | |
+| `supersedeInto`: `c.ValidTo == ""` → `c.ValidTo == "" && c.ID == id` (end only the named chunk) | yes | regression: no stale half after update |
+| `InvalidateDrawer`: `c.ValidTo != ""` → `c.ValidTo != "" \|\| c.ID != id` (retract only the named chunk) | yes | regression: delete leaves no chunk |
+| `anchorReplacement`: `sent > 0 && len(anchors) == 0` → `false && …` (stop refusing an all-unreadable list) | yes | regression: malformed anchors do not clear |
 
 **The adoption bar was not met on the first attempt, and the check is why.** The delete mutation
 SURVIVED: the scenario put its marker at the START of the content, so it landed in chunk 0 — which
@@ -167,5 +179,12 @@ Stop and report if any of the three regression scenarios cannot be made to fail 
   ok  	github.com/atvirokodosprendimai/agentsmemory/internal/wingbundle	0.021s
   FAIL
   ```
+- 2026-09-07 · ed9b01e* · exit 0 · `docker run --rm --init -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'apk add --no-cache bash git >/dev/null 2>&1 || true; …` · acceptance-sha256:71af492465f463b3d0b5b9cb2a41047ab1d9901515b47f65d97d15266c3c0d1d · ms:283785
+- 2026-09-07 · ed9b01e* · exit 0 · `docker run --rm --init -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'apk add --no-cache bash git >/dev/null 2>&1 || true; …` · acceptance-sha256:71af492465f463b3d0b5b9cb2a41047ab1d9901515b47f65d97d15266c3c0d1d · ms:262112
+- 2026-09-07 · ed9b01e* · exit 0 · `docker run --rm --init -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'apk add --no-cache bash git >/dev/null 2>&1 || true; …` · acceptance-sha256:71af492465f463b3d0b5b9cb2a41047ab1d9901515b47f65d97d15266c3c0d1d · ms:254305
+- 2026-09-07 · ed9b01e* · exit 0 · `docker run --rm --init -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'apk add --no-cache bash git >/dev/null 2>&1 || true; …` · acceptance-sha256:71af492465f463b3d0b5b9cb2a41047ab1d9901515b47f65d97d15266c3c0d1d · ms:278105
 
 ## Mutation Log
+- 2026-09-07 · ed9b01e* · mutant killed · exit 1 · `internal/palace/supersede.go` · supersedeInto ends only the chunk the caller named; the tail is still ended by the persistRows re-file, but with no superseded_by — the route from a withdrawn claim to its replacement is lost · acceptance-sha256:71af492465f463b3d0b5b9cb2a41047ab1d9901515b47f65d97d15266c3c0d1d
+- 2026-09-07 · ed9b01e* · mutant killed · exit 1 · `internal/palace/supersede.go` · InvalidateDrawer ends only the chunk the caller named, so a retracted multi-chunk memory keeps answering from its orphaned children — invisible to a get, visible only to search · acceptance-sha256:71af492465f463b3d0b5b9cb2a41047ab1d9901515b47f65d97d15266c3c0d1d
+- 2026-09-07 · ed9b01e* · mutant killed · exit 1 · `internal/mcpserver/drawers.go` · anchorReplacement stops refusing an all-unreadable anchor list, so a typo in the only anchor sent CLEARS the anchors the memory already had instead of being rejected · acceptance-sha256:71af492465f463b3d0b5b9cb2a41047ab1d9901515b47f65d97d15266c3c0d1d
