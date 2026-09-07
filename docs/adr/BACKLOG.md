@@ -1197,10 +1197,13 @@ drive-by: strip the guards, re-run adr-verify on every completed task, commit be
 then, scope a multi-package acceptance to the package that holds the tests.
 
 ⚠ **RE-MEASURED 2026-09-06: THE SWEEP IS ~7× THE SIZE THIS ENTRY SAYS.** It said "all nineteen".
-Today **128** task files carry the guard and **69 of those are marked `done`**, so the sweep would
-invalidate sixty-nine Verification Log entries rather than a handful — each needing its own
-`adr-verify` re-run and commit. The number is not restated as a new frozen figure for the reason
-this corpus keeps recording; re-measure before planning:
+**The live figures, 2026-09-07: 137 task files carry a vacuity guard** (128 of them the `^FAIL`
+spelling this entry's command matches), and **at least 66 of those are `done`**, with 55 whose status
+this method could not resolve. So the sweep invalidates **at least sixty-six** Verification Log
+entries rather than a handful — each needing its own `adr-verify` re-run and commit. ⚠ Both numbers
+were published wrong first and the corrections are in the chain below: `128` counted one spelling and
+`69` was a count where only a floor is knowable. **Neither is restated as a new frozen figure** for
+the reason this corpus keeps recording; re-measure before planning:
 
 ```
 grep -l 'no tests to run|^FAIL' docs/adr/*/tasks/T*.md | wc -l     # 128, re-measured 2026-09-07
