@@ -707,7 +707,7 @@ the true class for a better-looking precision figure. See ADR-041 T1's evaluatio
   | drawers | 12,283 |
   | kg triples | 1,974 |
   | triples carrying the `kg-extract` marker (`source_closet LIKE 'kg-extract:%'`) | **0** |
-  | `derived = 1` — `attachDerivedEdge`'s structural edge, **one per distinct (wing, room, source_file) root** | 958 |
+  | `derived = 1` — `attachDerivedEdge`'s structural edge, **one per root chunk, i.e. one per memory** | 958 |
   | authored by a session through `am_kg_add` | 1,016 |
 
   The corpus DID reach scale — 12,283 on local against the ~5,020 that were called unfed. ⚠ That
@@ -722,14 +722,20 @@ the true class for a better-looking precision figure. See ADR-041 T1's evaluatio
   structural, carrying no claim about the world. Only 1,016 are facts anybody asserted. Any density
   argument must exclude `derived = 1`.
 
-  ⚠ **DO NOT READ THOSE 958 AS "ONE PER DRAWER" — the first draft of this bullet did, and it
-  manufactures a false alarm.** Set beside 12,283 drawers, a per-drawer reading makes the plumbing
-  look 92% broken. `attachDerivedEdgeTo` (`internal/palace/service.go:892`) `continue`s on
-  `d.ParentID != ""` and dedupes on `wing\x00room\x00source_file`, so it is **one edge per distinct
-  source root** — not per chunk, not per memory, not per drawer. Its own comment names this
-  misreading as what the design prevents: *"one edge per chunk would multiply a single filing into as
-  many graph rows as it happened to split into, inflating the very count this is measured by."* 958
-  distinct source roots is not an anomaly and implies nothing about coverage.
+  ⚠ **DO NOT READ THOSE 958 AS "ONE PER DRAWER" — nor as "one per distinct (wing, room, source_file)",
+  which is what the first two drafts of this bullet said.** Set beside 12,283 drawers a per-drawer
+  reading makes the plumbing look 92% broken, and the source-root reading is simply false:
+  `attachDerivedEdge` (`internal/palace/kg.go:1456`) sets the edge's OBJECT to the drawer's own id, so
+  two memories sharing a `source_file` produce two objects and two edges. The corpus cannot hold one
+  per key.
+
+  It is **one edge per ROOT CHUNK — one per memory** — because `attachDerivedEdgeTo`
+  (`internal/palace/service.go:892`) `continue`s on `d.ParentID != ""`, which its comment names as the
+  point: *"one edge per chunk would multiply a single filing into as many graph rows as it happened to
+  split into, inflating the very count this is measured by."* ⚠ The `wing\x00room\x00source_file`
+  dedupe is **within a single write batch only** — `seen` is allocated per call — so an ordinary
+  `am_add_drawer` (one memory, one root) always gets its edge, while a multi-source import can leave
+  later roots unedged.
 
   ⭐ **THREE SUBSYSTEMS IN THIS FILE TELL ONE STORY: A MECHANISM THAT FIRES FORWARD ONLY, OVER A
   CORPUS THAT PREDATES IT.** `RecomputeGraph` is correct and nothing on the write path calls it;
@@ -746,6 +752,27 @@ the true class for a better-looking precision figure. See ADR-041 T1's evaluatio
   than a rule about what the edge is attached to. ⚠ **The two figures are from DIFFERENT (and one
   undated) palaces**, so they are consistent in SHAPE and are not a series — the shape is the claim,
   the slope is not.
+
+  ⚠ **AN OPEN QUESTION REVIEW RAISED, BOUNDED HERE RATHER THAN ANSWERED.** If several roots in ONE
+  batch share `(wing, room, source_file)` — including the common empty `source_file` — every one after
+  the first is skipped and gets no edge, which on an import would manufacture orphans. Measured on
+  LOCAL the same day from a second read-only snapshot. ⚠ Note the drift: this one reports 960 derived
+  edges where the table above says 958, because the palace was written to in between — which is why a
+  count gets its snapshot as well as its server.
+
+  | | count |
+  |---|---|
+  | root drawers | 1,992 |
+  | roots carrying NO derived edge | 1,046 |
+  | of those, sharing a key with another root — collapse is POSSIBLE | 555 |
+  | of those, key is UNIQUE — collapse CANNOT explain | 491 |
+  | unedged roots filed before 2026-08-26 — forward-only explains | 498 |
+  | roots with an empty `source_file` | 746 |
+
+  **This BOUNDS the hypothesis; it does not confirm it.** Sharing a key across DIFFERENT batches is
+  harmless, and nothing here shows the sharing was ever within one call — so 555 is a ceiling, not a
+  count, and the 491 unique-key ones need the forward-only account instead. Confirming it needs a test
+  that files two same-key roots in one batch and asserts two edges.
 
   So the question worth asking once, across all three rather than per feature, is **"what pulls this
   trigger in ordinary operation, and what covers what was already there?"**
