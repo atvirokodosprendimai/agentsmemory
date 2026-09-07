@@ -408,12 +408,17 @@ mechanical gates exist so review attention goes where only a reader can judge.
 **The general finding stands; the instance I filed it with was refuted in review and is corrected
 below. Both halves are kept, because the way the instance was wrong is the more useful lesson.**
 
-**The limitation, first found 2026-08-28 against `adr-lint 2.23.0` and re-verified 2026-09-07 against
-`2.85.0`** — sixty-two releases apart, same behaviour. ⚠ **No line numbers into the checker are
-written here, and the first draft carried two.** It is a separate project on its own cadence, so a
-line number in this file is stale by its next release; the messages and identifiers below are what to
-grep for, and they survived the sixty-two releases that moved every number. The finding is stronger
-than "the DAG cannot see these edges" — the schema forbids writing one:
+**The limitation, first found 2026-08-28 and re-verified 2026-09-07 — same behaviour, and no version
+arithmetic is written here.** ⚠ **A draft of this paragraph said "sixty-two releases apart" and a
+reviewer could not reproduce either end of it.** The checker is a separate project on its own cadence
+and installs differently per machine: this re-read ran `adr-lint 2.85.0` out of
+`~/.claude/plugins/cache/quality-harness/`, while the reviewer's PATH carried 2.79.0 from a source
+checkout and held no other copy. Both are true. A version is a fact about a RUN, so state the one you
+measured with; a difference between two runs on two machines is not a fact about the tool, and
+deriving a number from it puts a stale figure inside the entry whose subject is stale figures. ⚠ **No
+line numbers into the checker are written here either, and the first draft carried two** — the
+messages and identifiers below are what to grep for, and they are what survived every release since.
+The finding is stronger than "the DAG cannot see these edges" — the schema forbids writing one:
 
 - `adr-lint`'s `check_task` validates every `Depends-on` entry against `all_stems`, the SIBLING task
   files of that ADR, and emits *"Depends-on 'X' matches no sibling task file"*. So a cross-record
