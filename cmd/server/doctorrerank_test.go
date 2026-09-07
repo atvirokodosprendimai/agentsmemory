@@ -245,11 +245,20 @@ func coldStartReranker(t *testing.T, warmUp, fixed, perDoc time.Duration) string
 // Nothing was wrong with the probe: abstaining is exactly what it should do when
 // the larger batch comes back faster than the smaller one.
 //
-// ⚠ AND IT COULD NOT BE REPRODUCED ON DEMAND — 33 runs under ten busy-loop hogs,
-// zero failures — so this is one observation plus arithmetic, not a measured
-// rate. The arithmetic is the part that stands and the part worth gating: a
-// fixture asserting a 14ms difference cannot survive a 23ms perturbation,
-// however rarely one arrives.
+// ⚠ AND IT COULD NOT BE REPRODUCED ON DEMAND — 33 runs, ten busy-loop hogs for
+// the first thirty and twenty for the rest, zero failures — so this is one
+// observation plus arithmetic, not a measured rate. The arithmetic is the part
+// that stands and the part worth gating: a fixture asserting a 14ms difference
+// cannot survive a 23ms perturbation, however rarely one arrives.
+//
+// ⚠ THE LOAD FIGURE IS STATED IN TWO PARTS BECAUSE THE FIRST VERSION OF THIS
+// COMMENT SAID "ten" FOR ALL 33, AND THAT WAS WRONG. The teardown `kill $HOGS`
+// after each batch silently did nothing: this harness runs zsh non-interactively,
+// where job control is off and `jobs -p` prints nothing, so HOGS was empty and
+// `kill` with no arguments was swallowed by its own `2>/dev/null`. Thirty
+// orphaned spinners at ~750% CPU were still running twenty minutes later. The
+// direction is favourable — MORE load than claimed, still no reproduction — but a
+// number nobody could check was published, which is what this file is about.
 const (
 	coldStartWarmUp = 400 * time.Millisecond
 	coldStartFixed  = 20 * time.Millisecond
@@ -281,21 +290,6 @@ const (
 //
 // The remedy is one discarded call before the two timed ones.
 func TestAColdStartIsNotReportedAsAnUnaffordablePool(t *testing.T) {
-	// ⚠ THE PER-DOCUMENT COST IS THE FIXTURE'S SIGNAL, AND IT MUST EXCEED THE
-	// SCHEDULING NOISE OF THE BOX RUNNING THE TEST. At 2ms it did not: the two
-	// timed points were 22ms and 36ms apart by design — a 14ms margin — and one
-	// observed run of `go test ./...` on a loaded laptop timed the 1-document call
-	// at 45ms against the 8-document call at 38ms, inverting the spread, skipping
-	// the fit and failing here on INCONCLUSIVE. Nothing was wrong with the probe:
-	// abstaining is what it should do when the larger batch comes back faster.
-	// 30ms puts 210ms between the points, an order of magnitude above the ~23ms
-	// overshoot that was actually observed.
-	//
-	// ⚠ AND IT COULD NOT BE REPRODUCED ON DEMAND — 33 runs under ten busy-loop
-	// hogs, 0 failures — so this is one observation plus arithmetic, not a
-	// measured rate. The arithmetic is the part that stands: a fixture asserting
-	// a 14ms difference cannot survive a 23ms perturbation, however rarely one
-	// arrives.
 	url := coldStartReranker(t, coldStartWarmUp, coldStartFixed, coldStartPerDoc)
 	cfg := config.Default()
 	cfg.RerankURL = url
