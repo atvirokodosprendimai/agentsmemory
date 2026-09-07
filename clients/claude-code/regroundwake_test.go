@@ -321,6 +321,20 @@ func TestBothProtocolsNameTheRegroundWake(t *testing.T) {
 			// repositories because its instruction hung off a call they pruned.
 			// Pinned as a STRING because the failure was the wording, not the
 			// presence, and presence is what the two checks above already cover.
+			// ⚠ AND BOTH COPIES MUST NAME WHAT ARMING IT COSTS. A persistent
+			// monitor is permanently-running background work, so a harness that
+			// defers `/goal` evaluation on background work defers it for the life
+			// of the session. Measured twice on 2026-09-07 — a quality-harness
+			// session at 121 min on the wake itself, an agentsmemory session at
+			// 120 min on a DIFFERENT persistent monitor, which is what makes it a
+			// property of persistent monitors rather than of this one. Pinned
+			// because the failure it prevents is a session hunting for stuck work
+			// that does not exist, and because a cost recorded in one copy of a
+			// two-copy protocol is a cost the other copy's readers never learn.
+			// Pinned in the copies' own casing: the note is written as a ⚠ heading
+			// in both, and a matcher that lowercased it would pass over a copy that
+			// had demoted the warning to prose.
+			"DEFERS `/goal` EVALUATION FOR AS LONG AS IT RUNS",
 			"MUST, every session",
 		} {
 			if !strings.Contains(text, want) {
