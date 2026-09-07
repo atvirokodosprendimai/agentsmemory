@@ -51,6 +51,10 @@ grep -qE '^vector' docs/adr/ADR-032-the-corpus-that-chose-our-defaults/evidence/
 
 The `n=` pattern requires at least 40, so a run that died halfway cannot satisfy the fence with a partial table — the specific failure mode named in the ADR's Risks. It is set BELOW the ~45 expected rather than at it, because judging attrition is variable and a fence tuned to the expected value would fail an honest run.
 
+⚠ **Worth knowing what that guard is actually anchored to, because it is not obvious and it is only half deliberate.** `^n=` is line-anchored over a prose document, and two lines in `evidence/real-corpus-large.md` satisfy it: the table's methodology footnote — which a run that died before printing its table would not emit, so it is load-bearing exactly as intended — and, by accident, a WRAPPED SENTENCE (`n=54. This is the part of the corpus inversion that survives.`) where a paragraph happened to break. The guard works, on the footnote. The prose match is a coincidence of line width that a reflow would remove, and it is not what anyone should be relying on.
+
+Left alone rather than repaired: the redundancy costs nothing, and rewriting a committed evidence artifact to tidy a guard that already holds is a worse trade than saying where the guard really lives. ⚠ And a note on how this was nearly mis-recorded: the first reading of it claimed the PROSE line was the only anchor and the guard therefore did nothing. That came from a `grep … | head -8` whose output was cut before the footnote — a conclusion drawn from a truncated population, about a fence whose whole purpose is to reject one. Re-running the grep without `head` is what corrected it.
+
 ## Tests
 
 | Test name | File | Verifies | Covers |
@@ -68,7 +72,8 @@ The `n=` pattern requires at least 40, so a run that died halfway cannot satisfy
 
 ## Mutation Log
 
-_(not applicable: no production code changes. The falsifiability check is step 1 — if the inversion does not reproduce, the ADR's premise fails and that is the result.)_
+_(This said "not applicable: no production code changes" and that was a category error, not a fact about this task. There is no production code, but the ARTIFACT is what the fence reads, so the artifact is what a mutant breaks — and step 1 above already prescribed exactly that, in writing, and it was never run. A measurement task is not exempt from showing its gate can fail; it just mutates its evidence instead of its code.)_
+- 2026-09-07 · c0d2a02* · mutant killed · exit 1 · `docs/adr/ADR-032-the-corpus-that-chose-our-defaults/evidence/real-corpus-large.md` · Truncates the arm table by removing its `vector` row, which is step 1 of this task Ordered Steps and was never recorded: the fence must be shown to REJECT a half-finished run before any run is trusted by it. This is the specific failure mode the ADR Risks name — a run that dies partway leaving a partial table that reads like a result. The `^vector` anchor is the only one in the file, and `vector` is also the arm whose verdict is the one contrast that resolved at both n=26 and n=54, so a table missing it cannot answer the question the run was made for. · acceptance-sha256:92fb28bee04bcbfc4eed3e8d726394f73b14fe3f1ab207bcf83c561e8673caa0
 
 ## Invariants
 
@@ -78,7 +83,7 @@ _(not applicable: no production code changes. The falsifiability check is step 1
 
 ## Risks
 
-- A run that dies halfway leaves a partial table that must not be read as a result — the `n=` fence is what refuses it.
+- A run that dies halfway leaves a partial table that must not be read as a result. ⚠ This said the `n=` fence is what refuses it; measured 2026-09-07, the ROW checks are. Truncating the table's `vector` row turns the fence red on `grep -qE '^vector'` — while both `n=` anchors survive that truncation, because one is a prose sentence and the other a methodology footnote, and neither is part of the table. `n=` guards the sample SIZE; the three row patterns guard completeness. Crediting the wrong one is how a guard gets deleted as redundant.
 - **n≈45 may still not resolve the fusion contrast.** It is sized to a time budget, not to a power calculation, and that is a deliberate trade rather than an oversight. If the interval still spans zero, T2's Precondition applies and nothing flips — which is a legitimate outcome, not a failed run.
 - Sampling 70 of 721 recorded searches over-represents whatever the team searched for most; note the sampling method in the evidence file rather than leaving it implicit.
 
@@ -93,3 +98,5 @@ _(not applicable: no production code changes. The falsifiability check is step 1
 - The unanswered-query rate (deferred: same section)
 
 ## Verification Log
+- 2026-09-07 · c0d2a02 · exit 0 · `test -f docs/adr/ADR-032-the-corpus-that-chose-our-defaults/evidence/real-corpus-large.md …` · acceptance-sha256:92fb28bee04bcbfc4eed3e8d726394f73b14fe3f1ab207bcf83c561e8673caa0 · ms:20
+- 2026-09-07 · c0d2a02* · exit 0 · `test -f docs/adr/ADR-032-the-corpus-that-chose-our-defaults/evidence/real-corpus-large.md …` · acceptance-sha256:92fb28bee04bcbfc4eed3e8d726394f73b14fe3f1ab207bcf83c561e8673caa0 · ms:9
