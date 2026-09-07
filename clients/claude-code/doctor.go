@@ -815,7 +815,7 @@ func hookVerdictsIn(ctx context.Context, c *cli.Command, kit agentKit, dir, proj
 	// not run and not judged on its output: it has no channel, so silence is its
 	// healthy state, which is the distinction TestDoctorDoesNotFailOnSilence
 	// already keeps.
-	verdicts = append(verdicts, unwiredHooksIn(dir, scripts, registered)...)
+	verdicts = append(verdicts, unwiredHooksIn(dir, scripts, registered, kit, runtime.GOOS)...)
 	verdicts = append(verdicts, uninstalledRegistrations(dir, scripts, registered)...)
 	return verdicts, nil
 }
@@ -1356,7 +1356,7 @@ func runOneHook(ctx context.Context, c *cli.Command, dir, name string, reg hookR
 // named once. A file that declares no `# hook-output:` line at all is skipped:
 // it predates the declaration and staleHooksIn is what names those, with the
 // instruction that actually fixes them.
-func unwiredHooksIn(dir string, judged map[string]string, registered map[string]hookRegistration) []hookVerdict {
+func unwiredHooksIn(dir string, judged map[string]string, registered map[string]hookRegistration, kit agentKit, goos string) []hookVerdict {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil
@@ -1382,6 +1382,20 @@ func unwiredHooksIn(dir string, judged map[string]string, registered map[string]
 			continue
 		}
 		if len(registered[name].events) > 0 {
+			continue
+		}
+		// A hook the installer RETIRES on this platform is in the state install
+		// put it in, so it is reported and not counted. Silence would be the
+		// other defensible choice; naming it keeps the file visible, which is
+		// what an operator wondering where their session report went needs.
+		if name == sessionEndHookFile && sessionEndIsRetiredOn(kit.name, goos) {
+			out = append(out, hookVerdict{
+				name:  name,
+				label: "RETIRED",
+				detail: "installed and deliberately registered for no event on " + goos + ": the hook " +
+					"needs ~3.2s and loses the teardown race here (#150), so `install` retires it. " +
+					"Nothing is wrong; the same numbers are available from /stats on demand",
+			})
 			continue
 		}
 		out = append(out, hookVerdict{
