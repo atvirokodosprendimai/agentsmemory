@@ -4,6 +4,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"path/filepath"
 	"strconv"
 	"testing"
 )
@@ -39,19 +40,22 @@ type executeBitSite struct {
 // green in CI and red only on the platform with no runner. The coupling is an
 // AST fact, so an AST check is what pins it.
 //
-// ⚠ ITS UNIVERSE IS PRODUCTION SOURCE, AND TWO TEST FILES DO HOLD THE RAW MASK.
-// serverbin_test.go and desktopbridge_download_test.go assert that a file the
-// installer JUST WROTE came out executable, which is a different question from
-// judging a file someone else placed — and they are Windows-broken for more
-// reasons than this one (serverbin_test.go builds its expected path from
-// installedServerBinName, which carries no `.exe`, while the installer places
-// installedServerBinFile, which does). Widening the gate over them would mean
-// shipping a fix for a platform failure this session has not measured, so they
-// are named here and filed separately rather than swept in silently.
+// ⚠ ITS UNIVERSE IS THE WHOLE PACKAGE, TESTS INCLUDED — AND IT WAS NOT, WHICH IS
+// WHY THIS PARAGRAPH USED TO NAME TWO EXEMPTIONS. serverbin_test.go and
+// desktopbridge_download_test.go held the raw mask deliberately: they assert that
+// a file the installer JUST WROTE came out executable, which reads as a different
+// question from judging a file someone else placed, and this comment said so.
+// It is not a different question on Windows. There the mask is 0 for every
+// regular file, so both assertions are false about a binary that spawns
+// perfectly — the same defect, in the tests that were meant to cover it. Issue
+// #407 fixed them and the universe was widened with them, because an exemption
+// that survives is an exemption somebody re-types: this rule has now been
+// re-typed twice in production (#224, #393) and once in tests, and the only
+// version of it that holds is the one with nothing outside it.
 func TestOnlyTheSpawnablePredicateReadsThePOSIXExecuteBit(t *testing.T) {
 	fset := token.NewFileSet()
 	var files []*ast.File
-	for _, name := range productionGoFiles(t) {
+	for _, name := range packageGoFiles(t) {
 		f, err := parser.ParseFile(fset, name, nil, 0)
 		if err != nil {
 			t.Fatalf("parse %s: %v", name, err)
@@ -62,6 +66,27 @@ func TestOnlyTheSpawnablePredicateReadsThePOSIXExecuteBit(t *testing.T) {
 	checkExecuteBitSites(t, fset, files...)
 
 	t.Run("a second rung reading the bit directly is reported", aRawExecuteBitIsReported)
+}
+
+// packageGoFiles returns every .go file in this package, tests included.
+//
+// It is a sibling of productionGoFiles rather than a flag on it, because the two
+// gates want different universes for good reasons and one shared helper would
+// decide for both. placedbin_gate_test.go's rule is about how PRODUCTION binds a
+// registration path, and a test that constructs a path by hand is not an offence
+// there. This rule is about a platform predicate, and a test that re-types it is
+// broken on exactly the platform the predicate exists for — so here the tests are
+// the universe as much as the production files are.
+func packageGoFiles(tb testing.TB) []string {
+	tb.Helper()
+	out, err := filepath.Glob("*.go")
+	if err != nil {
+		tb.Fatalf("glob the package: %v", err)
+	}
+	if len(out) == 0 {
+		tb.Fatal("no .go file found in this package — the gate is reading nothing")
+	}
+	return out
 }
 
 // spawnablePredicate is the one function allowed to read the execute bit, and it
