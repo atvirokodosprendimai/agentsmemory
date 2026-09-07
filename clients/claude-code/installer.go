@@ -1521,7 +1521,7 @@ func (i *Installer) hookPlansOn(goos string) []hookPlan {
 			note:  "registered UserPromptSubmit hook (each task starts with a recall about that task)",
 		},
 	)
-	if goos != "windows" {
+	if !sessionEndIsRetiredOn(i.kit.name, goos) {
 		plans = append(plans, hookPlan{
 			event: "SessionEnd",
 			cmd:   i.hookCommand(i.sessionEndHookPath()),
@@ -1541,6 +1541,24 @@ func (i *Installer) hookPlansOn(goos string) []hookPlan {
 		note:   "retired the SessionEnd hook (it cannot finish before Windows tears the session down)",
 		retire: true,
 	})
+}
+
+// sessionEndIsRetiredOn reports whether this kit installs the SessionEnd hook
+// to disk and deliberately leaves it registered to no event on goos.
+//
+// It exists so the two commands that care cannot disagree about the same file.
+// hookPlansOn calls it to build the retirement, and doctor calls it to
+// recognise the result: before that, `install` retired the registration on
+// Windows and `doctor` reported the state install had just produced as a
+// finding, prescribing `aiagentmemory install` as the remedy — which retires it
+// again. A gate whose own remedy cannot satisfy it is a gate people learn to
+// skip, which is the note judge_tree already carries. Reported as issue #393 on
+// a clean v0.0.125 install where every other check was green.
+//
+// A second list beside hookPlansOn would answer the same question and go stale
+// the day the platform rule changes; this is the one place the rule lives.
+func sessionEndIsRetiredOn(kitName, goos string) bool {
+	return kitName == agentClaude && goos == "windows"
 }
 
 // noteSessionEndSkippedOn says out loud what hookPlansOn leaves out on Windows,
