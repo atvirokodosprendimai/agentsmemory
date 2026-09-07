@@ -115,7 +115,7 @@ func registerMarkAnchors(reg *registrar, drawers *palace.Service, usageSvc *usag
 // is working, which is the only question an operator can act on.
 func registerRecallStats(reg *registrar, drawers *palace.Service, usageSvc *usage.Service, scopeSearchToWing bool) {
 	tool := newTool("recall_stats",
-		mcp.WithDescription("How well memory is working, per wing: searches run, how many came back with something, how many of them a shipped hook made on its own (hook_searches — a hook's recall that found nothing is a fact about the palace, not a memory to write, so unanswered and suggestions are built from the searches nobody's hook made; hook_searches: 0 beside a machine-shaped list means a kit that has not learned to declare itself), drawers held, and the recent queries that found NOTHING (the memories the team looked for and does not have). Use it to see whether recall is earning its keep rather than guessing. Two team-level counts sit beside them: fetches, how many times a caller read a drawer while naming the recall that sent it there, and recalls_fetched, how many DISTINCT recalls those fetches name — the palace's only usage signal that grows with usage rather than with a labelling budget. They are raw counts and deliberately not a rate: the denominator would be recalls that were LOGGED, and a ratio needs the ranking profile beside it to mean anything."),
+		mcp.WithDescription("How well memory is working, per wing: searches run, how many came back with something, how many of them a shipped hook made on its own (hook_searches — a hook's recall that found nothing is a fact about the palace, not a memory to write, so unanswered and suggestions are built from the searches nobody's hook made; hook_searches: 0 beside a machine-shaped list means a kit that has not learned to declare itself), drawers held, and the recent queries that found NOTHING (the memories the team looked for and does not have). Use it to see whether recall is earning its keep rather than guessing. Two team-level counts sit beside them: fetches, how many times a caller read a drawer while naming the recall that sent it there, and recalls_fetched, how many DISTINCT recalls those fetches name — the palace's only usage signal that grows with usage rather than with a labelling budget. Those two stay raw team-wide totals; the ratio is fetch_rates, one entry per ranking profile carrying rate with its own denominator recalls_logged (recalls this palace LOGGED under that profile — an eval sweep writes no row and is not in it) and numerator recalls_fetched. Never an average across profiles, because a change to the blend moves the number. An EMPTY fetch_rates means no recall in the window carried a recorded profile, NOT that nothing was fetched."),
 		mcp.WithString("wing", mcp.Description("Only report this wing. Omitted, scoped to this registration's default_wing only when one is configured and SEARCH_SCOPE is not workspace; otherwise every wing. Pass \"*\" for every wing deliberately."), searchWingProperty()),
 		mcp.WithNumber("hours", mcp.Description("Window to report on, in hours (default 24).")),
 		mcp.WithNumber("unanswered", mcp.Description("How many unanswered queries to list (default 10).")),
@@ -170,15 +170,18 @@ func registerRecallStats(reg *registrar, drawers *palace.Service, usageSvc *usag
 				"last_filed":   w.LastFiled,
 			})
 		}
-		// ADR-028 T3. Two RAW counts, never a rate, and never wing-scoped.
+		// ADR-028 T3 published two RAW counts and withheld the rate; T4 is the
+		// deferral discharged. `fetches` and `recalls_fetched` stay team-wide
+		// totals — they answer "is the join recording anything at all" — and
+		// `fetch_rates` carries the ratio, one entry per ranking profile, each with
+		// its own denominator. ADR-007's rule then holds by construction rather
+		// than by the reader's discipline: the number cannot be rendered without
+		// the population beside it.
 		//
-		// A rate is withheld on purpose: the denominator is recalls THAT WERE
-		// LOGGED — SkipTelemetry means some recalls write no search_events row at
-		// all — and ADR-028's deferral puts any ratio behind `profile_id` on the
-		// durable row, because "38% of recalls were followed by a fetch" is
-		// uninterpretable without knowing which ranking profile produced them.
-		// Publishing the counts is what makes the fetch join observable at all;
-		// publishing a rate would be the population error ADR-007 exists to stop.
+		// `fetch_rates` is EMPTY rather than zero when the window logged no recall
+		// under any recorded profile — including on a corpus whose rows all predate
+		// migration 00038. "Nothing was fetched" and "nothing was measured" must
+		// not render alike, and `searches` beside it says which one this is.
 		//
 		// Team-scoped rather than per-wing because a fetch names a DRAWER and the
 		// wing would have to be joined back through it. Reported at the top level
@@ -186,6 +189,21 @@ func registerRecallStats(reg *registrar, drawers *palace.Service, usageSvc *usag
 		fetches, recallsFetched, err := drawers.CountFetches(ctx, t.TeamID, time.Duration(hours)*time.Hour)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
+		}
+		rates, err := drawers.FetchRatesByProfile(ctx, t.TeamID, time.Duration(hours)*time.Hour)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		fetchRates := make([]map[string]any, 0, len(rates))
+		for _, r := range rates {
+			fetchRates = append(fetchRates, map[string]any{
+				"profile_id": r.ProfileID,
+				// The denominator ships in the same object as the rate, so quoting
+				// the rate alone takes deliberate effort rather than inattention.
+				"recalls_logged":  r.RecallsLogged,
+				"recalls_fetched": r.RecallsFetched,
+				"rate":            r.Rate(),
+			})
 		}
 		return jsonResult(map[string]any{
 			"window_hours":    hours,
@@ -196,10 +214,11 @@ func registerRecallStats(reg *registrar, drawers *palace.Service, usageSvc *usag
 			"writes":          stats.Writes,
 			"fetches":         fetches,
 			"recalls_fetched": recallsFetched,
+			"fetch_rates":     fetchRates,
 			"wings":           wings,
 			"unanswered":      stats.Unanswered,
 			"suggestions":     stats.Suggestions,
-			"hint":            "answered_pct climbing over weeks means the palace is learning the questions this team actually asks; a wing with drawers and no searches is written-to and never read. suggestions collapses the unanswered queries into a to-write list: each entry is one memory this team looked for and does not have, with how many times it was asked and which wing to file it in.",
+			"hint":            "answered_pct climbing over weeks means the palace is learning the questions this team actually asks; a wing with drawers and no searches is written-to and never read. suggestions collapses the unanswered queries into a to-write list: each entry is one memory this team looked for and does not have, with how many times it was asked and which wing to file it in. fetch_rates is one row per ranking profile and never an average across them: rate is recalls_fetched/recalls_logged for that profile alone, and an empty list means no recall in the window carried a recorded profile rather than that nothing was fetched.",
 		}), nil
 	})
 }

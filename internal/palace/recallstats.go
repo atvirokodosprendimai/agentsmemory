@@ -52,7 +52,19 @@ type searchEventRow struct {
 	// before the column existed, which the aggregate excludes rather than
 	// counting as healthy.
 	RerankSkipReason string `gorm:"column:rerank_skip_reason"`
-	CreatedAt        string `gorm:"column:created_at"`
+	// ProfileID is WHICH RANKING produced this page — the string RankingProfile
+	// mints, the same one am_status publishes and the `am.profile_id` span
+	// attribute carries. It is what makes a fetch rate quotable: averaged across
+	// a knob change the figure describes no configuration anyone ran (ADR-028 T4,
+	// ADR-007).
+	//
+	// A POINTER because the column is nullable and NULL is a distinct state: a
+	// row written before migration 00038 was taken under a ranking nobody
+	// recorded, which is not the same as one taken under the empty profile. The
+	// aggregate excludes NULL rather than grouping it, and a plain string could
+	// not tell the two apart.
+	ProfileID *string `gorm:"column:profile_id"`
+	CreatedAt string  `gorm:"column:created_at"`
 }
 
 // TableName pins the table name so gorm does not pluralise the struct name.
