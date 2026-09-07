@@ -30,8 +30,9 @@ Every aggregate the eval prints over multiple arms includes only arms sharing an
 ## Acceptance
 
 ```bash
-docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c '
+docker run --rm --init -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'apk add --no-cache bash git >/dev/null 2>&1 || true;
   set -e
+  git config --global --add safe.directory /src
   gofmt -l cmd | grep -q . && { echo "gofmt"; exit 1; }
   go vet ./...
   go test ./cmd/server/ -run "TestNoAggregateMixesScopes|TestPoolDiagnosis" -count=1 -v 2>&1 | tee /tmp/a1.out
