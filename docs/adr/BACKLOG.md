@@ -154,19 +154,64 @@ entry was measured on. Three of the four `-32601`s are gone:
   wing-name error as the corpus's largest class of agent mistake.
 
 **What is left is `outputSchema`, and it is a COVERAGE question rather than a missing feature.**
-10 of 41 tools declare one — every tool that answers *"what is in here"*, each returning a named
-result type in `internal/mcpserver/results.go` so the schema is generated from the type the handler
-returns. `TestEveryDeclaredOutputSchemaIsSatisfiedByTheTool` drives the real server, calls every
-tool that declares a schema with arguments read from its own declaration, and validates the
-`structuredContent` that comes back — so a declared schema cannot go false.
+10 of 41 tools declare one. `TestEveryDeclaredOutputSchemaIsSatisfiedByTheTool` drives the real
+server, calls every tool that declares a schema with arguments read from its own declaration, and
+validates the `structuredContent` that comes back — so a declared schema cannot go false.
 
-⚠ **NOTHING DECIDES WHICH TOOLS SHOULD DECLARE ONE.** The 10 are a boundary somebody drew and no
-gate holds: an enumeration tool added tomorrow gets no schema, returns `structuredContent` nobody
-can validate, and every test in the tree stays green. That is §Reachability's shape one level up —
-the conformance half is exhaustive, the coverage half is a convention. Whoever takes this decides
-the universe first (is it "enumeration tools", or every tool returning a fixed-shape object?) and
-gates it with an exemption that must carry a written reason, as `notOperatorFacing` and
-`undescribedOnPurpose` already do.
+⚠ **NOTHING DECIDES WHICH TOOLS SHOULD DECLARE ONE, AND THE OBVIOUS DESCRIPTION OF THE 10 IS
+WRONG.** The first draft of this paragraph said they were "every tool that answers *what is in
+here*". Measured against the running server: `am_list_drawers`, `am_list_hallways` and
+`am_recall_stats` all enumerate and declare nothing. The 10 are not a rule, they are the tools that
+got a result type in `b09d0511` — a boundary somebody drew, which no gate holds, and which cannot
+even be stated correctly from the outside.
+
+The rule the SOURCE supports is narrower and needs no exemption list: a handler whose `jsonResult`
+argument is a fixed-shape struct must declare a schema for it, and the ~19 that build a
+`map[string]any` with conditional keys are excluded BY the rule rather than by a list — which is the
+shape AGENTS.md already chose over an exemption list for `--otel-endpoint`. Offenders visible from a
+grep of the argument alone: `am_get_taxonomy` (`tax`), `am_mine` (an anonymous struct embedding
+`palace.MineResult`), `am_bootstrap` (`res.WireShape()`), and the `res` returned at `admin.go:290`,
+`graph.go:327` and `diary.go:133`.
+
+Note this is an upgrade rather than an inert mechanism: every tool already returns
+`structuredContent` through `jsonResult`, pinned by `TestJSONResultCarriesBothHalves`, so a
+schemaless tool works — it is just not discoverable in advance. That is the cause behind
+`TestEveryOmitemptyWireKeyInThisPackageIsDescribed`, as this entry's own ranking says.
+
+⚠ **THREE WAYS TO BUILD THE GATE WERE PRICED AND REJECTED ON 2026-09-07. They are recorded here
+because each cost real time and none is visible from the source.**
+
+1. **Runtime reflection is impossible, not merely awkward.** `jsonResult` puts the Go value straight
+   into `StructuredContent`, so `reflect.Kind() == Struct` looks like it decides this exactly.
+   Measured: driving all 41 tools through `client.NewInProcessClient` reports **`map` for every one
+   of them, including the 10 that declare a schema** — the in-process transport marshals to JSON and
+   back, so the type is gone before a test can see it. A survey written this way answers confidently
+   and is uniformly wrong.
+2. **A purely syntactic AST rule cries wolf, and one call site proves it.** Classifying the
+   `jsonResult` argument by shape works until a method call: `am_bootstrap` passes
+   `res.WireShape()`, and `func (r BootstrapResult) WireShape() map[string]any` is a map. A method
+   name carries no shape information, so the rule needs real type resolution or it reports a
+   correct tool as an offender.
+3. **`go/types` costs a dependency change wider than the gate.** `golang.org/x/tools` is in `go.sum`
+   as indirect only; `go get golang.org/x/tools/go/packages` promotes it to a direct require AND
+   upgrades `x/net` and `x/text`. A supply-chain change to gate a test is the wrong trade to make
+   inside a backlog sweep.
+
+**What is left is the seam, which is why this is an ADR rather than an entry to clear.** Narrow
+`jsonResult` to `func(map[string]any)` and add `jsonTyped[T any]` beside it: the compiler then
+enumerates the sites that must move (roughly 16 — every map site compiles unchanged, and `WireShape`
+resolves for free), the SOURCE states which kind of result a tool returns, and the gate becomes an
+AST check with no type inference and no exemption list — a register function containing `jsonTyped`
+must also declare `WithOutputSchema`. That is the shape AGENTS.md §Reachability already chose over a
+detector for `--otel-endpoint`. Check first whether `TestJSONResultCarriesBothHalves`'s scalar and
+array cases are production paths or test-only.
+
+⚠ **AND "JUST ADD THE FIVE MISSING SCHEMAS" IS NOT AVAILABLE AS A SHORTCUT.**
+`TestEveryDeclaredOutputSchemaIsSatisfiedByTheTool` calls every schema-declaring tool with
+`requiredArgsForTool` and fails on an error result. Of the offenders, `am_merge_wing` and `am_mine`
+both return an error under generated arguments, so giving either a schema turns that gate red until
+the fixture can call them. Only `am_get_taxonomy`, `am_diary_read` and `am_recompute_graph` are
+callable as things stand.
 
 Original entry, kept for its ranking and for the two absences it correctly rules out of scope:
 
