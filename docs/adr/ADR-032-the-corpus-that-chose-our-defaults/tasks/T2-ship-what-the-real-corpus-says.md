@@ -73,7 +73,16 @@ Selector and PASS grep are anchored: an unanchored pair is satisfied by any test
 
 ## Mutation Log
 
-_(populated by `adr-verify --mutant` during execution)_
+⚠ **These were run when the gate was WRITTEN, against `BACKLOG.md` §"From ADR-032" rather than
+against this task, and recorded nowhere near ADR-032 — which is why this log read empty over a
+`done` task until 2026-09-07.** The evidence existed; it was filed in the wrong place. Re-run here
+against the test in its real home (`internal/repohygiene/`, not the `cmd/server/` this task's fence
+named until #377) and after the helper was refactored to return findings, because a mutant recorded
+before a refactor is a claim about code that no longer exists.
+
+- 2026-09-07 · eec286b4 · mutant killed · exit 1 · `internal/config/config.go` · Removes the ADR-032 citation from `RerankWeight`'s comment, leaving the measurement claim ("chosen by the eval's weight sweep") with no evidence pointer. This is the exact defect the gate exists for and the one this ADR measured: a default annotated as measured whose corpus is unrecorded, so a later run can refute it and a reader of the literal has no route to that. · acceptance-sha256:ee86c610b2cfbaca9c2369611264abe845bebf6fd029f5f79efbfd84fff9ab0b · covers:a measurement claim must name its evidence
+- 2026-09-07 · eec286b4 · mutant killed · exit 1 · `internal/config/config.go` · Removes BOTH ADR-030 mentions from `RerankNorm`'s comment. Run because deleting only ONE **survived** — reported at the time and written into the gate's own doc comment: its unit is the FIELD, not the claim, so a comment making two measurement claims and citing evidence for one passes. Splitting the unit means deciding which sentence a pointer belongs to, which is review's job and not a matcher's. · acceptance-sha256:ee86c610b2cfbaca9c2369611264abe845bebf6fd029f5f79efbfd84fff9ab0b · covers:the gate's unit is the field
+- 2026-09-07 · eec286b4 · mutant killed · exit 1 · `internal/config/config.go` · Replaces `Default()`'s composite literal with a stepwise build (`c := Config{…}; return c`), so `defaultsLiteral` returns nil. The gate must ERROR rather than report zero offenders — an unparseable universe is indistinguishable from every default being attributed, which is the vacuous pass this task's own fence was guilty of until #377 (`go test ./cmd/server/` over a test that lives elsewhere: `[no tests to run]`, exit 0). · acceptance-sha256:ee86c610b2cfbaca9c2369611264abe845bebf6fd029f5f79efbfd84fff9ab0b · covers:an empty universe is fatal, not clean
 
 ## Invariants
 
