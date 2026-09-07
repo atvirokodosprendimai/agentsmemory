@@ -697,6 +697,35 @@ the true class for a better-looking precision figure. See ADR-041 T1's evaluatio
   triples against ~5,020 drawers, so the mechanism existed and was unfed. Post-reset (2026-08-20)
   the ratio inverted — 41 triples against 80 drawers — so the blocker is now corpus size, not
   extraction coverage. Revisit once `kg-extract` has run at corpus scale.
+
+  ⚠ **RE-MEASURED 2026-09-07 ON THE LOCAL PALACE (v0.0.124, workspace `local`), AND THE SECOND
+  SENTENCE IS WRONG: the blocker was never corpus size.** Read from a read-only snapshot of the
+  serving database:
+
+  | | count |
+  |---|---|
+  | drawers | 12,283 |
+  | kg triples | 1,974 |
+  | triples carrying the `kg-extract` marker (`source_closet LIKE 'kg-extract:%'`) | **0** |
+  | `derived = 1` — the automatic wing/room→drawer edge `attachDerivedEdge` writes on every drawer | 958 |
+  | authored by a session through `am_kg_add` | 1,016 |
+
+  The corpus DID reach scale — 12,283 drawers against the ~5,020 that were called unfed — so that
+  half of the trigger fired long ago. **`kg-extract` has still never run here**, so extraction
+  coverage is 0 and has been 0 for the project's whole life. The graph grew entirely from sessions
+  authoring facts by hand plus server plumbing; nothing was extracted. "The blocker is now corpus
+  size, not extraction coverage" inverted the two.
+
+  ⚠ **AND A RAW triples/drawers RATIO OVERSTATES THE GRAPH BY ABOUT HALF.** 958 of the 1,974 are
+  the automatic edge every drawer write attaches — one per drawer, carrying no claim about the
+  world. Only 1,016 are facts anybody asserted. Any density argument must exclude `derived = 1`.
+
+  **The marker is how to re-check this, and it is cheap:** `kg-extract` stamps
+  `source_closet = "kg-extract:<wing>"` (`internal/palace/kgextract.go:83`), and `KGSourceFiles`'
+  own comment says hand-filed triples never match. So "has extraction run, and over which wings" is
+  one query, not an inference — and `derived` is NOT that signal, which is the trap: it marks the
+  per-write plumbing edge, so a session reaching for it to measure extraction gets 958 and concludes
+  the opposite.
 - **Write-time findability gate** — when a memory is filed, generate the question it answers and
   try to retrieve it; report at write time when a memory is unfindable at birth. Reuses ADR-001's
   calibration, so it is drafted after ADR-001 ships rather than beside it.
@@ -844,7 +873,7 @@ The server registers 41 tools; roughly eight are in regular use. What is built, 
 
 | capability | live count | why it is idle |
 |---|---|---|
-| closets | **0** | Built by `am_mine` only, and mining is retired for now — the prior it feeds measured harmful on mined corpora (~0.10 MRR) and `CLOSET_BOOST` defaults to 0. The summary index itself is untested against a curated corpus, which is a different question from the ranking prior and has never been asked. |
+| closets | **0** ⚠ **now 254 on LOCAL (2026-09-07)** | Built by `am_mine` only, and mining is retired for now — the prior it feeds measured harmful on mined corpora (~0.10 MRR) and `CLOSET_BOOST` defaults to 0. The summary index itself is untested against a curated corpus, which is a different question from the ranking prior and has never been asked. |
 | hallways | **0** | ⚠ The 2026-08-20 reason — an empty `entities` column on every drawer — is NO LONGER TRUE and the correction is in item 2 below. `Service.Add` writes entities (ADR-016). Still 0, for a different reason: the extractor yields too few and too generic entities for any pair to co-occur in the two drawers `hallwayMinCount` requires. |
 | tunnels | **0** | Explicit tunnels have never been created by a session, and derived ones cannot exist: `entityTunnelsForWing` (`internal/palace/tunnel.go:180`) takes hallways as its input, so it inherits the zero above. The craft/project wing split is exactly what explicit tunnels are for, and that half is available today. |
 | skills (centralised) | 2 | Was **0** for the project's whole life: every session reported `am_list_skills` empty and fell back to generic conventions while the bootstrap called loading them a hard gate, so the gate passed vacuously. `memory-orchestration` and `writing-memories` were published 2026-08-20 and sessions began loading them the same hour. `effective-go` and `cqrs` — the two this repo's protocol names by name — were published the same day, so the catalogue holds 4 and the promise in `AGENTS.md` and `CLAUDE.md` is true for the first time. |
