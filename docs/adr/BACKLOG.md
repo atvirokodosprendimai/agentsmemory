@@ -752,11 +752,23 @@ the true class for a better-looking precision figure. See ADR-041 T1's evaluatio
 
   ⚠ **AND THE EDGE COUNT IS NOT THE ROOTS-WITH-AN-EDGE COUNT — DO NOT USE 960 AS A NUMERATOR.** The
   same snapshot holds **960 derived edges** against **946 roots carrying one**, and **8 of those edges
-  name an object that is not a current root** (nothing withdraws a derived edge when its drawer is
-  retracted or superseded; `attachDerivedEdge` only declines to add a second). The rest of the
-  difference is unaccounted for and worth a look. So the well-defined ratio is
-  **roots-with-an-edge ÷ roots**, which is the 47.5% above; edges ÷ roots is a different and slightly
-  larger number measuring something else.
+  name an object that is not a current root**; the remaining 6 are objects carrying two. So the
+  well-defined ratio is **roots-with-an-edge ÷ roots**, never edges ÷ roots.
+
+  ⚠ **AND ALL OF THOSE FIGURES MIX CURRENT WITH ENDED ROWS, WHICH WAS FOUND ONLY AFTER THIS
+  PARAGRAPH MERGED.** A derived edge is ENDED, not deleted, when its drawer is retracted, superseded
+  or MOVED — `endDerivedEdgesFor`, four call sites. A query on `derived = 1` alone therefore counts
+  history as though it were live. On the same snapshot, filtering `valid_to = ''`:
+
+  | | ANY status | CURRENT |
+  |---|---|---|
+  | derived edges | 960 | **846** (114 ended) |
+  | roots carrying one | 946 — 47.5% | **839 — 42.1%** |
+
+  **42.1% is the live figure; the 47.5% published above counts 107 roots whose only derived edge has
+  been ended.** Both are stated because the entry's subject is exactly this: a number that is correct
+  about the wrong population. ⚠ The lesson generalises past this table — **`derived = 1` is not a
+  predicate about the present.** Pair it with `valid_to = ''` or say which of the two you meant.
 
   ⚠ **AND A PERCENTAGE HERE WAS WRONG UNTIL 2026-09-07, SUPPLIED BY REVIEW.** It read *"the backfill
   bullet measured 57 of 1,985 drawers carrying any edge — 2.9%; this sweep measures 958 of 12,283 —
