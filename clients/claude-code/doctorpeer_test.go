@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -149,9 +150,20 @@ func assertPeerRow(t *testing.T, report, label string) {
 }
 
 // peerBinary places a fake codebase-memory-mcp in dir, executable or not.
+//
+// The name carries the platform's executable extension because that is what the
+// platform's loader honours and what upstream's installer actually writes there
+// — issue #393 pastes `codebase-memory-mcp.exe`. Without it the healthy fixtures
+// would be extension-less on Windows, which is genuinely not spawnable, so the
+// "ok" cases would fail for a reason that is true of the fixture and false of
+// any real install.
 func peerBinary(t *testing.T, dir string, executable bool) string {
 	t.Helper()
-	p := filepath.Join(dir, "codebase-memory-mcp")
+	name := "codebase-memory-mcp"
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	p := filepath.Join(dir, name)
 	mode := os.FileMode(0o644)
 	if executable {
 		mode = 0o755
