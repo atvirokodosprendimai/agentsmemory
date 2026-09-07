@@ -697,6 +697,92 @@ the true class for a better-looking precision figure. See ADR-041 T1's evaluatio
   triples against ~5,020 drawers, so the mechanism existed and was unfed. Post-reset (2026-08-20)
   the ratio inverted — 41 triples against 80 drawers — so the blocker is now corpus size, not
   extraction coverage. Revisit once `kg-extract` has run at corpus scale.
+
+  ⚠ **RE-MEASURED 2026-09-07 ON THE LOCAL PALACE (v0.0.124, workspace `local`), AND THE SECOND
+  SENTENCE IS WRONG: the blocker was never corpus size.** Read from a read-only snapshot of the
+  serving database:
+
+  | | count |
+  |---|---|
+  | drawers | 12,283 |
+  | kg triples | 1,974 |
+  | triples carrying the `kg-extract` marker (`source_closet LIKE 'kg-extract:%'`) | **0** |
+  | `derived = 1` — `attachDerivedEdge`'s structural edge, **one per root chunk, i.e. one per memory** | 958 |
+  | authored by a session through `am_kg_add` | 1,016 |
+
+  The corpus DID reach scale — 12,283 on local against the ~5,020 that were called unfed. ⚠ That
+  ~5,020 is UNSITED: it predates the local/hosted split mattering and names no server, so it is
+  quoted here as the historical figure it is rather than restated as a fact about either palace.
+  Either way that half of the trigger fired long ago. **`kg-extract` has still never run here**, so extraction
+  coverage is 0 and has been 0 for the project's whole life. The graph grew entirely from sessions
+  authoring facts by hand plus server plumbing; nothing was extracted. "The blocker is now corpus
+  size, not extraction coverage" inverted the two.
+
+  ⚠ **AND A RAW triples/drawers RATIO OVERSTATES THE GRAPH BY ABOUT HALF.** 958 of the 1,974 are
+  structural, carrying no claim about the world. Only 1,016 are facts anybody asserted. Any density
+  argument must exclude `derived = 1`.
+
+  ⚠ **DO NOT READ THOSE 958 AS "ONE PER DRAWER" — nor as "one per distinct (wing, room, source_file)",
+  which is what the first two drafts of this bullet said.** Set beside 12,283 drawers a per-drawer
+  reading makes the plumbing look 92% broken, and the source-root reading is simply false:
+  `attachDerivedEdge` (`internal/palace/kg.go:1456`) sets the edge's OBJECT to the drawer's own id, so
+  two memories sharing a `source_file` produce two objects and two edges. The corpus cannot hold one
+  per key.
+
+  It is **one edge per ROOT CHUNK — one per memory** — because `attachDerivedEdgeTo`
+  (`internal/palace/service.go:892`) `continue`s on `d.ParentID != ""`, which its comment names as the
+  point: *"one edge per chunk would multiply a single filing into as many graph rows as it happened to
+  split into, inflating the very count this is measured by."* ⚠ The `wing\x00room\x00source_file`
+  dedupe is **within a single write batch only** — `seen` is allocated per call — so an ordinary
+  `am_add_drawer` (one memory, one root) always gets its edge, while a multi-source import can leave
+  later roots unedged.
+
+  ⭐ **THREE SUBSYSTEMS IN THIS FILE TELL ONE STORY: A MECHANISM THAT FIRES FORWARD ONLY, OVER A
+  CORPUS THAT PREDATES IT.** `RecomputeGraph` is correct and nothing on the write path calls it;
+  `kg-extract` is correct and nobody has run it; and the derived-edge backfill (*"Backfill edges for
+  the 1,928 existing orphan drawers"*, this file) was never run, so ADR-036 T6 fixed the write path
+  and left everything older unreachable. Each time the capability was built, tested and fed, the
+  TRIGGER was never pulled, and this file blamed the input — extractor yield in one case, corpus size
+  in another.
+
+  ⚠ **AND THAT ACCOUNTS FOR THE 958 BETTER THAN ANY per-X RULE DOES.** The backfill bullet measured
+  *57 of 1,985 drawers carrying any edge — 2.9%, 2026-08-26*; this sweep measures 958 of 12,283 —
+  **7.8%**. A forward-only mechanism running against a fixed pre-fix backlog produces exactly that
+  rise, and it will keep rising with no backfill ever running. Arithmetic anyone can re-check, rather
+  than a rule about what the edge is attached to. ⚠ **The two figures are from DIFFERENT (and one
+  undated) palaces**, so they are consistent in SHAPE and are not a series — the shape is the claim,
+  the slope is not.
+
+  ⚠ **AN OPEN QUESTION REVIEW RAISED, BOUNDED HERE RATHER THAN ANSWERED.** If several roots in ONE
+  batch share `(wing, room, source_file)` — including the common empty `source_file` — every one after
+  the first is skipped and gets no edge, which on an import would manufacture orphans. Measured on
+  LOCAL the same day from a second read-only snapshot. ⚠ Note the drift: this one reports 960 derived
+  edges where the table above says 958, because the palace was written to in between — which is why a
+  count gets its snapshot as well as its server.
+
+  | | count |
+  |---|---|
+  | root drawers | 1,992 |
+  | roots carrying NO derived edge | 1,046 |
+  | of those, sharing a key with another root — collapse is POSSIBLE | 555 |
+  | of those, key is UNIQUE — collapse CANNOT explain | 491 |
+  | unedged roots filed before 2026-08-26 — forward-only explains | 498 |
+  | roots with an empty `source_file` | 746 |
+
+  **This BOUNDS the hypothesis; it does not confirm it.** Sharing a key across DIFFERENT batches is
+  harmless, and nothing here shows the sharing was ever within one call — so 555 is a ceiling, not a
+  count, and the 491 unique-key ones need the forward-only account instead. Confirming it needs a test
+  that files two same-key roots in one batch and asserts two edges.
+
+  So the question worth asking once, across all three rather than per feature, is **"what pulls this
+  trigger in ordinary operation, and what covers what was already there?"**
+
+  **The marker is how to re-check this, and it is cheap:** `kg-extract` stamps
+  `source_closet = "kg-extract:<wing>"` (`internal/palace/kgextract.go:83`), and `KGSourceFiles`'
+  own comment says hand-filed triples never match. So "has extraction run, and over which wings" is
+  one query, not an inference — and `derived` is NOT that signal, which is the trap: it marks the
+  per-write plumbing edge, so a session reaching for it to measure extraction gets 958 and concludes
+  the opposite.
 - **Write-time findability gate** — when a memory is filed, generate the question it answers and
   try to retrieve it; report at write time when a memory is unfindable at birth. Reuses ADR-001's
   calibration, so it is drafted after ADR-001 ships rather than beside it.
@@ -844,7 +930,7 @@ The server registers 41 tools; roughly eight are in regular use. What is built, 
 
 | capability | live count | why it is idle |
 |---|---|---|
-| closets | **0** | Built by `am_mine` only, and mining is retired for now — the prior it feeds measured harmful on mined corpora (~0.10 MRR) and `CLOSET_BOOST` defaults to 0. The summary index itself is untested against a curated corpus, which is a different question from the ranking prior and has never been asked. |
+| closets | **0** ⚠ **now 254 on LOCAL (2026-09-07)** | Built by `am_mine` only, and mining is retired for now — the prior it feeds measured harmful on mined corpora (~0.10 MRR) and `CLOSET_BOOST` defaults to 0. The summary index itself is untested against a curated corpus, which is a different question from the ranking prior and has never been asked. |
 | hallways | **0** | ⚠ The 2026-08-20 reason — an empty `entities` column on every drawer — is NO LONGER TRUE and the correction is in item 2 below. `Service.Add` writes entities (ADR-016). Still 0, for a different reason: the extractor yields too few and too generic entities for any pair to co-occur in the two drawers `hallwayMinCount` requires. |
 | tunnels | **0** | Explicit tunnels have never been created by a session, and derived ones cannot exist: `entityTunnelsForWing` (`internal/palace/tunnel.go:180`) takes hallways as its input, so it inherits the zero above. The craft/project wing split is exactly what explicit tunnels are for, and that half is available today. |
 | skills (centralised) | 2 | Was **0** for the project's whole life: every session reported `am_list_skills` empty and fell back to generic conventions while the bootstrap called loading them a hard gate, so the gate passed vacuously. `memory-orchestration` and `writing-memories` were published 2026-08-20 and sessions began loading them the same hour. `effective-go` and `cqrs` — the two this repo's protocol names by name — were published the same day, so the catalogue holds 4 and the promise in `AGENTS.md` and `CLAUDE.md` is true for the first time. |
