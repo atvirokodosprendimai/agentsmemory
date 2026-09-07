@@ -140,6 +140,36 @@ Verified on a live server: the 9.5 MB query that motivated the entry went from *
 still accepted and answered as JSON-RPC. Three mutants killed, including both directions —
 a limit that shadows the content bound, and a limit so large it is not a bound.
 
+## MOSTLY RESOLVED 2026-09-07 — three of the four are shipped; what remains is which tools get an outputSchema (filed 2026-09-03)
+
+Re-probed against the running container at v0.0.124, over the same `http://localhost:8080/mcp` the
+entry was measured on. Three of the four `-32601`s are gone:
+
+- **Resources** — `resources/list` answers with real drawers carrying
+  `agentsmemory://wing/<w>/room/<r>/drawer/<id>` URIs (ADR-050 gave a memory an address, ADR-051 T5
+  bounded the listing).
+- **Prompts** — `prompts/list` answers; `am_hand_over` is registered with its arguments described.
+- **Completions** — `completion/complete` answers. Asked for `wing` on `am_hand_over` with the value
+  `wing_`, it returned this palace's real wing names. That is the entry's own use case: it named
+  wing-name error as the corpus's largest class of agent mistake.
+
+**What is left is `outputSchema`, and it is a COVERAGE question rather than a missing feature.**
+10 of 41 tools declare one — every tool that answers *"what is in here"*, each returning a named
+result type in `internal/mcpserver/results.go` so the schema is generated from the type the handler
+returns. `TestEveryDeclaredOutputSchemaIsSatisfiedByTheTool` drives the real server, calls every
+tool that declares a schema with arguments read from its own declaration, and validates the
+`structuredContent` that comes back — so a declared schema cannot go false.
+
+⚠ **NOTHING DECIDES WHICH TOOLS SHOULD DECLARE ONE.** The 10 are a boundary somebody drew and no
+gate holds: an enumeration tool added tomorrow gets no schema, returns `structuredContent` nobody
+can validate, and every test in the tree stays green. That is §Reachability's shape one level up —
+the conformance half is exhaustive, the coverage half is a convention. Whoever takes this decides
+the universe first (is it "enumeration tools", or every tool returning a fixed-shape object?) and
+gates it with an exemption that must carry a written reason, as `notOperatorFacing` and
+`undescribedOnPurpose` already do.
+
+Original entry, kept for its ranking and for the two absences it correctly rules out of scope:
+
 ## What the MCP protocol offers that this server answers "not supported" to — 2026-09-03
 
 Probed against the running container over the same `http://localhost:8080/mcp` this project's
@@ -174,6 +204,34 @@ through, and stateless mode keeps none. Ranked by the measured failure each woul
   error is largely wing names that resolve to nothing — `wing_to-<project>` filed into wings no
   session will look in, `unknown_term` from a bare-name/prefix confusion. Completion fixes that
   where it happens, in the client, before the call.
+
+## RESOLVED 2026-09-07 — `GET /mcp` answers 405 with `Allow: POST, DELETE` (filed 2026-09-03)
+
+Taken exactly as the entry asked: *"the transport's own guidance for a server that offers no stream
+is `405`, which also tells a client not to keep retrying."*
+
+`conformStreamHTTP` (`internal/mcpserver/transport.go`) wraps the Streamable HTTP handler with the
+two rules mcp-go leaves to the host, and `transportRefusal` is the decision, split out so a test can
+drive it without an HTTP server. Verified against the running v0.0.124 container, not inferred:
+
+    GET  /mcp -> 405   Allow: POST, DELETE
+    POST /mcp with MCP-Protocol-Version: 1999-01-01 -> 400
+
+⚠ **THE ORDER OF THE TWO RULES WAS WRONG FIRST, AND THE `Allow` HEADER IS WHY IT MATTERED.** The
+version check moved ahead of the method check — correctly, because the spec's 400 for an unsupported
+version is unconditional — and that turned a redundant `Allow` on a 400 into a harmful one: a POST
+carrying an unsupported version was answered 400 *with a method to retry with*, and the retry could
+never succeed, because the version was what was refused. `Allow` belongs to the 405 and nothing
+else.
+
+The accepted version set is derived from `mcp.ValidProtocolVersions` rather than listed, so an
+mcp-go upgrade widens the check on the same commit — a literal would go stale in the one direction
+that breaks callers. `TestTheTransportRefusesWhatItCannotServe`,
+`TestTheAcceptedVersionsAreDerivedNotListed` and `TestStreamHTTPMountsTheConformanceRules` gate it;
+the third is the one that matters, because the first two pass against a decision function nothing
+mounts.
+
+Original entry, kept because its measurement is what the refusal implements:
 
 ## The idle `GET /mcp` stream is held open forever and can never carry anything — 2026-09-03
 
