@@ -140,6 +140,81 @@ Verified on a live server: the 9.5 MB query that motivated the entry went from *
 still accepted and answered as JSON-RPC. Three mutants killed, including both directions —
 a limit that shadows the content bound, and a limit so large it is not a bound.
 
+## MOSTLY RESOLVED 2026-09-07 — three of the four are shipped; what remains is which tools get an outputSchema (filed 2026-09-03)
+
+Re-probed against the running container at v0.0.124, over the same `http://localhost:8080/mcp` the
+entry was measured on. Three of the four `-32601`s are gone:
+
+- **Resources** — `resources/list` answers with real drawers carrying
+  `agentsmemory://wing/<w>/room/<r>/drawer/<id>` URIs (ADR-050 gave a memory an address, ADR-051 T5
+  bounded the listing).
+- **Prompts** — `prompts/list` answers; `am_hand_over` is registered with its arguments described.
+- **Completions** — `completion/complete` answers. Asked for `wing` on `am_hand_over` with the value
+  `wing_`, it returned this palace's real wing names. That is the entry's own use case: it named
+  wing-name error as the corpus's largest class of agent mistake.
+
+**What is left is `outputSchema`, and it is a COVERAGE question rather than a missing feature.**
+10 of 41 tools declare one. `TestEveryDeclaredOutputSchemaIsSatisfiedByTheTool` drives the real
+server, calls every tool that declares a schema with arguments read from its own declaration, and
+validates the `structuredContent` that comes back — so a declared schema cannot go false.
+
+⚠ **NOTHING DECIDES WHICH TOOLS SHOULD DECLARE ONE, AND THE OBVIOUS DESCRIPTION OF THE 10 IS
+WRONG.** The first draft of this paragraph said they were "every tool that answers *what is in
+here*". Measured against the running server: `am_list_drawers`, `am_list_hallways` and
+`am_recall_stats` all enumerate and declare nothing. The 10 are not a rule, they are the tools that
+got a result type in `b09d0511` — a boundary somebody drew, which no gate holds, and which cannot
+even be stated correctly from the outside.
+
+The rule the SOURCE supports is narrower and needs no exemption list: a handler whose `jsonResult`
+argument is a fixed-shape struct must declare a schema for it, and the ~19 that build a
+`map[string]any` with conditional keys are excluded BY the rule rather than by a list — which is the
+shape AGENTS.md already chose over an exemption list for `--otel-endpoint`. Offenders visible from a
+grep of the argument alone: `am_get_taxonomy` (`tax`), `am_mine` (an anonymous struct embedding
+`palace.MineResult`), `am_bootstrap` (`res.WireShape()`), and the `res` returned at `admin.go:290`,
+`graph.go:327` and `diary.go:133`.
+
+Note this is an upgrade rather than an inert mechanism: every tool already returns
+`structuredContent` through `jsonResult`, pinned by `TestJSONResultCarriesBothHalves`, so a
+schemaless tool works — it is just not discoverable in advance. That is the cause behind
+`TestEveryOmitemptyWireKeyInThisPackageIsDescribed`, as this entry's own ranking says.
+
+⚠ **THREE WAYS TO BUILD THE GATE WERE PRICED AND REJECTED ON 2026-09-07. They are recorded here
+because each cost real time and none is visible from the source.**
+
+1. **Runtime reflection is impossible, not merely awkward.** `jsonResult` puts the Go value straight
+   into `StructuredContent`, so `reflect.Kind() == Struct` looks like it decides this exactly.
+   Measured: driving all 41 tools through `client.NewInProcessClient` reports **`map` for every one
+   of them, including the 10 that declare a schema** — the in-process transport marshals to JSON and
+   back, so the type is gone before a test can see it. A survey written this way answers confidently
+   and is uniformly wrong.
+2. **A purely syntactic AST rule cries wolf, and one call site proves it.** Classifying the
+   `jsonResult` argument by shape works until a method call: `am_bootstrap` passes
+   `res.WireShape()`, and `func (r BootstrapResult) WireShape() map[string]any` is a map. A method
+   name carries no shape information, so the rule needs real type resolution or it reports a
+   correct tool as an offender.
+3. **`go/types` costs a dependency change wider than the gate.** `golang.org/x/tools` is in `go.sum`
+   as indirect only; `go get golang.org/x/tools/go/packages` promotes it to a direct require AND
+   upgrades `x/net` and `x/text`. A supply-chain change to gate a test is the wrong trade to make
+   inside a backlog sweep.
+
+**What is left is the seam, which is why this is an ADR rather than an entry to clear.** Narrow
+`jsonResult` to `func(map[string]any)` and add `jsonTyped[T any]` beside it: the compiler then
+enumerates the sites that must move (roughly 16 — every map site compiles unchanged, and `WireShape`
+resolves for free), the SOURCE states which kind of result a tool returns, and the gate becomes an
+AST check with no type inference and no exemption list — a register function containing `jsonTyped`
+must also declare `WithOutputSchema`. That is the shape AGENTS.md §Reachability already chose over a
+detector for `--otel-endpoint`. Check first whether `TestJSONResultCarriesBothHalves`'s scalar and
+array cases are production paths or test-only.
+
+⚠ **AND "JUST ADD THE FIVE MISSING SCHEMAS" IS NOT AVAILABLE AS A SHORTCUT.**
+`TestEveryDeclaredOutputSchemaIsSatisfiedByTheTool` calls every schema-declaring tool with
+`requiredArgsForTool` and fails on an error result. Of the offenders, `am_merge_wing` and `am_mine`
+both return an error under generated arguments, so giving either a schema turns that gate red until
+the fixture can call them. Only `am_get_taxonomy`, `am_diary_read` and `am_recompute_graph` are
+callable as things stand.
+
+Original entry, kept for its ranking and for the two absences it correctly rules out of scope:
+
 ## What the MCP protocol offers that this server answers "not supported" to — 2026-09-03
 
 Probed against the running container over the same `http://localhost:8080/mcp` this project's
@@ -174,6 +249,34 @@ through, and stateless mode keeps none. Ranked by the measured failure each woul
   error is largely wing names that resolve to nothing — `wing_to-<project>` filed into wings no
   session will look in, `unknown_term` from a bare-name/prefix confusion. Completion fixes that
   where it happens, in the client, before the call.
+
+## RESOLVED 2026-09-07 — `GET /mcp` answers 405 with `Allow: POST, DELETE` (filed 2026-09-03)
+
+Taken exactly as the entry asked: *"the transport's own guidance for a server that offers no stream
+is `405`, which also tells a client not to keep retrying."*
+
+`conformStreamHTTP` (`internal/mcpserver/transport.go`) wraps the Streamable HTTP handler with the
+two rules mcp-go leaves to the host, and `transportRefusal` is the decision, split out so a test can
+drive it without an HTTP server. Verified against the running v0.0.124 container, not inferred:
+
+    GET  /mcp -> 405   Allow: POST, DELETE
+    POST /mcp with MCP-Protocol-Version: 1999-01-01 -> 400
+
+⚠ **THE ORDER OF THE TWO RULES WAS WRONG FIRST, AND THE `Allow` HEADER IS WHY IT MATTERED.** The
+version check moved ahead of the method check — correctly, because the spec's 400 for an unsupported
+version is unconditional — and that turned a redundant `Allow` on a 400 into a harmful one: a POST
+carrying an unsupported version was answered 400 *with a method to retry with*, and the retry could
+never succeed, because the version was what was refused. `Allow` belongs to the 405 and nothing
+else.
+
+The accepted version set is derived from `mcp.ValidProtocolVersions` rather than listed, so an
+mcp-go upgrade widens the check on the same commit — a literal would go stale in the one direction
+that breaks callers. `TestTheTransportRefusesWhatItCannotServe`,
+`TestTheAcceptedVersionsAreDerivedNotListed` and `TestStreamHTTPMountsTheConformanceRules` gate it;
+the third is the one that matters, because the first two pass against a decision function nothing
+mounts.
+
+Original entry, kept because its measurement is what the refusal implements:
 
 ## The idle `GET /mcp` stream is held open forever and can never carry anything — 2026-09-03
 
@@ -854,6 +957,37 @@ Against the live palace that is 52 diary drawers doubling. Re-importing the same
 A second edge sits behind the same seam: `DrawerID` drops agent and topic, so two diary entries with
 byte-identical content in one wing collapse to a single row on import — the opposite failure, and it
 silently violates the append-only journal guarantee `diaryEntryID`'s own doc comment states.
+
+⚠ **RE-MEASURED 2026-09-07 AGAINST v0.0.124. The first claim REPRODUCES; the second is now FALSE,
+and the difference is ADR-038.**
+
+The duplication is live. One diary entry written normally into `wing_acme`, `wingbundle.Export`,
+then `importer.Ingest` back into the SAME wing, driving the real `palace.Service` over a migrated
+SQLite fixture — **1 current row before, 2 after**, same content, ids `671455a47991` and
+`2838e8253709`. Restoring a bundle beside its original still doubles the journal.
+
+The collapse does not. Two byte-identical entries in one wing export as 2 and land as 2, because
+ADR-038 routed a diary row's `content_key` through `contentKeyFor`'s diary branch — an empty key,
+which is excluded from the partial unique index, so nothing dedupes them. The append-only guarantee
+holds today. **Do not fix a defect this entry describes without re-running it first:** this half was
+repaired by a change made for another reason and nobody came back to the entry.
+
+⚠ **AND THE OBVIOUS FIX IS NOT AVAILABLE, WHICH IS WHY THIS IS AN ADR AND NOT A PATCH.** The natural
+repair is to let import re-mint the ORIGINAL id — `diaryEntryID(team, wing, agent, topic, index,
+content, seed)` reproduces it exactly when the wing is the same, and still separates two identical
+entries because their seeds differ. It cannot be done: `diarySeed` is `filedAt + "|" + 8 random
+bytes` and **the nonce is never stored**. It mints the id and is discarded, so no exporter can carry
+it and no importer can recompute it.
+
+That leaves one route — the bundle carries the drawer id and import preserves it — and that is a
+wire-format change plus a reversal of `AbsorbDrawers`' stated contract (*"IDs are recomputed with the
+target team's `DrawerID` recipe, so the same record imported twice resolves to one row"*), with the
+cross-team collision question to settle. A decision, not a drive-by.
+
+The other two halves were re-checked the same day and both still hold: `internal/wingbundle` emits no
+`kg` record kind while `internal/importer` handles one (`importer.go:319`), and `serveLocal` mounts
+`/mcp`, `/import`, `/stats` and `/healthz` and nothing that reaches skills, the graph, anchors or
+tunnels.
 
 **On a self-hosted server, no export path reaches skills, the knowledge graph, anchors, or
 cross-wing tunnels.** `wing export` structurally cannot carry them — they are not bundle record
