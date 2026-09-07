@@ -731,12 +731,24 @@ the true class for a better-looking precision figure. See ADR-041 T1's evaluatio
   many graph rows as it happened to split into, inflating the very count this is measured by."* 958
   distinct source roots is not an anomaly and implies nothing about coverage.
 
-  ⭐ **THIS AND THE HALLWAY FINDING ARE THE SAME DEFECT IN TWO SUBSYSTEMS, and the pair argues
-  better than either alone.** There, `RecomputeGraph` is correct and nothing on the write path calls
-  it; here, `kg-extract` is correct and nobody has run it. Both times the capability was built,
-  tested and fed, the TRIGGER was never pulled, and this file blamed the input — extractor yield in
-  one case, corpus size in the other. That suggests asking *"what pulls this trigger in ordinary
-  operation?"* once across the derived subsystems, rather than rediscovering it per feature.
+  ⭐ **THREE SUBSYSTEMS IN THIS FILE TELL ONE STORY: A MECHANISM THAT FIRES FORWARD ONLY, OVER A
+  CORPUS THAT PREDATES IT.** `RecomputeGraph` is correct and nothing on the write path calls it;
+  `kg-extract` is correct and nobody has run it; and the derived-edge backfill (*"Backfill edges for
+  the 1,928 existing orphan drawers"*, this file) was never run, so ADR-036 T6 fixed the write path
+  and left everything older unreachable. Each time the capability was built, tested and fed, the
+  TRIGGER was never pulled, and this file blamed the input — extractor yield in one case, corpus size
+  in another.
+
+  ⚠ **AND THAT ACCOUNTS FOR THE 958 BETTER THAN ANY per-X RULE DOES.** The backfill bullet measured
+  *57 of 1,985 drawers carrying any edge — 2.9%, 2026-08-26*; this sweep measures 958 of 12,283 —
+  **7.8%**. A forward-only mechanism running against a fixed pre-fix backlog produces exactly that
+  rise, and it will keep rising with no backfill ever running. Arithmetic anyone can re-check, rather
+  than a rule about what the edge is attached to. ⚠ **The two figures are from DIFFERENT (and one
+  undated) palaces**, so they are consistent in SHAPE and are not a series — the shape is the claim,
+  the slope is not.
+
+  So the question worth asking once, across all three rather than per feature, is **"what pulls this
+  trigger in ordinary operation, and what covers what was already there?"**
 
   **The marker is how to re-check this, and it is cheap:** `kg-extract` stamps
   `source_closet = "kg-extract:<wing>"` (`internal/palace/kgextract.go:83`), and `KGSourceFiles`'
