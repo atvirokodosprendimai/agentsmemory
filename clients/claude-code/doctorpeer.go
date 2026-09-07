@@ -208,15 +208,27 @@ func codebaseMemoryHookCounts(settingsPath string) (map[string]int, error) {
 	return out, nil
 }
 
-// executable reports why a command cannot be spawned: absent, or present
-// without the execute bit — the two states upstream's installer leaves behind
-// when the download fails or lands with the wrong mode.
+// executable reports why a command cannot be spawned: absent, a directory, or a
+// regular file this platform cannot execute — the states upstream's installer
+// leaves behind when the download fails or lands with the wrong mode.
+//
+// ⚠ IT ASKS spawnable RATHER THAN THE EXECUTE BIT, AND THE SECOND SPELLING IS
+// WHY THIS COMMENT EXISTS. Go never sets an execute bit on Windows — os.Stat
+// reports 0666 for every regular file — so `Mode()&0o111 == 0` calls EVERY
+// binary not-executable there. That was found once already, in the bridge rung
+// (issue #224), and fixed there by extracting spawnable; this rung was written
+// afterwards (ADR-057) and re-typed the POSIX test, so `doctor` reported
+// `codebase-memory-mcp.exe: not executable` about a peer Claude Code held a live
+// connection to, and exited 1 on a clean install (issue #393, finding 2). One
+// predicate, asked from both rungs, is the fix — a rule that has to be
+// remembered at each new call site is a rule that gets re-typed.
+// TestOnlyTheSpawnablePredicateReadsThePOSIXExecuteBit holds it there.
 func executable(path string) error {
 	info, err := os.Stat(path)
 	if err != nil {
 		return err
 	}
-	if info.IsDir() || info.Mode()&0o111 == 0 {
+	if info.IsDir() || !spawnable(info.Mode(), path) {
 		return errors.New("not executable")
 	}
 	return nil
