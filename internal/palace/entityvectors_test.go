@@ -2,6 +2,7 @@ package palace
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 )
@@ -80,6 +81,80 @@ func TestBackfillEmbedsInBoundedBatches(t *testing.T) {
 				"palace that is one HTTP request of that size against a per-call timeout",
 				i, size, entityLabelBatch)
 		}
+	}
+}
+
+// failAfterEmbedder succeeds for the first ok batches and fails after that, so a
+// test can stop the backfill part-way through a corpus that spans several chunks.
+type failAfterEmbedder struct {
+	fakeEmbedder
+	ok    int
+	calls int
+}
+
+func (f *failAfterEmbedder) Embed(ctx context.Context, inputs []string) ([][]float32, error) {
+	f.calls++
+	if f.calls > f.ok {
+		return nil, errors.New("embedder unavailable")
+	}
+	return fakeEmbedder{}.Embed(ctx, inputs)
+}
+
+// TestBackfillReportsTheLabelsItActuallyWrote holds the return value to the store.
+//
+// ⚠ THE COUNT USED TO BE A FALSE STATEMENT, AND THE COMMENT ABOVE IT ARGUED FOR
+// THE OPPOSITE PROPERTY. Every error path returned 0 while Upsert ran PER CHUNK,
+// so a failure on chunk 3 of 5 left chunks 1 and 2 written and reported that
+// nothing had been indexed. The doc comment justified that as all-or-nothing —
+// "a half-filled label index that reports a count is worse than one that says it
+// did not run" — which describes a property per-chunk Upsert does not have. Both
+// halves shipped in #412; this is the repair.
+//
+// The batching is right and stays. What changes is that the number describes the
+// store: the chunks already written stay written, and `indexed` says how many.
+// RecomputeGraph discards the count on error today, so this costs the caller
+// nothing and stops the signature lying to the next one.
+//
+// ⚠ IT ASSERTS THE COUNT AND NOT THE NAMESPACE, DELIBERATELY. KGAdd indexes each
+// label as it writes it, so the entity namespace is already full before the
+// backfill runs and holds the same points whether this call wrote two chunks or
+// none. The store cannot distinguish the two here; the return value is the only
+// thing that can, which is precisely why it must not be zero.
+func TestBackfillReportsTheLabelsItActuallyWrote(t *testing.T) {
+	ctx := context.Background()
+	const okBatches = 2
+	emb := &failAfterEmbedder{ok: okBatches}
+	svc := newTestServiceWith(t, emb)
+	const team = "team-backfill-partial"
+
+	// More than okBatches worth, so the failure lands part-way rather than at the
+	// end — a corpus that fits in the successful batches would pass with any
+	// implementation.
+	const seeded = entityLabelBatch*okBatches + entityLabelBatch/2
+	for i := range seeded {
+		subj := fmt.Sprintf("entity_%03d", i)
+		if _, err := svc.KGAdd(ctx, team, subj, "relates_to", "a thing", "", "", "", "", ""); err != nil {
+			t.Fatalf("seed %s: %v", subj, err)
+		}
+	}
+	// Seeding drives EmbedOne, not Embed, so the batch counter starts here.
+	emb.calls = 0
+
+	n, err := svc.BackfillEntityLabels(ctx, team)
+	if err == nil {
+		t.Fatal("the embedder failed mid-corpus and the backfill reported success; this test can " +
+			"no longer see the partial case it exists for")
+	}
+	want := okBatches * entityLabelBatch
+	if n != want {
+		t.Errorf("reported %d labels indexed after %d successful batch(es) of %d, want %d.\n"+
+			"  0 means every error path throws the progress away while Upsert has already run "+
+			"per chunk — the count then denies rows that are in the namespace, and the caller "+
+			"logs a failure over an index that is partly built.", n, okBatches, entityLabelBatch, want)
+	}
+	if n >= seeded {
+		t.Errorf("reported %d of %d seeded labels, so the failure did not land part-way and the "+
+			"fixture no longer spans the boundary it claims to pin", n, seeded)
 	}
 }
 
