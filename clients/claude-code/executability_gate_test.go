@@ -193,14 +193,26 @@ func executeBitSites(fset *token.FileSet, f *ast.File) []executeBitSite {
 	return sites
 }
 
-// isExecuteMask reports whether an expression is the execute-bit literal in any
-// base Go accepts. ParseInt with base 0 reads the prefix, so one call covers
+// isExecuteMask reports whether an expression masks ANY POSIX execute bit, in
+// any base Go accepts. ParseInt with base 0 reads the prefix, so one call covers
 // every spelling.
+//
+// ⚠ IT TESTS INTERSECTION, NOT EQUALITY, AND THAT IS THE WHOLE DIFFERENCE. The
+// first version compared `v == executeBitMask`, which pins the one spelling the
+// defect has actually worn twice and admits the obvious variant: `mode&0o100`
+// asks "does the OWNER have +x", is the identical Windows bug — Go reports 0666
+// there, so bit 0o100 is unset exactly as 0o111 is — and passed the gate in
+// silence. Demonstrated by mutation while reviewing #406, before anyone had
+// written it.
+//
+// Intersection also keeps the gate quiet on masks that carry no execute bit at
+// all, which is what stops it firing on ordinary permission arithmetic: 0o666
+// and 0o644 share no bit with 0o111 and are not this question.
 func isExecuteMask(e ast.Expr) bool {
 	lit, ok := e.(*ast.BasicLit)
 	if !ok || lit.Kind != token.INT {
 		return false
 	}
 	v, err := strconv.ParseInt(lit.Value, 0, 64)
-	return err == nil && v == executeBitMask
+	return err == nil && v&executeBitMask != 0
 }
