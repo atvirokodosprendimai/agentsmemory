@@ -383,9 +383,21 @@ func checkNeedlePreflight(tb testing.TB, root string) {
 // to count a needle's occurrences in Go string literals, continuation lines
 // joined, or "" when the script no longer carries one.
 //
-// It exists so a test can RUN the real statement rather than assert its spelling:
-// `--exclude='_test.go'` reads almost like `--exclude='*_test.go'` and matches
-// nothing, and no string check can tell those apart.
+// It exists so a test can RUN the real statement rather than assert its spelling.
+// checkNeedlePreflight pins four TOKENS — `grep -rhoE`, the absence of
+// `| grep -qF -- "$n"`, `REDEPLOY_SKIP_NEEDLE_CHECK` and `--exclude='*_test.go'`
+// — and a mutation that keeps all four intact can still stop the pipeline seeing
+// anything. Measured 2026-09-07: `--include='*.go'` → `--include='*.md'` passes
+// every spelling assertion and is caught only by running the statement.
+//
+// ⚠ THIS COMMENT NAMED THE WRONG MUTANT UNTIL 2026-09-07, and v0.0.123's
+// changelog repeated it as a measurement nobody took: it said dropping the star
+// from `--exclude='*_test.go'` "passed", and that no string check could tell the
+// two spellings apart. Both halves are false — the fourth assertion greps for the
+// starred literal, so the star's removal fails it, and the behavioural subtest
+// fails beside it. The general point (a spelling check pins a token, not a
+// behaviour) survives; the example did not, and an example is what a reader
+// checks the claim against.
 //
 // ⚠ It takes the script body rather than (testing.TB, string) deliberately. A
 // top-level helper in this file with that signature joins the universe
@@ -548,10 +560,13 @@ code=$(curl -s -o /tmp/redeploy-smoke.json -w '%{http_code}' -m 60 -X POST "$BAS
 	})
 
 	t.Run("the preflight's own pipeline sees ordinary source and not test source", func(t *testing.T) {
-		// The assertion in checkNeedlePreflight is a SPELLING check, and spelling
-		// cannot tell a flag that is present from a flag that works:
-		// `--exclude='_test.go'` reads almost the same and matches nothing. So take
-		// the real statement out of the real script and run it over a fixture.
+		// checkNeedlePreflight's assertions are SPELLING checks: they pin four
+		// tokens, which is not the same as pinning what the pipeline does. The
+		// mutant that separates them is `--include='*.go'` → `--include='*.md'`,
+		// measured 2026-09-07 — every spelling assertion passes and only this
+		// subtest fails. So take the real statement out of the real script and run
+		// it over a fixture. (See needleLiteralPipeline for the example this
+		// comment used to name, which the spelling check does catch.)
 		raw, err := os.ReadFile(filepath.Join(root, "scripts", "redeploy.sh"))
 		if err != nil {
 			t.Fatalf("read redeploy.sh: %v", err)
