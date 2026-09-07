@@ -1966,7 +1966,7 @@ func TestClaudeDesktopInstallRegistersTheBridge(t *testing.T) {
 	// ⚠ THE PLACED PATH, NOT THE SOURCE. The installer copies the binary it
 	// resolved into the kit and registers that copy, so the command Desktop
 	// spawns keeps working when the build directory it came from is gone.
-	if want := filepath.Join(dir, "bin", installedServerBinName); entry.Command != want {
+	if want := filepath.Join(dir, "bin", installedServerBinFile()); entry.Command != want {
 		t.Errorf("command = %q, want the installed server binary %q", entry.Command, want)
 	}
 	if len(entry.Args) < 3 || entry.Args[0] != "mcp-stdio" ||
