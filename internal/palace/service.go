@@ -59,14 +59,25 @@ const (
 	// scores. Widening the pool is the point of reranking: hybridCandidateMultiplier
 	// alone shows the ranker only limit*3 candidates (15 for a default search), so a
 	// document the vector pass ranked 40th can never reach the page no matter how
-	// well it answers the query. 50 is wide enough to change the answer and small
-	// enough to cross-encode within a search's latency budget.
-	// Lowered from 50 on 2026-08-21. The cost is linear and measured — ~435ms per
-	// document on a CPU cross-encoder, so 50 candidates cost ~22 seconds and made
-	// am_search unusable: an independent session's searches timed out 3 times out
-	// of 3 while am_status answered instantly. What a larger pool BUYS is still
-	// unmeasured at any size, so this is a cost-driven choice and not a quality
-	// one; an operator on faster hardware should raise it, and --rerank-pool is how.
+	// well it answers the query.
+	//
+	// 10 is a COST-DRIVEN choice, not a quality one, and lowered from 50 on
+	// 2026-08-21. The cost is linear and measured — ~435ms per document on a CPU
+	// cross-encoder, so 50 candidates cost ~22 seconds and made am_search unusable:
+	// an independent session's searches timed out 3 times out of 3 while am_status
+	// answered instantly. What a larger pool BUYS is still unmeasured at any size, so
+	// an operator on faster hardware should raise it and --rerank-pool is how.
+	//
+	// ⚠ THIS COMMENT ARGUED FOR 50 UNTIL 2026-09-07, BESIDE THE VALUE 10. The
+	// sentence "50 is wide enough to change the answer and small enough to
+	// cross-encode within a search's latency budget" survived the lowering that the
+	// very next line records, so the paragraph justified a number the constant had
+	// stopped being — the class §Reachability calls a description that goes false.
+	//
+	// ⚠ config.Default() TYPES THIS NUMBER AGAIN, to keep internal/config free of a
+	// dependency on internal/palace. TestTheDuplicatedRerankPoolDefaultMatchesItsSource
+	// (cmd/server) is what compares them; before it, raising this to 11 left the whole
+	// suite green with the flag default still 10.
 	DefaultRerankPool = 10
 
 	// DefaultRerankWeight is how much of the final ordering the cross-encoder
