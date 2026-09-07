@@ -958,6 +958,37 @@ A second edge sits behind the same seam: `DrawerID` drops agent and topic, so tw
 byte-identical content in one wing collapse to a single row on import — the opposite failure, and it
 silently violates the append-only journal guarantee `diaryEntryID`'s own doc comment states.
 
+⚠ **RE-MEASURED 2026-09-07 AGAINST v0.0.124. The first claim REPRODUCES; the second is now FALSE,
+and the difference is ADR-038.**
+
+The duplication is live. One diary entry written normally into `wing_acme`, `wingbundle.Export`,
+then `importer.Ingest` back into the SAME wing, driving the real `palace.Service` over a migrated
+SQLite fixture — **1 current row before, 2 after**, same content, ids `671455a47991` and
+`2838e8253709`. Restoring a bundle beside its original still doubles the journal.
+
+The collapse does not. Two byte-identical entries in one wing export as 2 and land as 2, because
+ADR-038 routed a diary row's `content_key` through `contentKeyFor`'s diary branch — an empty key,
+which is excluded from the partial unique index, so nothing dedupes them. The append-only guarantee
+holds today. **Do not fix a defect this entry describes without re-running it first:** this half was
+repaired by a change made for another reason and nobody came back to the entry.
+
+⚠ **AND THE OBVIOUS FIX IS NOT AVAILABLE, WHICH IS WHY THIS IS AN ADR AND NOT A PATCH.** The natural
+repair is to let import re-mint the ORIGINAL id — `diaryEntryID(team, wing, agent, topic, index,
+content, seed)` reproduces it exactly when the wing is the same, and still separates two identical
+entries because their seeds differ. It cannot be done: `diarySeed` is `filedAt + "|" + 8 random
+bytes` and **the nonce is never stored**. It mints the id and is discarded, so no exporter can carry
+it and no importer can recompute it.
+
+That leaves one route — the bundle carries the drawer id and import preserves it — and that is a
+wire-format change plus a reversal of `AbsorbDrawers`' stated contract (*"IDs are recomputed with the
+target team's `DrawerID` recipe, so the same record imported twice resolves to one row"*), with the
+cross-team collision question to settle. A decision, not a drive-by.
+
+The other two halves were re-checked the same day and both still hold: `internal/wingbundle` emits no
+`kg` record kind while `internal/importer` handles one (`importer.go:319`), and `serveLocal` mounts
+`/mcp`, `/import`, `/stats` and `/healthz` and nothing that reaches skills, the graph, anchors or
+tunnels.
+
 **On a self-hosted server, no export path reaches skills, the knowledge graph, anchors, or
 cross-wing tunnels.** `wing export` structurally cannot carry them — they are not bundle record
 kinds. The one path that does, the data-subject archive, is mounted only on the multi-tenant
