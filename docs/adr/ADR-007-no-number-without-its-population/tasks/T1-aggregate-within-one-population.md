@@ -7,6 +7,7 @@
 **Produces:** scope-partitioned aggregation, general rather than at one call site
 **Consumes:** none
 **Data dependency:** hermetic
+**Rests-on:** `the baseline is per-population`, `the population comes from the classification, never a list of arm names`, `the ceiling's closing claim is conditional on the table`
 
 ## Goal
 
@@ -30,13 +31,14 @@ Every aggregate the eval prints over multiple arms includes only arms sharing an
 ## Acceptance
 
 ```bash
-docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c '
+docker run --rm --init -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'apk add --no-cache bash git >/dev/null 2>&1 || true;
   set -e
+  git config --global --add safe.directory /src
   gofmt -l cmd | grep -q . && { echo "gofmt"; exit 1; }
   go vet ./...
   go test ./cmd/server/ -run "TestNoAggregateMixesScopes|TestPoolDiagnosis" -count=1 -v 2>&1 | tee /tmp/a1.out
   grep -q -- "--- PASS: TestNoAggregateMixesScopes" /tmp/a1.out
-  ! grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/a1.out
+  if grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/a1.out; then exit 1; fi
   go test ./cmd/server/ ./internal/palace/ -count=1'
 ```
 
@@ -59,8 +61,9 @@ docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v 
 
 | Mutation | Compiles? | Test that goes red |
 |----------|-----------|--------------------|
-| drop the scope filter from one aggregate | yes | `TestNoAggregateMixesScopes` |
-| re-introduce an exclusion list keyed by arm name | yes | `TestNoAggregateMixesScopes` |
+| `bestByScope` returns one argmax over every arm | yes | `TestNoAggregateMixesScopes` |
+| the partition becomes an exclusion list keyed by arm name | yes | `TestNoAggregateMixesScopes` |
+| the ceiling block prints its closing sentence unconditionally | yes | `TestNoAggregateMixesScopes` |
 
 ## Out of Scope
 
@@ -81,6 +84,19 @@ Stop and ask if an aggregate cannot be assigned a single scope — that means th
 
 ## Verification Log
 
-<Tool-written by adr-verify. Do not hand-edit.>
+- 2026-09-07 · d8147ca7 · exit 0 · `docker run --rm --init -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'apk add --no-cache bash git >/dev/null 2>&1 || true; …` · acceptance-sha256:8ed3417962ad8bf78b39f1eb7485bda2cc501cb1312aa02ffc3a4b0962c9b3c6 · ms:31391
+- 2026-09-07 · d8147ca7* · exit 0 · `docker run --rm --init -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'apk add --no-cache bash git >/dev/null 2>&1 || true; …` · acceptance-sha256:8ed3417962ad8bf78b39f1eb7485bda2cc501cb1312aa02ffc3a4b0962c9b3c6 · ms:28644
+- 2026-09-07 · d8147ca7* · exit 0 · `docker run --rm --init -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'apk add --no-cache bash git >/dev/null 2>&1 || true; …` · acceptance-sha256:8ed3417962ad8bf78b39f1eb7485bda2cc501cb1312aa02ffc3a4b0962c9b3c6 · ms:33590
+- 2026-09-07 · d8147ca7* · exit 0 · `docker run --rm --init -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'apk add --no-cache bash git >/dev/null 2>&1 || true; …` · acceptance-sha256:8ed3417962ad8bf78b39f1eb7485bda2cc501cb1312aa02ffc3a4b0962c9b3c6 · ms:28994
+- 2026-09-07 · d8147ca7* · exit 0 · `docker run --rm --init -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'apk add --no-cache bash git >/dev/null 2>&1 || true; …` · acceptance-sha256:2f124f69aabd989eff3208a2a59af56cee9b7a6ff767e260a5a32ad37b463ea9 · ms:29020
+- 2026-09-07 · d8147ca7* · exit 0 · `docker run --rm --init -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'apk add --no-cache bash git >/dev/null 2>&1 || true; …` · acceptance-sha256:2f124f69aabd989eff3208a2a59af56cee9b7a6ff767e260a5a32ad37b463ea9 · ms:27893
+- 2026-09-07 · d8147ca7* · exit 0 · `docker run --rm --init -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'apk add --no-cache bash git >/dev/null 2>&1 || true; …` · acceptance-sha256:2f124f69aabd989eff3208a2a59af56cee9b7a6ff767e260a5a32ad37b463ea9 · ms:28256
+- 2026-09-07 · d8147ca7* · exit 0 · `docker run --rm --init -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'apk add --no-cache bash git >/dev/null 2>&1 || true; …` · acceptance-sha256:2f124f69aabd989eff3208a2a59af56cee9b7a6ff767e260a5a32ad37b463ea9 · ms:35072
 
 ## Mutation Log
+- 2026-09-07 · d8147ca7* · mutant killed · exit 1 · `cmd/server/eval.go` · bestByScope drops the classification and returns one argmax over every arm — what printEvalTable did before this task. Production and the contextual arm are then ranked against the pooled winner and reported "worse by", for a difference that is a change of question, not a ranking loss. · acceptance-sha256:8ed3417962ad8bf78b39f1eb7485bda2cc501cb1312aa02ffc3a4b0962c9b3c6 · covers:the baseline is per-population
+- 2026-09-07 · d8147ca7* · mutant killed · exit 1 · `cmd/server/eval.go` · the partition goes back to an exclusion list keyed by arm name — correct for every arm that exists today, and it folds the NEXT one into the pool silently. That is the route by which production inherited the bug already fixed for the contextual arm; the fixture arm ArmScope does not classify is what catches it. · acceptance-sha256:8ed3417962ad8bf78b39f1eb7485bda2cc501cb1312aa02ffc3a4b0962c9b3c6 · covers:the population comes from the classification, never a list of arm names
+- 2026-09-07 · d8147ca7* · mutant killed · exit 1 · `cmd/server/eval.go` · the ceiling block prints its closing sentence unconditionally again, telling the reader that every arm above re-orders the shared pool while production is scored over a page cut from it and the contextual arm never touched it. Same defect as the statistic, stated in prose, and no numeric assertion can see it. · acceptance-sha256:8ed3417962ad8bf78b39f1eb7485bda2cc501cb1312aa02ffc3a4b0962c9b3c6 · covers:the ceiling's closing claim is conditional on the table
+- 2026-09-07 · d8147ca7* · mutant killed · exit 1 · `cmd/server/eval.go` · bestByScope drops the classification and returns one argmax over every arm — what printEvalTable did before this task. Production and the contextual arm are then ranked against the pooled winner and reported "worse by", for a difference that is a change of question, not a ranking loss. · acceptance-sha256:2f124f69aabd989eff3208a2a59af56cee9b7a6ff767e260a5a32ad37b463ea9 · covers:the baseline is per-population
+- 2026-09-07 · d8147ca7* · mutant killed · exit 1 · `cmd/server/eval.go` · the partition goes back to an exclusion list keyed by arm name — correct for every arm that exists today, and it folds the NEXT one into the pool silently. That is the route by which production inherited the bug already fixed for the contextual arm; the fixture arm ArmScope does not classify is what catches it. · acceptance-sha256:2f124f69aabd989eff3208a2a59af56cee9b7a6ff767e260a5a32ad37b463ea9 · covers:the population comes from the classification, never a list of arm names
+- 2026-09-07 · d8147ca7* · mutant killed · exit 1 · `cmd/server/eval.go` · the ceiling block prints its closing sentence unconditionally again, telling the reader that every arm above re-orders the shared pool while production is scored over a page cut from it and the contextual arm never touched it. Same defect as the statistic, stated in prose, and no numeric assertion can see it. · acceptance-sha256:2f124f69aabd989eff3208a2a59af56cee9b7a6ff767e260a5a32ad37b463ea9 · covers:the ceiling's closing claim is conditional on the table
