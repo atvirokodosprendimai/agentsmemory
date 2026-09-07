@@ -86,48 +86,40 @@ var evidencePointer = regexp.MustCompile(`ADR-[0-9]{3}|case[ _-]set|[0-9]{4}-[0-
 // field and it names that field, its position and what to add.
 func TestShippedDefaultsCiteTheirCorpus(t *testing.T) {
 	root := repoRoot(t)
-	offenders, checked, claiming, err := unattributed(filepath.Join(root, defaultsFile))
-	if err != nil {
-		t.Fatalf("%v", err)
-	}
-	for _, o := range offenders {
-		t.Errorf("%s claims a measurement and names no evidence.\n"+
-			"  Cite the record the measurement lives in (ADR-0NN), the case set it ran against, or the date it was\n"+
-			"  taken. Without one the claim outlives the corpus that produced it: a later run can refute the number\n"+
-			"  and a reader of this literal has no route to that.", o)
-	}
-	if len(offenders) == 0 {
-		t.Logf("%d default(s), %d claiming a measurement, all attributed", checked, claiming)
+	// The EMPTY-UNIVERSE guard lives here, at the caller, rather than inside the
+	// helper: "this gate examined nothing" is a fact about the run, and a run that
+	// examined nothing must not report that every default is attributed. Keeping it
+	// in the body also means the test itself carries a failure call, which
+	// `adr-lint` requires of a test a done task names — measured 2026-09-07, it
+	// reports "nothing in it can go red" against a body that only delegates.
+	if checked := unattributed(t, filepath.Join(root, defaultsFile)); checked == 0 {
+		t.Fatalf("%s yielded no defaults to check; an empty universe is indistinguishable "+
+			"from every default being attributed", defaultsFile)
 	}
 }
 
-// unattributed returns every default whose comment claims a measurement and
-// names no evidence, plus how many were examined and how many made a claim.
+// unattributed reports every default whose comment claims a measurement and names
+// no evidence.
 //
-// ⚠ IT RETURNS FINDINGS RATHER THAN REPORTING THEM, AND adr-lint IS WHY. A first
-// version took a testing.TB and called Errorf itself, so the test body was three
-// lines that delegated everything — and adr-lint refused the task: "no failure
-// call is reachable in its body or in a same-file helper it hands the test handle
-// to — nothing in it can go red." It could go red; the detector does not follow a
-// testing.TB parameter. Returning the findings is the better shape regardless: the
-// caller decides whether a finding is fatal, and the falsifiability test below
-// asserts on the RETURNED slice instead of on a recorder that has to impersonate
-// testing.TB to observe reporting.
-//
-// An unreadable or literal-less file is an ERROR rather than an empty result,
-// because a Default() this cannot parse must not report that every default is
-// attributed — that is the vacuous pass this gate exists to refuse.
-func unattributed(path string) (offenders []string, checked, claiming int, err error) {
+// It takes a testing.TB rather than a *testing.T so the falsifiability subtest can
+// substitute a recorder and prove the gate REPORTS — a test cannot pin its own
+// reporting, and without the shim a severed call site leaves the suite green while
+// the gate announces that everything is attributed. That failure is not
+// hypothetical in this package: TestAHumanObservedSignOffAgreesWithTheIndex shipped
+// with exactly it.
+func unattributed(tb testing.TB, path string) (checked int) {
+	tb.Helper()
 	fset := token.NewFileSet()
-	file, perr := parser.ParseFile(fset, path, nil, parser.ParseComments)
-	if perr != nil {
-		return nil, 0, 0, fmt.Errorf("parse %s: %w", path, perr)
+	file, err := parser.ParseFile(fset, path, nil, parser.ParseComments)
+	if err != nil {
+		tb.Fatalf("parse %s: %v", path, err)
 	}
 
 	lit := defaultsLiteral(file)
 	if lit == nil {
-		return nil, 0, 0, fmt.Errorf("%s declares no func Default() returning a Config literal; this gate's "+
-			"universe is empty, which is indistinguishable from every default being attributed", path)
+		// Reported as zero rather than fatal here: the CALLER owns "nothing was
+		// examined", so the falsifiability test can observe it without a panic.
+		return 0
 	}
 
 	// The comment map is built over the WHOLE file and then consulted per field,
@@ -136,6 +128,8 @@ func unattributed(path string) (offenders []string, checked, claiming int, err e
 	// Comment to an element of a composite literal.
 	cmap := ast.NewCommentMap(fset, file, file.Comments)
 
+	var offenders []string
+	claiming := 0
 	for _, elt := range lit.Elts {
 		kv, ok := elt.(*ast.KeyValueExpr)
 		if !ok {
@@ -156,8 +150,18 @@ func unattributed(path string) (offenders []string, checked, claiming int, err e
 		}
 		offenders = append(offenders, fmt.Sprintf("%s (%s)", name.Name, fset.Position(kv.Pos())))
 	}
+
 	sort.Strings(offenders)
-	return offenders, checked, claiming, nil
+	for _, o := range offenders {
+		tb.Errorf("%s claims a measurement and names no evidence.\n"+
+			"  Cite the record the measurement lives in (ADR-0NN), the case set it ran against, or the date it was\n"+
+			"  taken. Without one the claim outlives the corpus that produced it: a later run can refute the number\n"+
+			"  and a reader of this literal has no route to that.", o)
+	}
+	if len(offenders) == 0 {
+		tb.Logf("%d default(s), %d claiming a measurement, all attributed", checked, claiming)
+	}
+	return checked
 }
 
 // defaultsLiteral returns the Config composite literal returned by func Default(),
@@ -219,13 +223,6 @@ func commentsFor(cmap ast.CommentMap, kv *ast.KeyValueExpr) string {
 // It is a SUBTEST rather than a sibling because a fence runs one test name, and a
 // falsifiability case parked outside it is one a `-run` filter silently skips.
 //
-// ⚠ IT ASSERTS ON THE RETURNED FINDINGS, NOT ON A RECORDER. The first version made
-// `unattributed` take a testing.TB and substituted a `recordingTB` to observe
-// whether it reported — the shape citation_test.go uses, and the right one when a
-// gate both computes and reports. This one only computes, so the findings ARE the
-// verdict and a shim would be ceremony around a slice. The empty-universe case is
-// an error value for the same reason.
-//
 // Both directions are asserted. A matcher that flags everything would pass the
 // first case and is the failure mode that gets a gate deleted — this package has
 // already had one such incident (issue #16, the AGENTS.md gate false-positiving on
@@ -275,13 +272,10 @@ func TestADefaultThatCitesNothingIsCaught(t *testing.T) {
 			if err := os.WriteFile(path, []byte(header+tc.body+footer), 0o600); err != nil {
 				t.Fatalf("write fixture: %v", err)
 			}
-			offenders, _, _, err := unattributed(path)
-			if err != nil {
-				t.Fatalf("unattributed: %v", err)
-			}
-			if got := len(offenders) > 0; got != tc.report {
-				t.Errorf("reported=%v (%v), want %v — the gate does not decide this fixture the way it decides the corpus",
-					got, offenders, tc.report)
+			rec := &recordingTB{TB: t}
+			unattributed(rec, path)
+			if got := rec.errors > 0; got != tc.report {
+				t.Errorf("reported=%v, want %v — the gate does not decide this fixture the way it decides the corpus", got, tc.report)
 			}
 		})
 	}
@@ -294,8 +288,9 @@ func TestADefaultThatCitesNothingIsCaught(t *testing.T) {
 		if err := os.WriteFile(path, []byte("package config\n\ntype Config struct{ W float64 }\n\nfunc Default() Config {\n\tc := Config{}\n\treturn c\n}\n"), 0o600); err != nil {
 			t.Fatalf("write fixture: %v", err)
 		}
-		if _, _, _, err := unattributed(path); err == nil {
-			t.Error("a Default() building its value in steps was accepted; an empty universe reads as every default attributed")
+		rec := &recordingTB{TB: t}
+		if n := unattributed(rec, path); n != 0 {
+			t.Errorf("a Default() building its value in steps reported %d checked; an empty universe must be 0 so the caller can fail it", n)
 		}
 	})
 }
