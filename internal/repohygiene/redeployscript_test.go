@@ -384,11 +384,21 @@ func checkNeedlePreflight(tb testing.TB, root string) {
 // joined, or "" when the script no longer carries one.
 //
 // It exists so a test can RUN the real statement rather than assert its spelling.
-// checkNeedlePreflight pins four TOKENS — `grep -rhoE`, the absence of
-// `| grep -qF -- "$n"`, `REDEPLOY_SKIP_NEEDLE_CHECK` and `--exclude='*_test.go'`
+// checkNeedlePreflight pins four TOKENS — `grep -hoE`, the absence of
+// `| grep -qF -- "$n"`, `REDEPLOY_SKIP_NEEDLE_CHECK` and `! -name '*_test.go'`
 // — and a mutation that keeps all four intact can still stop the pipeline seeing
-// anything. Measured 2026-09-07: `--include='*.go'` → `--include='*.md'` passes
-// every spelling assertion and is caught only by running the statement.
+// anything. Measured 2026-09-07 against the find-based pipeline: `-name '*.go'`
+// → `-name '*.md'` passes every spelling assertion and is caught only by running
+// the statement.
+//
+// ⚠ AND THE NAMED MUTANT MOVED ONCE ALREADY, WITHIN HOURS. It was
+// `--include='*.go'` → `--include='*.md'` until #359 replaced grep's GNU-only
+// `--include`/`--exclude` with `find`, at which point this comment named a flag
+// the script no longer had — a mutant a reader could not run, in the comment
+// written to stop exactly that. The lesson is not "pick a better example": it is
+// that AN EXAMPLE NAMING AN IMPLEMENTATION DETAIL INHERITS THAT DETAIL'S
+// LIFETIME, so it is re-measured whenever the line it names changes, or it rots
+// silently. Nothing gates this; the four token assertions above pass either way.
 //
 // ⚠ THIS COMMENT NAMED THE WRONG MUTANT UNTIL 2026-09-07, and v0.0.123's
 // changelog repeated it as a measurement nobody took: it said dropping the star
@@ -562,11 +572,17 @@ code=$(curl -s -o /tmp/redeploy-smoke.json -w '%{http_code}' -m 60 -X POST "$BAS
 	t.Run("the preflight's own pipeline sees ordinary source and not test source", func(t *testing.T) {
 		// checkNeedlePreflight's assertions are SPELLING checks: they pin four
 		// tokens, which is not the same as pinning what the pipeline does. The
-		// mutant that separates them is `--include='*.go'` → `--include='*.md'`,
-		// measured 2026-09-07 — every spelling assertion passes and only this
-		// subtest fails. So take the real statement out of the real script and run
-		// it over a fixture. (See needleLiteralPipeline for the example this
-		// comment used to name, which the spelling check does catch.)
+		// mutant that separates them is `-name '*.go'` → `-name '*.md'`, measured
+		// 2026-09-07 — every spelling assertion passes and only this subtest
+		// fails. So take the real statement out of the real script and run it over
+		// a fixture. (See needleLiteralPipeline for the two examples this comment
+		// has already outlived, and why naming one costs a re-measurement.)
+		//
+		// ⚠ This subtest is what caught #359: `--include`/`--exclude` are GNU
+		// extensions, BusyBox grep rejects them outright, and the whole preflight
+		// returned 0 for every needle inside `golang:1.26-alpine` while all four
+		// token assertions passed — because the spelling was fine and the tool
+		// underneath was not.
 		raw, err := os.ReadFile(filepath.Join(root, "scripts", "redeploy.sh"))
 		if err != nil {
 			t.Fatalf("read redeploy.sh: %v", err)
