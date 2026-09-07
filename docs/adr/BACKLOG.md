@@ -408,20 +408,44 @@ mechanical gates exist so review attention goes where only a reader can judge.
 **The general finding stands; the instance I filed it with was refuted in review and is corrected
 below. Both halves are kept, because the way the instance was wrong is the more useful lesson.**
 
-**The limitation, verified 2026-08-28 against the quality-harness plugin cache on the authoring machine**, where `adr-lint` on `PATH` resolves to **2.23.0**, and identical in the 2.19.0 and 2.21.0 copies present there — same line numbers in all three. ⚠ A reviewer whose machine carries only 2.19.0 can confirm that copy and nothing else, so read the multi-version claim as "not a version artefact *here*" rather than as reproducible anywhere. The behaviour is what matters and it reproduces on the version everybody has. It is stronger than "the DAG cannot see
-these edges" — the schema forbids writing one:
+**The limitation, first found 2026-08-28 against `adr-lint 2.23.0` and re-verified 2026-09-07 against
+`2.85.0`** — sixty-two releases apart, same behaviour. ⚠ **No line numbers into the checker are
+written here, and the first draft carried two.** It is a separate project on its own cadence, so a
+line number in this file is stale by its next release; the messages and identifiers below are what to
+grep for, and they survived the sixty-two releases that moved every number. The finding is stronger
+than "the DAG cannot see these edges" — the schema forbids writing one:
 
-- `bin/adr-lint:272-276` validates every `Depends-on` entry against `all_stems`, the SIBLING task
+- `adr-lint`'s `check_task` validates every `Depends-on` entry against `all_stems`, the SIBLING task
   files of that ADR, and emits *"Depends-on 'X' matches no sibling task file"*. So a cross-record
   dependency is a hard lint error: the field designed to carry the constraint refuses it.
-- `bin/adr-next:136-160` builds the same edge set filtered to `if d in infos`, this ADR's tasks
-  only. A foreign T-id is discarded silently. Its docstring says this is deliberate — *"Same edge
-  set as adr-lint's DAG, so readiness here cannot disagree"*.
+- `adr-next` builds the same edge set filtered to `if d in infos`, this ADR's tasks only. A foreign
+  T-id is discarded silently. Its docstring says this is deliberate — *"Same edge set as adr-lint's
+  DAG, so readiness here cannot disagree"*.
 - The failure direction is what matters: **an unseen edge reads as NO edge**, so `adr-next` prints
   `ready` rather than `unknown`.
 
-In this corpus **41 of 94 task files (44%) reference a foreign ADR** across 44 distinct pairs. Not
-all imply ordering, but none of them can be represented.
+Foreign references are common here, and none of them can be represented. ⚠ **No count is written
+here, and one used to be** — the task corpus more than doubled between this entry's first draft and
+its first re-read, moving numerator and denominator together, so the fraction says as much about when
+it was taken as about the corpus. The method instead:
+
+```bash
+python3 - <<'PYEOF'
+import re, glob
+files = sorted(glob.glob("docs/adr/ADR-*/tasks/*.md"))
+pairs, n = set(), 0
+for f in files:
+    own = re.search(r"ADR-(\d{3})", f).group(1)
+    txt = open(f, encoding="utf-8", errors="replace").read()
+    foreign = {m for m in re.findall(r"ADR-(\d{3})", txt) if m != own}
+    if foreign:
+        n += 1
+        pairs.update((own, x) for x in foreign)
+print(n, "of", len(files), "task files reference a foreign ADR,", len(pairs), "distinct pairs")
+PYEOF
+```
+
+Not all of them imply ordering.
 
 **⚠ THE INSTANCE I USED WAS WRONG, and it is worth reading before reusing this entry.** I claimed
 ADR-002 T3 was gated on ADR-003 T3/T4, quoting ADR-003's Decision. That sentence sits inside a
@@ -438,9 +462,11 @@ so none of them does now:
 - `ADR-014:51-53` — T3 is *"a check on a shipped default rather than a gate before one"*.
 - `BACKLOG.md`, the bullet *"ADR-003 T3's two-corpus measurement is now a check, not a gate"* —
   which reports ADR-014's finding in its own words rather than quoting it. The flip already
-  happened: `internal/config/config.go:374` ships `ClosetBoost: 0`. (No line number on purpose;
-  this entry inserts lines above that bullet, so any number written here is wrong in the tree the
-  entry produces — which is exactly what happened in round 1.)
+  happened: `Default()` in `internal/config/config.go` ships `ClosetBoost: 0`. (No line numbers in
+  this bullet. It carried one, into `config.go`, and by the first re-read that had drifted from
+  `:374` to `:466`. The sibling bullet is named rather than numbered because this entry inserts lines
+  above it, so any number written here is wrong in the tree the entry produces — which is what
+  happened in round 1.)
 - `ADR-002:157` — record B **already carried its own constraint**, and carried it better: scoped to
   T4 alone and stated as a conditional, *"If T4 ships closet-ON after all"*. T4 shipped closet-OFF,
   so the condition never fired.
