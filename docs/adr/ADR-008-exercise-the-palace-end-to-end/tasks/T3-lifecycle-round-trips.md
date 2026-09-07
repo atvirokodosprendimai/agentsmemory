@@ -24,9 +24,22 @@
 > `git config --global --add safe.directory /src`: the container runs as root over a host-owned bind
 > mount, so on Linux git refused with `detected dubious ownership` and the fence died with TEN
 > `exit status 128` failures over a tree that was green on the host and in CI (the same defect PR
-> #383 fixed in `scripts/redeploy.sh`; 31 other fences still carry it). The provably inert
+> #383 fixed in `scripts/redeploy.sh`; ⚠ **36** other fences still carry it — this said **31** until
+> the population was re-measured, see below). The provably inert
 > `! grep -qE …` guard was replaced by the un-negated form in the same edit, since the digest was
 > being re-recorded anyway — `set -e` exempts a negated pipeline, so it never could have failed.
+>
+> ⚠ **THE 31 WAS AN UNDERCOUNT, AND THE REASON IS THIS CORPUS'S RECURRING DEFECT: A POPULATION
+> DEFINED BY HOW IT WAS MEASURED RATHER THAN BY WHAT IT MEANS.** The first sweep asked "does this
+> fence run `go test ./...`?" and reported 32 affected files. But what makes a fence affected is
+> REACHING A TEST THAT SHELLS OUT TO GIT, and only three packages do —
+> `clients/claude-code`, `internal/contractaxis`, `internal/repohygiene` (derived by grep, and it
+> independently corroborates the "twelve failures across three packages" measured from the fence).
+> Seven further fences scope `go test` straight at one of those packages and never write `./...`;
+> two of the seven also run `./...`. The affected population is **37 of the 76 docker-fenced task
+> files**, of which **27 hold a recorded exit-0 digest** and **10 do not**. The 32/23 figures were
+> published in this file and in PR #390 before the re-measure; both are corrected rather than
+> quietly replaced, because the arithmetic was never the error — the definition was.
 >
 > ⚠ **THE FENCE NEEDED A SECOND FIX, AND THIS PARAGRAPH SAID SO WHILE STILL CALLING IT UNVERIFIABLE.**
 > Retired in place rather than deleted, because the intermediate state is the finding: with
