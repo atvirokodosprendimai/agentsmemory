@@ -991,9 +991,16 @@ Metrics the harness still cannot express, each blocking a class of idea:
 
 ## Candidate pool should be a measured ceiling, not a constant
 
-`DefaultRerankPool = 50`, `DefaultSearchLimit = 5`, `MaxSearchLimit = 100` and
-`hybridCandidateMultiplier = 3` are the same numbers on a 5,000-drawer palace and on one
-orders of magnitude larger. The retrieval reach they buy is not the same:
+`DefaultRerankPool`, `DefaultSearchLimit`, `MaxSearchLimit` and `hybridCandidateMultiplier` are the
+same numbers on a 5,000-drawer palace and on one orders of magnitude larger. The retrieval reach they
+buy is not the same. ⚠ **No values are written here, and four were** — this entry said
+`DefaultRerankPool = 50` when it has been **10 since 2026-08-21**, a factor of five, in an entry whose
+whole argument is that these numbers are wrong for somebody. Read them from
+`internal/palace/service.go` and `internal/palace/rank.go`; the argument does not depend on which
+number is there today. ⚠ And two of these are typed TWICE: `config.Default()` copies the rerank pool
+to keep `internal/config` free of a dependency on `internal/palace`, which nothing compared until
+`TestTheDuplicatedRerankPoolDefaultMatchesItsSource` (2026-09-07) — before it, raising the palace
+constant left the flag default behind with the whole suite green.
 
 Measured 2026-08-18, before the reset:
 
