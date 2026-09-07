@@ -898,7 +898,11 @@ The server registers 41 tools; roughly eight are in regular use. What is built, 
 | `am_merge_wing` | first use 2026-08-20 | Folded two derived wings into one after registrations corrected. Worked exactly as documented; simply nobody had needed it before. |
 
 ⚠ **RE-MEASURED 2026-09-07 AGAINST v0.0.124, AND THREE ROWS OF THAT TABLE ARE NOW FALSE — INCLUDING
-THE ONE THIS ENTRY HAD ALREADY CORRECTED ONCE.** The palace has grown from 80 drawers to 12,271.
+THE ONE THIS ENTRY HAD ALREADY CORRECTED ONCE.** The palace has grown from 80 drawers to **12,271 on
+LOCAL** — hosted (`atvirokodosprendimai-498ccd`) reported `total_drawers: 10,690` the same morning, so
+even this sentence needed its server named. It did not have one until review asked: the count in the
+table below was qualified because a reviewer disagreed with it, while this one, which nobody disputed,
+kept its ambiguity one line above the ⚠ that forbids it.
 
 | row | 2026-08-20 | 2026-09-07 |
 |---|---|---|
