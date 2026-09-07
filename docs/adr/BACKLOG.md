@@ -389,6 +389,14 @@ command rather than a gate because most point into refactored files where the co
 unknowable, so "fix them" means guesses that drift again — the fix this corpus has already disproved
 four times.
 
+**NOT gated — an ISSUE NUMBER in prose, and this class is unwatched rather than declined.** A
+sentence saying issue #N "is still open" is a pointer whose target lives outside the tree, so nothing
+here can read it: `TestEveryCitedADRResolves` and its docs sibling resolve ADR ids and stop there.
+Found 2026-09-07 in `internal/repohygiene/humansignoff_test.go`, whose `statusForDecision` comment
+said issue #34 was still open eleven hours after it closed. A gate would have to reach the network
+from a test, which costs more than the drift, so the remedy is to write the claim in a form that
+cannot go false — say what the issue RECORDED, not what state it is in — rather than to check it.
+
 **Scope, stated honestly.** These two gates cover ADR citations and self-references; source
 `file:line` is the largest ungated class, and it is the one the title is about. ⚠ **No ratio is
 written here, and one used to be** — this paragraph said the gates covered "well under half of the
@@ -508,6 +516,45 @@ a decision, not a foregone no.
 *(Found by a reviewer who first "corrected" the count from two to one and then retracted the
 correction: the second precedent implements the same pattern under different identifiers, so a grep
 for the first one's names missed it. Ask which entries exist, not which files contain this string.)*
+
+## MOSTLY RESOLVED 2026-09-07 — the routing tools report the stop now; the surface above them still does not (filed 2026-08-28)
+
+Four of the entry's five observations no longer hold, and the fifth is the one worth keeping.
+
+**The upstream change it asked for shipped.** It asked to *"count a human-observed entry as done
+only when it names a success outcome, and report a recorded stop as `blocked` rather than `done`"*.
+`adr-next` does both, and resolved the vocabulary clash by ADDING a word rather than reusing one: a
+task whose DEPENDENCIES are unmet still prints `blocked`, a task whose human sign-off says stop
+prints `stopped`. It also refuses to read a Withdrawn record as a work order, leading with *"the
+record owning these tasks is Withdrawn, not Accepted — a record is a work order only once it is
+Accepted, so what follows is a reading of its PLAN"*. Measured 2026-09-07 against the copy on this
+machine's PATH; the entry above records why no version arithmetic is written here.
+
+**`adr-lint` still passes, but no longer silently.** Exit 0 over ADR-001, with advice naming the
+exact gap: *"T3 has status `failed`, which this reader does not act on — so the checks that run for
+an evidenced task did NOT run for it … That is 'not looked at', not 'nothing found'."* The
+`if inf.get("human")` skip is still there; what changed is that it says so.
+
+**`work-next` no longer exists.** The entry's fourth routing bullet names a command the plugin no
+longer ships.
+
+**The decision the entry filed was ANSWERED — by a run, not by a ruling.** T3 re-ran 2026-09-05
+against ~3,800 drawers (unsaturated, preflight passes) and recorded `decision withdraw`. ADR-001 is
+**Withdrawn**. ⚠ So the original's *"T3's row now reads `blocked`"* is not drift: `withdraw` maps to
+`failed`, and a later legitimate run moved it. Issue #34, the sibling case it cites, closed
+COMPLETED 2026-09-07.
+
+**WHAT REMAINS is the entry's own thesis, one consumer up.** `adr-next` fixed itself by CAVEATING
+rather than suppressing — and the surface that actually hands work to a session drops the caveat and
+keeps the `READY`. quality-harness's `scripts/lifecycle.mjs` injects an "ADR tasks in flight" block
+at session start, and on 2026-09-07 it opened a session in this repo with `T1 is ready` for
+ADR-001: no `Withdrawn`, no `stopped T3`. An executor reading that is pointed at the first step of a
+sequence a withdrawn record's own T3 forbade, which is what this entry was filed about. Same
+external tool as the two sibling entries — so the argument for deciding the vendoring question
+gains an instance rather than losing three.
+
+Original entry, kept because its reasoning is what the upstream change implements, and because the
+three ⚠ notes on why no position rule works are the transferable part:
 
 ## A human sign-off that said STOP reads to every routing tool as PROCEED — 2026-08-28
 

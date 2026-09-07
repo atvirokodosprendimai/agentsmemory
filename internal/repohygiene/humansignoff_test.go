@@ -54,14 +54,17 @@ var readmeRowRE = regexp.MustCompile(`(?m)^\|\s*(T\d+)\s*\|[^|]*\|\s*([^|]*?)\s*
 // `decision <ship|withdraw>`, so the real outcome had nowhere to
 // go and landed in free text. That is not a one-off — ADR-004's supersession gate
 // reached the same third state on 2026-08-24 ("REFUSED — NOT 'no'; the gate could
-// not answer"), which is what issue #34 is still open about.
+// not answer"), which is what issue #34 recorded — closed COMPLETED 2026-09-07,
+// once the gate was wired to see a case at all.
 //
-// ⚠ `blocked` NOW CARRIES THREE MEANINGS ACROSS THREE TOOLS, and this is where the
-// mapping is defined: `adr-next --all` prints it for a task whose DEPENDENCIES are
-// unmet, `adr-lint` treats it as externally blocked with a green fence, and here it
-// means the task RAN and its verdict was stop. They do not conflict today because
-// no task is in two of those states at once; a reader comparing tools should know
-// the word is overloaded.
+// ⚠ `blocked` IS OVERLOADED ACROSS TOOLS, and this is where the mapping is
+// defined: `adr-lint` treats it as externally blocked with a green fence, and
+// here it means the task RAN and its verdict was stop. `adr-next` used to print
+// it for a task whose DEPENDENCIES are unmet AND for a human stop; it separates
+// them now, printing `stopped` for the second — the overload resolved upstream by
+// adding a word rather than by reusing one. Nothing conflicts today because no
+// task is in two of these states at once; a reader comparing tools should still
+// know the word is read differently by each.
 var statusForDecision = map[string]string{
 	"ship":     "done",
 	"withdraw": "failed",
