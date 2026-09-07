@@ -43,6 +43,9 @@ type hookScript struct {
 	PalaceMCP  []string `json:"palace_calls,omitempty"`
 	StateWrite []string `json:"state_writes,omitempty"`
 	StateRead  []string `json:"state_reads,omitempty"`
+	// ExternalConsumers maps a state family to the written reason its reader
+	// lives outside this kit.
+	ExternalConsumers map[string]string `json:"external_consumers,omitempty"`
 }
 
 // registration is one entry found in an agent's real settings file.
@@ -73,6 +76,21 @@ type eventMap struct {
 // find the file names, and a reference this misses is a dependency the map does
 // not draw.
 var stateRef = regexp.MustCompile(`agentsmemory-(?:touched|precompact|last-turn|reground|status)\b`)
+
+// stateConsumerDecl is the `# state-consumer: <family> <reason>` line a script
+// writes when the thing that reads its state file lives OUTSIDE this kit.
+//
+// ⚠ IT EXISTS SO THE ORPHAN CHECK CAN PASS ON A HEALTHY INSTALL. The re-ground
+// marker is written by the recall hook and read by a persistent Monitor the
+// session arms (ADR-062 T3) — correct by design, and indistinguishable from a
+// genuine orphan by reading the kit alone. Without a declaration this command
+// reports a finding on every correct install and can therefore gate nothing,
+// which is how #393 shipped: `doctor` exited 1 on a freshly installed v0.0.125
+// and an operator found it, not the suite.
+//
+// The declaration is the same shape as `# hook-output:` and carries the same
+// obligation: a reason, checked, so the escape hatch cannot become the dodge.
+var stateConsumerDecl = regexp.MustCompile(`(?m)^# state-consumer:[ \t]*([a-z0-9-]+)[ \t]+(.+)$`)
 
 // palaceCall matches an `am_*` tool name in a script body.
 var palaceCall = regexp.MustCompile(`\bam_[a-z_]+`)
@@ -232,6 +250,12 @@ func scanKit(kitDir string) ([]hookScript, error) {
 		}
 		s.PalaceMCP = uniqueMatches(palaceCall, body)
 		s.StateWrite, s.StateRead = stateDirection(string(body))
+		for _, m := range stateConsumerDecl.FindAllSubmatch(body, -1) {
+			if s.ExternalConsumers == nil {
+				s.ExternalConsumers = map[string]string{}
+			}
+			s.ExternalConsumers[string(m[1])] = strings.TrimSpace(string(m[2]))
+		}
 		sort.Strings(s.Events)
 		out = append(out, s)
 	}
@@ -451,15 +475,35 @@ func judge(m *eventMap) []finding {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
+	declared := map[string]string{}
+	for _, s := range m.Scripts {
+		for family, why := range s.ExternalConsumers {
+			declared[family] = why
+		}
+	}
 	for _, k := range keys {
 		if len(readers[k]) > 0 {
 			continue
 		}
+		// A declared external consumer is the answer, not an exemption: the
+		// reason is what a reader judges, exactly as `# hook-output:` works.
+		if why, ok := declared[k]; ok {
+			if strings.TrimSpace(why) != "" {
+				continue
+			}
+			out = append(out, finding{
+				Class: "orphan-state",
+				Detail: fmt.Sprintf("%s declares an external consumer with no reason; the "+
+					"declaration is the escape hatch and a reason is what stops it becoming the dodge", k),
+			})
+			continue
+		}
 		out = append(out, finding{
 			Class: "orphan-state",
-			Detail: fmt.Sprintf("%s is written by %s and read by no hook in this kit — "+
-				"if a consumer exists it is outside the kit, and nothing here can tell whether it ran",
-				k, strings.Join(writers[k], ", ")),
+			Detail: fmt.Sprintf("%s is written by %s and read by no hook in this kit, and no script "+
+				"declares `# state-consumer: %s <reason>` — so either the consumer was never written, "+
+				"or it exists outside the kit and nobody said so",
+				k, strings.Join(writers[k], ", "), k),
 		})
 	}
 

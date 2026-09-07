@@ -216,3 +216,63 @@ func jsonQuote(s string) string {
 	b.WriteByte('"')
 	return b.String()
 }
+
+// TestTheShippedKitHasNoStructuralFindings is the half the first version of this
+// command was missing, and the review of PR #417 is what named it.
+//
+// ⚠ EVERY OTHER TEST HERE ASSERTS THAT A DEFECT IS CAUGHT. None asserted that a
+// healthy kit is quiet, so nothing said whether this command can PASS — and it
+// could not: the re-ground marker made `eventmap` exit non-zero on every correct
+// install, which makes it useless as a gate. That is exactly how #393 shipped,
+// where `doctor` exited 1 on a freshly installed v0.0.125 and an operator found
+// it rather than the suite; this repository's answer there was
+// TestDoctorDoesNotFailOnSilence, and this is its sibling.
+//
+// It runs over the REAL shipped hooks with an empty registration set, so it
+// judges the artifact rather than a fixture built to agree with it. A finding
+// here means the kit itself is misshapen, which is the only thing this command
+// should ever say about a clean install.
+func TestTheShippedKitHasNoStructuralFindings(t *testing.T) {
+	kit := filepath.Join(repoRootForHooks(t), "clients", "claude-code", "hooks")
+	scripts, err := scanKit(kit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(scripts) == 0 {
+		t.Fatal("scanned no script at all; an empty universe is not a clean bill of health")
+	}
+	m := &eventMap{KitDir: kit, Scripts: scripts}
+	m.Findings = judge(m)
+	for _, f := range m.Findings {
+		t.Errorf("the shipped kit reports [%s] %s\n"+
+			"  A finding with no settings file to blame is a finding about the kit. If the state "+
+			"file's reader is outside this kit — a Monitor the session arms, say — the script that "+
+			"writes it must declare `# state-consumer: <family> <reason>`; if it is a real orphan, "+
+			"the consumer was never written.", f.Class, f.Detail)
+	}
+}
+
+// TestAnExternalConsumerNeedsAReason keeps the declaration from becoming the
+// dodge, the same way TestANonInjectedChannelIsJustified does for a quieter
+// output channel: the reason is the review.
+func TestAnExternalConsumerNeedsAReason(t *testing.T) {
+	kit := t.TempDir()
+	body := `#!/usr/bin/env bash
+# hook-output: none
+# state-consumer: agentsmemory-reground
+MARKER="${TMPDIR}/agentsmemory-reground/$SESSION"
+printf '%s\n' "$TASK" > "$MARKER"
+`
+	if err := os.WriteFile(filepath.Join(kit, "writer.sh"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	scripts, err := scanKit(kit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := &eventMap{Scripts: scripts}
+	if len(judge(m)) == 0 {
+		t.Fatal("a `# state-consumer:` line with no reason was accepted; the declaration is an " +
+			"escape hatch, and an escape hatch nobody has to justify is just a way to silence the gate")
+	}
+}
