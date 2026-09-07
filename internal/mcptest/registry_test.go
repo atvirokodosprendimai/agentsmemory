@@ -211,7 +211,21 @@ var scenarios = []mcptest.Scenario{
 		Run: func(t *testing.T, h *mcptest.Harness) {
 			// Over ChunkSize (1600) so the memory really is several drawers; a
 			// fixture below the threshold cannot reproduce this at all.
-			old := "SUPERSEDED-MARKER never brief from the index file. " + filler(1900)
+			// ⚠ A MARKER IN CHUNK 0 ALONE CANNOT SEE THIS DEFECT, and this fixture
+			// carried exactly that until 2026-09-07 (ADR-008 T3 step 2). The sweep
+			// below runs over SEARCH HITS matched on content, so a tail of pure filler
+			// is never returned and never inspected — the per-chunk assertion ran
+			// against chunk 0 and nothing else, while the comment beside it claimed to
+			// sweep them all. Measured: the mutant `c.ValidTo == "" && c.ID == id`,
+			// which ends only the caller's chunk, compiled and left this scenario GREEN
+			// even after superseded_by was asserted.
+			//
+			// The sibling retraction scenario below already had this right — "the marker
+			// must land in the LAST chunk, not the first" — so the two adjacent
+			// scenarios disagreed about the same hazard. A marker at BOTH ends fixes it:
+			// the tail carries "index file" so the same query reaches it.
+			old := "SUPERSEDED-MARKER never brief from the index file. " + filler(1900) +
+				" SUPERSEDED-TAIL-MARKER the index file tail must be ended too."
 			out := h.MustCall(t, "am_add_drawer", map[string]any{
 				"wing": "wing_chunked", "room": "decisions", "content": old,
 			})
@@ -248,7 +262,7 @@ var scenarios = []mcptest.Scenario{
 				"query": "brief from the index file", "wing": "wing_chunked",
 				"limit": 20, "include_history": true,
 			}))
-			var sawEnded bool
+			var sawEnded, sawEndedTail bool
 			for _, hid := range searchHitIDs(t, hits) {
 				d := h.JSON(t, h.MustCall(t, "am_get_drawer", map[string]any{
 					"id": hid, "include_history": true,
@@ -261,14 +275,47 @@ var scenarios = []mcptest.Scenario{
 					}
 				case contains(body, "SUPERSEDED-MARKER") || contains(body, "index file"):
 					sawEnded = true
+					if contains(body, "SUPERSEDED-TAIL-MARKER") {
+						sawEndedTail = true
+					}
 					if d["valid_to"] == nil {
 						t.Errorf("a chunk of the superseded memory is still current: %v", d)
+					}
+					// ⚠ valid_to ALONE DOES NOT PIN THE CORRECTION, and this line is
+					// why. TWO mechanisms end these rows: the compare-and-swap in
+					// supersedeInto, and persistRows re-filing under the predecessor's
+					// SOURCE — which "ends every current row of that source whose
+					// content key left it", as supersedeInto's own comment says. So a
+					// swap narrowed to the caller's chunk leaves the tail ended ANYWAY,
+					// by the re-file, and an assertion that only reads valid_to cannot
+					// tell the two apart. Measured 2026-09-07 (ADR-008 T3 step 2): the
+					// mutant `c.ValidTo == "" && c.ID == id` compiled and this scenario
+					// stayed GREEN.
+					//
+					// superseded_by is what separates them. The re-file sets a generic
+					// reason and no successor, so an ended chunk that names no
+					// replacement is a chunk the correction did not actually claim —
+					// the link from a retracted claim to the one that replaced it, which
+					// is the whole of ADR-038's contract, silently gone.
+					if by, _ := d["superseded_by"].(string); by == "" {
+						t.Errorf("a chunk of the superseded memory is ended but names no successor "+
+							"(superseded_by empty), so it was ended by the re-file rather than claimed "+
+							"by the correction — the route from the withdrawn text to its replacement "+
+							"is lost: %v", d)
 					}
 				}
 			}
 			if !sawEnded {
 				t.Errorf("include_history reached no chunk of the superseded memory, so the "+
 					"per-chunk assertion above ran against nothing:\n%v", hits)
+			}
+			// The LAST chunk specifically. Without this the loop is satisfied by chunk 0,
+			// which every version of the defect ends correctly — the assertion would be
+			// live, green, and blind to the only rows that can be left behind.
+			if !sawEndedTail {
+				t.Errorf("the sweep never reached the LAST chunk of the superseded memory "+
+					"(SUPERSEDED-TAIL-MARKER), so \"every chunk ends\" was asserted over the "+
+					"first chunk alone — the tail is exactly where a narrowed ending survives:\n%v", hits)
 			}
 		},
 	},
