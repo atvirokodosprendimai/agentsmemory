@@ -664,7 +664,9 @@ Thirty-three PRs since v0.0.122, closing #34, #305, #306, #315, #327, #328, #329
 
 ## v0.0.124 — 2026-09-07
 
-One PR since v0.0.123 (#359), cut immediately because **v0.0.123's redeploy path is broken on alpine and the tag cannot deploy itself.**
+Three PRs since v0.0.123 — #357, #359 and #360 — cut immediately because **v0.0.123's redeploy path is broken on alpine and the tag cannot deploy itself.** ⚠ This entry said "one PR (#359)" until review: #357 and #360 merged while the release PR sat in CI, and a count written before the window closes is a count of the window the author last looked at. Verified with `git log --merges v0.0.123..origin/main`.
+
+- **#357 corrected a false claim in v0.0.123's own changelog** and fixed the doc comment that produced it: a mutant reported as passing that the gate in fact kills twice over, promoted from a comment nobody had run. **#360 re-measured the named mutant** after #359 replaced the implementation it named — an example naming an implementation detail inherits that detail's lifetime, and nothing gates it.
 
 - **The needle preflight refused every needle under BusyBox grep.** `--include` and `--exclude` are GNU extensions. Alpine's grep — and therefore this repository's own `golang:1.26-alpine` test container — rejects them: `grep: unrecognized option: include=*.go`. The pipeline ended `|| true`, so the error was swallowed, the count landed on 0, and every caller-supplied needle was refused with a message blaming the needle. Measured in the container: **0** occurrences of a literal present in **4**. File selection is now `find . -name '*.go' ! -name '*_test.go' -exec grep -hoE … {} +`, portable across BusyBox, GNU and BSD.
 
