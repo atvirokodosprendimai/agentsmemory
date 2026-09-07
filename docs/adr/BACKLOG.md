@@ -743,6 +743,36 @@ place, and a format nothing can parse. Additive, so `preceded_by_recall` and the
 untouched. Rows written before today carry no `observed_at`, which is the correct reading — they are
 the pre-T6 window by construction.
 
+### The joint after-measurement is NOT takeable yet, checked 2026-09-07
+
+The paragraphs above say the next window needs a fresh JOINT baseline with T4 and T6 both live.
+`observed_at` made that computable and the store is now filling — 25 sessions for this repository,
+108 across the machine. It is still not takeable, for two reasons neither of which is more data
+arriving on its own.
+
+**The floor guards the wrong denominator.** `minBaselineSessions = 20` counts SESSIONS, and this
+repository's 25 sessions carry **14 assertions between them** — against 341 across 24 sessions in
+the baseline above. So the floor clears while the thing being measured is nearly empty, and
+`ComputeRate` would report a rate over a denominator two orders smaller than the one it is compared
+against. That is the empty-universe failure `TestShippedDefaultsCiteTheirCorpus` gates one layer
+over: a run that examined nothing is not a run that found nothing.
+
+**And no v3 precision exists.** `ComputeRate` refuses without one, correctly (`ErrPrecisionUnknown`).
+The only hand-judged figure is 48%, 12/25, stamped under the **v2** table below. v3 redefined
+*preceded*, not what counts as an assertion, so the number may well carry — but deciding that it
+carries is a methodology call, not a sweep's, and F-16 forbids comparing across classifier versions
+without it.
+
+⚠ **A THIRD HAZARD, IF IT IS EVER TAKEN: the 7.6% came from a HAND-RUN SCAN over 48 transcripts, and
+the store is hook-written.** A delta between those two derivations measures the derivation as much
+as the intervention — the same reason the classifier version is stamped, one axis over. Re-take the
+before-state from the store, or take the after-state by the same hand scan; do not cross them.
+
+⚠ **SEQUENCING, so a session reading `adr-next` does not burn the window.** ADR-041 T3 and T5 are
+READY and the working loop makes a READY task the default next action. Do not ship either before
+the joint baseline is recorded: F-9 is already violated once for exactly this reason, and shipping a
+third mechanism into an unmeasured window spends it the same way.
+
 ### Superseded: the v2 baseline, 2026-08-28
 
 **27.6%** — of 221 no-change assertions across 46 sessions, 61 were preceded by a recall.
@@ -3126,14 +3156,23 @@ invert when they are separated.
 session, roughly 10× the entire read-side protocol, and every read is optional.** Nothing fails when
 a session skips recall; a session that files nothing is reminded until it does.
 
-⚠ **AND THE ONE INSTRUMENT THAT WOULD PRICE THAT MANDATE IS INERT HERE.** `recall-observe` (ADR-041
-T1) has written `recall-observations.jsonl` for exactly ONE project on this machine and NOT for this
-repository, despite six transcripts. The 7.6% baseline in this file was produced by a hand-run scan,
-not by the mechanism built to produce it. `agentsmemory_recall_observe` is invoked only from
-`clients/claude-code/hooks/agentsmemory-stats.sh`, which is SOURCED by the session-end hook rather
-than registered, needs `aiagentmemory` on PATH and `$TRANSCRIPT` set, and exits 0 silently on every
-failure path (deliberately — ADR-041 T1, spec F-5). One of those preconditions is not holding and
-nothing reports which.
+⚠ **AND THE ONE INSTRUMENT THAT WOULD PRICE THAT MANDATE WAS INERT HERE — THAT HALF IS FIXED, AND A
+DIFFERENT HALF IS NOT.** As written this said `recall-observe` had written
+`recall-observations.jsonl` for exactly ONE project and NOT for this repository. Re-measured
+2026-09-07: 108 rows across every project on this machine, 25 of them for this repository, 107
+carrying `observed_at`. ⚠ **It was already false when it was committed, by 23 minutes** — this
+repository's first row is stamped `2026-08-28T19:31:26Z` and the commit carrying the sentence is
+`585014de`, 19:54:01Z. True when measured, false when merged, which is the recurrence this corpus
+records against its own frozen figures rather than a mistake in the measuring.
+
+⚠ **THE HALF THAT IS NOT FIXED IS THE OTHER DIRECTION: THE INSTRUMENT WRITES AND NOTHING READS.**
+`ComputeRate` and `ReadObservations` are exported, tested, and have no caller outside `_test.go`;
+`clients/claude-code/main.go` registers `recall-observe` and no command that reports a rate. So the
+store fills and the number it exists to produce is reachable only from a test — §Reachability's
+class, arriving through a missing command rather than a missing registration, and the reason the
+7.6% baseline was a hand-run scan is now that there is nothing else it could have been. Writing that
+command is ADR-041 work, not this entry's, and it is blocked on the precision question recorded
+under *"ADR-041 T2 — the recall-before-assertion baseline"*.
 
 **The change this argues for is a predicate, not advice.** "Write less" cannot be enforced by asking.
 The Stop hook already sees the session's tool history: a session that recalled nothing and decided
