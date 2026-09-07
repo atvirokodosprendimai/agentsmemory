@@ -179,7 +179,7 @@ func TestInstallPlacesTheBinaryItRegisters(t *testing.T) {
 	if err != nil {
 		t.Fatalf("place: %v", err)
 	}
-	want := filepath.Join(target, "bin", installedServerBinName)
+	want := filepath.Join(target, "bin", installedServerBinFile())
 	if placed != want {
 		t.Errorf("placed at %q, want %q — the registration must name a path the installer owns", placed, want)
 	}
@@ -187,7 +187,14 @@ func TestInstallPlacesTheBinaryItRegisters(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stat placed: %v", err)
 	}
-	if info.Mode()&0o111 == 0 {
+	// ⚠ NOT `Mode()&0o111`. Go sets no execute bit on Windows — os.Stat reports
+	// 0666 for every regular file — so the POSIX mask calls the binary the
+	// installer has JUST WRITTEN not-executable, on the one platform where this
+	// test's subject is interesting. spawnable is this repository's single answer
+	// to "can this platform run that file", and it has been re-typed twice
+	// already (issue #224 in the bridge rung, #393 in the peer rung, and this
+	// file in #407).
+	if !spawnable(info.Mode(), placed) {
 		t.Error("the placed binary is not executable, so the bridge cannot spawn it")
 	}
 
@@ -235,7 +242,7 @@ func TestTheRegistrationNamesThePlacedBinary(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read back the registration: %v", err)
 	}
-	want := filepath.Join(target, "bin", installedServerBinName)
+	want := filepath.Join(target, "bin", installedServerBinFile())
 	if recorded != want {
 		t.Errorf("the registration spawns %q, not the placed binary %q — the config is frozen at "+
 			"wherever the binary happened to be, which is the drift this change exists to remove",
@@ -371,7 +378,7 @@ func TestAFailedPlacementLeavesThePreviousBinaryIntact(t *testing.T) {
 	if err := os.MkdirAll(binDir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	dest := filepath.Join(binDir, installedServerBinName)
+	dest := filepath.Join(binDir, installedServerBinFile())
 	previous := []byte("#!/bin/sh\necho the binary that is already registered\n")
 	if err := os.WriteFile(dest, previous, 0o755); err != nil {
 		t.Fatalf("seed the previous binary: %v", err)

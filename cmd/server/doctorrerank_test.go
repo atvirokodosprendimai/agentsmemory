@@ -233,6 +233,52 @@ func coldStartReranker(t *testing.T, warmUp, fixed, perDoc time.Duration) string
 	return srv.URL
 }
 
+// The cold-start fixture's geometry, named rather than written as three literals
+// at the call site, so the margin between its two timed points can be GATED.
+//
+// ⚠ THE PER-DOCUMENT COST IS THE FIXTURE'S SIGNAL, AND IT MUST EXCEED THE
+// SCHEDULING NOISE OF WHATEVER BOX RUNS THE TEST. At 2ms it did not: the two
+// timed points sat 14ms apart by design, and one observed run of `go test ./...`
+// on a loaded laptop timed the 1-document call at 45ms against the 8-document
+// call at 38ms — the spread inverted, the fit was skipped, and
+// TestAColdStartIsNotReportedAsAnUnaffordablePool failed on INCONCLUSIVE.
+// Nothing was wrong with the probe: abstaining is exactly what it should do when
+// the larger batch comes back faster than the smaller one.
+//
+// ⚠ AND IT COULD NOT BE REPRODUCED ON DEMAND — 33 runs, ten busy-loop hogs for
+// the first thirty and twenty for the rest, zero failures — so this is one
+// observation plus arithmetic, not a measured rate. The arithmetic is the part
+// that stands and the part worth gating: a fixture asserting a 14ms difference
+// cannot survive a 23ms perturbation, however rarely one arrives.
+//
+// ⚠ THE LOAD FIGURE IS STATED IN TWO PARTS BECAUSE THE FIRST VERSION OF THIS
+// COMMENT SAID "ten" FOR ALL 33, AND THAT WAS WRONG. The teardown `kill $HOGS`
+// after each batch silently did nothing: this harness runs zsh non-interactively,
+// where job control is off and `jobs -p` prints nothing, so HOGS was empty and
+// `kill` with no arguments was swallowed by its own `2>/dev/null`. Thirty
+// orphaned spinners at ~750% CPU were still running twenty minutes later. The
+// direction is favourable — MORE load than claimed, still no reproduction — but a
+// number nobody could check was published, which is what this file is about.
+const (
+	coldStartWarmUp = 400 * time.Millisecond
+	coldStartFixed  = 20 * time.Millisecond
+	coldStartPerDoc = 30 * time.Millisecond
+
+	// coldStartSmall and coldStartLarge MIRROR the batch sizes doctorRerank
+	// passes to probeReranker. They are a deliberate duplicate, so the test
+	// below asserts the report names both — a mirror nothing compares is a
+	// second source of truth, and this one decides whether the gate is
+	// measuring the geometry that actually ran.
+	coldStartSmall = 1
+	coldStartLarge = 8
+
+	// schedulingNoiseBudget is the perturbation the fixture must absorb: the
+	// 1-document call overshot its 22ms by 23ms in the run described above.
+	// 100ms is roughly four times that, and 30ms per document clears it with
+	// 210ms of spread.
+	schedulingNoiseBudget = 100 * time.Millisecond
+)
+
 // TestAColdStartIsNotReportedAsAnUnaffordablePool is review of PR #324's finding.
 //
 // ⚠ IT FIRES IN THE DIRECTION THIS CHECK EXISTS TO PREVENT. The probe timed the
@@ -244,11 +290,26 @@ func coldStartReranker(t *testing.T, warmUp, fixed, perDoc time.Duration) string
 //
 // The remedy is one discarded call before the two timed ones.
 func TestAColdStartIsNotReportedAsAnUnaffordablePool(t *testing.T) {
-	url := coldStartReranker(t, 400*time.Millisecond, 20*time.Millisecond, 2*time.Millisecond)
+	url := coldStartReranker(t, coldStartWarmUp, coldStartFixed, coldStartPerDoc)
 	cfg := config.Default()
 	cfg.RerankURL = url
-	cfg.RerankTimeout = time.Second
-	cfg.RerankPool = 100 // (1s − 20ms) / 2ms ≈ 490, so this fits comfortably
+	// The budget widens with the per-document cost so the verdict is unchanged:
+	// (5s − 20ms) / 30ms ≈ 166, which still affords 100 and stays under
+	// reportablePoolCeiling, so the run reports "pool 100 fits" rather than
+	// "the pool is not what limits you".
+	//
+	// ⚠ THERE ARE TWO MARGINS HERE AND THEY MOVE IN OPPOSITE DIRECTIONS AS
+	// coldStartPerDoc GROWS. The one gated below is FITTABILITY — 210ms of spread
+	// against the 100ms noise budget. This line is the VERDICT margin, and raising
+	// perDoc spends it: 100 sits 1.66× inside the 166 this affords, so noise
+	// inflating the MEASURED per-document cost past ~50ms (about 140ms of spread
+	// on top of the ideal 210ms, some six times the 23ms overshoot ever observed)
+	// would flip "pool 100 fits" into a failure. Written down because the
+	// arithmetic for the first margin is right there in a gate and the second had
+	// none, so an author buying more fittability headroom would spend this
+	// silently. Raised in review of PR #415.
+	cfg.RerankTimeout = 5 * time.Second
+	cfg.RerankPool = 100
 
 	var out bytes.Buffer
 	if err := doctorRerank(context.Background(), cfg, &out); err != nil {
@@ -269,6 +330,30 @@ func TestAColdStartIsNotReportedAsAnUnaffordablePool(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "pool 100 fits") {
 		t.Errorf("the report does not confirm the configured pool fits:\n%s", out.String())
+	}
+
+	// ⚠ THE ARITHMETIC IS THE GATE, BECAUSE THE SYMPTOM IS RARE. Shrinking
+	// coldStartPerDoc back to 2ms leaves every assertion above green on an
+	// unloaded box — that is precisely how the thin margin survived — so the
+	// property is checked as a design margin rather than waited for.
+	if spread := coldStartPerDoc * (coldStartLarge - coldStartSmall); spread < schedulingNoiseBudget {
+		t.Errorf("the fixture puts only %s between its two timed points, under the %s of "+
+			"scheduling noise one loaded run actually produced; the larger batch can come "+
+			"back faster than the smaller one and this test then fails on INCONCLUSIVE, "+
+			"which is the probe behaving correctly over a fixture that cannot be measured",
+			spread, schedulingNoiseBudget)
+	}
+	// The two constants above mirror the batch sizes doctorRerank hands
+	// probeReranker; the report is where the real ones surface, so it is what
+	// says the margin was computed over the geometry that ran.
+	for _, want := range []string{
+		fmt.Sprintf("%d doc:", coldStartSmall),
+		fmt.Sprintf("%d docs:", coldStartLarge),
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("the report does not name %q, so the probe timed batch sizes this test's "+
+				"noise-margin arithmetic did not:\n%s", want, out.String())
+		}
 	}
 }
 

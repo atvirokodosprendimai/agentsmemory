@@ -93,7 +93,7 @@ func TestClaudeDesktopInstallDownloadsTheBridgeWhenNoHostBinaryExists(t *testing
 		if !strings.HasPrefix(cmd, filepath.Join(dir, "bin")) {
 			t.Fatalf("registered command %q is not the placed binary under %s/bin", cmd, dir)
 		}
-		if st, err := os.Stat(cmd); err != nil || st.Mode()&0o111 == 0 {
+		if st, err := os.Stat(cmd); err != nil || !spawnable(st.Mode(), cmd) {
 			t.Fatalf("registered binary %q is missing or not executable (%v)", cmd, err)
 		}
 		out := inst.out.(interface{ String() string }).String()
