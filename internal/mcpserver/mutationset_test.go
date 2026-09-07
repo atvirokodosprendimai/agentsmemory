@@ -47,6 +47,11 @@ var incidentalWrites = map[string]string{
 	// outcome for a signal whose entire purpose is to observe reading.
 	"RecordFetch":  "records a best-effort drawer_fetches row about the read it just served; the write must never fail the read, and it stores no memory",
 	"CountFetches": "reads drawer_fetches to publish two counts; reachable writes come from shared helper names, not from memory tables",
+	// ADR-028 T4, and the same judgement as CountFetches beside it: this joins
+	// search_events to drawer_fetches to publish a rate per ranking profile. It
+	// is reachable to write helper names only through the shared repository
+	// layer, and it stores nothing anybody can recall.
+	"FetchRatesByProfile": "reads search_events joined to drawer_fetches to publish a rate per ranking profile; reachable writes come from shared helper names, not from memory tables",
 }
 
 // TestMutatingCallListIsComplete: every service method an MCP handler calls that
