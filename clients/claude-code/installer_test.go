@@ -1438,8 +1438,30 @@ func TestRedeployKitCheckCoversEveryInstalledArtifact(t *testing.T) {
 			want = append(want, "clients/claude-code/agents/"+name+ext)
 		}
 	}
-	for _, asset := range []string{hookAsset, verifyHookAsset, sessionEndHookAsset, statsHelperAsset, subagentHookAsset} {
-		want = append(want, "clients/claude-code/"+asset)
+	// ⚠ DERIVED FROM THE HOOKS DIRECTORY, NOT FROM A LIST OF CONSTANTS. This loop
+	// named five: hookAsset, verifyHookAsset, sessionEndHookAsset, statsHelperAsset
+	// and subagentHookAsset. The kit ships eleven, and the six added since — recall,
+	// task-recall, anchor-cue, touched, precompact and the status line — never
+	// joined it. So the gate written to stop redeploy.sh's hand-maintained list
+	// from drifting had drifted in exactly the same way, and a stale installed copy
+	// of the LARGEST hook in the kit reported as verified. Measured 2026-09-08
+	// (issue #421): the recall hook's installed copy sat one release behind under
+	// `==> deployed and verified`, found by pointing `eventmap` at the config dir.
+	//
+	// The comment on that list says "a gate maintained by intention is the thing
+	// this whole script exists to replace". This is that sentence applied to the
+	// gate itself: commandAssets and agentAssets above are already read from the
+	// installer's own collections, and hooks were the one axis still typed by hand.
+	hookDir := filepath.Join(root, "clients", "claude-code", "hooks")
+	hooks, err := filepath.Glob(filepath.Join(hookDir, "*.sh"))
+	if err != nil {
+		t.Fatalf("glob hooks: %v", err)
+	}
+	if len(hooks) == 0 {
+		t.Fatalf("no hook scripts found under %s; an empty universe is not a clean bill of health", hookDir)
+	}
+	for _, h := range hooks {
+		want = append(want, "clients/claude-code/hooks/"+filepath.Base(h))
 	}
 	if len(want) < 5 {
 		t.Fatalf("only %d kit artifacts found, so this check is asserting almost nothing — "+
