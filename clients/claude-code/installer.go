@@ -1118,7 +1118,21 @@ const installedServerBinName = "aiagentmemory-server"
 // 2026-08-31 report; carrying the extension costs one line and removes the
 // question.
 func installedServerBinFile() string {
-	if runtime.GOOS == "windows" {
+	return installedServerBinFileOn(runtime.GOOS)
+}
+
+// installedServerBinFileOn is the same question with the platform passed in, so a
+// host that is not Windows can still assert what Windows gets.
+//
+// ⚠ THE SEAM IS THE POINT, AND spawnableOn ALREADY EARNED IT HERE. A claim about
+// Windows that only runtime.GOOS can reach is a claim no runner in this project
+// can check: there is no Windows job in CI, so `installedServerBinFile` alone is
+// green on every machine that runs it and says nothing about the one platform it
+// exists for. Taking goos as an argument makes the `.exe` assertable from Linux —
+// which is how issue #407's six extension-less test paths were caught while every
+// one of them was passing (`TestThePlacedServerBinaryCarriesThePlatformExtension`).
+func installedServerBinFileOn(goos string) string {
+	if goos == "windows" {
 		return installedServerBinName + ".exe"
 	}
 	return installedServerBinName
