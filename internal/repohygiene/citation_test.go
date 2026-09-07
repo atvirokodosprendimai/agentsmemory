@@ -1,6 +1,7 @@
 package repohygiene
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -129,6 +130,17 @@ func (r *recordingTB) Errorf(string, ...any)     { r.errors++ }
 func (r *recordingTB) Logf(string, ...any)       {}
 func (r *recordingTB) Fatalf(f string, a ...any) { r.fatal = true; panic("fatal: " + f) }
 func (r *recordingTB) Fatal(a ...any)            { r.fatal = true; panic("fatal") }
+
+// Context and Cleanup exist for a gate that shells out through internal/testexec,
+// which binds every child to tb.Context() and registers its cancel with
+// tb.Cleanup. Without them the embedded nil TB panics inside the helper rather
+// than in the gate, which reads as a bug in testexec.
+//
+// Cleanup runs the cancel immediately: there is no test lifetime to defer to
+// here, and leaving it unrun would leak the context of every child the
+// falsifiability case starts.
+func (r *recordingTB) Context() context.Context { return context.Background() }
+func (r *recordingTB) Cleanup(f func())         { f() }
 
 // recordNumbers reads the corpus itself for which records exist, rather than
 // taking a number range on trust: a range would accept a gap where a record was

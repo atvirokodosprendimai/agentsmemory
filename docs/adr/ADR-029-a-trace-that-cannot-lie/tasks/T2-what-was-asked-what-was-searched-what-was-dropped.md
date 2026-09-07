@@ -46,8 +46,8 @@ docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v 
   set -e
   gofmt -l cmd internal clients | grep -q . && { echo "gofmt"; exit 1; }
   go vet ./internal/palace/ ./internal/mcpserver/
-  go test ./internal/palace/ -run '^(TestRequestedLimitSurvivesTheClamp|TestTruncatedQueryLeavesEvidence|TestScopeDropsAreCounted|TestScopeDropsLandOnTheArmSpanForEvalArms)$' -count=1 -v 2>&1 | tee /tmp/t2.out
-  go test ./internal/mcpserver/ -run '^(TestWingSourceDistinguishesCallerFromServer)$' -count=1 -v 2>&1 | tee -a /tmp/t2.out
+  go test ./internal/palace/ -run "^(TestRequestedLimitSurvivesTheClamp|TestTruncatedQueryLeavesEvidence|TestScopeDropsAreCounted|TestScopeDropsLandOnTheArmSpanForEvalArms)$" -count=1 -v 2>&1 | tee /tmp/t2.out
+  go test ./internal/mcpserver/ -run "^(TestWingSourceDistinguishesCallerFromServer)$" -count=1 -v 2>&1 | tee -a /tmp/t2.out
   grep -qE "^--- PASS: TestRequestedLimitSurvivesTheClamp \(" /tmp/t2.out
   grep -qE "^--- PASS: TestTruncatedQueryLeavesEvidence \(" /tmp/t2.out
   grep -qE "^--- PASS: TestScopeDropsAreCounted \(" /tmp/t2.out

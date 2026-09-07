@@ -41,7 +41,7 @@ docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v 
   set -e
   gofmt -l cmd internal clients | grep -q . && { echo "gofmt"; exit 1; }
   go vet ./internal/palace/ ./internal/config/
-  go test ./internal/palace/ -run '^(TestCrossEncoderDecidesATwoCandidatePool|TestLowSpreadDoesNotBecomeSignal|TestSmallPoolArmsDisagree)$' -count=1 -v 2>&1 | tee /tmp/t2.out
+  go test ./internal/palace/ -run "^(TestCrossEncoderDecidesATwoCandidatePool|TestLowSpreadDoesNotBecomeSignal|TestSmallPoolArmsDisagree)$" -count=1 -v 2>&1 | tee /tmp/t2.out
   grep -qE "^--- PASS: TestCrossEncoderDecidesATwoCandidatePool \("  /tmp/t2.out
   grep -qE "^--- PASS: TestLowSpreadDoesNotBecomeSignal \("  /tmp/t2.out
   ! grep -qE "no tests to run|^FAIL" /tmp/t2.out

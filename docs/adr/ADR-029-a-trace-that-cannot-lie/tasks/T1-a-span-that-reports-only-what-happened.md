@@ -49,8 +49,8 @@ docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v 
   set -e
   gofmt -l cmd internal clients | grep -q . && { echo "gofmt"; exit 1; }
   go vet ./internal/telemetry/ ./internal/palace/ ./internal/mcpserver/
-  go test ./internal/palace/ -run '^(TestRecordStageReportsAWriteThatFailed|TestRerankTimeoutIsNotReportedAsAnOutage|TestEvidenceReportsHowManyDocumentsItActuallySelected|TestRerankSaysWhetherItReorderedAnything)$' -count=1 -v 2>&1 | tee /tmp/t1.out
-  go test ./internal/mcpserver/ -run '^(TestAnchorFailureReachesTheToolSpan|TestEmptyWingLookupFailureIsNotSilence)$' -count=1 -v 2>&1 | tee -a /tmp/t1.out
+  go test ./internal/palace/ -run "^(TestRecordStageReportsAWriteThatFailed|TestRerankTimeoutIsNotReportedAsAnOutage|TestEvidenceReportsHowManyDocumentsItActuallySelected|TestRerankSaysWhetherItReorderedAnything)$" -count=1 -v 2>&1 | tee /tmp/t1.out
+  go test ./internal/mcpserver/ -run "^(TestAnchorFailureReachesTheToolSpan|TestEmptyWingLookupFailureIsNotSilence)$" -count=1 -v 2>&1 | tee -a /tmp/t1.out
   grep -qE "^--- PASS: TestRecordStageReportsAWriteThatFailed \(" /tmp/t1.out
   grep -qE "^--- PASS: TestRerankTimeoutIsNotReportedAsAnOutage \(" /tmp/t1.out
   grep -qE "^--- PASS: TestEvidenceReportsHowManyDocumentsItActuallySelected \(" /tmp/t1.out
