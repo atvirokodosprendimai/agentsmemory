@@ -65,6 +65,7 @@ func rootCommand() *cli.Command {
 			installCommand(),
 			verifyCommand(),
 			doctorCommand(),
+			eventMapCommand(),
 			mineClaudeCommand(),
 			updateCommand(),
 			updateSkillCommand(),
