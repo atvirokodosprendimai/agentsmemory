@@ -1066,3 +1066,38 @@ func TestProductionRetrieveKMatchesEvalPool(t *testing.T) {
 			palace.ProductionRetrieveK, defaultEvalPool)
 	}
 }
+
+// TestClosetStatusReachesTheTable: the status is PRINTED, not merely computed.
+//
+// This is the rung the palace tests cannot cover. `ClosetDelta` returning the
+// right status changes nothing on its own — the closet row is read off the
+// printed table, and a status computed and dropped before the writer leaves
+// every reader exactly where seven previous tables left them, looking at
+// `Δ +0.000` with no way to tell an unrun experiment from a null. It is the same
+// defect one level down from the one the task fixes.
+func TestClosetStatusReachesTheTable(t *testing.T) {
+	det := func(q string, rank int) palace.EvalCaseResult {
+		return palace.EvalCaseResult{
+			Query: q, Category: "single-hop", PoolRank: rank,
+			Ranks: map[palace.EvalArm]int{palace.ArmHybridCloset: rank, palace.ArmHybrid: rank},
+		}
+	}
+	report := palace.EvalReport{
+		Closets: 0,
+		Details: []palace.EvalCaseResult{det("a", 1), det("b", 2)},
+	}
+
+	var buf bytes.Buffer
+	printClosetBlock(&buf, report)
+	got := buf.String()
+
+	if !strings.Contains(got, string(palace.ClosetNotMeasured)) {
+		t.Errorf("the closet row does not carry its status, so the reader still sees a delta of "+
+			"zero from an experiment that never ran:\n%s", got)
+	}
+	// Naming the status without naming the absent input tells a reader that
+	// something is wrong and not what — which sends them to the ranking code.
+	if !strings.Contains(strings.ToLower(got), "closet") {
+		t.Errorf("the printed cell does not name the missing input:\n%s", got)
+	}
+}

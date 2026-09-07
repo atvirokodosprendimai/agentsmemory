@@ -640,3 +640,101 @@ func TestGateFailsBelowDeclaredBar(t *testing.T) {
 		t.Error("an empty sample produced a verdict; there is nothing to be confident about")
 	}
 }
+
+// closetFixture builds a report whose admitted cases the two arms ranked
+// IDENTICALLY, so Moved is 0 with Admitted above 0.
+//
+// It is a helper rather than an inline literal because both tests below turn on
+// that exact state, and a test asserting over a state the function cannot reach
+// passes while proving nothing — the defect this corpus records against
+// TestASpecBindingThatNamesNothingIsCaught's first draft. Each test re-checks
+// Admitted and Moved before asserting anything about the status.
+func closetFixture(closets int) EvalReport {
+	det := func(q string, rank int) EvalCaseResult {
+		return EvalCaseResult{
+			Query: q, Category: "single-hop", PoolRank: rank,
+			Ranks: map[EvalArm]int{ArmHybridCloset: rank, ArmHybrid: rank},
+		}
+	}
+	return EvalReport{
+		Closets: closets,
+		Details: []EvalCaseResult{det("a", 1), det("b", 2), det("c", 4)},
+	}
+}
+
+// TestVacuousClosetComparisonIsNotMeasured: a corpus with no closets cannot run
+// the closet experiment at all, and the cell must say so rather than print a
+// zero.
+//
+// Seven tables printed `Δ +0.000` with `moved 0` from an experiment that never
+// ran, and every reader took it for a null result — evidence that the prior does
+// nothing. It is not evidence of anything: with no closets in the corpus the
+// boost has no input, so the two arms are the SAME pipeline and a delta of zero
+// is arithmetic rather than a finding. ADR-003's decision reads this cell.
+func TestVacuousClosetComparisonIsNotMeasured(t *testing.T) {
+	cell := ClosetDelta(closetFixture(0), "single-hop")
+
+	if cell.Admitted == 0 || cell.Moved != 0 {
+		t.Fatalf("fixture does not reach the state under test: admitted=%d moved=%d, want admitted>0 and moved==0",
+			cell.Admitted, cell.Moved)
+	}
+	if cell.Status != ClosetNotMeasured {
+		t.Errorf("no closets in the corpus and the cell reports %q; a delta of zero between two "+
+			"identical pipelines is arithmetic, not a null result", cell.Status)
+	}
+	if cell.Missing == "" {
+		t.Error("the cell reports `not measured` without naming what was missing; a reader who " +
+			"cannot see WHICH input was absent cannot tell this from a broken run")
+	}
+	if !strings.Contains(strings.ToLower(cell.Missing), "closet") {
+		t.Errorf("the missing input is named %q, which does not name closets", cell.Missing)
+	}
+
+	// A category nothing could be paired on is the third case that reads as a
+	// null on the printed table, and neither named test covered it: `admitted 0`
+	// sits beside `Δ +0.000` today with nothing to distinguish it.
+	t.Run("no admitted cases is also not measured", func(t *testing.T) {
+		empty := ClosetDelta(EvalReport{Closets: 5}, "single-hop")
+		if empty.Admitted != 0 {
+			t.Fatalf("fixture is not empty: admitted=%d", empty.Admitted)
+		}
+		if empty.Status != ClosetNotMeasured {
+			t.Errorf("a cell with no pairable case reports %q", empty.Status)
+		}
+		if empty.Missing == "" {
+			t.Error("a cell with no pairable case does not name what was missing")
+		}
+	})
+}
+
+// TestGenuineNullIsStillReported is the task's pre-registered falsification, and
+// it is the reason the rule is written on the CLOSET COUNT rather than on
+// `moved`.
+//
+// Closets exist in the corpus and none of them landed within closetDistanceCap,
+// so the boost had an input and declined to fire: the two arms ordered every
+// admitted case identically and the delta is a real null. A rule keyed on
+// `moved == 0` alone would convert exactly this finding into a non-answer, and
+// the task says to withdraw the rule rather than ship it if that cannot be
+// distinguished. It can: the corpus count is the discriminator.
+func TestGenuineNullIsStillReported(t *testing.T) {
+	cell := ClosetDelta(closetFixture(7), "single-hop")
+
+	if cell.Admitted == 0 || cell.Moved != 0 {
+		t.Fatalf("fixture does not reach the state under test: admitted=%d moved=%d, want admitted>0 and moved==0",
+			cell.Admitted, cell.Moved)
+	}
+	if cell.Status != ClosetNoEffect {
+		t.Errorf("closets are present and nothing moved — a real null — but the cell reports %q; "+
+			"the rule has converted a finding into a non-answer and must be withdrawn rather than shipped",
+			cell.Status)
+	}
+	if cell.Missing != "" {
+		t.Errorf("a measured null names a missing input %q; nothing was missing", cell.Missing)
+	}
+	// The number and its interval are what make it a finding. A status that
+	// silently dropped them would report the null and destroy the evidence for it.
+	if cell.Interval == (Interval{}) {
+		t.Error("the genuine null lost its paired interval")
+	}
+}
