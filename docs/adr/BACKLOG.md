@@ -389,6 +389,14 @@ command rather than a gate because most point into refactored files where the co
 unknowable, so "fix them" means guesses that drift again — the fix this corpus has already disproved
 four times.
 
+**NOT gated — an ISSUE NUMBER in prose, and this class is unwatched rather than declined.** A
+sentence saying issue #N "is still open" is a pointer whose target lives outside the tree, so nothing
+here can read it: `TestEveryCitedADRResolves` and its docs sibling resolve ADR ids and stop there.
+Found 2026-09-07 in `internal/repohygiene/humansignoff_test.go`, whose `statusForDecision` comment
+said issue #34 was still open eleven hours after it closed. A gate would have to reach the network
+from a test, which costs more than the drift, so the remedy is to write the claim in a form that
+cannot go false — say what the issue RECORDED, not what state it is in — rather than to check it.
+
 **Scope, stated honestly.** These two gates cover ADR citations and self-references; source
 `file:line` is the largest ungated class, and it is the one the title is about. ⚠ **No ratio is
 written here, and one used to be** — this paragraph said the gates covered "well under half of the
