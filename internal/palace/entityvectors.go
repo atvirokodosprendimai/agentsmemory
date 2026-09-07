@@ -75,32 +75,113 @@ func (s *Service) DropEntityLabel(ctx context.Context, teamID, entityID string) 
 	return s.vectors.Delete(ctx, entityNamespace(teamID), []string{entityID})
 }
 
+// entityLabelBatch bounds ONE embed call during the backfill.
+//
+// ⚠ WITHOUT IT THE BATCH IS THE CORPUS. The first version of this change handed
+// `Embed` the whole label slice, on the reading that the backends chunk
+// internally — teiembed does (against the limit it probes from /info), and
+// ollama does NOT: `ollama.Embed` marshals every input into one JSON body and
+// issues one HTTP request. So on an Ollama-backed palace the batch size was
+// however many entities the palace had accumulated.
+//
+// 32 rather than a larger number, and the figure is measured rather than
+// chosen: `--embed-timeout`'s own usage records "121s for a batch of 64 on a
+// CPU-only host", against a five-minute default budget for ONE call. Halving
+// that batch keeps a chunk comfortably inside the budget on the slowest host
+// this project runs on, and it matches teiembed's own maxBatch fallback, so the
+// two backends now behave alike here instead of only one of them being safe.
+//
+// The ratio argument survives the bound: a 5,000-entity palace goes from 5,000
+// round trips to 157, not from 5,000 to 1. What it stops being is a single
+// request that cannot finish — which on this path fails silently, because
+// RecomputeGraph logs the error and reports EntityLabelsIndexed as 0.
+const entityLabelBatch = 32
+
 // BackfillEntityLabels indexes every entity the graph already holds.
 //
 // Idempotent: Upsert replaces by id, so running it twice is a no-op rather than a
 // duplicate. It is a method rather than a migration because embedding needs a
 // live embedder, which a SQL migration does not have.
+//
+// ⚠ IT EMBEDS IN ONE BATCH, NOT ONE CALL PER LABEL, AND THAT IS THE WHOLE COST.
+// This loop used to call IndexEntityLabel per row, which is one EmbedOne round
+// trip and one Upsert each. `Embed(ctx, []string)` has been on the Embedder
+// interface the entire time and both backends implement it — teiembed's even
+// chunks internally against the limit it probes from /info — so the batch
+// primitive existed and this call site did not select it. That is this
+// repository's named defect wearing a performance costume.
+//
+// The saving is a RATIO, not a duration: N round trips become one, on whatever
+// hardware. Measured on the local stack the whole recompute is embedder-bound,
+// but the seconds there are a fact about a CPU-only Ollama and bge-m3, not about
+// this code — see issue #366, where a latency was briefly mistaken for a
+// property of the tool.
+//
+// One behaviour change, stated because it is not free: a single embedding
+// failure now fails the whole backfill rather than returning the labels indexed
+// before it. The caller (RecomputeGraph) already treats this as non-fatal and
+// logs, and a half-filled label index that reports a count is worse than one
+// that says it did not run.
 func (s *Service) BackfillEntityLabels(ctx context.Context, teamID string) (int, error) {
 	rows, err := s.writer.AllKGEntities(ctx, teamID)
 	if err != nil {
 		return 0, err
 	}
-	n := 0
+	ids := make([]string, 0, len(rows))
+	labels := make([]string, 0, len(rows))
 	for _, r := range rows {
 		// Structural entities are skipped. attachDerivedEdge creates a room node
 		// and an entity for the drawer id itself, and neither is something a
 		// QUESTION is ever about — but both would compete for the five nearest
 		// label slots, and factsFor then discards every derived fact anyway. So
 		// indexing them costs slots and returns nothing.
-		if isStructuralEntity(r.Name) {
+		//
+		// The empty-field skip is a SEPARATE reason and is new here: the per-label
+		// path returned nil for an empty id or label, so such a row was never
+		// embedded and never counted. Batching would otherwise send "" to the
+		// embedder and index a vector for the empty string. Skipping keeps the
+		// old outcome; it changes the returned count only for a corpus that holds
+		// such a row, and none is known to.
+		if isStructuralEntity(r.Name) || r.ID == "" || r.Name == "" {
 			continue
 		}
-		if err := s.IndexEntityLabel(ctx, teamID, r.ID, r.Name); err != nil {
-			return n, err
-		}
-		n++
+		ids = append(ids, r.ID)
+		labels = append(labels, r.Name)
 	}
-	return n, nil
+	if len(labels) == 0 {
+		return 0, nil
+	}
+	ns := entityNamespace(teamID)
+	indexed := 0
+	for start := 0; start < len(labels); start += entityLabelBatch {
+		end := min(start+entityLabelBatch, len(labels))
+		vecs, err := s.embed.Embed(ctx, labels[start:end])
+		if err != nil {
+			return 0, fmt.Errorf("embed entity labels: %w", err)
+		}
+		// The embedder's contract is "one vector per input, in order". Checked
+		// rather than trusted: a short return would otherwise pair label i with
+		// entity i and mislabel every entity after the gap, silently.
+		if len(vecs) != end-start {
+			return 0, fmt.Errorf("embed entity labels: got %d vectors for %d labels", len(vecs), end-start)
+		}
+		if err := s.vectors.EnsureNamespace(ctx, ns, len(vecs[0])); err != nil {
+			return 0, err
+		}
+		points := make([]store.Point, 0, len(vecs))
+		for i, v := range vecs {
+			points = append(points, store.Point{
+				ID:      ids[start+i],
+				Vector:  v,
+				Payload: map[string]any{"label": labels[start+i]},
+			})
+		}
+		if err := s.vectors.Upsert(ctx, ns, points); err != nil {
+			return 0, err
+		}
+		indexed += len(points)
+	}
+	return indexed, nil
 }
 
 // isStructuralEntity reports whether an entity exists to hold the graph together
