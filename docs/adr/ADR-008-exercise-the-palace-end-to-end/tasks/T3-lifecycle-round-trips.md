@@ -8,6 +8,43 @@
 > One scenario also had to be rewritten against the real contract: the chunk-0 defect was fixed by
 > REFUSING a multi-chunk content edit, not by rewriting every chunk, so the regression asserts the
 > refusal and that nothing half-landed.
+> **Amended 2026-09-07. Step 2 was taken for the first time and the adoption bar was missed AGAIN,
+> one scenario over from where the note below already records it.** The supersede regression could
+> not see its own defect: the mutant `c.ValidTo == "" && c.ID == id` in `supersedeInto` — end only
+> the chunk the caller named — compiled and left all three gate tests GREEN. Two independent causes.
+> (1) The sweep runs over SEARCH HITS matched on content, and `SUPERSEDED-MARKER` sat in chunk 0 with
+> a filler tail, so the tail chunk was never returned and never inspected — the identical fixture
+> error the delete scenario already hit and fixed, which is why the Mutants note below says "moving
+> the marker into the LAST chunk fixed it". Two adjacent scenarios, one hazard, only one of them
+> corrected. (2) It asserted only `valid_to`, and TWO mechanisms set that: the compare-and-swap, and
+> `persistRows` re-filing under the predecessor's SOURCE. Both fixed — a marker at both ends, and
+> `superseded_by` asserted per chunk — and the mutant now dies naming `chunk_index: 1`.
+>
+> ⚠ **THE FENCE CHANGED, SO THE 2026-08-20 DIGEST NO LONGER MATCHES.** It gained
+> `git config --global --add safe.directory /src`: the container runs as root over a host-owned bind
+> mount, so on Linux git refused with `detected dubious ownership` and the fence died with TEN
+> `exit status 128` failures over a tree that was green on the host and in CI (the same defect PR
+> #383 fixed in `scripts/redeploy.sh`; 31 other fences still carry it). The provably inert
+> `! grep -qE …` guard was replaced by the un-negated form in the same edit, since the digest was
+> being re-recorded anyway — `set -e` exempts a negated pipeline, so it never could have failed.
+>
+> ⚠ **T3 STAYS `partial`: IT CANNOT BE VERIFIED FROM A LINUX CHECKOUT.** With `safe.directory` in
+> place the 128s are gone (0 of them), and the fence is now blocked by a single unrelated test —
+> `TestADeadlineKillsTheChildAndItsChildren`, "the process group was not reaped". It is NOT a flake:
+> it failed both recorded runs at ~3.31s, while passing 3/3 in the same container in isolation and
+> passing in the full suite on the host. Two failed runs are in the Verification Log deliberately,
+> because an attempt that got further than the last one is evidence and deleting it would hide that
+> the first blocker is fixed.
+>
+> ⚠ **AND THE MUTATION LOG IS DELIBERATELY STILL EMPTY, WHICH `adr-lint` CORRECTLY FLAGS.** All three
+> mutants were run and their results are recorded in the Mutants table's prose below and in the
+> commit that fixed the supersede scenario — M1 kills only after that fix, M2 and M3 kill as they
+> stand. What cannot be written yet is the TOOL-WRITTEN entry, because `adr-verify --mutant` records
+> a kill from the acceptance fence's exit code, and this fence is currently red for a reason that has
+> nothing to do with any mutant. Every mutant would be recorded `killed` on a fence that fails with
+> the mechanism intact — a verdict bound to nothing, which is the exact defect this ADR exists to
+> prevent. The log stays empty until the fence is green on the machine recording it.
+
 **Covers:** none — no spec
 **Estimated scope:** L (cross-boundary)
 **Owner:** unassigned
@@ -40,13 +77,14 @@ Every mutable area round-trips through the tool surface, and a delete is proven 
 ```bash
 docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'apk add --no-cache bash git >/dev/null 2>&1 || true; 
   set -e
+  git config --global --add safe.directory /src
   gofmt -l internal | grep -q . && { echo "gofmt"; exit 1; }
   go vet ./...
   go test ./internal/mcptest/ -run "TestEveryToolIsExercisedEndToEnd|TestScenarios" -count=1 -v 2>&1 | tee /tmp/e3.out
   grep -q -- "--- PASS: TestEveryToolIsExercisedEndToEnd" /tmp/e3.out
   grep -q -- "--- PASS: TestScenariosObserveAnEffect" /tmp/e3.out
   grep -q -- "--- PASS: TestScenariosOnlyClaimToolsTheyCall" /tmp/e3.out
-  ! grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/e3.out
+  if grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/e3.out; then exit 1; fi
   go test ./... -count=1'
 ```
 
@@ -101,5 +139,33 @@ Stop and report if any of the three regression scenarios cannot be made to fail 
 ## Verification Log
 
 - 2026-08-20 · 62d7c38* · exit 0 · `docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c ' …`
+- 2026-09-07 · 9c02132* · exit 1 · `docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'apk add --no-cache bash git >/dev/null 2>&1 || true; …` · acceptance-sha256:22312dd76b0fe871c4aa6cbe37a4ff4a778e4711395b9b007178d9082beb994c · ms:308963
+  ```
+  --- last 10 line(s) of stdout (of 2958 after folding 2958 raw)
+  --- FAIL: TestADeadlineKillsTheChildAndItsChildren (3.31s)
+      testexec_test.go:50: grandchild 1696 is still alive after the deadline killed its parent; the process group was not reaped
+  FAIL
+  FAIL	github.com/atvirokodosprendimai/agentsmemory/internal/testexec	3.319s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/updatecheck	0.064s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/usage	0.029s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/web	0.502s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/web/views	0.030s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/wingbundle	0.014s
+  FAIL
+  ```
+- 2026-09-07 · 9c02132* · exit 1 · `docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c 'apk add --no-cache bash git >/dev/null 2>&1 || true; …` · acceptance-sha256:22312dd76b0fe871c4aa6cbe37a4ff4a778e4711395b9b007178d9082beb994c · ms:326695
+  ```
+  --- last 10 line(s) of stdout (of 2958 after folding 2958 raw)
+  --- FAIL: TestADeadlineKillsTheChildAndItsChildren (3.31s)
+      testexec_test.go:50: grandchild 1816 is still alive after the deadline killed its parent; the process group was not reaped
+  FAIL
+  FAIL	github.com/atvirokodosprendimai/agentsmemory/internal/testexec	3.321s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/updatecheck	0.069s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/usage	0.031s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/web	0.585s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/web/views	0.039s
+  ok  	github.com/atvirokodosprendimai/agentsmemory/internal/wingbundle	0.021s
+  FAIL
+  ```
 
 ## Mutation Log
