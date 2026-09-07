@@ -96,3 +96,4 @@ _(populated by `adr-verify --mutant` during execution)_
 - Revisiting ADR-030's sigmoid default (permanent: reverting on an inconclusive result is the same error inverted)
 
 ## Verification Log
+- 2026-09-07 · a20ac8df · exit 0 · `docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v agentsmemory-mod:/go/pkg/mod -w /src golang:1.26-alpine sh -c ' …` · acceptance-sha256:ee86c610b2cfbaca9c2369611264abe845bebf6fd029f5f79efbfd84fff9ab0b · ms:32940
