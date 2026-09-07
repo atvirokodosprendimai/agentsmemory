@@ -86,7 +86,20 @@ var evidencePointer = regexp.MustCompile(`ADR-[0-9]{3}|case[ _-]set|[0-9]{4}-[0-
 // field and it names that field, its position and what to add.
 func TestShippedDefaultsCiteTheirCorpus(t *testing.T) {
 	root := repoRoot(t)
-	unattributed(t, filepath.Join(root, defaultsFile))
+	// The EMPTY-UNIVERSE guard lives here, at the caller, rather than inside the
+	// helper: "this gate examined nothing" is a fact about the run, and a run that
+	// examined nothing must not report that every default is attributed. Keeping it
+	// in the body also means the test itself carries a failure call, which
+	// `adr-lint` requires of a test a done task names. Measured 2026-09-07 across
+	// three shapes, because the obvious explanation is wrong: a helper taking
+	// `testing.TB` and one taking `*testing.T` BOTH still trip "nothing in it can go
+	// red" when the body only delegates. The detector does not follow the failure
+	// call into a same-file helper at all — so the parameter type is a red herring,
+	// and reaching for `*testing.T` to satisfy it does measurably nothing.
+	if checked := unattributed(t, filepath.Join(root, defaultsFile)); checked == 0 {
+		t.Fatalf("%s yielded no defaults to check; an empty universe is indistinguishable "+
+			"from every default being attributed", defaultsFile)
+	}
 }
 
 // unattributed reports every default whose comment claims a measurement and names
@@ -98,7 +111,7 @@ func TestShippedDefaultsCiteTheirCorpus(t *testing.T) {
 // the gate announces that everything is attributed. That failure is not
 // hypothetical in this package: TestAHumanObservedSignOffAgreesWithTheIndex shipped
 // with exactly it.
-func unattributed(tb testing.TB, path string) {
+func unattributed(tb testing.TB, path string) (checked int) {
 	tb.Helper()
 	fset := token.NewFileSet()
 	file, err := parser.ParseFile(fset, path, nil, parser.ParseComments)
@@ -108,8 +121,9 @@ func unattributed(tb testing.TB, path string) {
 
 	lit := defaultsLiteral(file)
 	if lit == nil {
-		tb.Fatalf("%s declares no func Default() returning a Config literal; this gate's universe is empty, "+
-			"which is indistinguishable from every default being attributed", path)
+		// Reported as zero rather than fatal here: the CALLER owns "nothing was
+		// examined", so the falsifiability test can observe it without a panic.
+		return 0
 	}
 
 	// The comment map is built over the WHOLE file and then consulted per field,
@@ -119,7 +133,7 @@ func unattributed(tb testing.TB, path string) {
 	cmap := ast.NewCommentMap(fset, file, file.Comments)
 
 	var offenders []string
-	checked, claiming := 0, 0
+	claiming := 0
 	for _, elt := range lit.Elts {
 		kv, ok := elt.(*ast.KeyValueExpr)
 		if !ok {
@@ -151,6 +165,7 @@ func unattributed(tb testing.TB, path string) {
 	if len(offenders) == 0 {
 		tb.Logf("%d default(s), %d claiming a measurement, all attributed", checked, claiming)
 	}
+	return checked
 }
 
 // defaultsLiteral returns the Config composite literal returned by func Default(),
@@ -278,12 +293,8 @@ func TestADefaultThatCitesNothingIsCaught(t *testing.T) {
 			t.Fatalf("write fixture: %v", err)
 		}
 		rec := &recordingTB{TB: t}
-		func() {
-			defer func() { _ = recover() }() // Fatalf panics in recordingTB
-			unattributed(rec, path)
-		}()
-		if !rec.fatal {
-			t.Error("a Default() building its value in steps was accepted; an empty universe reads as every default attributed")
+		if n := unattributed(rec, path); n != 0 {
+			t.Errorf("a Default() building its value in steps reported %d checked; an empty universe must be 0 so the caller can fail it", n)
 		}
 	})
 }
