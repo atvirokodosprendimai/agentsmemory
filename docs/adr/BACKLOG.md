@@ -376,11 +376,12 @@ naming files it will create (`cmd/server/abstain_test.go` in ADR-001 T4,
 from a stale one needs the task's status — more machinery than the finding is worth.
 
 **NOT gated — `file:line` refs whose file does not resolve.** Suggested in review as the cheap
-subclass where the forward-reference objection does not apply. It does not survive reading the four
-instances: `server/session.go:301` and `server/server.go:581` are mcp-go's source, and `up.go:82` is
-goose's — the citing sentence names `goose v3.27.1` beside it. They are deliberate citations into
-pinned third-party source, and a gate over them would be four findings and four false alarms. The
-same shape as the mentions above, one class over.
+subclass where the forward-reference objection does not apply. It does not survive reading them, and
+they fall into two sub-classes that a gate would report as findings and a reader would dismiss on
+sight. Deliberate citations into pinned third-party source: mcp-go's `server/session.go` and
+`server/server.go`, goose's `up.go` — the citing sentence names `goose v3.27.1` beside it — and
+modernc's sqlite by module path. And quoted compiler output, which names the file the compiler saw
+rather than one this tree still has. The same shape as the mentions above, one class over.
 
 **NOT gated — `file:line` refs pointing past the end of a file that does exist.** Real, and the floor
 of the true number, since a citation naming the wrong-but-existing line is undetectable. Left as a
@@ -388,10 +389,14 @@ command rather than a gate because most point into refactored files where the co
 unknowable, so "fix them" means guesses that drift again — the fix this corpus has already disproved
 four times.
 
-**Scope, stated honestly.** These two gates cover ADR citations and self-references. By the survey's
-own commands that is well under half of the pointers in the corpus, and the largest ungated class —
-source `file:line` — is the one the title is about. This retires two classes and measures the rest;
-it does not retire the problem.
+**Scope, stated honestly.** These two gates cover ADR citations and self-references; source
+`file:line` is the largest ungated class, and it is the one the title is about. ⚠ **No ratio is
+written here, and one used to be** — this paragraph said the gates covered "well under half of the
+pointers in the corpus", which is the frozen count this entry's own opening forbids, one level up.
+The two figures come from different extractors over different populations, and a mention is not a
+pointer, so any fraction built from them measures the method at least as much as the corpus. Run the
+gates and the survey command and read them side by side. This retires two classes and measures the
+rest; it does not retire the problem.
 
 **What none of it catches, and it is the larger half.** The two sharpest findings of the last four
 rounds were a sentence that CONCEDED the premise it was meant to reinforce, and a check whose scope
@@ -403,20 +408,49 @@ mechanical gates exist so review attention goes where only a reader can judge.
 **The general finding stands; the instance I filed it with was refuted in review and is corrected
 below. Both halves are kept, because the way the instance was wrong is the more useful lesson.**
 
-**The limitation, verified 2026-08-28 against the quality-harness plugin cache on the authoring machine**, where `adr-lint` on `PATH` resolves to **2.23.0**, and identical in the 2.19.0 and 2.21.0 copies present there — same line numbers in all three. ⚠ A reviewer whose machine carries only 2.19.0 can confirm that copy and nothing else, so read the multi-version claim as "not a version artefact *here*" rather than as reproducible anywhere. The behaviour is what matters and it reproduces on the version everybody has. It is stronger than "the DAG cannot see
-these edges" — the schema forbids writing one:
+**The limitation, first found 2026-08-28 and re-verified 2026-09-07 — same behaviour, and no version
+arithmetic is written here.** ⚠ **A draft of this paragraph said "sixty-two releases apart" and a
+reviewer could not reproduce either end of it.** The checker is a separate project on its own cadence
+and installs differently per machine: this re-read ran `adr-lint 2.85.0` out of
+`~/.claude/plugins/cache/quality-harness/`, while the reviewer's PATH carried 2.79.0 from a source
+checkout and held no other copy. Both are true. A version is a fact about a RUN, so state the one you
+measured with; a difference between two runs on two machines is not a fact about the tool, and
+deriving a number from it puts a stale figure inside the entry whose subject is stale figures. ⚠ **No
+line numbers into the checker are written here either, and the first draft carried two** — the
+messages and identifiers below are what to grep for, and they are what survived every release since.
+The finding is stronger than "the DAG cannot see these edges" — the schema forbids writing one:
 
-- `bin/adr-lint:272-276` validates every `Depends-on` entry against `all_stems`, the SIBLING task
+- `adr-lint`'s `check_task` validates every `Depends-on` entry against `all_stems`, the SIBLING task
   files of that ADR, and emits *"Depends-on 'X' matches no sibling task file"*. So a cross-record
   dependency is a hard lint error: the field designed to carry the constraint refuses it.
-- `bin/adr-next:136-160` builds the same edge set filtered to `if d in infos`, this ADR's tasks
-  only. A foreign T-id is discarded silently. Its docstring says this is deliberate — *"Same edge
-  set as adr-lint's DAG, so readiness here cannot disagree"*.
+- `adr-next` builds the same edge set filtered to `if d in infos`, this ADR's tasks only. A foreign
+  T-id is discarded silently. Its docstring says this is deliberate — *"Same edge set as adr-lint's
+  DAG, so readiness here cannot disagree"*.
 - The failure direction is what matters: **an unseen edge reads as NO edge**, so `adr-next` prints
   `ready` rather than `unknown`.
 
-In this corpus **41 of 94 task files (44%) reference a foreign ADR** across 44 distinct pairs. Not
-all imply ordering, but none of them can be represented.
+Foreign references are common here, and none of them can be represented. ⚠ **No count is written
+here, and one used to be** — the task corpus more than doubled between this entry's first draft and
+its first re-read, moving numerator and denominator together, so the fraction says as much about when
+it was taken as about the corpus. The method instead:
+
+```bash
+python3 - <<'PYEOF'
+import re, glob
+files = sorted(glob.glob("docs/adr/ADR-*/tasks/*.md"))
+pairs, n = set(), 0
+for f in files:
+    own = re.search(r"ADR-(\d{3})", f).group(1)
+    txt = open(f, encoding="utf-8", errors="replace").read()
+    foreign = {m for m in re.findall(r"ADR-(\d{3})", txt) if m != own}
+    if foreign:
+        n += 1
+        pairs.update((own, x) for x in foreign)
+print(n, "of", len(files), "task files reference a foreign ADR,", len(pairs), "distinct pairs")
+PYEOF
+```
+
+Not all of them imply ordering.
 
 **⚠ THE INSTANCE I USED WAS WRONG, and it is worth reading before reusing this entry.** I claimed
 ADR-002 T3 was gated on ADR-003 T3/T4, quoting ADR-003's Decision. That sentence sits inside a
@@ -433,9 +467,11 @@ so none of them does now:
 - `ADR-014:51-53` — T3 is *"a check on a shipped default rather than a gate before one"*.
 - `BACKLOG.md`, the bullet *"ADR-003 T3's two-corpus measurement is now a check, not a gate"* —
   which reports ADR-014's finding in its own words rather than quoting it. The flip already
-  happened: `internal/config/config.go:374` ships `ClosetBoost: 0`. (No line number on purpose;
-  this entry inserts lines above that bullet, so any number written here is wrong in the tree the
-  entry produces — which is exactly what happened in round 1.)
+  happened: `Default()` in `internal/config/config.go` ships `ClosetBoost: 0`. (No line numbers in
+  this bullet. It carried one, into `config.go`, and by the first re-read that had drifted from
+  `:374` to `:466`. The sibling bullet is named rather than numbered because this entry inserts lines
+  above it, so any number written here is wrong in the tree the entry produces — which is what
+  happened in round 1.)
 - `ADR-002:157` — record B **already carried its own constraint**, and carried it better: scoped to
   T4 alone and stated as a conditional, *"If T4 ships closet-ON after all"*. T4 shipped closet-OFF,
   so the condition never fired.
