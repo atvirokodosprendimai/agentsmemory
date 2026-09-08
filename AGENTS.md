@@ -235,7 +235,23 @@ the heading and says nothing about what the entry claims happened. Measured on
 v0.0.127: the entry said "eight PRs" over a range that had become nine, and its
 "what is NOT fixed" section named an issue that had been closed by one of them —
 the section a reader trusts most, because it exists to be honest about gaps.
-`git log <last tag>..main --merges` is the whole check. Changelog entry AND
+The check is
+`git log <last tag>..main --merges --oneline | grep -c "Merge pull request"`.
+⚠ **`--merges` ALONE OVER-REPORTS, AND IT DOES SO ON EVERY RELEASE RATHER THAN
+OCCASIONALLY.** `main` is `strict: true`, so a PR that sits while the base moves
+must take a base update, and `gh pr update-branch` writes a
+`Merge branch 'main' into <branch>` commit that `--merges` counts exactly like a
+merged PR. Measured 2026-09-08 immediately after v0.0.129: the raw count read
+**2** over a range holding **one** merged PR, because #449 had taken a base
+update. The count is what an entry's opening sentence claims out loud, and the
+failure this rule exists to prevent is a number nobody re-derived. Grep the
+subject line rather than trusting `--merges`.
+⚠ **`^{}` BUYS NOTHING HERE, AND THE FIRST DRAFT OF THIS PARAGRAPH SAID IT WAS
+REQUIRED.** git peels an annotated tag to its commit inside a revision range, so
+`<tag>..main` and `<tag>^{}..main` produce byte-identical output — verified with
+`diff` before this shipped. The dereference IS load-bearing in the redeploy
+guard above, where the tag is compared as a resolved sha by `rev-parse`; carrying
+that habit into a range is cargo. Changelog entry AND
 `clients/claude-code/.claude-plugin/plugin.json` bump in the SAME commit —
 `TestThePluginVersionMatchesTheNewestChangelogHeading` pins them, and writing the
 heading without the bump turned `test`, `race` and `image` red on a docs-only PR,
