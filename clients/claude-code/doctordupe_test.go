@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -179,7 +180,7 @@ func TestInstallCollapsesIdenticalRegistrationsAndNotTheseOnes(t *testing.T) {
 			t.Fatal(err)
 		}
 		total := countCommand(t, p, ours) + countCommand(t, p, dupeDerived)
-		if total < 2 {
+		if total != 2 {
 			t.Fatalf("the unparseable registration was collapsed after all (%d left). If the "+
 				"installer can now reach it, doctor's warning that re-running install will not "+
 				"help is false and must be removed with this test", total)
@@ -214,4 +215,79 @@ func countCommand(t *testing.T, path, cmd string) int {
 		}
 	}
 	return n
+}
+
+// TestTheRemedyWarningPrintsExactlyWhenInstallCannotHelp pins the SENTENCE an
+// operator reads, in both directions.
+//
+// ⚠ WITHOUT THIS, DELETING THE WARNING IS GREEN. The sibling test pins the FACT
+// the warning rests on — install collapses identical entries and not these — and
+// passes identically whether the sentence is printed or not. §Reachability's rule
+// is that a test for "X is now available" must fail when X is removed, and the
+// review of this change proved the mutant survived: six lines deleted,
+// `grep -c "will NOT collapse"` → 0, package still ok.
+//
+// The second direction is the one that caught the real defect. The warning was
+// first keyed on envPartial, which reports whether the environment doctor would
+// RUN the hook with is short — a fact about the first entry supplying an env, not
+// about whether any entry is unreadable. On installer-first ordering, which is
+// what the duplicate fixture uses, envPartial is false and the warning stayed
+// silent over exactly the file it was written for.
+func TestTheRemedyWarningPrintsExactlyWhenInstallCannotHelp(t *testing.T) {
+	const remedy = "will NOT collapse these"
+
+	for _, tc := range []struct {
+		name  string
+		first string
+		want  bool
+	}{
+		{"unreadable sibling, installer entry read first", dupePinned, true},
+		{"unreadable sibling, derived entry read first", dupeDerived, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			second := dupeDerived
+			if tc.first == dupeDerived {
+				second = dupePinned
+			}
+			p := writeRawSettings(t, `{"hooks":{"SessionStart":[{"hooks":[
+			  {"type":"command","command":`+jsonQuote(tc.first)+`},
+			  {"type":"command","command":`+jsonQuote(second)+`}]}]}}`)
+			regs, err := registeredHookEvents(p)
+			if err != nil {
+				t.Fatal(err)
+			}
+			v := judgeHook(t.Context(), nil, t.TempDir(), "agentsmemory-recall-hook.sh",
+				regs["agentsmemory-recall-hook.sh"], t.TempDir())
+			if v.label != "DUPLICATED" {
+				t.Fatalf("verdict %q, want DUPLICATED", v.label)
+			}
+			if got := strings.Contains(v.detail, remedy); got != tc.want {
+				t.Errorf("remedy warning present = %v, want %v — whichever entry is read first, "+
+					"one of these is invisible to the installer, so re-running it cannot collapse "+
+					"them.\ndetail: %s", got, tc.want, v.detail)
+			}
+		})
+	}
+
+	// The other direction: an ordinary duplicate, both entries readable, is one
+	// install CAN collapse — so the warning must not appear and send an operator
+	// away from the remedy that works.
+	t.Run("both entries readable: no warning", func(t *testing.T) {
+		p := writeRawSettings(t, `{"hooks":{"SessionStart":[{"hooks":[
+		  {"type":"command","command":`+jsonQuote(dupePinned)+`},
+		  {"type":"command","command":`+jsonQuote(dupePinned)+`}]}]}}`)
+		regs, err := registeredHookEvents(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		reg := regs["agentsmemory-recall-hook.sh"]
+		if len(reg.duplicated) == 0 {
+			t.Skip("identical entries are collapsed before this point; nothing to judge")
+		}
+		v := judgeHook(t.Context(), nil, t.TempDir(), "agentsmemory-recall-hook.sh", reg, t.TempDir())
+		if strings.Contains(v.detail, remedy) {
+			t.Errorf("the warning fired on a duplicate install CAN collapse, sending an operator "+
+				"away from the remedy that works:\n%s", v.detail)
+		}
+	})
 }
