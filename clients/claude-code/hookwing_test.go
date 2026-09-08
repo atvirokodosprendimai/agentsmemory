@@ -162,3 +162,97 @@ func TestTheRecallHookPrefersTheProjectsPinOverTheInstalledWing(t *testing.T) {
 		}
 	})
 }
+
+// pinnedProjectDir writes a git repository whose .aiagentmemory pins one wing.
+//
+// It is a real repository because the SessionStart hook builds its query from
+// the branch name and the changed files, and refuses with "no query" outside
+// one — so a bare directory would fail that hook before it ever reached the
+// rung this test is about. The remote deliberately names a DIFFERENT project,
+// so a hook that stopped reading the pin and derived from the remote instead
+// would resolve a visibly wrong wing rather than the right one by accident.
+func pinnedProjectDir(t *testing.T, wing string) string {
+	t.Helper()
+	dir := t.TempDir()
+	body := "# a project that pins its own wing\nwing=" + wing + "\n"
+	if err := os.WriteFile(filepath.Join(dir, ".aiagentmemory"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	git := func(args ...string) {
+		t.Helper()
+		if out, err := testexec.Command(t, "git", append([]string{"-C", dir}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	git("init", "-q", "-b", "fix/a-project-that-pins-its-own-wing")
+	git("config", "user.email", "probe@example.invalid")
+	git("config", "user.name", "probe")
+	git("remote", "add", "origin", "https://example.invalid/some-other-project.git")
+	git("add", "-A")
+	git("commit", "-qm", "a project that pins its wing, so neither hook has to derive one")
+	return dir
+}
+
+// TestBothRecallHooksResolveTheProjectsPin is the anti-drift gate for the ONE
+// piece of logic the two recall hooks each carry their own copy of.
+//
+// The asymmetry it exists to catch already shipped. The SessionStart hook read
+// the .aiagentmemory pin; the task-recall hook read $AGENTSMEMORY_WING alone. So
+// removing --wing from the install line (#432/#435 — correct on its own terms:
+// it baked one project's wing onto every hook command on the machine) left the
+// task hook with no wing at all, and it fell through to its no-wing branch in
+// silence. Measured 2026-09-08 over 120 real task queries at that hook's own
+// parameters: 75% of everything it injected came from ANOTHER PROJECT'S WING.
+//
+// Nothing caught it. Both hooks were driven by tests, both passed, and the
+// existing scope test uses an UNPINNED fixture — so the rung that differs
+// between them was never exercised. That is the shape §Reachability keeps
+// recording: a mutant proves a test notices a change, never that the thing
+// under test reaches anything.
+//
+// It compares BEHAVIOUR — the wing each script actually searched — rather than
+// the two resolver texts, because a tidy-up that aligned the texts while
+// breaking one hook's call site is exactly the failure a text comparison waves
+// through.
+func TestBothRecallHooksResolveTheProjectsPin(t *testing.T) {
+	const wing = "wing_alpha"
+	pinned := pinnedProjectDir(t, wing)
+
+	searched := map[string]string{}
+	for _, hookName := range []string{"agentsmemory-task-recall-hook.sh", "agentsmemory-recall-hook.sh"} {
+		t.Run(hookName, func(t *testing.T) {
+			// extraEnv is appended after recallHookRun's own CLAUDE_PROJECT_DIR, and
+			// the last assignment wins, so this replaces the unpinned fixture.
+			out, errOut, calls := recallHookRun(t, hookName,
+				[]string{"CLAUDE_PROJECT_DIR=" + pinned},
+				"A PROJECT MEMORY\n  "+wing+"/decisions\n", 0, "")
+			if len(calls) == 0 {
+				t.Fatalf("the hook made no search at all with a pinned wing:\nstdout: %s\nstderr: %s", out, errOut)
+			}
+			if !strings.Contains(calls[0], "wing="+wing) {
+				t.Fatalf("the hook did not search the wing its project pins. This is #438: the "+
+					"task hook resolved $AGENTSMEMORY_WING alone, so with --wing gone from the "+
+					"install line it searched no wing and the server answered from the "+
+					"REGISTRATION's default_wing — 75%% of what it injected was another "+
+					"project's memories.\ncall: %q\nstderr: %s", calls[0], errOut)
+			}
+			if !strings.Contains(errOut, "wing from the project's pin") {
+				t.Errorf("the hook resolved the pin but did not SAY so. #305 was diagnosed only "+
+					"by grepping settings.json, because nothing a hook emitted named the source "+
+					"of its wing; doctor prints this stderr verbatim:\n%s", errOut)
+			}
+			searched[hookName] = calls[0]
+		})
+	}
+	// The copies may be worded differently; what may never differ is which wing
+	// they land on for one repository. A reader of either script must be able to
+	// predict the other.
+	if len(searched) == 2 {
+		for name, call := range searched {
+			if !strings.Contains(call, "wing="+wing) {
+				t.Errorf("%s resolved a different wing from its sibling for the same pinned "+
+					"project; the two resolvers have drifted: %q", name, call)
+			}
+		}
+	}
+}
