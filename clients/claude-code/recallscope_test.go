@@ -79,29 +79,33 @@ func TestTheRecallHookCarriesTheInstalledWing(t *testing.T) {
 			if !strings.Contains(calls[1], "wing=wing_craft") || !strings.Contains(calls[1], "--digest") {
 				t.Errorf("second call is not wing_craft through --digest: %q", calls[1])
 			}
-			// ⚠ THE ROOM, NOT ONLY THE WING — AND THE TWO HOOKS DIFFER ON PURPOSE.
-			// The SessionStart hook's recall() defaults to `diary`; this named no
-			// room until #438 and so inherited it, and wing_craft/diary holds ONE
-			// memory of 521 — the call was made, cost a round trip, and returned
-			// nothing on 120 of 120 measured queries. The wing assertion above passes
-			// either way, which is how the craft call could be "covered by a killed
-			// mutant" and still be inert: a mutant proves a test notices a change,
-			// never that the thing under test reaches anything.
+			// ⚠ THE CRAFT CALL READS THE WHOLE WING, IN BOTH HOOKS, FOR DIFFERENT
+			// REASONS — and the project call above does not. Until #438 this call
+			// named no room and so inherited the SessionStart hook's `diary`, which
+			// holds a rounding error of wing_craft: the call was made, cost a round
+			// trip, and returned nothing on 120 of 120 measured queries. The wing
+			// assertion above passes either way, which is how the craft call could be
+			// "covered by a killed mutant" and still be inert — a mutant proves a test
+			// notices a change, never that the thing under test reaches anything.
 			//
-			// The task hook's recall() takes no room at all, so both its calls are
-			// room-unscoped — 78% coverage against diary's 57%, at the cost of the
-			// mined-transcript room on 36% of queries. Both sides are pinned here so
-			// that neither is "tidied" into the other without the numbers in #438.
-			if hookName == "agentsmemory-recall-hook.sh" {
-				if !strings.Contains(calls[1], "room=gotchas") {
-					t.Errorf("the craft call does not name room=gotchas, so it falls back to "+
-						"this hook's `diary` default and searches a room holding 0.2%% of the "+
-						"craft wing: %q", calls[1])
-				}
-			} else if strings.Contains(calls[1], "room=") {
-				t.Errorf("the task hook's craft call has acquired a room. That is a behaviour "+
-					"change with measured consequences either way (#438) — take it deliberately "+
-					"with the numbers, not as a tidy-up: %q", calls[1])
+			// Scoping it to ANY room is what review rejected, and the reason is the
+			// asymmetry between the wings: the project call scopes to keep `sessions`
+			// out, 719 drawers of mined transcript, and wing_craft has no `sessions`
+			// room at all — sessions-only queries there, 0 of 120. A room name is also
+			// a fact about one palace: the room holding 74% of the wing locally holds
+			// ~26% on hosted. So the assertion is that NEITHER hook scopes this call.
+			if strings.Contains(calls[1], "room=") {
+				t.Errorf("the craft call names a room. wing_craft has no transcript room to "+
+					"scope away, unscoped tied on coverage and returned more (#438), and any "+
+					"room name is a claim about one palace's shape rather than about craft: %q",
+					calls[1])
+			}
+			// The project call is the half that DOES scope, and only in this hook —
+			// pinned so the two are never tidied into each other without the numbers.
+			if hookName == "agentsmemory-recall-hook.sh" && !strings.Contains(calls[0], "room=diary") {
+				t.Errorf("the project call stopped scoping to diary. That is a real trade "+
+					"(#438: 57%% against unscoped's 78%%, bought with transcript noise on 36%% "+
+					"of queries) — take it with the numbers, not as a tidy-up: %q", calls[0])
 			}
 			if !strings.Contains(out, "A PROJECT MEMORY") || !strings.Contains(out, "craft:") {
 				t.Errorf("the injection lacks the digest text or the craft: line:\n%s", out)

@@ -447,12 +447,20 @@ else
 fi
 recall() {
   # $1 = wing or empty, $2 = digest budget in characters,
-  # $3 = room (empty means the shipped default), $4 = limit (default 3),
+  # $3 = room: empty means the shipped default, "-" means the WHOLE WING,
+  # $4 = limit (default 3),
   # $5 = query (default $QUERY), $6 = distance floor (default 0.42; 0 disables)
   local args=(mcp search "${5:-$QUERY}" -a "limit=${4:-3}" -a snippet_chars=300)
   # The default room is spelled as a literal on purpose: ADR-041 T4's record pins
   # it, and TestTheRecallHookAsksTheRoomItsRecordShips reads it from this file.
-  if [ -n "${3:-}" ]; then args+=(-a "room=$3"); else args+=(-a room=diary); fi
+  #
+  # ⚠ "-" EXISTS BECAUSE A DEFAULT CANNOT BE OPTED OUT OF BY OMISSION. Passing
+  # nothing meant the project call's `diary`, so the craft call inherited a room
+  # chosen for a different wing and returned nothing on 120 of 120 measured
+  # queries (#438). A caller that wants the whole wing has to be able to SAY so.
+  if [ "${3:-}" = "-" ]; then :
+  elif [ -n "${3:-}" ]; then args+=(-a "room=$3")
+  else args+=(-a room=diary); fi
   args+=(-a "max_distance=${6:-0.42}" --digest "$2")
   [ -n "$1" ] && args+=(-a "wing=$1")
   [ -n "$TOKEN" ] && args+=(--token "$TOKEN")
@@ -522,15 +530,23 @@ if [ -n "$WING" ]; then
     # found both is in ADR-059 T2.
     CHECKPOINT="$(recall "$WING" 400 llm_open_threads 1 "WHERE SHOULD WORK RESUME AFTER A CRASH ${BRANCH:-}" 0)" || CHECKPOINT=""
   else
-    # ⚠ NAME THE ROOM. Left to the default this call asked `diary`, and
-    # wing_craft/diary holds ONE memory of 521 — 0.2% of the wing — while
-    # `gotchas` holds 383. Measured 2026-09-08 over 120 real hook-shaped queries
-    # rebuilt from merged branches: the craft call returned a hit on 0 of them,
-    # and `gotchas` on 34. ADR-058 T2 specified `-a wing=wing_craft --digest 400`
-    # and named no room, so the room was never chosen — it fell through to the
-    # project call's default. Its mutant proved the CALL exists, which is not the
-    # same as the call reaching anything (#438).
-    CRAFT="$(recall wing_craft 400 gotchas)" || CRAFT=""
+    # ⚠ THE WHOLE WING, AND THE ROOM SCOPING HERE WOULD BE CARGO. Left to the
+    # default this asked `diary`, which holds a rounding error of wing_craft —
+    # 1 memory of 521 on the palace this was measured against, 10 of ~609 on the
+    # hosted one — and returned nothing on 120 of 120 real hook-shaped queries
+    # (#438). ADR-058 T2 named no room, so the room was never chosen: it fell
+    # through to a default written for the PROJECT call.
+    #
+    # ⚠ AND THE REMEDY IS NOT "NAME A BETTER ROOM". Measured, `gotchas` and
+    # unscoped tie on coverage (28%) and unscoped returns more (72 hits vs 67).
+    # The reason to scope the project call is `sessions`, 719 drawers of mined
+    # transcript — and wing_craft has no `sessions` room at all, so there is
+    # nothing here to scope away: sessions-only queries in wing_craft, 0 of 120.
+    # A room name is also a fact about one palace rather than about craft: the
+    # room holding 74% of the wing locally holds ~26% on hosted, where scoping
+    # to it would discard `gates`, `verification`, `review` and `human-decisions`.
+    # Caught in review of the first fix, which named `gotchas` on local numbers.
+    CRAFT="$(recall wing_craft 400 -)" || CRAFT=""
   fi
 fi
 rm -f "$ERRFILE"
