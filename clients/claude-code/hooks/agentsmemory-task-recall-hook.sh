@@ -195,6 +195,15 @@ if [ "$RC" -ne 0 ]; then
   could_not_look "$ERR"
   exit 0
 fi
+# ⚠ THIS HOOK'S recall() TAKES NO ROOM, so both its calls are room-unscoped —
+# unlike the SessionStart hook, whose default is `diary`. That difference is not
+# an oversight to tidy: measured 2026-09-08 over 120 real hook-shaped queries
+# (#438), room-unscoped reaches 78% of queries against diary's 57% and loses
+# nothing diary finds, but its hits include the mined-transcript room `sessions`
+# on 36% of queries — the noise ADR-041 T4 scoped away when it chose a room for
+# the OTHER hook. This is the per-TURN injection, so it pays that noise every
+# prompt rather than once a session. `am_search` has no room exclusion, so the
+# 71% arm (unscoped minus sessions-only) needs a server-side argument first.
 CRAFT=""
 if [ -n "$WING" ]; then
   CRAFT="$(recall wing_craft 400)" || CRAFT=""
