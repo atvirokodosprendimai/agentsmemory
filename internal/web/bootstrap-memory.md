@@ -123,9 +123,10 @@ irregular names first** (`wing=` in a committed `.aiagentmemory`, written by `ai
 derived wing holding nothing, beside a configured one holding plenty, is a misroute rather than a
 fresh start** — say so instead of filing into it.
 
-Pinning buys a second thing: the recall hook asks `wing_craft` only when it has a wing. With
-none it makes one unscoped search and no craft call at all — so an unpinned project does not get
-a wider craft recall, it gets none.
+Pinning buys a second thing: the recall hook asks `wing_craft` only when it has a wing. With none
+it makes one search carrying no wing argument — which the server scopes to the registration's own
+`default_wing`, so it is not a wider search — and no craft call at all. An unpinned project does
+not get a broader recall; it gets somebody's default wing and no craft.
 
 ### 3.2 The craft wing
 

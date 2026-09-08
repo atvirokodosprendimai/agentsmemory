@@ -366,10 +366,15 @@ export AGENTSMEMORY_ORIGIN="hook:$(basename "$0")"
 # the project's wing, then wing_craft under a `craft:` line — share one budget,
 # because am_search reads one wing per call and the protocol says every project
 # reads craft; a single scoped call would silently drop it (review of #268).
-# Without a wing: one unscoped call, as before the record — and NO craft call at
-# all, because CRAFT is only ever assigned inside the `[ -n "$WING" ]` branch
-# below. So an unpinned project loses the craft wing entirely, not merely its
-# scoping, which is the second reason to commit a `wing=` pin.
+# Without a wing: ONE CALL CARRYING NO WING ARGUMENT — which is not the same as
+# an unscoped one, and this line said "unscoped" until #432. The server reads an
+# omitted wing as the registration's own default_wing, so the recall is scoped;
+# what it loses is craft, because CRAFT is only ever assigned inside the
+# `[ -n "$WING" ]` branch below. So an unpinned project does not get a wider
+# recall, it gets the registration's wing and no craft at all — which is the
+# second reason to commit a `wing=` pin. The rung's own note is where it is
+# resolved, further down; this block designs the call budget and a reader
+# arrives here first, so it must not leave the retired claim standing.
 TOKEN="${AGENTSMEMORY_LOCAL_TOKEN:-${AGENTSMEMORY_TOKEN:-}}"
 # ⚠ THE PROJECT'S PIN OUTRANKS THE INSTALLED DEFAULT, and the order is the fix.
 #

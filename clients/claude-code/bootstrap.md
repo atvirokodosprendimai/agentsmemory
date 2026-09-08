@@ -145,9 +145,11 @@ rather than a fresh start** — say so and let the human decide, instead of fili
 into it.
 
 Pinning buys a second thing, and it is easy to miss: the recall hook asks
-`wing_craft` only when it HAS a wing. With none it makes a single unscoped
-search and no craft call at all — so an unpinned project does not get a
-wider craft recall, it gets none.
+`wing_craft` only when it HAS a wing. With none it makes a single search
+carrying no wing argument — which the server scopes to the registration's own
+`default_wing`, so it is not a wider search — and no craft call at all. An
+unpinned project does not get a broader recall; it gets somebody's default wing
+and no craft.
 
 The test to apply before trusting derivation anywhere: enumerate the names it
 would produce across every install that actually exists, and diff them against

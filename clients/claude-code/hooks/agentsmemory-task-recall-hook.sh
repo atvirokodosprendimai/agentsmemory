@@ -153,7 +153,11 @@ export AGENTSMEMORY_ORIGIN="hook:$(basename "$0")"
 # the project's wing, then wing_craft under a `craft:` line — share one budget,
 # because am_search reads one wing per call and the protocol says every project
 # reads craft; a single scoped call would silently drop it (review of #268).
-# Without a wing: one unscoped call, as before the record.
+# Without a wing: ONE CALL CARRYING NO WING ARGUMENT — not an unscoped one, which
+# is what this line said until #432. The server reads an omitted wing as the
+# registration's own default_wing, so the recall is scoped to whatever project
+# that registration was created for; what it loses is craft, which this hook only
+# asks for when it has a wing. Pin one with `aiagentmemory init --wing <name>`.
 TOKEN="${AGENTSMEMORY_LOCAL_TOKEN:-${AGENTSMEMORY_TOKEN:-}}"
 WING="${AGENTSMEMORY_WING:-}"
 recall() {

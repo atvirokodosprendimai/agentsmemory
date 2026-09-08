@@ -89,7 +89,9 @@ func TestTheRecallHookCarriesTheInstalledWing(t *testing.T) {
 		t.Run(hookName+" without a wing", func(t *testing.T) {
 			out, _, calls := recallHookRun(t, hookName, nil, "A MEMORY\n  wing_alpha/decisions\n", 0, "")
 			if len(calls) != 1 || strings.Contains(calls[0], "wing=") {
-				t.Fatalf("without a wing the hook must make one unscoped search: %q", calls)
+				t.Fatalf("without a wing the hook must make ONE call carrying no wing argument "+
+					"(the server scopes that to the registration's default_wing — it is not an "+
+					"unscoped search, and #432 is about the difference): %q", calls)
 			}
 			// Each hook words its disclaimer its own way; both say the search
 			// crossed projects, and both must keep saying so without a wing.
