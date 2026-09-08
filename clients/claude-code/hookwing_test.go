@@ -241,7 +241,46 @@ func TestBothRecallHooksResolveTheProjectsPin(t *testing.T) {
 					"by grepping settings.json, because nothing a hook emitted named the source "+
 					"of its wing; doctor prints this stderr verbatim:\n%s", errOut)
 			}
+			// THE CRAFT CALL MUST SURVIVE THE FIX. Resolving a wing is what makes
+			// either hook ask wing_craft at all — with no wing it makes one call and
+			// silently reads no craft. So a fix that scoped the project call but lost
+			// the craft call would trade foreign noise for missing craft, and the
+			// wing assertion above would pass either way.
+			if len(calls) != 2 {
+				t.Fatalf("with a wing resolved the hook must make TWO searches — the project's "+
+					"wing, then wing_craft — and made %d: %q", len(calls), calls)
+			}
+			if !strings.Contains(calls[1], "wing=wing_craft") {
+				t.Errorf("the second call is not wing_craft, so the pin bought project scoping "+
+					"and paid for it in craft: %q", calls[1])
+			}
 			searched[hookName] = calls[0]
+		})
+
+		// ⚠ THE COMBINATION NOTHING TESTED: a pin AND a baked AGENTSMEMORY_WING.
+		// That is not a corner — it is every machine that ran the install line this
+		// repo documented until #432, which wrote `--wing` onto every hook command.
+		// The two rungs disagree there, and only the ORDER decides; the sibling has
+		// a test for this and the task hook did not, which is the same asymmetry
+		// #438 was.
+		t.Run(hookName+" with a pin AND a baked wing", func(t *testing.T) {
+			out, errOut, calls := recallHookRun(t, hookName,
+				[]string{"CLAUDE_PROJECT_DIR=" + pinned, "AGENTSMEMORY_WING=wing_beta"},
+				"A PROJECT MEMORY\n  "+wing+"/decisions\n", 0, "")
+			if len(calls) == 0 {
+				t.Fatalf("no search at all:\nstdout: %s\nstderr: %s", out, errOut)
+			}
+			if strings.Contains(calls[0], "wing=wing_beta") {
+				t.Fatalf("the baked default beat the project's pin. A hook registration is "+
+					"user-scope whatever --scope says, so the baked value is one project's "+
+					"wing in front of every repository on the machine — #305 exactly: %q", calls[0])
+			}
+			if !strings.Contains(calls[0], "wing="+wing) {
+				t.Fatalf("neither rung produced the pinned wing: %q", calls[0])
+			}
+			if len(calls) != 2 || !strings.Contains(calls[1], "wing=wing_craft") {
+				t.Errorf("the craft call did not survive the two rungs disagreeing: %q", calls)
+			}
 		})
 	}
 	// The copies may be worded differently; what may never differ is which wing
