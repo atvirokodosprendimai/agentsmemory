@@ -144,6 +144,11 @@ that holds nothing, beside a configured one that holds plenty, is a misroute
 rather than a fresh start** — say so and let the human decide, instead of filing
 into it.
 
+Pinning buys a second thing, and it is easy to miss: the recall hook asks
+`wing_craft` only when it HAS a wing. With none it makes a single unscoped
+search and no craft call at all — so an unpinned project does not get a
+wider craft recall, it gets none.
+
 The test to apply before trusting derivation anywhere: enumerate the names it
 would produce across every install that actually exists, and diff them against
 the wings holding drawers today. Replacing a wrong-but-populated name with a

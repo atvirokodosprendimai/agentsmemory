@@ -366,7 +366,10 @@ export AGENTSMEMORY_ORIGIN="hook:$(basename "$0")"
 # the project's wing, then wing_craft under a `craft:` line — share one budget,
 # because am_search reads one wing per call and the protocol says every project
 # reads craft; a single scoped call would silently drop it (review of #268).
-# Without a wing: one unscoped call, as before the record.
+# Without a wing: one unscoped call, as before the record — and NO craft call at
+# all, because CRAFT is only ever assigned inside the `[ -n "$WING" ]` branch
+# below. So an unpinned project loses the craft wing entirely, not merely its
+# scoping, which is the second reason to commit a `wing=` pin.
 TOKEN="${AGENTSMEMORY_LOCAL_TOKEN:-${AGENTSMEMORY_TOKEN:-}}"
 # ⚠ THE PROJECT'S PIN OUTRANKS THE INSTALLED DEFAULT, and the order is the fix.
 #
