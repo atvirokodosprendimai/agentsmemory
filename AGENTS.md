@@ -251,7 +251,18 @@ REQUIRED.** git peels an annotated tag to its commit inside a revision range, so
 `<tag>..main` and `<tag>^{}..main` produce byte-identical output — verified with
 `diff` before this shipped. The dereference IS load-bearing in the redeploy
 guard above, where the tag is compared as a resolved sha by `rev-parse`; carrying
-that habit into a range is cargo. Changelog entry AND
+that habit into a range is cargo.
+⚠ **AND ASSERT THE RANGE IS NON-EMPTY BEFORE BELIEVING EITHER ANSWER.** A count
+of 0 and a range whose tag does not resolve are the same output. Reproduced
+2026-09-08 while a reviewer was verifying this very correction, against a clone
+with no tags fetched: `git log <tag>..main` exited **128** with its message on
+stderr, and the `diff <(…) <(…)` comparing the two forms reported them
+**identical** — because **process substitution discards the inner command's exit
+status**, so `diff` compared two empty inputs and agreed. The right answer,
+reached by two errors cancelling, and it was one post away from being published
+as confirmation. `git rev-parse <tag>^{commit}` first, or count and refuse a
+zero; an empty set equals an empty set, and §Reachability already records this
+shape twice. Changelog entry AND
 `clients/claude-code/.claude-plugin/plugin.json` bump in the SAME commit —
 `TestThePluginVersionMatchesTheNewestChangelogHeading` pins them, and writing the
 heading without the bump turned `test`, `race` and `image` red on a docs-only PR,
