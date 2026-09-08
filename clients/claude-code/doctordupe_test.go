@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -135,4 +136,82 @@ func TestDoctorIsQuietOnASinglyRegisteredHook(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestInstallCollapsesIdenticalRegistrationsAndNotTheseOnes is the fact doctor's
+// new warning rests on, pinned so the warning cannot outlive it.
+//
+// Measured 2026-09-08 against a real --config-dir install: identical entries
+// 2 -> 1, entries differing only in an assignment prefix 2 -> 2. The second is
+// why the DUPLICATED verdict now says re-running install will not help — the
+// installer drops the copy it can parse, appends its own, and foreignHookPredicate
+// spares the one it cannot read, so the count is unchanged.
+//
+// ⚠ Driven through ensureHooksReporting rather than the binary. Three attempts to
+// measure this by running `install` produced three wrong answers, the last because
+// --local resolves to the REAL config dir and CLAUDE_CONFIG_DIR is never read.
+// Reading resolveInstallTarget settled in one pass what probing could not.
+func TestInstallCollapsesIdenticalRegistrationsAndNotTheseOnes(t *testing.T) {
+	ours := `AGENTSMEMORY_MCP_URL='http://x/mcp' bash -- '/h/.claude/agentsmemory-recall-hook.sh'`
+
+	t.Run("identical entries collapse", func(t *testing.T) {
+		p := writeRawSettings(t, `{"hooks":{"SessionStart":[{"hooks":[
+		  {"type":"command","command":`+jsonQuote(ours)+`,"timeout":75},
+		  {"type":"command","command":`+jsonQuote(ours)+`,"timeout":75}]}]}}`)
+		if _, _, err := ensureHooksReporting(p, []hookReg{{
+			event: "SessionStart", cmd: ours, obsolete: foreignHookPredicate(ours),
+		}}, ""); err != nil {
+			t.Fatal(err)
+		}
+		if n := countCommand(t, p, ours); n != 1 {
+			t.Errorf("identical entries left %d registrations, want 1 — the remedy doctor "+
+				"prescribes has to work for the case it CAN reach", n)
+		}
+	})
+
+	t.Run("an unparseable sibling survives", func(t *testing.T) {
+		p := writeRawSettings(t, `{"hooks":{"SessionStart":[{"hooks":[
+		  {"type":"command","command":`+jsonQuote(ours)+`,"timeout":75},
+		  {"type":"command","command":`+jsonQuote(dupeDerived)+`,"timeout":75}]}]}}`)
+		if _, _, err := ensureHooksReporting(p, []hookReg{{
+			event: "SessionStart", cmd: ours, obsolete: foreignHookPredicate(ours),
+		}}, ""); err != nil {
+			t.Fatal(err)
+		}
+		total := countCommand(t, p, ours) + countCommand(t, p, dupeDerived)
+		if total < 2 {
+			t.Fatalf("the unparseable registration was collapsed after all (%d left). If the "+
+				"installer can now reach it, doctor's warning that re-running install will not "+
+				"help is false and must be removed with this test", total)
+		}
+	})
+}
+
+func countCommand(t *testing.T, path, cmd string) int {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		Hooks map[string][]struct {
+			Hooks []struct {
+				Command string `json:"command"`
+			} `json:"hooks"`
+		} `json:"hooks"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	n := 0
+	for _, gs := range doc.Hooks {
+		for _, g := range gs {
+			for _, h := range g.Hooks {
+				if h.Command == cmd {
+					n++
+				}
+			}
+		}
+	}
+	return n
 }

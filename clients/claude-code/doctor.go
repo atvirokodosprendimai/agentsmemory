@@ -1266,6 +1266,21 @@ func judgeHook(ctx context.Context, c *cli.Command, dir, name string, reg hookRe
 			" — it runs once per registration, so it injects twice. This is duplication WITHIN " +
 			"settings.json; doctor does not read plugin manifests, so a hook declared by both a " +
 			"plugin and this installer is a separate case it cannot see."
+		// ⚠ AND SAY WHETHER THE PRESCRIBED REMEDY REACHES THIS ONE. The summary
+		// below tells an operator to re-run `install`, which collapses IDENTICAL
+		// entries and cannot collapse these: ensureHooks drops the copy it can
+		// parse and appends its own, while foreignHookPredicate spares the one it
+		// cannot, so the count does not change. Measured 2026-09-08 against a real
+		// config dir: identical 2 -> 1, differing 2 -> 2.
+		//
+		// A gate whose own remedy cannot satisfy it is a gate people learn to skip
+		// — redeploy.sh records that in its own words about the kit check.
+		if reg.envPartial {
+			v.detail += " ⚠ Re-running `install` will NOT collapse these: one carries an " +
+				"assignment this build cannot parse, so the installer treats it as a stranger's " +
+				"and leaves it in place while writing its own. Remove the redundant entry from the " +
+				"settings file by hand, keeping the one whose environment you want."
+		}
 		return v
 	}
 	if len(events) == 0 {
