@@ -127,6 +127,30 @@ speaks through describe different projects, and only a human knows which is
 right. Do not scatter memories across both while waiting for the answer — file
 to rung 0 and flag it.
 
+**Rungs 3-4 are DERIVATION, and derivation is a fallback that has to be earned.**
+Measured on this project 2026-09-06: the remote's basename is `agentsmemory`, so
+the derived wing is `wing_agentsmemory` — which holds nothing, while
+`wing_agentmemories` holds every drawer this repository has ever filed. Two more
+repositories on the same machine had the same shape, and adopting derivation
+without pinning first would have made roughly 1,900 drawers unreachable at
+recall, on the next hook run, in silence — because an empty wing is
+byte-identical to one nobody has written to yet.
+
+So the order is fixed, and the first step is a PREREQUISITE rather than a
+follow-up. **Pin the irregular names first**, with `wing=` in a committed
+`.aiagentmemory` (`aiagentmemory init --wing <name>` writes it); derivation is
+then the rung nobody reaches wherever the name is irregular. And **a derived wing
+that holds nothing, beside a configured one that holds plenty, is a misroute
+rather than a fresh start** — say so and let the human decide, instead of filing
+into it.
+
+The test to apply before trusting derivation anywhere: enumerate the names it
+would produce across every install that actually exists, and diff them against
+the wings holding drawers today. Replacing a wrong-but-populated name with a
+silently-empty one relocates the failure somewhere quieter and widens its blast
+radius — the bug reaches only the installs that hit it, the fix reaches all of
+them.
+
 Normalize to lowercase, with `-`/`_` kept and anything else replaced by `_`. Emit
 `wing: wing_<name> ✓` so the choice is visible, and use that wing for
 `am_add_drawer`, `am_mine`, and the `wing` argument of `am_diary_write`.

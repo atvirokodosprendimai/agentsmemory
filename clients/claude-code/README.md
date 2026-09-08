@@ -741,7 +741,7 @@ The two halves of a launch have different owners, so they live in different file
 
 | File | Holds | Commit it? |
 |------|-------|------------|
-| `<project>/.aiagentmemory` | `agent=` and `args=` — the team-wide choice | **yes** |
+| `<project>/.aiagentmemory` | `wing=` — which memory wing this project files under — plus `agent=` and `args=`: the team-wide choices | **yes** |
 | `~/.sandboxes/agents` | `<project dir>=<sandbox>`, one line per project | no — machine-local |
 | `<project>/.aiagentmemory.local` | optional personal override, same format | no — git-ignore it |
 
@@ -792,6 +792,7 @@ names the file it used when that is not your current directory.
 |------|---------|---------|
 | `--sandbox <name>` | — | Sandbox this project launches with. Recorded in `~/.sandboxes/agents`, never in the committed file. Warns (does not fail) if the sandbox does not exist yet. |
 | `--agent <name>` | `claude` | Agent to launch: `claude`, `codex` or `pi`. Recorded in `.aiagentmemory`. |
+| `--wing <name>` | derived from the git remote | Memory wing this project's drawers and diary entries file under. Recorded in `.aiagentmemory`. **Pin it whenever the wing is not named after the repository** — derivation that lands on an empty wing looks exactly like a project nobody has written to yet. |
 
 `init` is declarative — it rewrites `.aiagentmemory` from the flags you give it,
 so re-running it without `--` args clears any previously recorded agent flags.

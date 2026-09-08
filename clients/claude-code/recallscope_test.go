@@ -38,6 +38,10 @@ func recallHookRun(t *testing.T, hookName string, extraEnv []string, stubOut str
 		"PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"),
 		"AGENTSMEMORY_MCP_URL=http://127.0.0.1:9/mcp",
 		"AGENTSMEMORY_TOKEN=t",
+		// The ladder walks up from CLAUDE_PROJECT_DIR, and unset that is this
+		// repository — whose own .aiagentmemory would then decide both the "with a
+		// wing" and the "without a wing" case. See unpinnedProjectDir.
+		"CLAUDE_PROJECT_DIR="+unpinnedProjectDir(t),
 	)
 	cmd.Env = append(cmd.Env, extraEnv...)
 	var so, se strings.Builder

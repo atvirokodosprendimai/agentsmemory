@@ -159,6 +159,41 @@ func TestStopHookStillNudgesAndNeverBreaks(t *testing.T) {
 	}
 }
 
+// unpinnedProjectDir is a git repository with a remote and no .aiagentmemory, for
+// the hook tests whose case is "nothing authoritative names a wing".
+//
+// They used to run with the test process's own working directory, which is inside
+// THIS repository — so the fixture was "whatever agentsmemory itself is configured
+// with", and it expressed the no-pin case only for as long as this repository
+// pinned nothing. That ended the day a pin was committed: three tests went red
+// asserting a guess against hooks that were correctly reading it. A fixture that
+// supplies the condition under test by accident is not neutral about it.
+//
+// The remote is what keeps the guard sharp rather than merely green. The subagent
+// hook deliberately does NOT derive a wing from it, and that refusal is the thing
+// under test — in a directory with no remote a re-added derivation would produce
+// nothing, and the test would pass while the defect it guards was back.
+func unpinnedProjectDir(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	git := func(args ...string) {
+		t.Helper()
+		if out, err := testexec.Command(t, "git", append([]string{"-C", dir}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	git("init", "-q", "-b", "fix/a-project-that-pins-no-wing-of-its-own")
+	git("config", "user.email", "probe@example.invalid")
+	git("config", "user.name", "probe")
+	git("remote", "add", "origin", "https://example.invalid/some-other-project.git")
+	if err := os.WriteFile(filepath.Join(dir, "resolution_without_a_pin.md"), []byte("seed\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	git("add", "-A")
+	git("commit", "-qm", "a project that pins no wing, so the hooks must resolve one without any help")
+	return dir
+}
+
 // runSubagentHook drives the SubagentStart hook and returns its STDOUT.
 //
 // stdout, not stderr, and that is the whole contract: a SubagentStart hook
@@ -176,7 +211,11 @@ func runSubagentHook(t *testing.T, env ...string) (string, int) {
 		"agentsmemory-subagent-start-hook.sh")
 	cmd := testexec.Command(t, "bash", hook)
 	cmd.Stdin = strings.NewReader(`{"hook_event_name":"SubagentStart"}`)
-	cmd.Env = append(os.Environ(), env...)
+	// CLAUDE_PROJECT_DIR goes on first so a caller can still override it. Left
+	// unset, the hook's wing ladder walks up from this repository and finds its
+	// pin, which is the opposite of every case these tests are written for.
+	cmd.Env = append(os.Environ(), "CLAUDE_PROJECT_DIR="+unpinnedProjectDir(t))
+	cmd.Env = append(cmd.Env, env...)
 	var stdout, stderr strings.Builder
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	code := 0
