@@ -32,6 +32,14 @@ case "$TOOL" in
 esac
 
 FILE="$(printf '%s' "$INPUT" | tr '\n' ' ' | sed -n 's/.*"file_path"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
+# ⚠ NotebookEdit IS IN THE CASE ABOVE AND CARRIES NO file_path. Its schema
+# requires notebook_path and defines no file_path at all, so the list admitted the
+# tool and this line then dropped it: since ADR-051 T3 shipped, no notebook edit
+# has ever reached the touched list, and nothing said so — the hook exits 0, which
+# is indistinguishable from "nothing to record". Four tools named, three
+# delivered. Same assumption as the anchor cue, fixed there in #425; this is the
+# other half, issue #426.
+[ -z "$FILE" ] && FILE="$(printf '%s' "$INPUT" | tr '\n' ' ' | sed -n 's/.*"notebook_path"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
 [ -z "$FILE" ] && exit 0
 
 SESSION="$(printf '%s' "$INPUT" | tr '\n' ' ' | sed -n 's/.*"session_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
