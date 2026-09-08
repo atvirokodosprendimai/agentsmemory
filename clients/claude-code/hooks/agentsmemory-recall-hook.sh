@@ -425,7 +425,20 @@ if [ -n "$WING" ]; then
   trace "wing from the project's pin: $WING"
 else
   WING="${AGENTSMEMORY_WING:-}"
-  [ -n "$WING" ] && trace "wing from the installed default: $WING (no .aiagentmemory pin in $PROJECT_DIR)"
+  if [ -n "$WING" ]; then
+    trace "wing from the installed default: $WING (no .aiagentmemory pin in $PROJECT_DIR)"
+  else
+    # ⚠ THE THIRD RUNG IS NOT "UNSCOPED", AND IT WAS THE ONE THAT SAID NOTHING.
+    # With neither a pin nor a baked default the search carries no wing argument,
+    # and am_search reads an omitted wing as the REGISTRATION's default_wing — so
+    # the recall lands in whatever wing that registration was created for, which
+    # in an unrelated repository is the #305 outcome reached by a quieter route.
+    # Nothing in settings.json mentions a wing in this case either, so an operator
+    # reading the registration sees none and concludes the recall is unscoped.
+    # Both other rungs traced; this one is the only one whose source is not in the
+    # registration, which makes it the one the tracing was added for (#432).
+    trace "no wing from either rung (no .aiagentmemory pin in $PROJECT_DIR, no installed default): the search carries no wing argument, which the server scopes to this registration's default_wing rather than to nothing — pin one with: aiagentmemory init --wing <name>"
+  fi
 fi
 recall() {
   # $1 = wing or empty, $2 = digest budget in characters,

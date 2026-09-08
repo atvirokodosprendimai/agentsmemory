@@ -138,4 +138,27 @@ func TestTheRecallHookPrefersTheProjectsPinOverTheInstalledWing(t *testing.T) {
 				"so the hook and the Go path would resolve the same project differently:\n%s", got)
 		}
 	})
+
+	// The third rung, and the only one whose source is not in the registration:
+	// with no pin and no baked wing the search goes out with no wing argument,
+	// which am_search scopes to the registration's own default_wing — this
+	// project's memories surfacing in an unrelated repository, #305's outcome by a
+	// quieter route. It traced NOTHING, so an operator reading settings.json saw no
+	// wing and reasonably concluded the recall was unscoped (#432). The assertion
+	// is on the trace rather than on the recall, because the recall is correct
+	// server-side and the silence was the defect.
+	t.Run("no pin and no baked wing says so", func(t *testing.T) {
+		dir := repo(t) // no .aiagentmemory, and the baked value below is empty
+		got := run(t, dir, "")
+		if !strings.Contains(got, "no wing from either rung") {
+			t.Errorf("the hook resolved no wing and said nothing about it, so the one rung "+
+				"an operator cannot see in the registration is also the one the hook does "+
+				"not name:\ngot:\n%s", got)
+		}
+		if !strings.Contains(got, "default_wing") {
+			t.Errorf("the trace does not say where an omitted wing actually lands; without "+
+				"that the reader concludes the recall is unscoped, which is the belief "+
+				"#432 is about:\ngot:\n%s", got)
+		}
+	})
 }
