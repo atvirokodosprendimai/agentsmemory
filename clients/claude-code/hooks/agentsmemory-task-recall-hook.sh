@@ -164,10 +164,13 @@ export AGENTSMEMORY_ORIGIN="hook:$(basename "$0")"
 # because am_search reads one wing per call and the protocol says every project
 # reads craft; a single scoped call would silently drop it (review of #268).
 # Without a wing: ONE CALL CARRYING NO WING ARGUMENT — not an unscoped one, which
-# is what this line said until #432. The server reads an omitted wing as the
-# registration's own default_wing, so the recall is scoped to whatever project
-# that registration was created for; what it loses is craft, which this hook only
-# asks for when it has a wing. Pin one with `aiagentmemory init --wing <name>`.
+# is what this line said until #432. What the server does with an omitted wing
+# depends on the registration: it scopes to that registration's default_wing ONLY
+# when one is configured and SEARCH_SCOPE is not workspace — otherwise it
+# searches EVERY wing. Measured 2026-09-08: default_wing was "" here, so the
+# no-wing branch was searching the whole workspace, and 75% of what this hook
+# injected came from other projects. What it also loses is craft, which this hook
+# only asks for when it has a wing. Pin one with `aiagentmemory init --wing <name>`.
 PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$PWD}"
 # project_wing reads `wing=` from the repository's own .aiagentmemory — the rung
 # the protocol's Step 0c puts ABOVE the installed default (#435).
@@ -218,7 +221,7 @@ else
   if [ -n "$WING" ]; then
     trace "wing from the installed default: $WING (no .aiagentmemory pin in $PROJECT_DIR)"
   else
-    trace "no wing from either rung (no .aiagentmemory pin in $PROJECT_DIR, no installed default): the search carries no wing argument, which the server scopes to this registration's default_wing rather than to nothing — pin one with: aiagentmemory init --wing <name>"
+    trace "no wing from either rung (no .aiagentmemory pin in $PROJECT_DIR, no installed default): the search carries no wing argument. The server scopes that to this registration's default_wing only when one is configured; with none it searches EVERY wing, which is how another project's memories arrive here. Pin one with: aiagentmemory init --wing <name>"
   fi
 fi
 recall() {

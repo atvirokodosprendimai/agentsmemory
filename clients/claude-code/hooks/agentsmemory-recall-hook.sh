@@ -367,11 +367,17 @@ export AGENTSMEMORY_ORIGIN="hook:$(basename "$0")"
 # because am_search reads one wing per call and the protocol says every project
 # reads craft; a single scoped call would silently drop it (review of #268).
 # Without a wing: ONE CALL CARRYING NO WING ARGUMENT — which is not the same as
-# an unscoped one, and this line said "unscoped" until #432. The server reads an
-# omitted wing as the registration's own default_wing, so the recall is scoped;
-# what it loses is craft, because CRAFT is only ever assigned inside the
-# `[ -n "$WING" ]` branch below. So an unpinned project does not get a wider
-# recall, it gets the registration's wing and no craft at all — which is the
+# an unscoped one, and this line said "unscoped" until #432. What the server does
+# with an omitted wing depends on the registration: it scopes to that
+# registration's default_wing ONLY when one is configured and SEARCH_SCOPE is not
+# workspace — otherwise it searches EVERY wing. Both readings were collapsed into
+# "it is scoped" here until 2026-09-08, when am_status on this machine reported
+# default_wing:"" and a 120-query sweep came back carrying ten different wings.
+# The tool descriptions in internal/mcpserver state the conditional correctly;
+# this comment did not. Either way what it loses is craft, because CRAFT is only
+# ever assigned inside the `[ -n "$WING" ]` branch below. So an unpinned project
+# gets either somebody else's wing or the whole workspace, and no craft — which
+# is the
 # second reason to commit a `wing=` pin. The rung's own note is where it is
 # resolved, further down; this block designs the call budget and a reader
 # arrives here first, so it must not leave the retired claim standing.
@@ -442,7 +448,7 @@ else
     # reading the registration sees none and concludes the recall is unscoped.
     # Both other rungs traced; this one is the only one whose source is not in the
     # registration, which makes it the one the tracing was added for (#432).
-    trace "no wing from either rung (no .aiagentmemory pin in $PROJECT_DIR, no installed default): the search carries no wing argument, which the server scopes to this registration's default_wing rather than to nothing — pin one with: aiagentmemory init --wing <name>"
+    trace "no wing from either rung (no .aiagentmemory pin in $PROJECT_DIR, no installed default): the search carries no wing argument. The server scopes that to this registration's default_wing only when one is configured; with none it searches EVERY wing, which is how another project's memories arrive here. Pin one with: aiagentmemory init --wing <name>"
   fi
 fi
 recall() {
