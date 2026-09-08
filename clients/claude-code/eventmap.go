@@ -562,10 +562,17 @@ func judge(m *eventMap) []finding {
 	// It reports the SHAPE, not a proven interleaving: a duplicate writer with no
 	// check-then-act is harmless, and this cannot tell the difference. That is why
 	// the detail says what to look for rather than asserting a defect.
-	regsPerScript := map[string]int{}
+	// ⚠ KEYED ON (EVENT, SCRIPT), NOT ON THE SCRIPT ALONE. A script registered
+	// once on PostToolUse and once on SessionStart is registered twice and runs
+	// ONCE PER TRIGGER: nothing is concurrent, and a race reported there is false.
+	// The first version counted per script and so claimed one; it also counted 3
+	// for a script on two events with a genuine double on one of them. The correct
+	// spelling is the `ident` key the duplicate detection above already uses, and
+	// its message already names the event.
+	regsPerTrigger := map[ident]int{}
 	for _, r := range m.Registrations {
 		if !r.Foreign {
-			regsPerScript[r.Script]++
+			regsPerTrigger[ident{r.Event, r.Script}]++
 		}
 	}
 	writerKeys := make([]string, 0, len(writers))
@@ -575,13 +582,20 @@ func judge(m *eventMap) []finding {
 	sort.Strings(writerKeys)
 	for _, family := range writerKeys {
 		for _, w := range writers[family] {
-			if n := regsPerScript[w]; n > 1 {
+			for _, id := range idents {
+				if id.script != w {
+					continue
+				}
+				n := regsPerTrigger[id]
+				if n <= 1 {
+					continue
+				}
 				out = append(out, finding{
 					Class: "duplicate-writer",
-					Detail: fmt.Sprintf("%s is written by %s, which is registered %d times — two copies "+
-						"run for the same trigger, so any check-then-act in that script is racing "+
-						"itself. Read its write path before trusting the file's contents; a "+
-						"read-then-append dedupe is the shape that loses here", family, w, n),
+					Detail: fmt.Sprintf("%s is written by %s, which is registered %d times on %s — "+
+						"that many copies run for one trigger, so any check-then-act in that script "+
+						"is racing itself. Read its write path before trusting the file's contents; "+
+						"a read-then-append dedupe is the shape that loses here", family, w, n, id.event),
 				})
 			}
 		}

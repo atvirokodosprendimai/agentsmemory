@@ -318,14 +318,34 @@ printf '%s\n' "$REL" >> "$LIST"
 
 	// The healthy direction, whose absence is what let #393 ship: one registration
 	// is not a race, and a checker that cannot be quiet cannot gate.
-	t.Run("registered once", func(t *testing.T) {
-		m := &eventMap{Scripts: scripts, Registrations: []registration{
+	//
+	// ⚠ THE SECOND CASE IS THE ONE THAT CAUGHT A FALSE FINDING, and the first
+	// version of this test could not express it. A script registered once on each
+	// of TWO events is registered twice and runs ONCE PER TRIGGER — nothing is
+	// concurrent — but the predicate keyed on the script alone, so it reported a
+	// race. The fixture put both registrations on one event, which is a fixture
+	// that cannot express the case rather than one that is neutral about it.
+	// Caught in review of #431.
+	for _, tc := range []struct {
+		name string
+		regs []registration
+	}{
+		{"one registration", []registration{
 			{Event: "PostToolUse", Script: "agentsmemory-touched-hook.sh", Raw: cmd, Parsed: true},
-		}}
-		if hasClass(judge(m), "duplicate-writer") {
-			t.Error("reported a race over a singly-registered writer: nothing runs concurrently with it")
-		}
-	})
+		}},
+		{"one registration on each of two events", []registration{
+			{Event: "PostToolUse", Script: "agentsmemory-touched-hook.sh", Raw: cmd, Parsed: true},
+			{Event: "SessionStart", Script: "agentsmemory-touched-hook.sh", Raw: cmd, Parsed: true},
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := &eventMap{Scripts: scripts, Registrations: tc.regs}
+			if hasClass(judge(m), "duplicate-writer") {
+				t.Errorf("reported a race over %s: a trigger fires one of them, so nothing runs "+
+					"concurrently with anything", tc.name)
+			}
+		})
+	}
 }
 
 // TestTheInvocationCountIncludesHooksThisKitDidNotWrite pins the claim the
