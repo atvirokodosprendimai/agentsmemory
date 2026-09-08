@@ -12,8 +12,23 @@
 // Export and import are deliberately asymmetric about wings. Export takes `--wing`
 // and produces a file that names no wing at all; import takes `--as` and decides
 // where that file lands. That is the whole feature: a bundle is contents, not a
-// place, so the same file can be restored beside its original, renamed on the
-// way into a fresh palace, or forked into several wings.
+// place, so the same file can be renamed on the way into a fresh palace, or
+// forked into several wings.
+//
+// ⚠ RESTORING BESIDE THE ORIGINAL IS THE ONE CASE THIS DOES NOT SURVIVE, and
+// this comment claimed it did until 2026-09-08 (#363). Reproduced against
+// v0.0.124 over a migrated fixture: one diary entry, exported and re-imported
+// into the SAME wing, leaves two rows. Import is idempotent by matching
+// `(team_id, content_key)` — and ADR-038 gives diary rows NO content key on
+// purpose, because a journal must not dedupe two identical reflections. So a
+// diary row is structurally outside the mechanism that makes every other row
+// idempotent, and every diary entry doubles.
+//
+// Neither obvious repair is available without reopening ADR-038: giving the
+// diary a content key is the dedup it forbids, and preserving or recomputing
+// the id is item 5 ("`id` is never recomputed"). `diaryEntryID` folds in a
+// random nonce that is discarded at write time, so no exporter can carry it.
+// Importing into a FRESH wing is idempotent, which is why this went unnoticed.
 //
 // Delete is the pair's counterweight, and export is its undo: a bundle written
 // before a delete is the only way back, which is why the command says so.
