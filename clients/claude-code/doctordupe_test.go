@@ -139,20 +139,26 @@ func TestDoctorIsQuietOnASinglyRegisteredHook(t *testing.T) {
 	}
 }
 
-// TestInstallCollapsesIdenticalRegistrationsAndNotTheseOnes is the fact doctor's
-// new warning rests on, pinned so the warning cannot outlive it.
+// TestInstallCollapsesEveryRegistrationOfOurOwnScript is the fact doctor's
+// duplicate remedy rests on, pinned so the remedy cannot outlive it.
 //
-// Measured 2026-09-08 against a real --config-dir install: identical entries
-// 2 -> 1, entries differing only in an assignment prefix 2 -> 2. The second is
-// why the DUPLICATED verdict now says re-running install will not help — the
-// installer drops the copy it can parse, appends its own, and foreignHookPredicate
-// spares the one it cannot read, so the count is unchanged.
+// It used to say the opposite, and the flip is the record worth keeping. Measured
+// 2026-09-08 against a real --config-dir install: identical entries 2 -> 1,
+// entries differing only in an assignment prefix 2 -> 2 — because
+// installerHookCommandMatches parsed strictly, so a command carrying
+// `VAR="$(…)"` was invisible and foreignHookPredicate spared it as a stranger's.
+// That was #416, and the previous version of this test asked to be rewritten
+// together with doctor's warning if the installer ever reached the case. It has,
+// so both moved on the same commit.
+//
+// ⚠ WHICH ENTRY SURVIVES IS THE PART AN OPERATOR NEEDS, and it is not the one
+// they hand-wrote: the install keeps the command it writes. doctor says so.
 //
 // ⚠ Driven through ensureHooksReporting rather than the binary. Three attempts to
 // measure this by running `install` produced three wrong answers, the last because
 // --local resolves to the REAL config dir and CLAUDE_CONFIG_DIR is never read.
 // Reading resolveInstallTarget settled in one pass what probing could not.
-func TestInstallCollapsesIdenticalRegistrationsAndNotTheseOnes(t *testing.T) {
+func TestInstallCollapsesEveryRegistrationOfOurOwnScript(t *testing.T) {
 	ours := `AGENTSMEMORY_MCP_URL='http://x/mcp' bash -- '/h/.claude/agentsmemory-recall-hook.sh'`
 
 	t.Run("identical entries collapse", func(t *testing.T) {
@@ -170,7 +176,7 @@ func TestInstallCollapsesIdenticalRegistrationsAndNotTheseOnes(t *testing.T) {
 		}
 	})
 
-	t.Run("an unparseable sibling survives", func(t *testing.T) {
+	t.Run("a sibling this build cannot reproduce is collapsed too", func(t *testing.T) {
 		p := writeRawSettings(t, `{"hooks":{"SessionStart":[{"hooks":[
 		  {"type":"command","command":`+jsonQuote(ours)+`,"timeout":75},
 		  {"type":"command","command":`+jsonQuote(dupeDerived)+`,"timeout":75}]}]}}`)
@@ -179,11 +185,14 @@ func TestInstallCollapsesIdenticalRegistrationsAndNotTheseOnes(t *testing.T) {
 		}}, ""); err != nil {
 			t.Fatal(err)
 		}
-		total := countCommand(t, p, ours) + countCommand(t, p, dupeDerived)
-		if total != 2 {
-			t.Fatalf("the unparseable registration was collapsed after all (%d left). If the "+
-				"installer can now reach it, doctor's warning that re-running install will not "+
-				"help is false and must be removed with this test", total)
+		if n := countCommand(t, p, dupeDerived); n != 0 {
+			t.Errorf("the derived registration survived (%d left), so a redeploy still doubles "+
+				"every hook — that is #416, and doctor's remedy would be false again", n)
+		}
+		if n := countCommand(t, p, ours); n != 1 {
+			t.Errorf("the install's own registration is present %d times, want exactly 1 — "+
+				"collapsing the sibling is worth nothing if it does not leave one runnable "+
+				"entry behind", n)
 		}
 	})
 }
@@ -217,15 +226,22 @@ func countCommand(t *testing.T, path, cmd string) int {
 	return n
 }
 
-// TestTheRemedyWarningPrintsExactlyWhenInstallCannotHelp pins the SENTENCE an
-// operator reads, in both directions.
+// TestTheSurvivorWarningPrintsExactlyWhenAnEntryIsUnreproducible pins the
+// SENTENCE an operator reads, in both directions.
+//
+// The sentence changed with #416 and the test moved with it. It used to say
+// re-running install would NOT collapse a pair differing by an assignment; the
+// installer reads tolerantly now, so it does — and what an operator still needs
+// told is WHICH entry survives, because install keeps the command it writes and
+// drops the hand-written one. A warning that goes on describing the old
+// behaviour is worse than none: it sends an operator to edit a file by hand for
+// a case the remedy already handles.
 //
 // ⚠ WITHOUT THIS, DELETING THE WARNING IS GREEN. The sibling test pins the FACT
-// the warning rests on — install collapses identical entries and not these — and
-// passes identically whether the sentence is printed or not. §Reachability's rule
-// is that a test for "X is now available" must fail when X is removed, and the
-// review of this change proved the mutant survived: six lines deleted,
-// `grep -c "will NOT collapse"` → 0, package still ok.
+// the warning rests on and passes identically whether the sentence is printed or
+// not. §Reachability's rule is that a test for "X is now available" must fail
+// when X is removed, and the review of the earlier change proved the mutant
+// survived: six lines deleted, the package still ok.
 //
 // The second direction is the one that caught the real defect. The warning was
 // first keyed on envPartial, which reports whether the environment doctor would
@@ -233,8 +249,8 @@ func countCommand(t *testing.T, path, cmd string) int {
 // about whether any entry is unreadable. On installer-first ordering, which is
 // what the duplicate fixture uses, envPartial is false and the warning stayed
 // silent over exactly the file it was written for.
-func TestTheRemedyWarningPrintsExactlyWhenInstallCannotHelp(t *testing.T) {
-	const remedy = "will NOT collapse these"
+func TestTheSurvivorWarningPrintsExactlyWhenAnEntryIsUnreproducible(t *testing.T) {
+	const remedy = "keeps the entry it writes"
 
 	for _, tc := range []struct {
 		name  string
@@ -262,9 +278,9 @@ func TestTheRemedyWarningPrintsExactlyWhenInstallCannotHelp(t *testing.T) {
 				t.Fatalf("verdict %q, want DUPLICATED", v.label)
 			}
 			if got := strings.Contains(v.detail, remedy); got != tc.want {
-				t.Errorf("remedy warning present = %v, want %v — whichever entry is read first, "+
-					"one of these is invisible to the installer, so re-running it cannot collapse "+
-					"them.\ndetail: %s", got, tc.want, v.detail)
+				t.Errorf("survivor warning present = %v, want %v — whichever entry is read first, "+
+					"one of these carries an environment install cannot reproduce, so an operator "+
+					"must be told the re-run drops it.\ndetail: %s", got, tc.want, v.detail)
 			}
 		})
 	}

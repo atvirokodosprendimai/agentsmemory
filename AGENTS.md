@@ -158,10 +158,20 @@ of its steps failed silently the day it was written:
     CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=<tag>" -o ~/.local/bin/aiagentmemory ./clients/claude-code
     CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=<tag>" -o ~/.local/bin/agentsmemory ./cmd/server
     cp ~/.local/bin/agentsmemory ~/.local/bin/aiagentmemory-server
-    aiagentmemory install --agent claude --local --wing wing_agentmemories --scope local --yes   # --dry-run first
+    aiagentmemory install --agent claude --local --scope local --yes   # NO --wing; --dry-run first
     aiagentmemory install --agent claude-desktop --local --yes   # QUIT Desktop first (#208); while it runs, copy the binary over the Desktop path atomically instead
     # then VERIFY FROM THE SERVED SURFACE: am_status must report the version you
     # stamped, and redeploy.sh's kit check must print the desktop bridge as tree-identical
+
+⚠ **`--wing` IS DELIBERATELY ABSENT FROM THAT INSTALL LINE, AND IT USED TO BE THERE.** It bakes
+`AGENTSMEMORY_WING='wing_agentmemories'` onto every hook command, and hook registrations are
+USER-SCOPE whatever `--scope` says — so it put this project's wing in front of every repository
+on the machine, which is #305's defect arriving through the documented procedure. Nothing needs
+it any more: `.aiagentmemory` at this repo's root pins the wing, the hooks read that pin first,
+and a repository with no pin is the case #432 traces rather than one this line should paper
+over. ⚠ Re-adding it also brings back #416's duplication on any machine carrying a
+hand-written derived registration, because an install now supersedes what it can read and it
+keeps the command IT writes.
 
 ⚠ The clone reads the LOCAL branch, and a hand-typed stamp does not know. Measured
 2026-09-05 after #242 merged: `git fetch` had moved origin/main but local `main` was
