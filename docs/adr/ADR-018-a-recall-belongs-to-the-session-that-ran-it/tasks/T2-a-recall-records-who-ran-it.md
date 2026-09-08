@@ -83,7 +83,7 @@ docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v 
   grep -q -- "--- PASS: TestARealSearchRecordsItsSession" /tmp/a18t2.out
   grep -q -- "--- PASS: TestStatsExcludeOtherSessions" /tmp/a18t2.out
   grep -q -- "--- PASS: TestStatsWithoutASessionReportTheWholeTeam" /tmp/a18t2.out
-  ! grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/a18t2.out
+  if grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/a18t2.out; then exit 1; fi
   go test ./... -count=1'
 ```
 
