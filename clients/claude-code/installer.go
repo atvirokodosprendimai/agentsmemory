@@ -1949,14 +1949,26 @@ func installerHookPath(cmd string) (string, bool) {
 // installerHookCommandMatches recognizes one installer-owned script without
 // claiming a user wrapper that merely mentions the same filename. Exact path
 // matching also retires the old broken unquoted form from config directories
-// containing spaces; the general parser stays strict for commands from another
-// directory where an unquoted multi-field string would be ambiguous.
+// containing spaces.
+//
+// ⚠ READ TOLERANTLY, DECIDE STRICTLY — the same split doctor already makes, and
+// the half that was missing here. The INCOMING command is parsed with
+// tolerantHookPath, which accepts `VAR="$(…)"`; installerHookPath still parses
+// what we WRITE, because only a shape hookCommandEnv can reproduce may be
+// written. Reading strictly here is the whole of #416: a registration carrying a
+// command substitution returned ok=false, so foreignHookPredicate spared it as a
+// stranger's, hookPresent did not find it, and every install appended its own
+// beside it. Measured on one machine 2026-09-07 — eleven such registrations,
+// every hook doubled — and reproduced 2026-09-08 by running the documented
+// redeploy against a config dir that had just been cleaned by hand.
+//
+// The decision stays strict: only a basename equal to one of our own scripts
+// matches, so a hook somebody else wrote is still never claimed.
 func installerHookCommandMatches(cmd, expectedPath string) bool {
-	cmd = stripMCPURLAssignment(cmd)
-	if cmd == "bash "+expectedPath || cmd == bashHookCommand(expectedPath) {
+	if stripped := stripMCPURLAssignment(cmd); stripped == "bash "+expectedPath || stripped == bashHookCommand(expectedPath) {
 		return true
 	}
-	path, ok := installerHookPath(cmd)
+	path, _, ok := tolerantHookPath(cmd)
 	return ok && filepath.Base(path) == filepath.Base(expectedPath)
 }
 

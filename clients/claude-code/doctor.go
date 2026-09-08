@@ -1283,20 +1283,23 @@ func judgeHook(ctx context.Context, c *cli.Command, dir, name string, reg hookRe
 			" — it runs once per registration, so it injects twice. This is duplication WITHIN " +
 			"settings.json; doctor does not read plugin manifests, so a hook declared by both a " +
 			"plugin and this installer is a separate case it cannot see."
-		// ⚠ AND SAY WHETHER THE PRESCRIBED REMEDY REACHES THIS ONE. The summary
-		// below tells an operator to re-run `install`, which collapses IDENTICAL
-		// entries and cannot collapse these: ensureHooks drops the copy it can
-		// parse and appends its own, while foreignHookPredicate spares the one it
-		// cannot, so the count does not change. Measured 2026-09-08 against a real
-		// config dir: identical 2 -> 1, differing 2 -> 2.
+		// ⚠ AND SAY WHAT THE PRESCRIBED REMEDY NOW DOES TO THIS ONE. Until #416
+		// the summary below sent an operator to re-run `install`, which could not
+		// collapse a pair differing by an assignment: ensureHooks dropped the copy
+		// it could parse and appended its own, while foreignHookPredicate spared
+		// the one it could not read, so the count did not change — measured
+		// 2026-09-08, identical 2 -> 1, differing 2 -> 2. installerHookCommandMatches
+		// reads tolerantly now, so the remedy reaches this case; what an operator
+		// still needs told is which entry survives, because it is not the one they
+		// hand-wrote.
 		//
 		// A gate whose own remedy cannot satisfy it is a gate people learn to skip
 		// — redeploy.sh records that in its own words about the kit check.
 		if reg.hasUnreadableEntry {
-			v.detail += " ⚠ Re-running `install` will NOT collapse these: one carries an " +
-				"assignment this build cannot parse, so the installer treats it as a stranger's " +
-				"and leaves it in place while writing its own. Remove the redundant entry from the " +
-				"settings file by hand, keeping the one whose environment you want."
+			v.detail += " ⚠ One of these carries an assignment this build cannot reproduce (a " +
+				"command substitution, say). Re-running `install` DOES collapse them now, but it " +
+				"keeps the entry it writes and drops that one — so if the environment you want is " +
+				"the hand-written one, edit the settings file instead of re-running install."
 		}
 		return v
 	}
