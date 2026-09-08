@@ -55,6 +55,13 @@ type registration struct {
 	Env    string `json:"env"`    // the assignment prefix, verbatim
 	Raw    string `json:"raw"`
 	Parsed bool   `json:"parsed_by_installer"`
+
+	// Foreign marks a registration belonging to some other tool. They are READ
+	// because the question "how many hooks does one tool call fire" is about the
+	// event, not about this kit — on the machine that motivated this, a PreToolUse
+	// call ran hooks from three different products. They are never JUDGED: this
+	// command has no standing to report a duplicate in software it does not own.
+	Foreign bool `json:"foreign,omitempty"`
 }
 
 // finding is one thing wrong with the shape.
@@ -355,6 +362,25 @@ func uniqueMatches(re *regexp.Regexp, body []byte) []string {
 	return out
 }
 
+// labelFromCommand names a hook this kit's parser cannot read, for counting only.
+//
+// It is deliberately crude: the last token that looks like a path, or the first
+// word. A wrong label costs a confusing line in one report; a DROPPED entry costs
+// the count its meaning, which is the whole point of the section it feeds.
+func labelFromCommand(cmd string) string {
+	fields := strings.Fields(cmd)
+	for i := len(fields) - 1; i >= 0; i-- {
+		f := strings.Trim(fields[i], `"'`)
+		if strings.Contains(f, "/") {
+			return filepath.Base(f)
+		}
+	}
+	if len(fields) > 0 {
+		return strings.Trim(fields[0], `"'`)
+	}
+	return ""
+}
+
 // scanSettings reads an agent's real settings file into a flat registration list.
 func scanSettings(path string) ([]registration, error) {
 	raw, err := os.ReadFile(path)
@@ -385,16 +411,29 @@ func scanSettings(path string) ([]registration, error) {
 		for _, g := range doc.Hooks[event] {
 			for _, h := range g.Hooks {
 				script, env, ok := tolerantHookPath(h.Command)
-				if !ok || !strings.Contains(filepath.Base(script), "agentsmemory") {
-					continue
+				// ⚠ A COMMAND THIS CANNOT PARSE IS STILL A HOOK THAT RUNS, and the
+				// first version of the invocation count silently dropped every one
+				// of them — then printed that it was counting "the whole list".
+				// Other products do not write `bash -- '<path>'`: one on this machine
+				// registers a bare quoted path, another an inline shell pipeline. The
+				// label falls back to the last path-like token so the COUNT is true
+				// even when the identity is approximate, because the count is what
+				// the section exists to report.
+				if !ok {
+					script = labelFromCommand(h.Command)
+					if script == "" {
+						continue
+					}
 				}
+				foreign := !strings.Contains(filepath.Base(script), "agentsmemory")
 				_, installerOK := installerHookPath(h.Command)
 				out = append(out, registration{
-					Event:  event,
-					Script: filepath.Base(script),
-					Env:    env,
-					Raw:    h.Command,
-					Parsed: installerOK,
+					Event:   event,
+					Foreign: foreign,
+					Script:  filepath.Base(script),
+					Env:     env,
+					Raw:     h.Command,
+					Parsed:  installerOK,
 				})
 			}
 		}
@@ -417,6 +456,9 @@ func judge(m *eventMap) []finding {
 	type ident struct{ event, script string }
 	byIdent := map[ident][]registration{}
 	for _, r := range m.Registrations {
+		if r.Foreign {
+			continue // read for the invocation count, never judged
+		}
 		byIdent[ident{r.Event, r.Script}] = append(byIdent[ident{r.Event, r.Script}], r)
 	}
 	idents := make([]ident, 0, len(byIdent))
@@ -449,7 +491,7 @@ func judge(m *eventMap) []finding {
 	// A registration this kit cannot parse is one it cannot clean, report, or
 	// run with the right environment — and it is silent about all three.
 	for _, r := range m.Registrations {
-		if r.Parsed {
+		if r.Parsed || r.Foreign {
 			continue
 		}
 		out = append(out, finding{
@@ -505,6 +547,44 @@ func judge(m *eventMap) []finding {
 				"or it exists outside the kit and nobody said so",
 				k, strings.Join(writers[k], ", "), k),
 		})
+	}
+
+	// ⚠ A STATE FILE WHOSE WRITER IS REGISTERED MORE THAN ONCE IS WRITTEN
+	// CONCURRENTLY, BY CONSTRUCTION.
+	//
+	// This is the narrow, decidable half of "is there a race". No shell analysis
+	// is attempted and none is claimed: what is decidable from the two scans is
+	// that two live registrations of one writer run for the same trigger, so any
+	// check-then-act in that script has two copies racing it. The touched hook's
+	// dedupe is exactly that shape — `grep -qxF` then `>>` — and it is only safe
+	// while one copy runs.
+	//
+	// It reports the SHAPE, not a proven interleaving: a duplicate writer with no
+	// check-then-act is harmless, and this cannot tell the difference. That is why
+	// the detail says what to look for rather than asserting a defect.
+	regsPerScript := map[string]int{}
+	for _, r := range m.Registrations {
+		if !r.Foreign {
+			regsPerScript[r.Script]++
+		}
+	}
+	writerKeys := make([]string, 0, len(writers))
+	for k := range writers {
+		writerKeys = append(writerKeys, k)
+	}
+	sort.Strings(writerKeys)
+	for _, family := range writerKeys {
+		for _, w := range writers[family] {
+			if n := regsPerScript[w]; n > 1 {
+				out = append(out, finding{
+					Class: "duplicate-writer",
+					Detail: fmt.Sprintf("%s is written by %s, which is registered %d times — two copies "+
+						"run for the same trigger, so any check-then-act in that script is racing "+
+						"itself. Read its write path before trusting the file's contents; a "+
+						"read-then-append dedupe is the shape that loses here", family, w, n),
+				})
+			}
+		}
 	}
 
 	// A hook that declares it speaks, registered where stdout is discarded.
@@ -565,6 +645,50 @@ func renderEventMap(out io.Writer, m *eventMap) {
 	}
 	if len(m.Registrations) > 0 {
 		fmt.Fprintln(out, "   (! = this kit's own parser cannot read the command)")
+	}
+
+	// ⚠ ORDER IS FILE ORDER, WHICH IS RUN ORDER, AND THE COUNT IS THE POINT.
+	// The sections above answer "what exists"; this answers "what happens when one
+	// event fires" — how many processes start, in what sequence, and how many of
+	// them are this kit's. That is the number an operator feels: on the machine
+	// this was written for, one PreToolUse call started three hooks from two
+	// products, two of them the same script. Foreign hooks are listed because the
+	// cost of an event is the whole list, not our share of it.
+	if len(m.Registrations) > 0 {
+		fmt.Fprintln(out, "\nINVOCATION ORDER (per event, as the settings file lists them)")
+		byEvent := map[string][]registration{}
+		for _, r := range m.Registrations {
+			byEvent[r.Event] = append(byEvent[r.Event], r)
+		}
+		events := make([]string, 0, len(byEvent))
+		for e := range byEvent {
+			events = append(events, e)
+		}
+		sort.Strings(events)
+		for _, e := range events {
+			rs := byEvent[e]
+			ours := 0
+			for _, r := range rs {
+				if !r.Foreign {
+					ours++
+				}
+			}
+			fmt.Fprintf(out, "  %-22s %d hook(s) run, %d of them this kit's\n", e, len(rs), ours)
+			seen := map[string]int{}
+			for i, r := range rs {
+				seen[r.Script]++
+				mark := " "
+				if r.Foreign {
+					mark = "·"
+				}
+				dup := ""
+				if seen[r.Script] > 1 {
+					dup = fmt.Sprintf("   ← same script, invocation %d", seen[r.Script])
+				}
+				fmt.Fprintf(out, "   %s %d. %s%s\n", mark, i+1, r.Script, dup)
+			}
+		}
+		fmt.Fprintln(out, "   (· = another tool's hook, counted because the event's cost is the whole list)")
 	}
 
 	fmt.Fprintf(out, "\nFINDINGS (%d)\n", len(m.Findings))

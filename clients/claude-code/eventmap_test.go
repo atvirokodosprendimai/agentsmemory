@@ -276,3 +276,107 @@ printf '%s\n' "$TASK" > "$MARKER"
 			"escape hatch, and an escape hatch nobody has to justify is just a way to silence the gate")
 	}
 }
+
+// TestADoubledWriterIsReportedAsARace is the decidable half of "is there a race".
+//
+// No shell analysis is attempted. What IS decidable from the two scans: a state
+// file whose writing script is registered twice has two copies running for the
+// same trigger, so any check-then-act inside it is racing itself. The touched
+// hook is exactly that shape — `grep -qxF "$REL" "$LIST"` then `>> "$LIST"` — and
+// it is safe only while one copy runs.
+//
+// ⚠ IT REPORTS THE SHAPE, NOT AN INTERLEAVING. A duplicate writer with no
+// check-then-act is harmless and this cannot tell the difference, which is why
+// the detail says what to look for rather than asserting a defect.
+func TestADoubledWriterIsReportedAsARace(t *testing.T) {
+	kit := t.TempDir()
+	body := `#!/usr/bin/env bash
+# hook-output: none
+LIST="${TMPDIR}/agentsmemory-touched/$SESSION"
+if [ -f "$LIST" ] && grep -qxF "$REL" "$LIST"; then exit 0; fi
+printf '%s\n' "$REL" >> "$LIST"
+`
+	if err := os.WriteFile(filepath.Join(kit, "agentsmemory-touched-hook.sh"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	scripts, err := scanKit(kit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := `bash -- '/h/.claude/agentsmemory-touched-hook.sh'`
+
+	t.Run("registered twice", func(t *testing.T) {
+		m := &eventMap{Scripts: scripts, Registrations: []registration{
+			{Event: "PostToolUse", Script: "agentsmemory-touched-hook.sh", Raw: cmd, Parsed: true},
+			{Event: "PostToolUse", Script: "agentsmemory-touched-hook.sh", Raw: cmd, Parsed: true},
+		}}
+		if !hasClass(judge(m), "duplicate-writer") {
+			t.Error("a state file written by a script registered twice was not reported; two copies " +
+				"run for one trigger, so the read-then-append dedupe inside it is racing itself")
+		}
+	})
+
+	// The healthy direction, whose absence is what let #393 ship: one registration
+	// is not a race, and a checker that cannot be quiet cannot gate.
+	t.Run("registered once", func(t *testing.T) {
+		m := &eventMap{Scripts: scripts, Registrations: []registration{
+			{Event: "PostToolUse", Script: "agentsmemory-touched-hook.sh", Raw: cmd, Parsed: true},
+		}}
+		if hasClass(judge(m), "duplicate-writer") {
+			t.Error("reported a race over a singly-registered writer: nothing runs concurrently with it")
+		}
+	})
+}
+
+// TestTheInvocationCountIncludesHooksThisKitDidNotWrite pins the claim the
+// section makes about itself.
+//
+// ⚠ THE FIRST VERSION PRINTED "the event's cost is the whole list" WHILE COUNTING
+// ONLY OUR OWN. Other products do not register `bash -- '<path>'`: one writes a
+// bare quoted path, another an inline pipeline, and tolerantHookPath returned
+// !ok for both — so they were dropped and the total was our share, under a
+// sentence claiming otherwise. A count that silently excludes most of what runs
+// is worse than no count, because it reads as the answer.
+func TestTheInvocationCountIncludesHooksThisKitDidNotWrite(t *testing.T) {
+	p := writeRawSettings(t, `{"hooks":{"PreToolUse":[{"hooks":[
+	  {"type":"command","command":"\"$HOME/.claude/hooks/some-other-tool-gate\""},
+	  {"type":"command","command":`+jsonQuote(`bash -- '/h/.claude/agentsmemory-anchor-cue-hook.sh'`)+`},
+	  {"type":"command","command":`+jsonQuote(`bash -- '/h/.claude/agentsmemory-anchor-cue-hook.sh'`)+`}]}]}}`)
+	regs, err := scanSettings(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(regs) != 3 {
+		t.Fatalf("read %d registrations, want 3 — a command this kit cannot parse is still a hook "+
+			"that runs, and dropping it makes the invocation count a different number than the "+
+			"one the report claims", len(regs))
+	}
+	var foreign, ours int
+	for _, r := range regs {
+		if r.Foreign {
+			foreign++
+		} else {
+			ours++
+		}
+	}
+	if foreign != 1 || ours != 2 {
+		t.Errorf("foreign=%d ours=%d, want 1 and 2", foreign, ours)
+	}
+	// Foreign entries are counted and never judged: this command has no standing
+	// to report a duplicate in software it does not own.
+	m := &eventMap{Registrations: regs}
+	for _, f := range judge(m) {
+		if strings.Contains(f.Detail, "some-other-tool-gate") {
+			t.Errorf("judged another tool's hook: %s", f.Detail)
+		}
+	}
+}
+
+func hasClass(fs []finding, class string) bool {
+	for _, f := range fs {
+		if f.Class == class {
+			return true
+		}
+	}
+	return false
+}
