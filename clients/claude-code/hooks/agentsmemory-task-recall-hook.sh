@@ -27,13 +27,23 @@
 # does not: the sibling hook's own comment records it scoring 0.404-0.409 and
 # recalling nothing useful, which is why that hook had to scope to `diary`.
 #
-# ⚠ SO THIS ONE IS UNSCOPED, DELIBERATELY, AND THE FLOOR DOES THE WORK. Scoping to
-# `diary` here would exclude every decision record — the exact memories a task
-# question is for. The risk unscoped is `sessions`, which holds mined transcripts:
-# in the table above it appears at 0.427-0.491, OUTSIDE the 0.42 cutoff the
-# sibling hook calibrated, while every useful hit is inside it. The floor
-# separates them without a room filter. That is a measurement on one palace on one
-# day, not a law: re-measure before widening it.
+# ⚠ SO THIS ONE IS ROOM-UNSCOPED, DELIBERATELY. Scoping to `diary` here would
+# exclude every decision record — the exact memories a task question is for.
+#
+# ⚠ THE FLOOR NO LONGER SEPARATES `sessions`, AND THIS COMMENT CLAIMED IT DID
+# UNTIL 2026-09-08. The claim was that mined transcripts sit at 0.427-0.491,
+# OUTSIDE the 0.42 cutoff, while every useful hit is inside it — so the floor
+# did the work a room filter would. Re-measured over 120 real task queries at
+# this hook's own parameters, 111 `sessions` hits came through at 0.300-0.419:
+# every one INSIDE the floor. The distances moved because the corpus grew, which
+# is exactly what the old text warned about in its last line — "a measurement on
+# one palace on one day, not a law: re-measure before widening it" — and nothing
+# re-measured until a session went looking for a different bug.
+#
+# What actually holds the noise down is the WING, resolved below. Scoped: 31%
+# `sessions` and 0% from other projects. Unscoped: 77% and 75%. A room filter is
+# still the wrong tool — dropping `sessions` from a limit=8 page leaves fewer
+# than 3 hits for 77% of queries, and 31 of 120 pages empty completely.
 #
 # ⚠ IT PRINTS NOTHING WHEN IT HAS NOTHING. This fires on EVERY prompt, so the bar
 # is higher than the sibling's, not lower: a hook that speaks every turn is spent
@@ -158,8 +168,59 @@ export AGENTSMEMORY_ORIGIN="hook:$(basename "$0")"
 # registration's own default_wing, so the recall is scoped to whatever project
 # that registration was created for; what it loses is craft, which this hook only
 # asks for when it has a wing. Pin one with `aiagentmemory init --wing <name>`.
+PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$PWD}"
+# project_wing reads `wing=` from the repository's own .aiagentmemory — the rung
+# the protocol's Step 0c puts ABOVE the installed default (#435).
+#
+# This is a second copy of the sibling recall hook's resolver, deliberately. The
+# eleven shipped hooks are standalone scripts with no shared library, and adding
+# one would give every hook a second file to fail to find: a new unreachability
+# in exactly the layer this repo keeps finding them in. What stops the copies
+# drifting is TestBothRecallHooksResolveTheProjectsPin, which drives BOTH scripts
+# against one pinned fixture and compares the wing each actually searched —
+# behaviour, not two texts a tidy-up could align while breaking one.
+#
+# .aiagentmemory.local wins over .aiagentmemory: same precedence readProjectConfig
+# uses, so the two cannot disagree about which file is more specific.
+project_wing() {
+  local f k v line
+  for f in "$PROJECT_DIR/.aiagentmemory.local" "$PROJECT_DIR/.aiagentmemory"; do
+    [ -r "$f" ] || continue
+    while IFS= read -r line || [ -n "$line" ]; do
+      case "$line" in \#*|"") continue ;; esac
+      k="${line%%=*}"; v="${line#*=}"
+      [ "$k" = "$line" ] && continue          # a line with no '=' is not a setting
+      k="$(printf '%s' "$k" | tr -d '[:space:]')"
+      v="$(printf '%s' "$v" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+      if [ "$k" = "wing" ] && [ -n "$v" ]; then printf '%s' "$v"; return 0; fi
+    done < "$f"
+  done
+  return 1
+}
 TOKEN="${AGENTSMEMORY_LOCAL_TOKEN:-${AGENTSMEMORY_TOKEN:-}}"
-WING="${AGENTSMEMORY_WING:-}"
+# ⚠ THIS HOOK LEARNED THE LADDER LATE, AND THE GAP WAS SILENT (#438). It resolved
+# $AGENTSMEMORY_WING ALONE while the sibling resolved the pin first, so removing
+# `--wing` from the install line (#432/#435 — correct: it baked one project's wing
+# onto every hook command on the machine) left THIS hook with no wing at all, and
+# it fell through to the no-wing branch below.
+#
+# Measured 2026-09-08 over 120 real task queries at this hook's OWN parameters
+# (limit=2, max_distance=0.42): 75% of injected slots came from ANOTHER PROJECT'S
+# WING and 77% were `sessions`, mined transcripts — wing_acme/sessions alone was
+# 98 of 144 slots. The same queries scoped to this project's pin: 0% foreign, 31%
+# sessions, and the rooms this hook exists to reach — decisions, gotchas,
+# incidents — went from 3% to 27% of what it says.
+WING="$(project_wing || true)"
+if [ -n "$WING" ]; then
+  trace "wing from the project's pin: $WING"
+else
+  WING="${AGENTSMEMORY_WING:-}"
+  if [ -n "$WING" ]; then
+    trace "wing from the installed default: $WING (no .aiagentmemory pin in $PROJECT_DIR)"
+  else
+    trace "no wing from either rung (no .aiagentmemory pin in $PROJECT_DIR, no installed default): the search carries no wing argument, which the server scopes to this registration's default_wing rather than to nothing — pin one with: aiagentmemory init --wing <name>"
+  fi
+fi
 recall() {
   # $1 = wing or empty, $2 = digest budget in characters
   local args=(mcp search "$QUERY" -a limit=2 -a snippet_chars=280 -a max_distance=0.42 --digest "$2")
