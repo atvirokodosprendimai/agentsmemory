@@ -522,7 +522,15 @@ if [ -n "$WING" ]; then
     # found both is in ADR-059 T2.
     CHECKPOINT="$(recall "$WING" 400 llm_open_threads 1 "WHERE SHOULD WORK RESUME AFTER A CRASH ${BRANCH:-}" 0)" || CHECKPOINT=""
   else
-    CRAFT="$(recall wing_craft 400)" || CRAFT=""
+    # ⚠ NAME THE ROOM. Left to the default this call asked `diary`, and
+    # wing_craft/diary holds ONE memory of 521 — 0.2% of the wing — while
+    # `gotchas` holds 383. Measured 2026-09-08 over 120 real hook-shaped queries
+    # rebuilt from merged branches: the craft call returned a hit on 0 of them,
+    # and `gotchas` on 34. ADR-058 T2 specified `-a wing=wing_craft --digest 400`
+    # and named no room, so the room was never chosen — it fell through to the
+    # project call's default. Its mutant proved the CALL exists, which is not the
+    # same as the call reaching anything (#438).
+    CRAFT="$(recall wing_craft 400 gotchas)" || CRAFT=""
   fi
 fi
 rm -f "$ERRFILE"

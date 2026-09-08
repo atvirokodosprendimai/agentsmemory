@@ -79,6 +79,30 @@ func TestTheRecallHookCarriesTheInstalledWing(t *testing.T) {
 			if !strings.Contains(calls[1], "wing=wing_craft") || !strings.Contains(calls[1], "--digest") {
 				t.Errorf("second call is not wing_craft through --digest: %q", calls[1])
 			}
+			// ⚠ THE ROOM, NOT ONLY THE WING — AND THE TWO HOOKS DIFFER ON PURPOSE.
+			// The SessionStart hook's recall() defaults to `diary`; this named no
+			// room until #438 and so inherited it, and wing_craft/diary holds ONE
+			// memory of 521 — the call was made, cost a round trip, and returned
+			// nothing on 120 of 120 measured queries. The wing assertion above passes
+			// either way, which is how the craft call could be "covered by a killed
+			// mutant" and still be inert: a mutant proves a test notices a change,
+			// never that the thing under test reaches anything.
+			//
+			// The task hook's recall() takes no room at all, so both its calls are
+			// room-unscoped — 78% coverage against diary's 57%, at the cost of the
+			// mined-transcript room on 36% of queries. Both sides are pinned here so
+			// that neither is "tidied" into the other without the numbers in #438.
+			if hookName == "agentsmemory-recall-hook.sh" {
+				if !strings.Contains(calls[1], "room=gotchas") {
+					t.Errorf("the craft call does not name room=gotchas, so it falls back to "+
+						"this hook's `diary` default and searches a room holding 0.2%% of the "+
+						"craft wing: %q", calls[1])
+				}
+			} else if strings.Contains(calls[1], "room=") {
+				t.Errorf("the task hook's craft call has acquired a room. That is a behaviour "+
+					"change with measured consequences either way (#438) — take it deliberately "+
+					"with the numbers, not as a tidy-up: %q", calls[1])
+			}
 			if !strings.Contains(out, "A PROJECT MEMORY") || !strings.Contains(out, "craft:") {
 				t.Errorf("the injection lacks the digest text or the craft: line:\n%s", out)
 			}
