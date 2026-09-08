@@ -113,9 +113,23 @@ Resolve it in this order, first hit wins:
    `wing_storefront` from their git remotes while the registration said
    `wing_acme`, where 1,964 drawers already were and the six-drawer wings
    were not.
-1. `$AGENTSMEMORY_WING`, if the launcher exported one.
-2. `wing=` in the nearest `.aiagentmemory` / `.aiagentmemory.local`, walking up
+1. `wing=` in the nearest `.aiagentmemory` / `.aiagentmemory.local`, walking up
    from the working directory (the same file `aiagentmemory load` reads).
+2. `$AGENTSMEMORY_WING`, the installed default.
+
+   ⚠ **THE PIN IS ABOVE THE ENVIRONMENT, AND THIS LIST SAID THE REVERSE UNTIL
+   #435.** `$AGENTSMEMORY_WING` here is not an operator's shell export deciding
+   one session: `install --wing` BAKES it onto every hook's command line, where a
+   leading assignment overrides the inherited environment — and hook
+   registrations are user-scope whatever `--scope` says. So "the environment
+   wins", read literally, means one project's install-time constant outranks the
+   repository you are standing in, in every repository on the machine. That is
+   #305, observed rather than theorised: a session in another repository was
+   handed this project's diary and crash-resume checkpoint. The recall hook has
+   resolved the pin first since #308 and pins the order with
+   `TestTheRecallHookPrefersTheProjectsPinOverTheInstalledWing`; this document
+   was written before the wing was baked into registrations and kept describing a
+   mechanism that no longer works the way it assumes.
 3. `wing_<repo>` from the git remote — `basename` of `git remote get-url origin`,
    minus `.git`.
 4. `wing_<dir>` from the working directory's basename, when there is no remote.

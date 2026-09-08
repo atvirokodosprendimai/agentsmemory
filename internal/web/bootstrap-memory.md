@@ -104,8 +104,12 @@ First hit wins:
 
 0. **`default_wing` from `am_status`** — it beats everything below, because it is what the
    server itself uses for a write that names no wing.
-1. `$AGENTSMEMORY_WING`, if the launcher exported one.
-2. `wing=` in the nearest `.aiagentmemory` / `.aiagentmemory.local`, walking up.
+1. `wing=` in the nearest `.aiagentmemory` / `.aiagentmemory.local`, walking up.
+2. `$AGENTSMEMORY_WING`, the installed default. ⚠ **The pin is ABOVE it, and this list said the
+   reverse until #435:** `install --wing` bakes that variable onto every hook command, and hook
+   registrations are user-scope whatever `--scope` says — so "environment wins" would put one
+   project's install-time constant above the repository you are in, everywhere on the machine.
+   That is #305, observed rather than theorised. The hook has resolved the pin first since #308.
 3. `wing_<repo>` — basename of `git remote get-url origin`, minus `.git`.
 4. `wing_<dir>` — the directory basename, when there is no remote.
 
