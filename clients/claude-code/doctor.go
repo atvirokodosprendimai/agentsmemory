@@ -1119,9 +1119,24 @@ func registeredHookEvents(settingsPath string) (map[string]hookRegistration, err
 		matchers := doc.Hooks[event]
 		for _, m := range matchers {
 			for _, h := range m.Hooks {
-				// installerHookPath is the installer's own parser for the command
-				// shapes it emits, so this stays in step with what install writes.
-				path, ok := installerHookPath(h.Command)
+				// ⚠ READ TOLERANTLY, DECIDE STRICTLY. This used installerHookPath —
+				// the installer's parser, which accepts only single-quoted
+				// assignment values — and SKIPPED every command it could not read.
+				// That is correct for the installer, which may DROP what it
+				// recognises, and wrong here, where the only consequence of reading
+				// a registration is reporting it. Measured 2026-09-08 (issue #416):
+				// eleven registrations on one machine carried
+				// `AGENTSMEMORY_WING="$(bash …)"`, every one of them was skipped,
+				// and since a script seen ONCE is not a duplicate, doctor's own
+				// DUPLICATED detector — which is correct and marks the finding bad
+				// — reported nothing over a config where every hook ran twice.
+				// `doctor` exited 0.
+				//
+				// A registration this command cannot even read is the one it should
+				// be loudest about, so tolerantHookPath is what decides membership
+				// and installerHookPath now only decides whether the ENVIRONMENT
+				// below can be reproduced.
+				path, _, ok := tolerantHookPath(h.Command)
 				if !ok {
 					continue
 				}
@@ -1153,6 +1168,16 @@ func registeredHookEvents(settingsPath string) (map[string]hookRegistration, err
 				// average away.
 				if len(reg.env) == 0 {
 					reg.env = hookCommandEnv(h.Command)
+					// ⚠ AND SAY SO WHEN IT IS SHORT. hookCommandEnv reproduces only
+					// the assignments it can evaluate; a `VAR="$(command)"` is
+					// evaluated by the shell at hook time and by nothing here. If we
+					// ran the hook with that assignment silently missing, the run
+					// below would be a RECONSTRUCTION wearing the registration's
+					// name — the defect hookCommandEnv's own comment records. The
+					// strict parser failing is exactly that signal.
+					if _, strictOK := installerHookPath(h.Command); !strictOK {
+						reg.envPartial = true
+					}
 				}
 				out[name] = reg
 			}
@@ -1177,6 +1202,12 @@ type hookRegistration struct {
 	// transcript that already contains the text once, which is why it needs a
 	// command to report it rather than a reader to notice.
 	duplicated []string
+
+	// envPartial reports that the command carries an assignment this build cannot
+	// reproduce — a command substitution, say — so `env` is SHORT of what the
+	// agent actually runs the hook with. Reported rather than guessed: a run with
+	// a silently missing variable is a reconstruction, not the registration.
+	envPartial bool
 
 	events []string
 	env    []string
