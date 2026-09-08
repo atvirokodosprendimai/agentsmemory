@@ -120,11 +120,6 @@ fi
 # retrieves whatever is nearest to a command name. The sibling hook's own record
 # of the merge-subject fallback is the same lesson: a long query made of the wrong
 # words is worse than no query, because it returns something.
-# ⚠ A SLASH COMMAND IS NOT A QUESTION. `/am`, `/clear`, `/model sonnet` — these
-# expand into something else entirely, and recalling against the literal text
-# retrieves whatever is nearest to a command name. The sibling hook's own record
-# of the merge-subject fallback is the same lesson: a long query made of the wrong
-# words is worse than no query, because it returns something.
 #
 # ⚠ IT APPLIES ON BOTH EVENTS, AND AN EARLIER VERSION EXEMPTED THE EXPANSION
 # BRANCH. A mutant proved that exemption bought nothing and cost something. On a
