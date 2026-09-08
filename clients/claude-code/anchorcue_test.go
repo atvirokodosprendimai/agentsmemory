@@ -59,9 +59,13 @@ func TestTheAnchorCueIsSilentWithoutAnAnchor(t *testing.T) {
 
 // TestTheAnchorCueIsSilentWithoutAFilePath covers every tool that names no file.
 //
-// PreToolUse fires for tools this kit has never heard of, which is why the script
-// filters rather than the registration: a matcher would be a second copy of a
-// guard that has to exist anyway.
+// ⚠ THIS COMMENT USED TO ARGUE AGAINST A MATCHER — "a matcher would be a second
+// copy of a guard that has to exist anyway" — and that is retired. ADR-051 T2's
+// step 5 ordered a matcher and it was never implemented; the two act at different
+// layers and only one saves the process, because this guard runs inside a shell
+// the agent has already started. The guard still earns its place: a matcher
+// admits tools that may carry no path on a given call, which is what this test
+// covers.
 func TestTheAnchorCueIsSilentWithoutAFilePath(t *testing.T) {
 	out, errs := runAnchorCue(t, `{"tool_name":"Bash","tool_input":{"command":"ls"}}`, anchorHit)
 	if out != "" {
@@ -69,6 +73,32 @@ func TestTheAnchorCueIsSilentWithoutAFilePath(t *testing.T) {
 	}
 	if !strings.Contains(errs, "no file_path") {
 		t.Errorf("it should say on stderr why it stayed quiet; got %q", errs)
+	}
+}
+
+// TestTheAnchorCueReadsANotebookPath is the tool whose path is named differently.
+//
+// ⚠ NotebookEdit CARRIES notebook_path AND NO file_path. Its schema requires
+// notebook_path and defines no file_path at all, so a hook reading only
+// file_path exits silently for every notebook edit — while the kit's own tool
+// list names NotebookEdit as supported. That is a capability the list promises
+// and the code beneath it cannot deliver, and it was invisible because the exit
+// is indistinguishable from "no memory pins this file".
+//
+// Found in review of the matcher that made the list explicit (#425); the same
+// assumption is in the touched hook, filed as #426.
+func TestTheAnchorCueReadsANotebookPath(t *testing.T) {
+	const notebookHit = `{"anchors":[{"path":"internal/palace/analysis.ipynb","repo":"agentsmemory",` +
+		`"snippet":"cell 3","status":"verified","drawer_id":"abc"}],"count":1}`
+	out, errs := runAnchorCue(t,
+		`{"tool_name":"NotebookEdit","tool_input":{"notebook_path":"/repo/internal/palace/analysis.ipynb","new_source":"x"}}`,
+		notebookHit)
+	if strings.Contains(errs, "nothing to pin against") {
+		t.Fatalf("the cue found no path in a NotebookEdit call, so every notebook edit is silent "+
+			"while the matcher and the touched hook both list the tool as supported; stderr: %q", errs)
+	}
+	if out == "" {
+		t.Errorf("the cue read the notebook path but emitted nothing for an anchored file")
 	}
 }
 

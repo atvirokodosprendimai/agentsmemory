@@ -49,6 +49,20 @@ type hookReg struct {
 	cmd      string
 	obsolete func(cmd string) bool
 
+	// matcher scopes the registration to the tools it can act on, so the agent
+	// never SPAWNS the hook for the rest. An empty matcher registers for every
+	// tool, which is what every plan did until 2026-09-08.
+	//
+	// ⚠ IT IS NOT A SECOND COPY OF THE SCRIPT'S OWN GUARD, and the comment this
+	// replaces argued that it was. The two act at different layers and only one
+	// of them can save the process: the guard runs INSIDE a shell the agent has
+	// already started, so a hook that exits immediately still costs a spawn.
+	// Measured on this kit: 0.16s for the anchor cue and 0.13s for the touched
+	// hook, on EVERY tool call including Bash and TodoWrite, which name no file
+	// and can never produce a cue. The script guard stays — a matcher admits
+	// tools that may still carry no path — but it cannot be the only filter.
+	matcher string
+
 	// retire drops the matching registrations and writes none back, which is how
 	// an event this kit USED to register stops being registered.
 	//
@@ -147,20 +161,71 @@ func ensureHooksReporting(path string, regs []hookReg, statusLineCmd string) (ma
 			changed[reg.event] = true
 			continue
 		}
+		// ⚠ MIGRATION, AND WITHOUT IT THIS FEATURE CREATES THE DUPLICATE IT EXISTS
+		// TO AVOID. An earlier install wrote this same command with NO matcher.
+		// hookPresent compares commands, so it finds that entry and appends
+		// nothing — leaving the hook registered for every tool, exactly as before,
+		// with a matcher'd entry beside it on the next code path that adds one.
+		// foreignHookPredicate spares it too, because `cmd == keep`. So the entry
+		// has to be dropped here, by the one thing that differs: the matcher.
+		if reg.matcher != "" {
+			var kept []any
+			for _, entry := range pruned {
+				em, ok := entry.(map[string]any)
+				if !ok {
+					kept = append(kept, entry)
+					continue
+				}
+				if m, _ := em["matcher"].(string); m == reg.matcher {
+					kept = append(kept, entry)
+					continue
+				}
+				inner, ok := em["hooks"].([]any)
+				if !ok {
+					kept = append(kept, entry)
+					continue
+				}
+				var keptInner []any
+				for _, h := range inner {
+					if hm, ok := h.(map[string]any); ok {
+						if c, _ := hm["command"].(string); c == reg.cmd {
+							changed[reg.event] = true
+							continue // ours, under a different matcher: superseded
+						}
+					}
+					keptInner = append(keptInner, h)
+				}
+				if len(keptInner) == 0 {
+					continue
+				}
+				em["hooks"] = keptInner
+				kept = append(kept, em)
+			}
+			pruned = kept
+		}
+
+		// ⚠ AFTER the migration above, never before it. hookPresent compares
+		// COMMANDS, so an unscoped entry carrying our command satisfies it and this
+		// continue fires — skipping the migration entirely and leaving the
+		// matcher-less registration in place. The migration test caught exactly
+		// that: the surviving entry kept matcher "".
 		bounded := ensureHookTimeout(pruned, reg.cmd)
 		if hookPresent(pruned, reg.cmd) && !dropped && !bounded {
 			continue
 		}
 
 		if !hookPresent(pruned, reg.cmd) {
-			// Append a matcher-less entry carrying our command — the same shape
-			// Claude Code writes and the same shape the old install.sh produced,
-			// plus the deadline every child this kit starts must carry.
-			pruned = append(pruned, map[string]any{
+			// The same shape Claude Code writes, plus the deadline every child this
+			// kit starts must carry, plus the matcher when the plan scopes itself.
+			entry := map[string]any{
 				"hooks": []any{
 					map[string]any{"type": "command", "command": reg.cmd, "timeout": hookTimeoutSeconds},
 				},
-			})
+			}
+			if reg.matcher != "" {
+				entry["matcher"] = reg.matcher
+			}
+			pruned = append(pruned, entry)
 		}
 		hooks[reg.event] = pruned
 		changed[reg.event] = true

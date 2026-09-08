@@ -35,7 +35,14 @@ trace() { printf 'agentsmemory-anchor-cue: %s\n' "$1" >&2; }
 # task-recall hook shipped a GNU-only pattern that matched nothing on macOS and
 # reported "no prompt field" for every input.
 FILE="$(printf '%s' "$INPUT" | sed -n 's/.*"file_path"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n1)"
-[ -z "$FILE" ] && { trace "no file_path in the hook input; nothing to pin against"; exit 0; }
+# ⚠ NotebookEdit NAMES ITS PATH notebook_path AND CARRIES NO file_path. Its tool
+# schema requires notebook_path and defines no file_path at all, so reading only
+# file_path meant every notebook edit reached this hook and exited silently — a
+# tool this kit lists as supported, delivering nothing, indistinguishable from
+# "no memory pins this file". Found in review of the matcher that made the list
+# explicit; the same assumption is in the touched hook (issue #426).
+[ -z "$FILE" ] && FILE="$(printf '%s' "$INPUT" | sed -n 's/.*"notebook_path"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n1)"
+[ -z "$FILE" ] && { trace "no file_path or notebook_path in the hook input; nothing to pin against"; exit 0; }
 
 # Anchors are stored repo-relative. A hook receives an absolute path, so strip the
 # project root — an absolute path matches no stored anchor and the cue would be
