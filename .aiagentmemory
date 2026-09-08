@@ -1,0 +1,11 @@
+# aiagentmemory project config — safe to commit.
+# Launch this project with: aiagentmemory load
+#
+# wing= is the memory wing this project's decisions are filed under, so one
+# palace can hold every project without them bleeding into each other. It IS
+# safe to commit: teammates share a wing, that is the point.
+#
+# The sandbox name is NOT recorded here: teammates name their sandboxes
+# differently. Yours lives in ~/.sandboxes/agents (machine-local),
+# or in .aiagentmemory.local if you prefer to keep it in the project.
+wing=wing_agentmemories

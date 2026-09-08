@@ -873,8 +873,11 @@ wrong, and the copy nobody maintains is the one that stays wrong.**
 
 **What is project scope, and stays in this file:**
 
-- **This repo's wing is `wing_agentmemories`.** If `am_status` does not list it yet,
-  this is the first session here and your first write creates it.
+- **This repo's wing is `wing_agentmemories`, pinned in `.aiagentmemory` at the root.**
+  It is pinned rather than derived because derivation gets this repository wrong: the
+  remote's basename is `agentsmemory`, so the derived name is `wing_agentsmemory`, a wing
+  that holds nothing while `wing_agentmemories` holds everything this project has filed.
+  The pin is the prerequisite the protocol's Step 0c describes, not a follow-up to it.
 - **Craft goes to `wing_craft`, not here.** If a lesson would still be true in a
   repository that shares no code with this one, it is not this project's memory.
 - **`docs/adr/`, specs, README and `BACKLOG.md` are authoritative and the palace does

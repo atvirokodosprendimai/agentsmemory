@@ -91,8 +91,14 @@ that was always intended (review of #268, after the accept: 487 memories nobody 
 going quiet). The two pages share ONE digest budget, project first, craft second under a
 `craft:` line, so the injection is never larger than before and craft is never absent from it.
 When the variable is unset — an install without `--wing` — the hook does what it does today,
-one unscoped call, and the preamble keeps its "may be about a different project" sentence for
-exactly that case and drops it otherwise.
+one call carrying no wing argument, and the preamble keeps its "may be about a different
+project" sentence for exactly that case and drops it otherwise. ⚠ THAT CALL WAS DESCRIBED HERE
+AS "UNSCOPED" UNTIL #432, and it is not: the server reads an omitted wing as the registration's
+own `default_wing`, so the page is scoped to whatever project that registration was created for.
+The decision this record took is unaffected — two pages under one budget with the wing set, one
+without — and only the description of where the wingless page lands was wrong. The claim was
+copied into both hooks, a test's failure message and both protocol copies before anyone noticed,
+which is why `TestNoDocOrHookClaimsTheNoWingRecallIsUnscoped` now holds it down.
 
 When the recall cannot run — no token, server unreachable, the client's `--timeout` fired — the
 hook prints ONE line to stderr as today AND the same line through

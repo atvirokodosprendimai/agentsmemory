@@ -114,6 +114,20 @@ rung 0, say so in one line rather than silently picking** — it means the repo 
 the registration you speak through describe different projects, and only a human knows which is
 right.
 
+**Rungs 3-4 are derivation, and derivation is a fallback that has to be earned.** Measured
+2026-09-06 on this project: the remote's basename derives `wing_agentsmemory`, which holds
+nothing, while `wing_agentmemories` holds every drawer the repository ever filed — and an empty
+wing is byte-identical to one nobody has written to yet, so the misroute is silent. **Pin the
+irregular names first** (`wing=` in a committed `.aiagentmemory`, written by `aiagentmemory init
+--wing <name>`); derivation is then the rung nobody reaches wherever the name is irregular. **A
+derived wing holding nothing, beside a configured one holding plenty, is a misroute rather than a
+fresh start** — say so instead of filing into it.
+
+Pinning buys a second thing: the recall hook asks `wing_craft` only when it has a wing. With none
+it makes one search carrying no wing argument — which the server scopes to the registration's own
+`default_wing`, so it is not a wider search — and no craft call at all. An unpinned project does
+not get a broader recall; it gets somebody's default wing and no craft.
+
 ### 3.2 The craft wing
 
 Also create **`wing_craft`**. Two kinds of memory need opposite scoping:

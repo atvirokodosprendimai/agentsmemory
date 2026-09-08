@@ -261,7 +261,12 @@ var exampleWings = map[string]bool{
 	"wing_no_such_place": true,
 	"wing_acme_laravel":  true, "wing_acme-legacy": true, "wing_acme-old": true,
 	"wing_acmee": true, "wing_agentmemories": true,
-	"wing_alpha": true, "wing_anchor": true, "wing_anything": true, "wing_api": true,
+	// The name that deriving this repository's wing from its git remote basename
+	// WOULD produce, and which holds nothing — the protocol cites it as the
+	// counterexample for why derivation is a fallback rather than a first rung.
+	// It is nobody's project: that is the entire point of naming it.
+	"wing_agentsmemory": true,
+	"wing_alpha":        true, "wing_anchor": true, "wing_anything": true, "wing_api": true,
 	"wing_app": true, "wing_atlas": true, "wing_atomic": true, "wing_b": true,
 	"wing_beta": true, "wing_big": true, "wing_billing": true, "wing_chunked": true,
 	"wing_claude": true, "wing_craf": true, "wing_craft": true, "wing_diary": true,
