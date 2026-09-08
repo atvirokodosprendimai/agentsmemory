@@ -215,7 +215,17 @@ the state moves. File a finding when it lands, not at the end. The Stop hook's
 nudge is a floor, not the plan — a session that reads the palace all day and
 writes nothing until told is the session the owner noticed.
 
-**5. A release is one PR, one tag, one redeploy.** Changelog entry AND
+**5. A release is one PR, one tag, one redeploy.** ⚠ **RE-READ THE RANGE
+IMMEDIATELY BEFORE MERGING THE RELEASE PR, NOT WHEN WRITING IT.** `main` is
+`strict: true`, so a release PR MUST take a base update before it can merge, and
+every base update can bring in a PR the entry does not list. A release entry is a
+claim about a commit range, written before the range is closed, and nothing gates
+it — `TestThePluginVersionMatchesTheNewestChangelogHeading` pins the version to
+the heading and says nothing about what the entry claims happened. Measured on
+v0.0.127: the entry said "eight PRs" over a range that had become nine, and its
+"what is NOT fixed" section named an issue that had been closed by one of them —
+the section a reader trusts most, because it exists to be honest about gaps.
+`git log <last tag>..main --merges` is the whole check. Changelog entry AND
 `clients/claude-code/.claude-plugin/plugin.json` bump in the SAME commit —
 `TestThePluginVersionMatchesTheNewestChangelogHeading` pins them, and writing the
 heading without the bump turned `test`, `race` and `image` red on a docs-only PR,
