@@ -65,6 +65,19 @@ const recallHookAsset = "hooks/agentsmemory-recall-hook.sh"
 // exact pin, so the lookup is a join on a path the tool call already names.
 const anchorCueHookAsset = "hooks/agentsmemory-anchor-cue-hook.sh"
 
+// anchorCueMatcher is every tool whose input can carry a file_path, which is the
+// only input the anchor cue can act on.
+//
+// It scopes the registration so the agent never SPAWNS the hook for the rest —
+// a script that exits immediately still costs a process, measured at 0.16s per
+// tool call on 2026-09-08, and Bash and TodoWrite can never produce a cue. The
+// script's own guard stays: a tool admitted here may still carry no path.
+//
+// Wider than the three ADR-051 T2 step 5 named, because two more path-bearing
+// tools exist now and narrowing to the literal three would remove the cue for
+// them.
+const anchorCueMatcher = "Read|Edit|Write|MultiEdit|NotebookEdit"
+
 // touchedHookAsset is the embedded PostToolUse recorder: it appends the path of
 // every file this session EDITS to a session-scoped list (ADR-051 T3).
 //
@@ -1303,7 +1316,7 @@ func (i *Installer) registerStopHook() error {
 			script := p.cmd
 			obsolete = func(cmd string) bool { return ourHookCommand(cmd, script) }
 		}
-		regs[n] = hookReg{event: p.event, cmd: p.cmd, obsolete: obsolete, retire: p.retire}
+		regs[n] = hookReg{event: p.event, cmd: p.cmd, matcher: p.matcher, obsolete: obsolete, retire: p.retire}
 	}
 	// ADR-051 T7. Claude Code only: the other kits have no statusLine key, and
 	// writing one into a config that ignores it would be a promise nothing keeps.
@@ -1345,9 +1358,10 @@ func (i *Installer) registerStopHook() error {
 // the previous shape — one hand-written if/else per event — is how SubagentStart
 // shipped registered and silently, its result assigned to `_`.
 type hookPlan struct {
-	event string
-	cmd   string
-	note  string
+	event   string
+	cmd     string
+	note    string
+	matcher string // tools this plan registers for; empty means every tool
 
 	// retire says this plan REMOVES a registration rather than writing one. The
 	// command is then the script whose registrations are dropped, not one that
@@ -1454,11 +1468,21 @@ func (i *Installer) hookPlansOn(goos string) []hookPlan {
 		},
 		// ADR-051 T2. THIS LINE IS THE MECHANISM: the script is inert without it.
 		//
-		// Registered matcher-less, like every other plan here, and the script
-		// filters instead — it exits silently when the event carries no file_path,
-		// which is every tool that names no file. A matcher would be a second copy
-		// of a guard that has to exist anyway, since PreToolUse fires for tools this
-		// kit has never heard of.
+		// ⚠ THIS SHIPPED MATCHER-LESS, AND ITS OWN TASK ORDERED A MATCHER. T2's
+		// step 5 reads "Register `PreToolUse` in the installer, matcher scoped to
+		// `Read|Edit|Write`"; the task is recorded done and that step was not
+		// carried out. The comment here used to argue the case AGAINST it — "a
+		// matcher would be a second copy of a guard that has to exist anyway" —
+		// written as though the step did not exist, and wrong on the merits: the
+		// script's guard runs inside a shell the agent has ALREADY started, so a
+		// hook that exits immediately still costs a spawn. Measured 2026-09-08:
+		// 0.16s on every tool call, Bash and TodoWrite included, which name no
+		// file and can never produce a cue.
+		//
+		// The set is wider than the three T2 named because two more path-bearing
+		// tools exist now, and narrowing to the literal three would REMOVE the cue
+		// for them — a behaviour change this fix has no business making. The
+		// script's own guard stays: these tools may still carry no path.
 		// ADR-051 T4. The SAME script as UserPromptSubmit, branching on the event —
 		// the shape Stop and SubagentStop already share.
 		//
@@ -1492,9 +1516,10 @@ func (i *Installer) hookPlansOn(goos string) []hookPlan {
 		},
 
 		hookPlan{
-			event: "PreToolUse",
-			cmd:   i.hookCommand(i.anchorCueHookPath()),
-			note:  "registered PreToolUse hook (a memory pinned to this file arrives with it)",
+			event:   "PreToolUse",
+			cmd:     i.hookCommand(i.anchorCueHookPath()),
+			matcher: anchorCueMatcher,
+			note:    "registered PreToolUse hook (a memory pinned to this file arrives with it)",
 		},
 
 		// The WRITE half (ADR-017 T3), and deliberately the SAME script as Stop:
