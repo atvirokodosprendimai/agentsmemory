@@ -581,3 +581,30 @@ func TestTheSkillPointsAtTheCatalogueRatherThanCopyingIt(t *testing.T) {
 		}
 	}
 }
+
+// TestTouchedRecordsANotebookEdit is the other half of #426.
+//
+// ⚠ NotebookEdit IS IN THE HOOK'S OWN TOOL LIST AND CARRIES NO file_path. Its
+// schema requires notebook_path and defines no file_path at all, so the case
+// admitted the tool and the extraction below it dropped every call: since
+// ADR-051 T3 shipped, no notebook edit has ever reached the touched list. Four
+// tools named, three delivered — and invisible, because the hook exits 0, which
+// is what "nothing to record" looks like.
+//
+// The Stop nudge and the pre-compaction note both read this file, so a session
+// that edited only notebooks was told it had changed nothing.
+func TestTouchedRecordsANotebookEdit(t *testing.T) {
+	dir := t.TempDir()
+	out := touchedDir(t, dir,
+		`{"session_id":"nb","tool_name":"NotebookEdit","tool_input":{"notebook_path":"/repo/analysis.ipynb","new_source":"x"}}`,
+		`{"session_id":"nb","tool_name":"Edit","tool_input":{"file_path":"/repo/a.go"}}`)
+	b, err := os.ReadFile(filepath.Join(out, "nb"))
+	if err != nil {
+		t.Fatalf("no record written: %v", err)
+	}
+	got := strings.Fields(string(b))
+	if len(got) != 2 || got[0] != "analysis.ipynb" {
+		t.Errorf("recorded %v, want [analysis.ipynb a.go] — a notebook edit is an edit, and the "+
+			"hook's own case admits NotebookEdit", got)
+	}
+}
