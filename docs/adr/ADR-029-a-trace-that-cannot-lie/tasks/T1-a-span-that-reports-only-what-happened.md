@@ -57,7 +57,7 @@ docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v 
   grep -qE "^--- PASS: TestRerankSaysWhetherItReorderedAnything \(" /tmp/t1.out
   grep -qE "^--- PASS: TestAnchorFailureReachesTheToolSpan \(" /tmp/t1.out
   grep -qE "^--- PASS: TestEmptyWingLookupFailureIsNotSilence \(" /tmp/t1.out
-  ! grep -qE "no tests to run|^FAIL" /tmp/t1.out
+  if grep -qE "no tests to run|^FAIL" /tmp/t1.out; then exit 1; fi
   go test ./internal/telemetry/ ./internal/palace/ ./internal/mcpserver/ ./internal/mcptest/ -count=1
 '
 ```

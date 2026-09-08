@@ -37,7 +37,7 @@ docker run --rm -v "$PWD":/src -v agentsmemory-gocache:/root/.cache/go-build -v 
   go vet ./...
   go test ./cmd/server/ -run "TestLiteralStyleKeepsIdentifiers" -count=1 -v 2>&1 | tee /tmp/t1.out
   grep -q -- "--- PASS: TestLiteralStyleKeepsIdentifiers" /tmp/t1.out
-  ! grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/t1.out'
+  if grep -qE "no tests to run|^FAIL|^--- FAIL" /tmp/t1.out; then exit 1; fi'
 test -s docs/adr/ADR-009-tune-against-your-own-corpus/evidence/literal.cells.json
 test -s docs/adr/ADR-009-tune-against-your-own-corpus/evidence/paraphrase.cells.json
 ```
