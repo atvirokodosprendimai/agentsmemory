@@ -1166,6 +1166,9 @@ func registeredHookEvents(settingsPath string) (map[string]hookRegistration, err
 				// several events is written by one install with one prefix, and a
 				// later differing one is a hand edit this command must not silently
 				// average away.
+				if _, strictOK := installerHookPath(h.Command); !strictOK {
+					reg.hasUnreadableEntry = true
+				}
 				if len(reg.env) == 0 {
 					reg.env = hookCommandEnv(h.Command)
 					// ⚠ AND SAY SO WHEN IT IS SHORT. hookCommandEnv reproduces only
@@ -1202,6 +1205,20 @@ type hookRegistration struct {
 	// transcript that already contains the text once, which is why it needs a
 	// command to report it rather than a reader to notice.
 	duplicated []string
+
+	// hasUnreadableEntry reports that AT LEAST ONE registration of this script
+	// carries a command installerHookPath cannot read — any entry, not only the
+	// one that happened to supply the environment.
+	//
+	// ⚠ IT IS NOT envPartial, AND CONFLATING THEM MADE THE WARNING ORDERING-
+	// DEPENDENT. envPartial answers "is the environment doctor would RUN this hook
+	// with short of the real one", which is a fact about the FIRST entry supplying
+	// an env; this answers "is one of these entries invisible to the installer",
+	// which is what decides whether re-running install can collapse them. They
+	// diverge whenever the parseable entry is read first — the ordering the
+	// duplicate fixture itself uses — and keying the remedy on envPartial meant it
+	// stayed silent over exactly the file it was written for. Caught in review.
+	hasUnreadableEntry bool
 
 	// envPartial reports that the command carries an assignment this build cannot
 	// reproduce — a command substitution, say — so `env` is SHORT of what the
@@ -1266,6 +1283,21 @@ func judgeHook(ctx context.Context, c *cli.Command, dir, name string, reg hookRe
 			" — it runs once per registration, so it injects twice. This is duplication WITHIN " +
 			"settings.json; doctor does not read plugin manifests, so a hook declared by both a " +
 			"plugin and this installer is a separate case it cannot see."
+		// ⚠ AND SAY WHETHER THE PRESCRIBED REMEDY REACHES THIS ONE. The summary
+		// below tells an operator to re-run `install`, which collapses IDENTICAL
+		// entries and cannot collapse these: ensureHooks drops the copy it can
+		// parse and appends its own, while foreignHookPredicate spares the one it
+		// cannot, so the count does not change. Measured 2026-09-08 against a real
+		// config dir: identical 2 -> 1, differing 2 -> 2.
+		//
+		// A gate whose own remedy cannot satisfy it is a gate people learn to skip
+		// — redeploy.sh records that in its own words about the kit check.
+		if reg.hasUnreadableEntry {
+			v.detail += " ⚠ Re-running `install` will NOT collapse these: one carries an " +
+				"assignment this build cannot parse, so the installer treats it as a stranger's " +
+				"and leaves it in place while writing its own. Remove the redundant entry from the " +
+				"settings file by hand, keeping the one whose environment you want."
+		}
 		return v
 	}
 	if len(events) == 0 {
