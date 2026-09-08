@@ -1,0 +1,22 @@
+# aiagentmemory project config — safe to commit.
+# Launch this project with: aiagentmemory load
+#
+# wing= is the memory wing this project's decisions are filed under, so one
+# palace can hold every project without them bleeding into each other. It IS
+# safe to commit: teammates share a wing, that is the point.
+#
+# ⚠ THIS REPOSITORY'S WING IS NOT ITS REMOTE'S BASENAME, AND THE DIFFERENCE IS
+# ONE LETTER — singular where the wing is plural. So any derivation from the
+# remote names a wing that does not exist, while this project's memories, 1,506
+# of them as of 2026-09-07, are in the one named below.
+# A naive derivation does not fail: it opens a second, empty wing beside the
+# real one and splits this project's memory in half, silently, and a session
+# that lands there is told "nothing is filed" about work that is filed.
+#
+# That is what this file is for. It is rung 2 of the wing ladder — above any
+# derivation, below an explicit $AGENTSMEMORY_WING — it lives in the repository
+# where the owning team can see it, and it is what `aiagentmemory load` and the
+# recall hooks already read. A per-machine alias table would be a list kept
+# beside the truth: it goes stale in silence and only helps the one machine it
+# is written on. Recorded against issue #416.
+wing=wing_agentmemories
