@@ -74,8 +74,16 @@ const anchorCueHookAsset = "hooks/agentsmemory-anchor-cue-hook.sh"
 // script's own guard stays: a tool admitted here may still carry no path.
 //
 // Wider than the three ADR-051 T2 step 5 named, because two more path-bearing
-// tools exist now and narrowing to the literal three would remove the cue for
-// them.
+// tools exist now.
+//
+// ⚠ AND ONE OF THEM DID NOT WORK WHEN THIS SET WAS FIRST WRITTEN. The comment
+// here claimed NotebookEdit "gets the cue today"; it did not. Its schema
+// requires notebook_path and defines no file_path, and the script read only
+// file_path — so every notebook edit reached the hook and exited silently, while
+// the kit listed the tool as supported. Caught in review of this change; the
+// script reads notebook_path as a fallback now, which makes the sentence true
+// rather than removing it. The touched hook makes the same assumption and is
+// filed as #426.
 const anchorCueMatcher = "Read|Edit|Write|MultiEdit|NotebookEdit"
 
 // touchedHookAsset is the embedded PostToolUse recorder: it appends the path of
