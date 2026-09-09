@@ -42,6 +42,13 @@ var mutatingCalls = map[string]bool{
 	// nothing. A name that matches nothing is not harmless: it makes the list read
 	// as more complete than it is.
 	"Upsert": true,
+	// skill.Service.Patch is the second skill write path: it applies anchored
+	// edits and reaches Upsert, so it changes a stored body exactly as Update
+	// does. It is named here rather than left to Upsert because this list is read
+	// per HANDLER CALL — a handler whose only mutating call were Patch would be
+	// classified read-only and skip the role guard entirely, which is the failure
+	// TestMutatingCallListIsComplete caught on the commit that added it.
+	"Patch": true,
 }
 
 // TestEveryMutatingToolIsRegisteredAsAWrite: a tool that changes stored memory
