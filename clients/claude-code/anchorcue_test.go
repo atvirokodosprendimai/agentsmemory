@@ -534,13 +534,13 @@ func TestEachSessionsStatusLineShowsItsOwnWing(t *testing.T) {
 		return string(out)
 	}
 
-	start("sess-blueprint", "wing_blueprint")
-	start("sess-hub", "wing_hub") // started last: it used to win everywhere
-	if got := render(`{"session_id":"sess-blueprint"}`); !strings.Contains(got, "wing_blueprint") {
-		t.Errorf("the blueprint session renders %q; it must show its own wing, not the last-started one", got)
+	start("sess-acme", "wing_acme")
+	start("sess-alpha", "wing_alpha") // started last: it used to win everywhere
+	if got := render(`{"session_id":"sess-acme"}`); !strings.Contains(got, "wing_acme") {
+		t.Errorf("the first session renders %q; it must show its own wing, not the last-started one", got)
 	}
-	if got := render(`{"session_id":"sess-hub"}`); !strings.Contains(got, "wing_hub") {
-		t.Errorf("the hub session renders %q", got)
+	if got := render(`{"session_id":"sess-alpha"}`); !strings.Contains(got, "wing_alpha") {
+		t.Errorf("the second session renders %q", got)
 	}
 	// A session with no cache of its own says nothing rather than borrowing
 	// another session's: borrowing is the defect, under a different name.
