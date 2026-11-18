@@ -95,6 +95,19 @@ esac
 # points at. The status cache is also per-user now, because one shared file across
 # accounts is the same problem wearing a different hat. Reported by review.
 STATUS_FILE="$STATUS_DIR/agentsmemory-status-$(id -u 2>/dev/null || echo 0).txt"
+# ⚠ AND PER SESSION, BECAUSE ONE FILE PER USER IS ONE ANSWER FOR EVERY OPEN SESSION.
+# Reported from the blueprint session on 2026-11-18: with two sessions open, the
+# one that started last wrote its wing here and every other session's status line
+# rendered it, under a fresh age that gave nothing away. The status line receives
+# the same session_id on stdin, so keying by it makes each session read only what
+# its own SessionStart wrote. Without an id (a hand run) the per-user name stands.
+# The id becomes a path component, so it passes the same check the touched and
+# precompact hooks apply before they use one.
+SID="$(printf '%s' "$INPUT" | tr '\n' ' ' | sed -n 's/.*"session_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
+case "$SID" in
+  ''|*[!A-Za-z0-9_-]*) ;;
+  *) STATUS_FILE="${STATUS_FILE%.txt}-$SID.txt" ;;
+esac
 if TMP="$(mktemp "$STATUS_DIR/.agentsmemory-status.XXXXXX" 2>/dev/null)"; then
   {
     printf 'AM_WING=%s\n' "$WING"
