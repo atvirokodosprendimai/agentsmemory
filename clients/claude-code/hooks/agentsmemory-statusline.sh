@@ -16,6 +16,23 @@ set -uo pipefail
 # predictable-path problem wearing a different hat.
 CACHE="${AGENTSMEMORY_STATE_DIR:-${TMPDIR:-/tmp}}/agentsmemory-status-$(id -u 2>/dev/null || echo 0).txt"
 
+# ⚠ AND PER SESSION, MATCHING THE WRITER (agentsmemory-verify-hook.sh says why).
+# Claude Code hands the status line its session as JSON on stdin; a session that
+# names one reads ONLY its own file, and a missing file is silence below rather
+# than a fall back to the per-user name — that fallback is the reported defect
+# (every session showing the last-started session's wing) under another name. An
+# id that is not a safe path component is refused the same way. Only a hand run
+# with no session at all reads the per-user file. stdin is skipped when it is a
+# terminal, so running this by hand does not hang waiting for input.
+INPUT=""
+[ -t 0 ] || INPUT="$(cat 2>/dev/null || true)"
+SID="$(printf '%s' "$INPUT" | tr '\n' ' ' | sed -n 's/.*"session_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
+case "$SID" in
+  '') ;;
+  *[!A-Za-z0-9_-]*) exit 0 ;;
+  *) CACHE="${CACHE%.txt}-$SID.txt" ;;
+esac
+
 # No cache is the ordinary state before the first session-start hook has run. Say
 # NOTHING: an error string in a status line is permanent noise, and a status line
 # is the one surface a user cannot dismiss.

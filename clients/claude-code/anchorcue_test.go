@@ -491,6 +491,68 @@ func TestTheStatusLineShowsWhatTheCacheHolds(t *testing.T) {
 	}
 }
 
+// TestEachSessionsStatusLineShowsItsOwnWing: two concurrent sessions in two
+// pinned repositories each see their own wing.
+//
+// Reported from the blueprint session on 2026-11-18: the cache was one file per
+// USER, so the SessionStart hook of whichever session started last overwrote it
+// and every other open session rendered that session's wing, drift and inbox —
+// under a fresh age, so nothing on screen gave it away. The writer is driven for
+// real (with a stub CLI and a stub health check) rather than faked, because the
+// defect was the two scripts disagreeing about which file is whose.
+func TestEachSessionsStatusLineShowsItsOwnWing(t *testing.T) {
+	state, bin := t.TempDir(), t.TempDir()
+	for name, body := range map[string]string{
+		"aiagentmemory": "#!/bin/sh\necho '18 anchor(s) in wing_x: 7 verified, 0 drifted'\n",
+		"curl":          "#!/bin/sh\nexit 0\n",
+	} {
+		if err := os.WriteFile(filepath.Join(bin, name), []byte(body), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	start := func(session, wing string) {
+		repo := t.TempDir()
+		if err := os.WriteFile(filepath.Join(repo, ".aiagentmemory"), []byte("wing="+wing+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		cmd := testexec.Command(t, "bash", filepath.Join("hooks", "agentsmemory-verify-hook.sh"))
+		cmd.Stdin = strings.NewReader(`{"session_id":"` + session + `","hook_event_name":"SessionStart"}`)
+		cmd.Env = append(os.Environ(), "AGENTSMEMORY_STATE_DIR="+state, "CLAUDE_PROJECT_DIR="+repo,
+			"AGENTSMEMORY_MCP_URL=http://127.0.0.1:1/mcp", "PATH="+bin+":"+os.Getenv("PATH"))
+		if err := cmd.Run(); err != nil {
+			t.Fatalf("verify hook for %s: %v", session, err)
+		}
+	}
+	render := func(stdin string) string {
+		cmd := testexec.Command(t, "bash", filepath.Join("hooks", "agentsmemory-statusline.sh"))
+		cmd.Stdin = strings.NewReader(stdin)
+		cmd.Env = append(os.Environ(), "AGENTSMEMORY_STATE_DIR="+state)
+		out, err := cmd.Output()
+		if err != nil {
+			t.Fatalf("status line: %v", err)
+		}
+		return string(out)
+	}
+
+	start("sess-acme", "wing_acme")
+	start("sess-alpha", "wing_alpha") // started last: it used to win everywhere
+	if got := render(`{"session_id":"sess-acme"}`); !strings.Contains(got, "wing_acme") {
+		t.Errorf("the first session renders %q; it must show its own wing, not the last-started one", got)
+	}
+	if got := render(`{"session_id":"sess-alpha"}`); !strings.Contains(got, "wing_alpha") {
+		t.Errorf("the second session renders %q", got)
+	}
+	// A session with no cache of its own says nothing rather than borrowing
+	// another session's: borrowing is the defect, under a different name.
+	if got := render(`{"session_id":"sess-unknown"}`); got != "" {
+		t.Errorf("a session with no cache rendered %q; it must be silent", got)
+	}
+	// A session id is a path component; one that is not safe is never used as one.
+	if got := render(`{"session_id":"../../etc/x"}`); got != "" {
+		t.Errorf("an unsafe session id rendered %q; it must be refused, silently", got)
+	}
+}
+
 // TestTheStatusLineDoesNotReplaceOneTheUserSet.
 //
 // ⚠ THE REFUSAL IS THE DESIGN. A status line is the one surface a user cannot
