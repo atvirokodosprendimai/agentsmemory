@@ -58,10 +58,12 @@ func mcpCommand() *cli.Command {
 			"Learn a tool:       aiagentmemory mcp update_skill --schema\n" +
 			"Write from a file:  aiagentmemory mcp update_skill start-here.md --write\n\n" +
 			"The bare positional fills the tool's first required argument, so `mcp search \"x\"`\n" +
-			"means `-a query=x`. A positional ending in .md is read as a DOCUMENT instead:\n" +
-			"its YAML frontmatter becomes named arguments and its body becomes the tool's\n" +
-			"content, so a long memory never has to pass through an agent's context to be\n" +
-			"written. Its rune count is reported on stderr against the 1600-rune chunk size.\n\n" +
+			"means `-a query=x`. A positional ending in .md is read as a DOCUMENT instead\n" +
+			"(by a tool that writes or takes a content body; `search \"README.md\"` still\n" +
+			"searches that string): its YAML frontmatter becomes named arguments and its\n" +
+			"body becomes the tool's content, so a long memory never has to pass through an\n" +
+			"agent's context to be written. Its rune count is reported on stderr against the\n" +
+			"1600-rune chunk size.\n\n" +
 			"Tools that write are refused unless you pass --write. `--schema` prints any\n" +
 			"tool's arguments and a fillable template, and never calls it.\n\n" +
 			"The workspace token is taken from --token/$AGENTSMEMORY_TOKEN, else from an\n" +

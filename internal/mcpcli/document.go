@@ -267,7 +267,18 @@ func DocumentNote(path string, doc Document, bodyKey string, ignored []string) s
 // ParseArgs, which cannot know a path from a value, so that placeholder is
 // removed first — otherwise `mcp update_skill start-here.md` would file the
 // STRING "start-here.md" as the skill's name and succeed.
+//
+// ⚠ A READ-ONLY TOOL WITH NO BODY NEVER TAKES A DOCUMENT. A document is a body
+// to file, and a query that happens to end in ".md" is still a query: the recall
+// hooks search on the branch plus the edited files' basenames, so every session
+// whose last edit was markdown handed `mcp search` a "path", failed to open it,
+// and began with no recall (reported from claude-knowledge-hub, 2026-11-18). The
+// test is on the BODY rather than on read-only alone, because check_duplicate is
+// read-only and checking a draft file before filing it is the document's job.
 func applyDocument(tool mcp.Tool, invocation Invocation, args map[string]any) error {
+	if _, takesBody := tool.InputSchema.Properties[bodyArg]; IsReadOnly(tool) && !takesBody {
+		return nil
+	}
 	path := documentPositional(invocation.Tail)
 	if path == "" {
 		return nil

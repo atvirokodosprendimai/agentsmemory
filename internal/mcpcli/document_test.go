@@ -234,6 +234,64 @@ func TestANonDocumentPositionalIsStillALiteralValue(t *testing.T) {
 	}
 }
 
+func TestASearchQueryEndingInMdIsSearchedNotOpened(t *testing.T) {
+	// The recall hooks build their query from the branch and the edited files'
+	// basenames, so it ends in ".md" whenever the last file edited was markdown.
+	// Reported from claude-knowledge-hub on 2026-11-18: every SessionStart recall
+	// died with `read <branch> ADR-027-….md: open …: no such file`, because a
+	// read-only search was handed to the document path meant for writes.
+	search := mcp.NewTool("am_search",
+		mcp.WithString("query", mcp.Required()),
+		mcp.WithReadOnlyHintAnnotation(true),
+	)
+	for _, query := range []string{
+		"2026-11-18-builders-companion ADR-027-builders-companion.md",
+		"README.md",
+	} {
+		var sent map[string]any
+		endpoint := Endpoint{
+			ListTools: func(context.Context) ([]mcp.Tool, error) { return []mcp.Tool{search}, nil },
+			CallTool: func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+				sent, _ = req.Params.Arguments.(map[string]any)
+				return &mcp.CallToolResult{Content: []mcp.Content{mcp.TextContent{Type: "text", Text: `{"ok":true}`}}}, nil
+			},
+		}
+		var out bytes.Buffer
+		if err := Run(t.Context(), &out, endpoint, Invocation{Tool: "search", Tail: []string{query}}); err != nil {
+			t.Fatalf("search %q: %v", query, err)
+		}
+		if sent["query"] != query {
+			t.Fatalf("query = %v, want the literal %q", sent["query"], query)
+		}
+	}
+}
+
+func TestAReadOnlyToolThatTakesABodyStillReadsADocument(t *testing.T) {
+	// check_duplicate is read-only and declares `content`: checking a draft
+	// before filing it is exactly what a document positional is for, so the
+	// read-only exemption must not reach a tool that takes a body.
+	path := writeFile(t, "draft.md", "the draft body\n")
+	tool := mcp.NewTool("am_check_duplicate",
+		mcp.WithString("content", mcp.Required()),
+		mcp.WithReadOnlyHintAnnotation(true),
+	)
+	var sent map[string]any
+	endpoint := Endpoint{
+		ListTools: func(context.Context) ([]mcp.Tool, error) { return []mcp.Tool{tool}, nil },
+		CallTool: func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			sent, _ = req.Params.Arguments.(map[string]any)
+			return &mcp.CallToolResult{Content: []mcp.Content{mcp.TextContent{Type: "text", Text: `{"ok":true}`}}}, nil
+		},
+	}
+	var out bytes.Buffer
+	if err := Run(t.Context(), &out, endpoint, Invocation{Tool: "check_duplicate", Tail: []string{path}}); err != nil {
+		t.Fatal(err)
+	}
+	if sent["content"] != "the draft body\n" {
+		t.Fatalf("content = %v, want the file body", sent["content"])
+	}
+}
+
 func TestADocumentIsFoundAfterAnIdPositional(t *testing.T) {
 	// ⚠ REGRESSION, observed live 2026-09-01. Tools whose primary argument is an
 	// id take the document SECOND: `mcp update_drawer <id> note.md`. A scan that
